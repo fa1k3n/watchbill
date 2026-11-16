@@ -14,6 +14,7 @@ PLACEHOLDERS_FILE = os.path.join(ROLES_FOLDER, "placeholders.md")
 PARTS = ["## What you produce", "## What you read", "## What you never do", "## How you end"]
 
 # Names of products and of words that belong to one product. The adapters carry those.
+# A list cannot be complete: it holds the common ones, and a reader looks for the rest.
 PRODUCTS = [
     "github",
     "gitlab",
@@ -28,11 +29,21 @@ PRODUCTS = [
     "zuul",
     "teamcity",
     "bamboo",
+    "gitea",
+    "forgejo",
+    "codeberg",
+    "sourcehut",
+    "phabricator",
+    "youtrack",
+    "trello",
+    "travis",
+    "buildkite",
     "pull request",
     "merge request",
 ]
 
-PLACEHOLDER = re.compile(r"\{[^{}\s]*\}")
+# Anything in braces counts, so that a misspelt or spaced placeholder is seen too.
+PLACEHOLDER = re.compile(r"\{[^{}]*\}")
 
 
 def raw(path):
@@ -42,6 +53,11 @@ def raw(path):
 
 def prompt(role):
     return raw(os.path.join(ROLES_FOLDER, role + ".md")).decode("utf-8")
+
+
+def part(role, heading):
+    """The text of one part of a prompt: from its heading to the next."""
+    return re.split(r"^## .*$", prompt(role), flags=re.MULTILINE)[1 + PARTS.index(heading)]
 
 
 def listed():
@@ -56,6 +72,9 @@ class RolePromptsTest(unittest.TestCase):
             with self.subTest(role=role):
                 self.assertTrue(os.path.isfile(os.path.join(ROLES_FOLDER, role + ".md")))
 
+    def test_WB_ROLE_1_no_other_role_has_a_prompt_file(self):
+        self.assertEqual(sorted(os.listdir(ROLES_FOLDER)), sorted(role + ".md" for role in ROLES + ["placeholders"]))
+
     def test_WB_ROLE_2_each_prompt_has_the_four_parts_in_order(self):
         for role in ROLES:
             with self.subTest(role=role):
@@ -69,6 +88,33 @@ class RolePromptsTest(unittest.TestCase):
                 self.assertEqual(len(parts), len(PARTS))
                 for heading, body in zip(PARTS, parts):
                     self.assertGreater(len(body.strip()), 80, heading)
+
+    def test_WB_ROLE_2_what_you_read_also_says_what_is_not_read(self):
+        for role in ROLES:
+            with self.subTest(role=role):
+                body = part(role, "## What you read")
+                self.assertRegex(body, r"\nYou (do not read|read nothing)\b")
+
+    def test_WB_ROLE_2_every_point_of_what_you_never_do_is_a_never(self):
+        for role in ROLES:
+            with self.subTest(role=role):
+                points = [line for line in part(role, "## What you never do").split("\n") if line.startswith("- ")]
+                self.assertGreaterEqual(len(points), 3)
+                for point in points:
+                    self.assertTrue(point.startswith("- You never "), point)
+
+    def test_WB_ROLE_2_how_you_end_gives_the_fields_of_the_last_message_in_one_form(self):
+        sentence = (
+            "Your last message has these fields, every time, in this order, "
+            "each on a line of its own that starts with its name:"
+        )
+        for role in ROLES:
+            with self.subTest(role=role):
+                body = part(role, "## How you end")
+                self.assertIn(sentence, body)
+                fields = re.findall(r"^- `([a-z_]+)`: ", body.split(sentence, 1)[1], re.MULTILINE)
+                self.assertGreaterEqual(len(fields), 3)
+                self.assertEqual(fields[-1], "needs_person")
 
     def test_WB_ROLE_3_the_placeholders_are_one_list_in_a_file(self):
         names = listed()

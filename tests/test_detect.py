@@ -74,6 +74,9 @@ class DetectTest(unittest.TestCase):
         self.assertEqual(detect(self.folder(["Jenkinsfile"])).ci, "jenkins")
         self.assertEqual(detect(self.folder(["azure-pipelines.yml"])).ci, "azure-pipelines")
         self.assertEqual(detect(self.folder(["zuul.d/jobs.yaml"])).ci, "zuul")
+        self.assertEqual(detect(self.folder([".zuul.yaml"])).ci, "zuul")
+        self.assertEqual(detect(self.folder([".circleci/config.yml"])).ci, "circleci")
+        self.assertEqual(detect(self.folder(["bitbucket-pipelines.yml"])).ci, "bitbucket-pipelines")
         self.assertEqual(detect(self.folder([])).ci, "none")
 
 

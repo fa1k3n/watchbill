@@ -68,6 +68,37 @@ class TestLoader(Folder):
             yamlfile.load(path)
         self.assertIn("bytes.yml", str(caught.exception))
 
+    def test_WB_RULE_15_a_value_that_yaml_cannot_build_is_refused_with_the_file_and_the_line(self):
+        for text in (
+            "step: 2026-02-30\n",
+            "a: !!int abc\n",
+            "a: !!float abc\n",
+            "a: !!bool maybe\n",
+            "a: !!timestamp xyz\n",
+        ):
+            with self.subTest(text=text):
+                message = self.refused("ok: 1\n" + text)
+                self.assertIn("line 2", message)
+
+    def test_WB_RULE_15_a_file_nested_too_deep_is_refused_with_the_file_named(self):
+        self.refused("a: " + "[" * 5000 + "\n")
+        self.refused("a: " + "[" * 5000 + "]" * 5000 + "\n", "deep.yml")
+
+    def test_WB_RULE_26_a_merge_key_is_refused_with_the_line(self):
+        message = self.refused("base: &b {x: 1}\nuse:\n  <<: *b\n  y: 2\n")
+        self.assertIn("line 3", message)
+        self.assertIn("merge", message)
+
+    def test_WB_RULE_26_a_key_in_a_merge_and_again_in_the_mapping_is_not_taken_in_silence(self):
+        self.refused("base: &b {x: 1}\nuse: {<<: *b, x: 2}\n")
+
+    def test_WB_RULE_26_a_quoted_double_angle_is_a_plain_key(self):
+        self.assertEqual(yamlfile.load(self.write('"<<": 1\n')).data, {"<<": 1})
+
+    def test_WB_RULE_18_a_tag_that_builds_ordered_pairs_is_refused(self):
+        self.refused("a: !!omap [x: 1]\n", "omap.yml")
+        self.refused("a: !!pairs [x: 1]\n", "pairs.yml")
+
     def test_WB_RULE_21_a_file_that_is_not_there_is_refused_with_the_file_named(self):
         path = os.path.join(self.tmp.name, "missing.yml")
         with self.assertRaises(yamlfile.YamlError) as caught:

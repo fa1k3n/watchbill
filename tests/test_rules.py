@@ -273,6 +273,59 @@ class TestShape(Tables):
 
 
 class TestRefusals(Tables):
+    def test_WB_RULE_24_a_prompt_that_is_not_a_markdown_file_below_the_revision_folder_is_refused(self):
+        for bad in ("roles/tester.txt", "roles/tester", "../tester.md", "roles/../../tester.md", "/etc/tester.md", ".."):
+            with self.subTest(prompt=bad):
+                self.rules["roles"]["tester"]["prompt"] = bad
+                message = self.refused()
+                self.assertIn("tester", message)
+                self.assertIn("prompt", message)
+
+    def test_WB_RULE_24_a_prompt_below_the_revision_folder_is_accepted(self):
+        for good in ("roles/tester.md", "tester.md", "a/b/tester.md", "roles/a..b.md"):
+            with self.subTest(prompt=good):
+                self.rules["roles"]["tester"]["prompt"] = good
+                self.assertEqual(self.load().roles["tester"].prompt, good)
+
+    def test_WB_RULE_25_a_name_written_twice_in_the_list_for_a_person_is_refused(self):
+        self.rules["always_to_a_person"].append("verification_of_classed_code")
+        message = self.refused()
+        self.assertIn("always_to_a_person", message)
+        self.assertIn("twice", message)
+
+    def test_WB_RULE_27_a_table_that_does_not_send_a_merge_to_a_person_is_refused(self):
+        self.rules["always_to_a_person"].remove("merge")
+        message = self.refused()
+        self.assertIn("merge", message)
+        self.assertIn("always_to_a_person", message)
+
+    def test_WB_RULE_6_a_role_that_may_merges_in_any_form_is_refused(self):
+        for entry in ("Merges the change.", "Merging the change.", "The change is merged.", "MERGE it"):
+            with self.subTest(entry=entry):
+                self.rules["roles"]["officer"]["may"] = [entry]
+                self.assertIn("officer", self.refused())
+
+    def test_WB_RULE_6_a_word_that_only_starts_like_merge_is_accepted(self):
+        self.rules["roles"]["officer"]["may"] = ["Read the emergency list."]
+        self.load()
+
+    def test_WB_RULE_7_a_queue_that_is_not_a_text_is_refused(self):
+        for bad in ([1], [["a"]], {"a": "b"}, "triage", None):
+            with self.subTest(queues=bad):
+                self.rules["officer_queues"] = bad
+                self.assertIn("officer_queues", self.refused())
+
+    def test_WB_RULE_28_a_role_named_twice_in_the_roles_it_may_not_also_hold_is_refused(self):
+        for name in ROLES:
+            with self.subTest(role=name):
+                self.setUp()
+                self.rules["roles"][name]["may_not_also_hold"].append(
+                    self.rules["roles"][name]["may_not_also_hold"][0]
+                )
+                message = self.refused()
+                self.assertIn(name, message)
+                self.assertIn("twice", message)
+
     def test_WB_RULE_10_one_role_that_excludes_another_that_does_not_exclude_it_is_refused(self):
         self.rules["roles"]["fix"]["may_not_also_hold"].remove("build")
         message = self.refused()
@@ -355,6 +408,22 @@ class TestRefusals(Tables):
     def test_WB_RULE_14_the_two_ids_of_the_first_table_are_accepted(self):
         self.models["models"]["tester"]["model"] = "claude-opus-5-5"
         self.assertEqual(self.load().models["tester"].model, "claude-opus-5-5")
+
+    def test_WB_RULE_14_latest_in_the_middle_of_an_id_is_refused(self):
+        for bad in ("claude-latest-5", "latest-5", "claude-sonnet-latest-5"):
+            with self.subTest(model=bad):
+                self.models["models"]["tester"]["model"] = bad
+                self.assertIn("tester", self.refused())
+
+    def test_WB_RULE_15_a_date_that_does_not_exist_is_refused_with_the_file_and_the_line(self):
+        text = json.dumps(self.rules, indent=2).replace('"review_rounds": 2', "review_rounds: 2026-02-30")
+        message = self.refused(rules_text=text + "\n")
+        self.assertIn("rules.yml", message)
+        self.assertIn("line", message)
+
+    def test_WB_RULE_15_a_table_that_cannot_be_built_is_refused_in_the_model_table_too(self):
+        message = self.refused(models_text="models: !!int abc\n")
+        self.assertIn("models.yml", message)
 
     def test_WB_RULE_15_a_rule_table_that_is_not_yaml_is_refused_with_the_file_named(self):
         message = self.refused(rules_text="roles: [unclosed\n")

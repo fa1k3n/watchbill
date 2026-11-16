@@ -35,6 +35,8 @@ You do not read the implementation of what you test: not the body of the unit, n
 
 Stop when the tests are committed and you have seen each of them fail. Your last message has these fields, every time, in this order, each on a line of its own that starts with its name:
 
+- `model`: the model you run as, as your session states it, or `unknown`.
+- `effort`: the effort you run with, as your session states it, or `unknown`.
 - `tests`: each new test, with the requirement and the clause it covers.
 - `red`: for each test, how it fails now.
 - `untested`: each clause that has no test, and why.

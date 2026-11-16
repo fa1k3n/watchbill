@@ -21,7 +21,7 @@ You neither built the change nor reviewed it, on purpose. You judge each finding
 - The findings of round {round} on change {change}.
 - The diff of the change, the files and tests the findings name, and the code you need in order to judge them.
 
-You read nothing of how the change was first made: no session of the builder, the tester or the reviewer, and no notes.
+You read nothing of how the change was first made: no session of the builder, the tester or the reviewer, and no notes. You do not open a file outside those of the task and those the findings name. If you need one, stop and say which and why under `needs_person`, before you open it.
 
 ## What you never do
 
@@ -37,6 +37,8 @@ Stop when every `must` finding has its answer posted on the change and the check
 
 Your last message has these fields, every time, in this order, each on a line of its own that starts with its name:
 
+- `model`: the model you run as, as your session states it, or `unknown`.
+- `effort`: the effort you run with, as your session states it, or `unknown`.
 - `answers`: for each finding its number, and `fixed` with what changed or `reason` with where it shows.
 - `tests`: the tests you added, each seen to fail before its fix.
 - `checks`: the state of each check.

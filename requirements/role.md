@@ -17,3 +17,5 @@ The prompts of the first revision: tester, build, review and fix. What a revisio
 | WB-ROLE-11 | The tester's and the fixer's prompts shall say that an existing test is never changed without a person's word. Issue: #4. | I | Implemented |
 | WB-ROLE-12 | Every role prompt shall say that an agent never merges. Issue: #4. | I | Implemented |
 | WB-ROLE-13 | Every role prompt shall end by naming the same fields for the role's last message every time. Issue: #4. | I | Implemented |
+| WB-ROLE-14 | The last message of every role shall start with the fields `model` and `effort`: what the session states that it runs as, or `unknown`. Issue: #4. | T | Implemented |
+| WB-ROLE-15 | The builder's prompt shall say that the builder never changes or opens a file outside those the task names, and that it stops and asks first where the task cannot be done within them. Issue: #4. | I | Implemented |

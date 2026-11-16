@@ -49,6 +49,8 @@ You do not read how the change was made: no session of the builder or the tester
 
 Stop when your findings are posted on the change. Your last message has these fields, every time, in this order, each on a line of its own that starts with its name:
 
+- `model`: the model you run as, as your session states it, or `unknown`.
+- `effort`: the effort you run with, as your session states it, or `unknown`.
 - `round`: the round this was.
 - `findings`: each with its number, level, clause, file and line, and text, and in round 2 its outcome.
 - `untested`: the clauses with no test that would fail.

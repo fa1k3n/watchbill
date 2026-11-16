@@ -14,3 +14,6 @@ The files of a revision as the package carries them, their manifest, and `wb rev
 | WB-REV-8 | `revisions.txt` shall hold each released version of the package with the hash of its revision, and the current version shall not stand there with another hash than the computed one. Issue: #6. | T | Draft |
 | WB-REV-9 | `wb revision` shall print the version of the package, the hash of the revision and the manifest, and end with 0. Issue: #6. | T | Draft |
 | WB-REV-10 | `wb revision` shall write nothing. Issue: #6. | T | Draft |
+| WB-REV-11 | A file of the revision that is empty or does not end with a line break shall be refused by name. Issue: #6. | T | Draft |
+| WB-REV-12 | `wb revision` shall end with 2 and print no revision when it is given an argument. Issue: #6. | T | Draft |
+| WB-REV-13 | `wb revision` shall end with 1, name the file and print no revision when a file of the revision is refused. Issue: #6. | T | Draft |

@@ -91,10 +91,16 @@ revision <the SHA-256 of the manifest>
 ...
 ```
 
-The manifest has one line per file of the revision, in the form `sha256sum` prints, sorted by path. The package holds it as `revision.sha256`, beside the folder `revision/`. Anyone can check the files without `wb`:
+The manifest has one line per file of the revision, in the form `sha256sum` prints, sorted by path. The package holds it as `revision.sha256`, beside the folder `revision/`. Anyone can check the files without `wb`. In a checkout:
 
 ```sh
-cd /usr/lib/python3*/site-packages/watchbill && sha256sum -c revision.sha256
+cd src/watchbill && sha256sum -c revision.sha256
+```
+
+In an installed package, in the folder that holds `revision/`:
+
+```sh
+cd "$(python3 -c 'import os, watchbill; print(os.path.dirname(watchbill.__file__))')" && sha256sum -c revision.sha256
 ```
 
 Every line ends in `OK` when the files are the revision. `revisions.txt` beside it lists each released version with the hash of its revision. What is in a revision: [docs/revision.md](docs/revision.md).

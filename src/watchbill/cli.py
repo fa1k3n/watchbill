@@ -71,16 +71,16 @@ def main(argv: List[str]) -> int:
             sys.stderr.write("wb init: '{}' is not known\n\n{}".format(arg, USAGE))
             return 2
 
-    root = _repository_root()
-    if root is None:
-        sys.stderr.write("wb init: this folder is not in a git repository. Watchbill is set up in one.\n")
-        return 1
-
     try:
+        root = _repository_root()
+        if root is None:
+            sys.stderr.write("wb init: this folder is not in a git repository. Watchbill is set up in one.\n")
+            return 1
         return init(root, __version__, yes, _ask, _say)
     except KeyboardInterrupt:
+        # 1: it was not done. The file is only written at the very end.
         print("\nNothing written.")
-        return 130
+        return 1
 
 
 def run() -> None:

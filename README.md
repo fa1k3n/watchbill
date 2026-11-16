@@ -39,9 +39,11 @@ requirements (a path to files, the name of a tool, or none): (requirements/*.md)
 ci driver (github-actions, gitlab-ci, jenkins or none): (gitlab-ci)
 ```
 
-Enter keeps what stands in brackets. `wb init --yes` takes all of it and asks nothing. The result is `.watchbill/watchbill.yml` at the root of the repository, to be kept under version control with the code:
+Enter keeps what stands in brackets. `wb init --yes` takes all of it and asks nothing; it shows the file before it writes it. Input that ends before a yes, and Ctrl-C, write nothing and end with 1. The result is `.watchbill/watchbill.yml` at the root of the repository, to be kept under version control with the code:
 
 ```yaml
+# How Watchbill is set up in this repository. Written by `wb init`.
+# `watchbill` is the version of the package the repository is set up for.
 watchbill: 0.0.1
 project: brake-controller
 git_server: gitlab
@@ -51,14 +53,14 @@ requirements: requirements/*.md
 ci: gitlab-ci
 ```
 
-- **`watchbill` is the revision of the harness** the repository is set up for: the version of the `wb` that wrote the file.
+- **`watchbill` is the version of the package** the repository is set up for: the version of the `wb` that wrote the file. A revision is the version and the hash of its files together ([docs/revision.md](docs/revision.md)); the hash is written by a later piece.
 - **What it finds, it finds in the repository:** the name of the folder, the address of `origin` (only its host and path; a user name or a token in it is dropped), a folder of requirements, and the file a CI driver is known by. It asks nothing of the network.
 - **A file that is already there is never changed.**
 - **The answers are only written down.** No adapter exists yet, so a git server or a tracker is a name and nothing more.
 
 ## Installing it
 
-Watchbill is written in Python and uses only its standard library, so the Python of the distribution runs it: 3.9 or later, which is what Enterprise Linux 9 has. It needs `git`, and nothing else.
+Watchbill is written in Python, run by the Python of the distribution: 3.9 or later, which is what Enterprise Linux 9 has. It needs `git`. Today it uses only the standard library. It is decided that it will also use the YAML library the distribution packages (PyYAML), added when it is first read, and nothing from outside the distribution's own repositories ([docs/revision.md](docs/revision.md), point 6).
 
 On Fedora and Enterprise Linux it is an RPM package, installed and removed with `dnf` like any other program:
 

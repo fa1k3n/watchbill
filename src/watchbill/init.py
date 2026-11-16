@@ -49,15 +49,17 @@ def _fault(key: str, answer: str) -> Optional[str]:
     return None
 
 
-_PLAIN = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./*-]*")
-_OTHER_TYPE = re.compile(r"(true|false|null|yes|no|on|off|[-+]?[0-9][0-9_.eE+-]*)", re.IGNORECASE)
-_REVISION = re.compile(r"\d+\.\d+\.\d+.*")
+# Plain only when YAML is sure to read it back as the same text: a word that starts with a letter,
+# and is not one of the words YAML reads as a truth value or as nothing; or a version of
+# three numbers or more, which no YAML number or date has the form of.
+_PLAIN = re.compile(r"[A-Za-z][A-Za-z0-9_./*-]*")
+_WORDS = {"y", "n", "yes", "no", "true", "false", "on", "off", "null"}
+_VERSION = re.compile(r"\d+\.\d+\.\d+[A-Za-z0-9._+-]*")
 
 
 def _yaml_value(value: str) -> str:
-    """A value as YAML reads it back unchanged: plain when that is safe, else in single quotes."""
-    other_type = _OTHER_TYPE.fullmatch(value) and not _REVISION.fullmatch(value)
-    if _PLAIN.fullmatch(value) and not other_type:
+    """A value as YAML reads it back unchanged: plain when that is certain, else in single quotes."""
+    if _VERSION.fullmatch(value) or (_PLAIN.fullmatch(value) and value.lower() not in _WORDS):
         return value
     return "'" + value.replace("'", "''") + "'"
 
@@ -75,7 +77,7 @@ def render(revision: str, setup: Setup) -> str:
     ]
     lines = [
         "# How Watchbill is set up in this repository. Written by `wb init`.",
-        "# `watchbill` is the revision of the harness the repository is set up for.",
+        "# `watchbill` is the version of the package the repository is set up for.",
     ]
     lines += ["{}: {}".format(key, _yaml_value(value)) for key, value in rows]
     return "\n".join(lines) + "\n"
@@ -124,10 +126,11 @@ def init(
         setup = _answers(setup, ask, say)
 
     text = render(revision, setup)
+    say("\nAbout to write {}:\n\n{}".format(file, text))
     if not yes:
-        say("\nAbout to write {}:\n\n{}".format(file, text))
-        ok = (ask("Is this OK? (yes) ") or "").strip().lower()
-        if ok not in ("", "y", "yes"):
+        answer = ask("Is this OK? (yes) ")
+        # No answer at all, because the input ended, is no yes.
+        if answer is None or answer.strip().lower() not in ("", "y", "yes"):
             say("Nothing written.")
             return 1
 
@@ -135,6 +138,6 @@ def init(
     # `x`: never over a file that came to be there meanwhile.
     with open(file, "x", encoding="utf-8", newline="\n") as out:
         out.write(text)
-    say("Wrote {}:\n\n{}".format(file, text) if yes else "Wrote {}.".format(file))
+    say("Wrote {}.".format(file))
     say("Keep it under version control with the code.")
     return 0

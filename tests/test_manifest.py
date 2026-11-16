@@ -176,6 +176,28 @@ class TestWhatIsRefused(Scratch):
         with mock.patch("watchbill.manifest.open", side_effect=PermissionError(13, "denied"), create=True):
             self.assertIn("revision/a.md", self.refused())
 
+    def test_WB_REV_16_a_file_whose_mode_cannot_be_looked_at_is_refused_by_name(self):
+        self.put("revision/a.md", b"one\n")
+        self.put("revision/roles/b.md", b"one\n")
+        lstat = os.lstat
+
+        def failing(path, *args, **kwargs):
+            if os.fspath(path).endswith("b.md"):
+                raise PermissionError(13, "denied", os.fspath(path))
+            return lstat(path, *args, **kwargs)
+
+        with mock.patch("os.lstat", failing):
+            self.assertIn("revision/roles/b.md", self.refused())
+
+    @unittest.skipIf(os.geteuid() == 0, "root enters a folder whatever its mode")
+    def test_WB_REV_16_a_folder_that_can_be_listed_and_not_entered_is_refused_by_name(self):
+        self.put("revision/ok.md", b"one\n")
+        self.put("revision/roles/b.md", b"one\n")
+        folder = os.path.join(self.folder, "revision", "roles")
+        os.chmod(folder, 0o444)
+        self.addCleanup(os.chmod, folder, 0o755)
+        self.assertIn("revision/roles/b.md", self.refused())
+
     def test_WB_REV_16_a_file_name_that_is_not_utf8_is_refused_and_shown(self):
         self.put("revision/ok.md", b"one\n")
         try:

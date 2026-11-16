@@ -116,6 +116,14 @@ class RolePromptsTest(unittest.TestCase):
                 self.assertGreaterEqual(len(fields), 3)
                 self.assertEqual(fields[-1], "needs_person")
 
+    def test_WB_ROLE_14_the_last_message_of_every_role_starts_with_model_and_effort(self):
+        for role in ROLES:
+            with self.subTest(role=role):
+                body = part(role, "## How you end")
+                fields = re.findall(r"^- `([a-z_]+)`: ", body, re.MULTILINE)
+                self.assertEqual(fields[:2], ["model", "effort"])
+                self.assertIn("or `unknown`", body)
+
     def test_WB_ROLE_3_the_placeholders_are_one_list_in_a_file(self):
         names = listed()
         self.assertGreater(len(names), 0)

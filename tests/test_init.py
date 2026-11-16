@@ -436,7 +436,7 @@ class InitTest(unittest.TestCase):
         for line in ("git_server: forgejo", "tracker: linear", "ci: woodpecker"):
             self.assertIn("\n" + line + "\n", text)
 
-    def test_WB_INIT_38_a_value_is_written_plain_only_when_yaml_reads_it_back_as_the_same_text(self):
+    def test_WB_INIT_22_a_value_is_written_plain_only_when_yaml_reads_it_back_as_the_same_text(self):
         for value in ("0x1f", "0b101", "0o17", "017", "1_000", "1e3", "1.5", "2024-01-01", "2024-01-01 10:00:00",
                       "true", "No", "off", "NULL", "y", "n", ".inf", "-1", "+1", "12:30", "1:20:30"):
             self.assertEqual(init_text(value), "'" + value + "'", value)

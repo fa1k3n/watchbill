@@ -124,6 +124,25 @@ class RolePromptsTest(unittest.TestCase):
                 self.assertEqual(fields[:2], ["model", "effort"])
                 self.assertIn("or `unknown`", body)
 
+    def test_WB_ROLE_15_every_role_opens_no_file_outside_its_list_and_asks_first(self):
+        bound = (
+            "You do not open a file outside those listed here. The files of a task are a bound and not a hint: "
+            "a file may be closed to you for a reason you cannot see, and to read it first and say so afterwards "
+            "is already a leak. If you need another, stop before you open it and say which and why under `needs_person`."
+        )
+        for role in ROLES:
+            with self.subTest(role=role):
+                self.assertIn(bound, part(role, "## What you read"))
+                self.assertRegex(part(role, "## What you never do"), r"\bnever open\b")
+
+    def test_WB_ROLE_15_no_role_reads_whatever_it_finds_it_needs(self):
+        # A list of what is read that ends in "what you need" is no list.
+        for role in ROLES:
+            with self.subTest(role=role):
+                points = [line for line in part(role, "## What you read").split("\n") if line.startswith("- ")]
+                for point in points:
+                    self.assertNotRegex(point, r"\b(the code|whatever|anything) you need\b", point)
+
     def test_WB_ROLE_3_the_placeholders_are_one_list_in_a_file(self):
         names = listed()
         self.assertGreater(len(names), 0)

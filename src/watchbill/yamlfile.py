@@ -39,7 +39,9 @@ class _Loader(yaml.SafeLoader):
             seen = set()
             for key_node, _ in node.value:
                 if key_node.tag == _MERGE:
-                    continue
+                    raise yaml.constructor.ConstructorError(
+                        None, None, "a merge key (`<<`) is not read: write the keys out", key_node.start_mark
+                    )
                 key = self.construct_object(key_node, deep=True)
                 try:
                     if key in seen:
@@ -50,6 +52,18 @@ class _Loader(yaml.SafeLoader):
                 except TypeError:
                     break  # an unhashable key: the library says so itself
         return super().construct_mapping(node, deep)
+
+    def construct_object(self, node, deep=False):
+        # A constructor may raise a plain exception for a value it cannot build
+        # (a date that is not there, `!!int abc`). Name the line of it.
+        try:
+            return super().construct_object(node, deep)
+        except (yaml.YAMLError, RecursionError):
+            raise
+        except Exception as exc:
+            raise yaml.constructor.ConstructorError(
+                None, None, "the value cannot be built (%s)" % " ".join(str(exc).split()), node.start_mark
+            )
 
 
 _Loader.yaml_constructors = {
@@ -88,8 +102,6 @@ def _walk(node, place, nodes, keys, active):
     active.add(id(node))
     if isinstance(node, yaml.MappingNode):
         for key_node, value_node in node.value:
-            if key_node.tag == _MERGE:
-                continue
             sub = place + (str(key_node.value),)
             keys[sub] = key_node
             _walk(value_node, sub, nodes, keys, active)
@@ -127,6 +139,10 @@ def load(path):
         root = yaml.compose(text, Loader=_Loader)
     except yaml.YAMLError as exc:
         raise YamlError(_problem(path, exc))
+    except RecursionError:
+        raise YamlError("%s: is nested too deep to be read" % path)
+    except Exception as exc:  # a value the library cannot build; never a stack trace
+        raise YamlError("%s: cannot be read (%s)" % (path, " ".join(str(exc).split()) or exc.__class__.__name__))
     nodes, keys = {}, {}
     if root is not None:
         _walk(root, (), nodes, keys, set())

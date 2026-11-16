@@ -25,7 +25,7 @@ MODELS_FILE = os.path.join(REVISION_FOLDER, "models.yml")
 
 # A name and a version: it ends in a number, and it is not "latest".
 EXACT_MODEL = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*-[0-9]+$")
-MERGE = re.compile(r"\bmerge\b")
+MERGE = re.compile(r"\bmerg")  # merge, merges, merged, merging
 
 
 @dataclass(frozen=True)
@@ -78,6 +78,8 @@ def _role(doc, name):
         where = place + ("may_not_also_hold", index)
         if other == name:
             doc.fail(where, "%s cannot exclude itself" % name)
+        if other in row.may_not_also_hold[:index]:
+            doc.fail(where, "`%s` is written twice" % other)
         if other not in ROLES:
             doc.fail(where, "%s may not also hold `%s`, which is not one of the roles: %s" % (name, other, ", ".join(ROLES)))
     return row
@@ -92,6 +94,8 @@ def _read_rules(path):
     person = doc.texts(("always_to_a_person",))
     if len(set(person)) != len(person):
         doc.fail(("always_to_a_person",), "a name is written twice")
+    if "merge" not in person:
+        doc.fail(("always_to_a_person",), "a merge always goes to a person, so `merge` is expected in this list")
     doc.only(("classed_code",), ("verifier",))
     doc.need(("classed_code",), ("verifier",))
     verifier = doc.text(("classed_code", "verifier"))

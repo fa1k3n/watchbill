@@ -23,3 +23,7 @@ The two tables of the first revision and the one loader that reads YAML. What a 
 | WB-RULE-17 | A value that YAML reads as another type than its field asks for shall be refused, and the message shall say to put it in quotes. Issue: #5. | T | Draft |
 | WB-RULE-18 | Every YAML file shall be read with the safe loader of the library, through one loader in `wb`. Issue: #5. | I | Draft |
 | WB-RULE-19 | The package shall name the YAML library as what it needs, so that `dnf` installs it with `wb`. Issue: #5. | D | Draft |
+| WB-RULE-20 | An effort that is not one of low, medium, high, xhigh and max shall be refused, and the message shall name the role. Issue: #5. | T | Draft |
+| WB-RULE-21 | A table that is not there or cannot be read shall be refused with the file named and without a stack trace. Issue: #5. | T | Draft |
+| WB-RULE-22 | A role named in a role's list of roles it may not also hold that is not one of the five, or is the role itself, shall be refused. Issue: #5. | T | Draft |
+| WB-RULE-23 | Nothing in `wb` but `rules.py` shall name the two tables. Issue: #5. | T | Draft |

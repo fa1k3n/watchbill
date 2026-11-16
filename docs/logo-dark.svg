@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Watchbill">
+  <title>Watchbill</title>
+  <g fill="#ffffff">
+    <rect x="24" y="5" width="16" height="16" rx="4.5"/>
+    <rect x="43" y="5" width="16" height="16" rx="4.5"/>
+    <rect x="5" y="24" width="16" height="16" rx="4.5"/>
+    <rect x="43" y="24" width="16" height="16" rx="4.5"/>
+    <rect x="5" y="43" width="16" height="16" rx="4.5"/>
+    <rect x="24" y="43" width="16" height="16" rx="4.5"/>
+  </g>
+  <g fill="#2dd4bf">
+    <rect x="5" y="5" width="16" height="16" rx="4.5"/>
+    <rect x="24" y="24" width="16" height="16" rx="4.5"/>
+    <rect x="43" y="43" width="16" height="16" rx="4.5"/>
+  </g>
+</svg>

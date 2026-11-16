@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+    <img src="docs/logo-light.svg" width="96" height="96" alt="The mark of Watchbill: a grid of three by three rounded squares, the diagonal filled in another colour">
+  </picture>
+</p>
+
 # Watchbill
 
 A harness for AI agents in embedded software development, deployed at a fixed revision onto a project that already exists.

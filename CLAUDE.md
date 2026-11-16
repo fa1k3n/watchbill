@@ -1,6 +1,6 @@
 # Working rules
 
-Watchbill: a harness for AI agents in embedded software development, deployed at a fixed revision onto a project that already exists. The command is `wb`. What it is to be is in [README.md](README.md). How a requirement is written is in [requirements/README.md](requirements/README.md).
+Watchbill: a harness for AI agents in embedded software development, deployed at a fixed revision onto a project that already exists. The command is `wb`. What it is to be is in [README.md](README.md). What a revision is, with each decision behind it, is in [docs/revision.md](docs/revision.md). How a requirement is written is in [requirements/README.md](requirements/README.md).
 
 ## The repository
 
@@ -23,7 +23,8 @@ Watchbill: a harness for AI agents in embedded software development, deployed at
 
 ## The code
 
-- Python 3.9 or later, which is what Enterprise Linux 9 has. Only the standard library when `wb` runs: nothing to install beside it.
+- Python 3.9 or later, which is what Enterprise Linux 9 has. When `wb` runs it uses the standard library and one more library, the YAML library the distribution packages (PyYAML). Nothing is installed from outside the distribution's own repositories.
+- Every YAML file is read through the one loader in `wb`: the safe loader, a key written twice refused, a value held to the type its field asks for ([docs/revision.md](docs/revision.md), point 6).
 - `wb` is installed with `dnf` from an RPM ([packaging/](packaging/)). Nothing in the code or the texts assumes another way.
 - Every exit status means the same in every command: 0 it holds or it is done, 1 it does not hold or it was refused, 2 the command was used wrongly or the repository is not set up.
 - A command that only reads writes nothing. A command that writes says what it will write first, and never writes over a file that is there.

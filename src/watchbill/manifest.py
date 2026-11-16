@@ -42,8 +42,13 @@ def _refuse_name(base: str, path: str, name: str, is_folder: bool) -> None:
         raise ManifestError("{}: the name is not UTF-8".format(_shown(path)))
     if os.path.islink(os.path.join(base, *path.split("/"))):
         raise ManifestError("{}: is a symbolic link; the revision holds only plain files".format(path))
-    if not is_folder and not stat.S_ISREG(os.lstat(os.path.join(base, *path.split("/"))).st_mode):
-        raise ManifestError("{}: is not a plain file".format(path))
+    if not is_folder:
+        try:
+            mode = os.lstat(os.path.join(base, *path.split("/"))).st_mode
+        except OSError as error:
+            raise ManifestError("{}: cannot be read ({})".format(path, error.strerror or error))
+        if not stat.S_ISREG(mode):
+            raise ManifestError("{}: is not a plain file".format(path))
     if name.startswith("."):
         raise ManifestError("{}: is hidden; the revision holds no hidden {}".format(path, "folder" if is_folder else "file"))
     if not is_folder and name.endswith("~"):

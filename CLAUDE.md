@@ -17,7 +17,10 @@ Watchbill: a harness for AI agents in embedded software development, deployed at
 - Tests first, from the issue's list, with `unittest`. No test framework. Every new test is red before the code.
 - A change reaches `main` only through a pull request, from a branch `issue-<number>-<words>`. Documents too.
 - The review is a fresh session, one model level above the one that built the change (haiku, sonnet, opus, fable). It starts from the issue and the diff, never from the author's summary. It writes its findings as one comment on the pull request whose first line starts with `[review]`. A piece built at the top level is reviewed by the owner.
-- The session that wrote a change never merges it. The owner merges, with a squash.
+- A pull request is opened as a draft and stays one while the agents' review goes on: the review, the answers to it, and the second look. A piece that the owner alone reviews is opened ready.
+- The author answers every finding of the review with a fix or a reason, in one comment. The reviewer then takes a second look, at the new commit. There are at most two looks.
+- When the second look finds nothing that should block, the session that runs the piece marks the pull request ready for review and writes one comment whose first line starts with `[ready]`: the commit it holds for, what was run, and what is left open. A push after that comment puts the pull request back to draft until it has been looked at again.
+- The session that wrote a change never merges it. The owner merges, with a squash, and only a pull request that is ready, never a draft.
 - An existing test is changed only when the issue says so, and the pull request names each one.
 - Stage files by name, never all at once.
 

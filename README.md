@@ -78,6 +78,27 @@ python3 -m unittest discover -s tests            # every test
 PYTHONPATH=/path/to/watchbill/src python3 -m watchbill init
 ```
 
+## The revision it carries
+
+`wb revision` prints the version of the package, the hash of its revision and the manifest. It writes nothing.
+
+```
+$ wb revision
+watchbill 0.0.1
+revision <the SHA-256 of the manifest>
+
+<the SHA-256 of each file>  revision/models.yml
+...
+```
+
+The manifest has one line per file of the revision, in the form `sha256sum` prints, sorted by path. The package holds it as `revision.sha256`, beside the folder `revision/`. Anyone can check the files without `wb`:
+
+```sh
+cd /usr/lib/python3*/site-packages/watchbill && sha256sum -c revision.sha256
+```
+
+Every line ends in `OK` when the files are the revision. `revisions.txt` beside it lists each released version with the hash of its revision. What is in a revision: [docs/revision.md](docs/revision.md).
+
 ## The name
 
 A watch bill is a ship's posted list of who stands which watch at which station.

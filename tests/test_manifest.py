@@ -187,12 +187,51 @@ class TestWhatIsRefused(Scratch):
         self.assertIn("revision/bad", message)
         self.assertIn("UTF-8", message)
 
+    def test_WB_REV_20_a_folder_that_cannot_be_listed_is_refused_by_name_when_the_listing_fails(self):
+        self.put("revision/ok.md", b"one\n")
+        self.put("revision/roles/a.md", b"one\n")
+        scandir = os.scandir
+
+        def failing(path=".", *args, **kwargs):
+            if os.fspath(path).endswith("roles"):
+                raise PermissionError(13, "denied", os.fspath(path))
+            return scandir(path, *args, **kwargs)
+
+        with mock.patch("os.scandir", failing):
+            self.assertIn("revision/roles", self.refused())
+
+    @unittest.skipIf(os.geteuid() == 0, "root reads a folder whatever its mode")
+    def test_WB_REV_20_a_folder_that_cannot_be_read_by_its_mode_is_refused_by_name(self):
+        self.put("revision/ok.md", b"one\n")
+        self.put("revision/roles/a.md", b"one\n")
+        folder = os.path.join(self.folder, "revision", "roles")
+        os.chmod(folder, 0)
+        self.addCleanup(os.chmod, folder, 0o755)
+        self.assertIn("revision/roles", self.refused())
+
+    def test_WB_REV_21_a_named_pipe_is_refused_by_name_and_not_opened(self):
+        self.put("revision/ok.md", b"one\n")
+        os.mkfifo(os.path.join(self.folder, "revision", "pipe"))
+        real = open
+
+        def guarded(path, *args, **kwargs):
+            if str(path).endswith("pipe"):
+                raise AssertionError("opened a file that is not a plain file")
+            return real(path, *args, **kwargs)
+
+        with mock.patch("watchbill.manifest.open", guarded, create=True):
+            self.assertIn("revision/pipe", self.refused())
+
     def test_WB_REV_17_a_file_name_with_a_line_break_is_refused_and_shown(self):
         self.put("revision/a\nb.md", b"one\n")
         self.assertIn("revision/a", self.refused())
 
     def test_WB_REV_17_a_file_name_with_a_backslash_is_refused_and_shown(self):
         self.put("revision/a\\b.md", b"one\n")
+        self.assertIn("revision/a", self.refused())
+
+    def test_WB_REV_17_a_file_name_with_a_carriage_return_is_refused_and_shown(self):
+        self.put("revision/a\rb.md", b"one\n")
         self.assertIn("revision/a", self.refused())
 
     def test_WB_REV_17_a_name_with_a_space_or_non_ascii_letters_is_taken(self):
@@ -395,6 +434,7 @@ class TestReleased(Scratch):
         with self.assertRaises(manifest.ManifestError) as caught:
             manifest.released(os.path.join(self.folder, "revisions.txt"))
         self.assertIn("revisions.txt", str(caught.exception))
+        self.assertIn("CR", str(caught.exception))
 
     def test_WB_REV_19_revisions_txt_without_a_line_break_at_the_end_is_refused_and_named(self):
         self.put("revisions.txt", "0.0.1  {}".format("a" * 64).encode())

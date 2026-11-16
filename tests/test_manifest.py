@@ -145,6 +145,124 @@ class TestForm(Scratch):
         self.assertIn("revision/empty.md", self.refused("empty.md", b""))
 
 
+class TestWhatIsRefused(Scratch):
+    def refused(self):
+        with self.assertRaises(manifest.ManifestError) as caught:
+            manifest.manifest(self.folder)
+        return str(caught.exception)
+
+    def test_WB_REV_14_a_revision_folder_that_holds_no_file_is_refused_by_name(self):
+        os.makedirs(os.path.join(self.folder, "revision", "roles"))
+        self.assertIn("revision/", self.refused())
+
+    def test_WB_REV_14_no_revision_folder_is_refused_by_name(self):
+        self.assertIn("revision/", self.refused())
+
+    def test_WB_REV_14_the_hash_of_nothing_is_not_given(self):
+        with self.assertRaises(manifest.ManifestError):
+            manifest.revision_hash(self.folder)
+
+    def test_WB_REV_14_wb_revision_with_no_file_ends_with_1_and_prints_no_revision(self):
+        out, err = mock.MagicMock(), mock.MagicMock()
+        with mock.patch("watchbill.manifest.PACKAGE_FOLDER", self.folder), \
+                mock.patch("sys.stderr", err), mock.patch("sys.stdout", out):
+            status = cli.main(["revision"])
+        self.assertEqual(status, 1)
+        self.assertIn("revision/", "".join(call.args[0] for call in err.write.call_args_list))
+        out.write.assert_not_called()
+
+    def test_WB_REV_16_a_file_that_cannot_be_read_is_refused_by_name(self):
+        self.put("revision/a.md", b"one\n")
+        with mock.patch("watchbill.manifest.open", side_effect=PermissionError(13, "denied"), create=True):
+            self.assertIn("revision/a.md", self.refused())
+
+    def test_WB_REV_16_a_file_name_that_is_not_utf8_is_refused_and_shown(self):
+        self.put("revision/ok.md", b"one\n")
+        try:
+            with open(os.path.join(os.fsencode(self.folder), b"revision", b"bad\xff.md"), "wb") as out:
+                out.write(b"x\n")
+        except OSError:
+            self.skipTest("this file system takes no such name")
+        message = self.refused()
+        self.assertIn("revision/bad", message)
+        self.assertIn("UTF-8", message)
+
+    def test_WB_REV_17_a_file_name_with_a_line_break_is_refused_and_shown(self):
+        self.put("revision/a\nb.md", b"one\n")
+        self.assertIn("revision/a", self.refused())
+
+    def test_WB_REV_17_a_file_name_with_a_backslash_is_refused_and_shown(self):
+        self.put("revision/a\\b.md", b"one\n")
+        self.assertIn("revision/a", self.refused())
+
+    def test_WB_REV_17_a_name_with_a_space_or_non_ascii_letters_is_taken(self):
+        self.put("revision/a b.md", b"one\n")
+        self.put("revision/gr\u00fc.md", b"one\n")
+        self.assertIn("revision/a b.md", manifest.manifest(self.folder))
+
+    def test_WB_REV_18_a_symbolic_link_to_a_file_is_refused_by_name(self):
+        self.put("outside.md", b"one\n")
+        self.put("revision/ok.md", b"one\n")
+        os.symlink(os.path.join(self.folder, "outside.md"), os.path.join(self.folder, "revision", "link.md"))
+        self.assertIn("revision/link.md", self.refused())
+
+    def test_WB_REV_18_a_symbolic_link_to_a_folder_is_refused_by_name(self):
+        self.put("revision/ok.md", b"one\n")
+        os.makedirs(os.path.join(self.folder, "elsewhere"))
+        os.symlink(os.path.join(self.folder, "elsewhere"), os.path.join(self.folder, "revision", "linked"))
+        self.assertIn("revision/linked", self.refused())
+
+    def test_WB_REV_18_a_broken_symbolic_link_is_refused_by_name(self):
+        self.put("revision/ok.md", b"one\n")
+        os.symlink(os.path.join(self.folder, "nothing"), os.path.join(self.folder, "revision", "gone.md"))
+        self.assertIn("revision/gone.md", self.refused())
+
+    def test_WB_REV_18_a_hidden_file_is_refused_by_name(self):
+        self.put("revision/ok.md", b"one\n")
+        self.put("revision/.a.md.swp", b"one\n")
+        self.assertIn("revision/.a.md.swp", self.refused())
+
+    def test_WB_REV_18_a_file_in_a_hidden_folder_is_refused_by_name(self):
+        self.put("revision/ok.md", b"one\n")
+        self.put("revision/.git/x.md", b"one\n")
+        self.assertIn("revision/.git", self.refused())
+
+    def test_WB_REV_18_a_backup_file_that_ends_with_a_tilde_is_refused_by_name(self):
+        self.put("revision/ok.md", b"one\n")
+        self.put("revision/a.md~", b"one\n")
+        self.assertIn("revision/a.md~", self.refused())
+
+
+class TestPackageData(unittest.TestCase):
+    def patterns(self):
+        import configparser
+
+        config = configparser.ConfigParser()
+        config.read(os.path.join(os.path.dirname(HERE), "setup.cfg"), encoding="utf-8")
+        return [line.strip() for line in config["options.package_data"]["watchbill"].splitlines() if line.strip()]
+
+    def uncovered(self, paths, patterns):
+        import fnmatch
+
+        # A pattern of setup.cfg takes one folder level for each `*`-free part: no `**`.
+        return [
+            path for path in paths
+            if not any(fnmatch.fnmatchcase(path, pattern) and path.count("/") == pattern.count("/") for pattern in patterns)
+        ]
+
+    def test_WB_REV_15_every_path_of_the_committed_manifest_matches_a_pattern_of_package_data(self):
+        text = read_bytes(os.path.join(PACKAGE, "revision.sha256")).decode("utf-8")
+        paths = [line.split("  ", 1)[1] for line in text.splitlines()]
+        self.assertEqual(self.uncovered(paths, self.patterns()), [])
+
+    def test_WB_REV_15_the_manifest_and_revisions_txt_are_package_data(self):
+        self.assertEqual(self.uncovered(["revision.sha256", "revisions.txt"], self.patterns()), [])
+
+    def test_WB_REV_15_a_file_in_a_new_folder_or_of_a_new_type_is_found(self):
+        paths = ["revision/lenses/one.md", "revision/roles/x.txt", "revision/roles/a.md"]
+        self.assertEqual(self.uncovered(paths, self.patterns()), ["revision/lenses/one.md", "revision/roles/x.txt"])
+
+
 class TestCommitted(unittest.TestCase):
     def test_WB_REV_5_the_committed_manifest_is_the_one_computed_from_the_files(self):
         self.assertEqual(
@@ -193,6 +311,14 @@ class TestCommitted(unittest.TestCase):
         self.assertGreaterEqual(len(listed), 7)
 
 
+def prompt_problems(folder, named):
+    """What is wrong with the prompt files in a folder of roles: a file no role names, a name without a file."""
+    found = sorted(name for name in os.listdir(folder) if name != "placeholders.md")
+    return [("no role names it", name) for name in found if name not in named] + [
+        ("no file", name) for name in named if name not in found
+    ]
+
+
 class TestPrompts(unittest.TestCase):
     def folder_files(self):
         folder = os.path.join(PACKAGE, "revision", "roles")
@@ -211,35 +337,44 @@ class TestPrompts(unittest.TestCase):
 
     def test_WB_REV_7_every_prompt_file_is_named_by_a_role(self):
         # placeholders.md is the list of words a prompt is filled in with (WB-ROLE-3). It is no prompt.
-        prompts = [name for name in self.folder_files() if name != "placeholders.md"]
-        self.assertEqual(prompts, self.named())
+        self.assertEqual(prompt_problems(os.path.join(PACKAGE, "revision", "roles"), self.named()), [])
+
+    def test_WB_REV_7_a_prompt_file_that_no_role_names_is_found_by_the_same_check(self):
+        with tempfile.TemporaryDirectory() as folder:
+            for name in self.named() + ["placeholders.md", "stray.md"]:
+                with open(os.path.join(folder, name), "wb") as out:
+                    out.write(b"x\n")
+            self.assertEqual(prompt_problems(folder, self.named()), [("no role names it", "stray.md")])
+
+    def test_WB_REV_7_a_role_whose_file_is_missing_is_found_by_the_same_check(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertEqual(
+                prompt_problems(folder, ["tester.md"]), [("no file", "tester.md")]
+            )
 
     def test_WB_REV_7_the_file_of_the_placeholders_is_there_and_no_role_names_it(self):
         self.assertIn("placeholders.md", self.folder_files())
         self.assertNotIn("placeholders.md", self.named())
 
-    def test_WB_REV_7_a_prompt_file_that_no_role_names_is_found(self):
-        with tempfile.TemporaryDirectory() as folder:
-            roles = os.path.join(folder, "roles")
-            os.makedirs(roles)
-            for name in self.named() + ["placeholders.md", "stray.md"]:
-                with open(os.path.join(roles, name), "wb") as out:
-                    out.write(b"x\n")
-            prompts = [n for n in sorted(os.listdir(roles)) if n != "placeholders.md"]
-            self.assertNotEqual(prompts, self.named())
+
+def wrong_hashes(entries, version, digest):
+    """The entries that name the version with another hash than the computed one."""
+    return [(v, d) for v, d in entries if v == version and d != digest]
 
 
 class TestReleased(Scratch):
     def test_WB_REV_8_the_current_version_does_not_stand_with_another_hash(self):
-        for version, digest in manifest.released():
-            if version == VERSION:
-                self.assertEqual(digest, manifest.revision_hash(PACKAGE))
+        self.assertEqual(wrong_hashes(manifest.released(), VERSION, manifest.revision_hash(PACKAGE)), [])
 
-    def test_WB_REV_8_a_version_with_another_hash_is_found(self):
+    def test_WB_REV_8_the_same_check_finds_the_version_with_another_hash(self):
         self.put("revisions.txt", "{}  {}\n".format(VERSION, "0" * 64).encode())
-        released = manifest.released(os.path.join(self.folder, "revisions.txt"))
-        self.assertEqual(released, [(VERSION, "0" * 64)])
-        self.assertNotEqual(released[0][1], manifest.revision_hash(PACKAGE))
+        entries = manifest.released(os.path.join(self.folder, "revisions.txt"))
+        self.assertEqual(wrong_hashes(entries, VERSION, manifest.revision_hash(PACKAGE)), [(VERSION, "0" * 64)])
+
+    def test_WB_REV_8_the_same_check_lets_the_right_hash_and_other_versions_pass(self):
+        digest = manifest.revision_hash(PACKAGE)
+        entries = [(VERSION, digest), ("0.0.0", "0" * 64)]
+        self.assertEqual(wrong_hashes(entries, VERSION, digest), [])
 
     def test_WB_REV_8_a_line_that_is_not_a_version_and_a_hash_is_refused_and_names_the_line(self):
         self.put("revisions.txt", b"0.0.1  abc\n")
@@ -254,6 +389,31 @@ class TestReleased(Scratch):
         with self.assertRaises(manifest.ManifestError) as caught:
             manifest.released(os.path.join(self.folder, "revisions.txt"))
         self.assertIn("0.0.1", str(caught.exception))
+
+    def test_WB_REV_19_revisions_txt_with_crlf_is_refused_and_named(self):
+        self.put("revisions.txt", "0.0.1  {}\r\n".format("a" * 64).encode())
+        with self.assertRaises(manifest.ManifestError) as caught:
+            manifest.released(os.path.join(self.folder, "revisions.txt"))
+        self.assertIn("revisions.txt", str(caught.exception))
+
+    def test_WB_REV_19_revisions_txt_without_a_line_break_at_the_end_is_refused_and_named(self):
+        self.put("revisions.txt", "0.0.1  {}".format("a" * 64).encode())
+        with self.assertRaises(manifest.ManifestError) as caught:
+            manifest.released(os.path.join(self.folder, "revisions.txt"))
+        self.assertIn("revisions.txt", str(caught.exception))
+
+    def test_WB_REV_19_revisions_txt_that_is_not_utf8_is_refused_and_named(self):
+        self.put("revisions.txt", b"\xff\xfe\n")
+        with self.assertRaises(manifest.ManifestError) as caught:
+            manifest.released(os.path.join(self.folder, "revisions.txt"))
+        self.assertIn("revisions.txt", str(caught.exception))
+
+    def test_WB_REV_19_a_good_revisions_txt_with_two_versions_is_read(self):
+        self.put("revisions.txt", "0.0.1  {}\n0.0.2  {}\n".format("a" * 64, "b" * 64).encode())
+        self.assertEqual(
+            manifest.released(os.path.join(self.folder, "revisions.txt")),
+            [("0.0.1", "a" * 64), ("0.0.2", "b" * 64)],
+        )
 
     def test_WB_REV_8_the_file_is_in_the_package_and_holds_the_form(self):
         text = read_bytes(os.path.join(PACKAGE, "revisions.txt")).decode("utf-8")

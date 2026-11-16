@@ -17,9 +17,9 @@ The files of a revision as the package carries them, their manifest, and `wb rev
 | WB-REV-11 | A file of the revision that is empty or does not end with a line break shall be refused by name. Issue: #6. | T | Implemented |
 | WB-REV-12 | `wb revision` shall end with 2 and print no revision when it is given an argument. Issue: #6. | T | Implemented |
 | WB-REV-13 | `wb revision` shall end with 1, name the file and print no revision when a file of the revision is refused. Issue: #6. | T | Implemented |
-| WB-REV-14 | `wb revision` shall end with 1, name `revision/` and print no revision when the folder holds no file. Issue: #6. | T | Draft |
-| WB-REV-15 | Every path of the committed manifest, and the manifest and `revisions.txt`, shall match a pattern of `package_data` in `setup.cfg`. Issue: #6. | T | Draft |
-| WB-REV-16 | A file of the revision that cannot be read, or whose name is not UTF-8, shall be refused by name, with no stack trace. Issue: #6. | T | Draft |
-| WB-REV-17 | A file of the revision whose name has a line break, a carriage return or a backslash shall be refused by name. Issue: #6. | T | Draft |
-| WB-REV-18 | A symbolic link, a hidden file or folder and a file whose name ends with `~` under `revision/` shall be refused by name. Issue: #6. | T | Draft |
-| WB-REV-19 | `revisions.txt` that is not UTF-8, has CR, or has no line break at the end shall be refused by name. Issue: #6. | T | Draft |
+| WB-REV-14 | `wb revision` shall end with 1, name `revision/` and print no revision when the folder holds no file. Issue: #6. | T | Implemented |
+| WB-REV-15 | Every path of the committed manifest, and the manifest and `revisions.txt`, shall match a pattern of `package_data` in `setup.cfg`. Issue: #6. | T | Implemented |
+| WB-REV-16 | A file of the revision that cannot be read, or whose name is not UTF-8, shall be refused by name, with no stack trace. Issue: #6. | T | Implemented |
+| WB-REV-17 | A file of the revision whose name has a line break, a carriage return or a backslash shall be refused by name. Issue: #6. | T | Implemented |
+| WB-REV-18 | A symbolic link, a hidden file or folder and a file whose name ends with `~` under `revision/` shall be refused by name. Issue: #6. | T | Implemented |
+| WB-REV-19 | `revisions.txt` that is not UTF-8, has CR, or has no line break at the end shall be refused by name. Issue: #6. | T | Implemented |

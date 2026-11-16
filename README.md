@@ -9,7 +9,7 @@
 
 A harness for AI agents in embedded software development, deployed at a fixed revision onto a project that already exists.
 
-**Status: an idea, written down 2026-11-16. Nothing is built.**
+**Status: an idea, written down 2026-11-16. Only `wb init` is built, and nothing reads the file it writes yet.**
 
 ## What it is to be
 
@@ -19,6 +19,65 @@ A harness for AI agents in embedded software development, deployed at a fixed re
 - **Traceable.** What an agent did, for which requirement, under which revision, can be followed afterwards.
 - **A method that can be certified.** The aim is that a team's process with Watchbill in it can pass an assessment against an ISO standard. Watchbill is not certified, and nothing here says it is.
 
+## Setting it up in a repository
+
+The command is `wb`. Watchbill is set up in a repository the way `git init` starts one: a single command, run in the folder.
+
+```sh
+cd brake-controller
+wb init
+```
+
+`wb init` proposes what the repository says about itself, asks one line per answer, shows the file and writes it:
+
+```
+project: (brake-controller)
+git server (github, gitlab, gerrit, bitbucket or none): (gitlab)
+repository at the git server: (brakes/controller)
+tracker (github, gitlab, jira or none): (gitlab) jira
+requirements (a path to files, the name of a tool, or none): (requirements/*.md)
+ci driver (github-actions, gitlab-ci, jenkins or none): (gitlab-ci)
+```
+
+Enter keeps what stands in brackets. `wb init --yes` takes all of it and asks nothing; it shows the file before it writes it. Input that ends before a yes, and Ctrl-C, write nothing and end with 1. The result is `.watchbill/watchbill.yml` at the root of the repository, to be kept under version control with the code:
+
+```yaml
+# How Watchbill is set up in this repository. Written by `wb init`.
+# `watchbill` is the version of the package the repository is set up for.
+watchbill: 0.0.1
+project: brake-controller
+git_server: gitlab
+repository: brakes/controller
+tracker: jira
+requirements: requirements/*.md
+ci: gitlab-ci
+```
+
+- **`watchbill` is the version of the package** the repository is set up for: the version of the `wb` that wrote the file. A revision is the version and the hash of its files together ([docs/revision.md](docs/revision.md)); the hash is written by a later piece.
+- **What it finds, it finds in the repository:** the name of the folder, the address of `origin` (only its host and path; a user name or a token in it is dropped), a folder of requirements, and the file a CI driver is known by. It asks nothing of the network.
+- **A file that is already there is never changed.**
+- **The answers are only written down.** No adapter exists yet, so a git server or a tracker is a name and nothing more.
+
+## Installing it
+
+Watchbill is written in Python, run by the Python of the distribution: 3.9 or later, which is what Enterprise Linux 9 has. It needs `git`. Today it uses only the standard library. It is decided that it will also use the YAML library the distribution packages (PyYAML), added when it is first read, and nothing from outside the distribution's own repositories ([docs/revision.md](docs/revision.md), point 6).
+
+On Fedora and Enterprise Linux it is an RPM package, installed and removed with `dnf` like any other program:
+
+```sh
+packaging/rpm.sh                                                  # builds the package from this checkout
+sudo dnf install build/rpm/RPMS/noarch/watchbill-*.noarch.rpm     # puts wb in /usr/bin
+```
+
+The package is built here from a checkout. There is no repository to `dnf install watchbill` from yet. Building needs `rpm-build`, `python3-devel`, `pyproject-rpm-macros`, `python3-setuptools`, `python3-pip` and `python3-wheel`, and on Enterprise Linux 9 also `python3-tomli` and the CRB repository.
+
+To try it without installing anything, from a checkout:
+
+```sh
+python3 -m unittest discover -s tests            # every test
+PYTHONPATH=/path/to/watchbill/src python3 -m watchbill init
+```
+
 ## The name
 
 A watch bill is a ship's posted list of who stands which watch at which station.
@@ -27,15 +86,11 @@ A watch bill is a ship's posted list of who stands which watch at which station.
 
 Watchbill is a product of its own. [Handover Ledger](https://github.com/fa1k3n/handover-ledger) records the handovers in a team and can be used to monitor a team that runs Watchbill. Watchbill does not need it.
 
-## Proposed, not decided
+## The revision
 
-- **The first piece is the manifest:** one file with the hashes of the state program, the role prompts, the rule table and the model IDs, which together give the revision. Every assignment names it.
-- **The safety argument rests on deterministic code and a human verifier.** A model cannot be qualified as a tool, so a model's output is never the last check. A changed prompt or model is a new revision.
-- **Agents are accounts** at the git server and the tracker, on runners registered the way CI runners are.
-- **Adapters** carry the differences between requirements tools, trackers, git servers and CI drivers.
+What a revision is, and each decision behind it, is in [docs/revision.md](docs/revision.md).
 
 ## Not decided
 
 - The licence.
 - Which standard comes first, and which tools the first adapters are for.
-- The language it is written in.

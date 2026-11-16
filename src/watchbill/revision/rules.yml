@@ -1,0 +1,92 @@
+# The rule table of the first revision. Read by watchbill/rules.py, which refuses it if it is wrong.
+# The program enforces this table. A prompt repeats a limit so that the agent knows it,
+# and no limit rests on the prompt alone.
+
+# At most this many rounds of review on one change.
+review_rounds: 2
+
+# What always goes to a person, whatever else the table says.
+always_to_a_person:
+  - change_to_an_existing_test
+  - change_under_watchbill_folder
+  - verification_of_classed_code
+  - finding_open_after_last_round
+  - merge
+
+# The one rule for classed code. Which paths are classed is the project's to say.
+classed_code:
+  verifier: person
+
+# The queues the officer may take an unassigned task from. None in the first revision.
+officer_queues: []
+
+# For each role: the step and what it produces, what it may read, what it may do,
+# the roles the same team member may not also hold on one change, and the prompt file.
+roles:
+  tester:
+    step: Write the tests from the requirement, before the code exists.
+    produces: Tests that each carry a requirement ID and fail for the right reason, in a commit that holds only tests.
+    reads:
+      - The task and the rows of its requirements.
+      - The files the task names, and the tests among them.
+      - The interface of what is tested, not its body.
+    may:
+      - Add new tests on the branch of the task.
+      - Commit the tests.
+    may_not_also_hold: [build, review, fix, officer]
+    prompt: roles/tester.md
+
+  build:
+    step: Make the tester's tests pass.
+    produces: The smallest change that meets the requirements, opened for review with every check green.
+    reads:
+      - The task and the rows of its requirements.
+      - The tester's tests.
+      - The files the task names.
+      - The project's instructions for how code is written and checked.
+    may:
+      - Change the files the task names.
+      - Run the checks of the project.
+      - Open the change for review.
+    may_not_also_hold: [tester, review, fix, officer]
+    prompt: roles/build.md
+
+  review:
+    step: Judge the change clause by clause, from outside, and report.
+    produces: Numbered findings, each must or note, with for each clause the test that would fail if it were not met.
+    reads:
+      - The task and the rows of its requirements.
+      - The diff of the change first, then its description and commit messages as claims to check.
+      - The result of its checks.
+      - The files the task names, and the tests among them, the tester's tests too.
+      - In round 2, the findings, the answers and the commits since.
+    may:
+      - Post its findings on the change.
+    may_not_also_hold: [tester, build, fix, officer]
+    prompt: roles/review.md
+
+  fix:
+    step: Answer each must finding with a fix or a reason.
+    produces: One answer for each must finding, and a commit for each fix that names the finding and the round.
+    reads:
+      - The task and the rows of its requirements.
+      - The findings of the round and the diff of the change.
+      - The files the task names, and the files and tests the findings name.
+    may:
+      - Commit fixes on the branch of the change.
+      - Add a test beside a weak one, written first.
+      - Post its answers on the change.
+    may_not_also_hold: [tester, build, review, officer]
+    prompt: roles/fix.md
+
+  officer:
+    step: Hand tasks on, and judge what takes judgement before and between the pieces.
+    produces: Proposals of handover and the brief for the one who gets the piece, which the program checks and performs.
+    reads:
+      - The tasks and their state at the tracker.
+      - The rule table and the model table.
+    may:
+      - Propose a handover to the program.
+      - Assign a task through its own account, once the program has checked the handover.
+    may_not_also_hold: [tester, build, review, fix]
+    prompt: none

@@ -15,6 +15,9 @@ Source:         %{name}-%{version}.tar.gz
 BuildArch:      noarch
 BuildRequires:  python3-devel
 BuildRequires:  pyproject-rpm-macros
+# The tests read the two tables of the revision through the YAML library. The library
+# `wb` runs with is named in setup.cfg, and the package asks for it from there.
+BuildRequires:  python3-pyyaml
 # The tests make git repositories.
 BuildRequires:  git-core
 # `wb init` asks git for the root of the repository and the address of origin.

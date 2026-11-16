@@ -9,6 +9,7 @@ sorted by path, with the paths relative to the folder that holds `revision/`.
 import hashlib
 import os
 import re
+import stat
 from typing import List, Optional, Tuple
 
 __all__ = [
@@ -41,6 +42,8 @@ def _refuse_name(base: str, path: str, name: str, is_folder: bool) -> None:
         raise ManifestError("{}: the name is not UTF-8".format(_shown(path)))
     if os.path.islink(os.path.join(base, *path.split("/"))):
         raise ManifestError("{}: is a symbolic link; the revision holds only plain files".format(path))
+    if not is_folder and not stat.S_ISREG(os.lstat(os.path.join(base, *path.split("/"))).st_mode):
+        raise ManifestError("{}: is not a plain file".format(path))
     if name.startswith("."):
         raise ManifestError("{}: is hidden; the revision holds no hidden {}".format(path, "folder" if is_folder else "file"))
     if not is_folder and name.endswith("~"):
@@ -58,7 +61,16 @@ def files(base: Optional[str] = None) -> List[str]:
     """
     base = PACKAGE_FOLDER if base is None else base
     found = []
-    for folder, folders, names in os.walk(os.path.join(base, "revision")):
+    top = os.path.join(base, "revision")
+    if not os.path.isdir(top):
+        raise ManifestError("revision/: holds no file, or is not there")
+
+    def cannot_list(error: OSError) -> None:
+        # `os.walk` leaves out a folder it cannot list, unless it is told to say so.
+        where = "/".join(os.path.relpath(os.fspath(error.filename), base).split(os.sep))
+        raise ManifestError("{}/: cannot be listed ({})".format(where, error.strerror or error))
+
+    for folder, folders, names in os.walk(top, onerror=cannot_list):
         folders.sort()
         names.sort()
         for name in folders + names:

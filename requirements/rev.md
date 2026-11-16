@@ -23,5 +23,5 @@ The files of a revision as the package carries them, their manifest, and `wb rev
 | WB-REV-17 | A file of the revision whose name has a line break, a carriage return or a backslash shall be refused by name. Issue: #6. | T | Implemented |
 | WB-REV-18 | A symbolic link, a hidden file or folder and a file whose name ends with `~` under `revision/` shall be refused by name. Issue: #6. | T | Implemented |
 | WB-REV-19 | `revisions.txt` that is not UTF-8, has CR, or has no line break at the end shall be refused by name. Issue: #6. | T | Implemented |
-| WB-REV-20 | A folder under `revision/` that cannot be listed shall be refused by name, and its files shall not be left out in silence. Issue: #6. | T | Draft |
-| WB-REV-21 | Anything under `revision/` that is not a plain file or a folder, such as a named pipe, shall be refused by name and not opened. Issue: #6. | T | Draft |
+| WB-REV-20 | A folder under `revision/` that cannot be listed shall be refused by name, and its files shall not be left out in silence. Issue: #6. | T | Implemented |
+| WB-REV-21 | Anything under `revision/` that is not a plain file or a folder, such as a named pipe, shall be refused by name and not opened. Issue: #6. | T | Implemented |

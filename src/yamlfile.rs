@@ -418,11 +418,11 @@ impl Builder<'_> {
         self.faults.push((line, words));
     }
 
-    /// The line of a scalar. An empty value in a table is on the line of its key, and one
-    /// elsewhere on the line where something was last written: the library gives the place of
-    /// what comes after it.
-    fn scalar_line(&mut self, value: &str, mark: &Marker) -> usize {
-        if !value.is_empty() {
+    /// The line of a scalar. An empty value written plain, which is no text at all, is on the line
+    /// of its key in a table, and elsewhere on the line where something was last written: the
+    /// library gives the place of what comes after it.
+    fn scalar_line(&mut self, value: &str, style: TScalarStyle, mark: &Marker) -> usize {
+        if !value.is_empty() || style != TScalarStyle::Plain {
             return mark.line();
         }
         if let Some(Open::Table(_, _, Some(key), _)) = self.open.last() {
@@ -507,7 +507,7 @@ impl Builder<'_> {
                 }
             }
             Event::Scalar(value, style, anchor, tag) => {
-                let line = self.scalar_line(&value, &mark);
+                let line = self.scalar_line(&value, style, &mark);
                 self.anchor_and_tag(line, anchor, &tag);
                 let key_expected = matches!(self.open.last(), Some(Open::Table(_, _, None, _)));
                 let value = if style == TScalarStyle::Plain {

@@ -14,7 +14,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Read};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
 
 use sha2::{Digest, Sha256};
@@ -25,9 +25,27 @@ pub const PACKAGE_FOLDER: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/watch
 pub const MANIFEST_FILE: &str = "revision.sha256";
 pub const RELEASED_FILE: &str = "revisions.txt";
 
-/// `O_NONBLOCK`, the same on every architecture Enterprise Linux 9 is built for (x86_64, aarch64,
-/// ppc64le and s390x). Opened with it, a named pipe does not make the open wait for a writer.
+/// `O_NONBLOCK`, the same on every architecture that Enterprise Linux 9 and Fedora are built for
+/// (x86_64, aarch64, ppc64le, s390x, i686 and riscv64). Opened with it, a named pipe does not make
+/// the open wait for a writer. The standard library has no name for it, so it is written out, and
+/// a build for any other architecture is refused, where the value is not the same.
 const O_NONBLOCK: i32 = 0o4000;
+
+#[cfg(not(all(
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "powerpc64",
+        target_arch = "s390x",
+        target_arch = "x86",
+        target_arch = "riscv64"
+    )
+)))]
+compile_error!("O_NONBLOCK is written out in src/manifest.rs and is known for Linux on x86_64, aarch64, powerpc64, s390x, x86 and riscv64 only");
+
+/// Where a file was when its kind was looked at: the device and the inode.
+type Place = (u64, u64);
 
 /// A file of the revision is not in the fixed form, or `revisions.txt` is wrong. The message names it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,7 +78,7 @@ fn shown(path: &OsStr) -> String {
 }
 
 /// Refuses a path the manifest cannot carry safely, by name. `path` is relative to `base`.
-fn refuse_name(base: &Path, path: &OsStr, name: &OsStr, is_folder: bool) -> Result<(), ManifestError> {
+fn refuse_name(base: &Path, path: &OsStr, name: &OsStr, is_folder: bool) -> Result<Place, ManifestError> {
     let text = match path.to_str() {
         Some(text) => text,
         None => return refuse(format!("{}: the name is not UTF-8", shown(path))),
@@ -70,13 +88,14 @@ fn refuse_name(base: &Path, path: &OsStr, name: &OsStr, is_folder: bool) -> Resu
     if looked.as_ref().map(|meta| meta.file_type().is_symlink()).unwrap_or(false) {
         return refuse(format!("{}: is a symbolic link; the revision holds only plain files", text));
     }
+    let mut place = (0, 0);
     if !is_folder {
         match looked {
             Err(error) => return refuse(format!("{}: cannot be read ({})", text, reason(&error))),
             Ok(meta) if !meta.file_type().is_file() => {
                 return refuse(format!("{}: is not a plain file", text));
             }
-            Ok(_) => {}
+            Ok(meta) => place = (meta.dev(), meta.ino()),
         }
     }
     let name = name.to_str().unwrap_or("");
@@ -97,11 +116,11 @@ fn refuse_name(base: &Path, path: &OsStr, name: &OsStr, is_folder: bool) -> Resu
             text.replace('\n', "\\n").replace('\r', "\\r")
         ));
     }
-    Ok(())
+    Ok(place)
 }
 
 /// Lists one folder under `base` and checks what is in it, then goes into its folders in order.
-fn walk(base: &Path, folder: &OsStr, found: &mut Vec<String>) -> Result<(), ManifestError> {
+fn walk(base: &Path, folder: &OsStr, found: &mut Vec<(String, Place)>) -> Result<(), ManifestError> {
     let cannot_list = |error: io::Error| {
         ManifestError(format!("{}/: cannot be listed ({})", shown(folder), reason(&error)))
     };
@@ -132,11 +151,12 @@ fn walk(base: &Path, folder: &OsStr, found: &mut Vec<String>) -> Result<(), Mani
         path.extend_from_slice(name.as_bytes());
         OsString::from_vec(path)
     };
+    let mut places = Vec::new();
     for name in folders.iter().chain(names.iter()) {
-        refuse_name(base, &below(name), name, folders.contains(name))?;
+        places.push(refuse_name(base, &below(name), name, folders.contains(name))?);
     }
-    for name in &names {
-        found.push(below(name).into_string().unwrap_or_default());
+    for (name, place) in names.iter().zip(&places[folders.len()..]) {
+        found.push((below(name).into_string().unwrap_or_default(), *place));
     }
     for name in &folders {
         walk(base, &below(name), found)?;
@@ -149,7 +169,11 @@ fn walk(base: &Path, folder: &OsStr, found: &mut Vec<String>) -> Result<(), Mani
 /// The order is that of the code points of the path. A path the manifest cannot carry safely is
 /// refused by name, and so is a revision that holds no file.
 pub fn files(base: impl AsRef<Path>) -> Result<Vec<String>, ManifestError> {
-    let base = base.as_ref();
+    Ok(looked_at(base.as_ref())?.into_iter().map(|(path, _)| path).collect())
+}
+
+/// The files, each with the place it was at when its kind was looked at.
+fn looked_at(base: &Path) -> Result<Vec<(String, Place)>, ManifestError> {
     let none = || refuse("revision/: holds no file, or is not there".to_string());
     match fs::symlink_metadata(base.join("revision")) {
         Ok(meta) if meta.file_type().is_symlink() => {
@@ -175,15 +199,20 @@ fn hex(data: &[u8]) -> String {
 ///
 /// The file is opened without waiting, and its kind is looked at again once it is open: a file that
 /// was a plain file when the folder was listed may be a named pipe by now (WB-REV-24).
-fn hash_file(base: &Path, path: &str) -> Result<String, ManifestError> {
+fn hash_file(base: &Path, path: &str, looked: Place) -> Result<String, ManifestError> {
     let cannot = |error: io::Error| ManifestError(format!("{}: cannot be read ({})", path, reason(&error)));
     let mut file = fs::OpenOptions::new()
         .read(true)
         .custom_flags(O_NONBLOCK)
         .open(base.join(path))
         .map_err(cannot)?;
-    if !file.metadata().map_err(cannot)?.file_type().is_file() {
+    let opened = file.metadata().map_err(cannot)?;
+    if !opened.file_type().is_file() {
         return refuse(format!("{}: is not a plain file", path));
+    }
+    if (opened.dev(), opened.ino()) != looked {
+        // A link, or another file in its place: what is open is not what was looked at.
+        return refuse(format!("{}: is not the file that was looked at; it was changed while it was read", path));
     }
     let mut data = Vec::new();
     file.read_to_end(&mut data).map_err(cannot)?;
@@ -209,9 +238,9 @@ pub fn manifest(base: impl AsRef<Path>) -> Result<String, ManifestError> {
 pub fn manifest_with(base: impl AsRef<Path>, after_look: &mut dyn FnMut(&str)) -> Result<String, ManifestError> {
     let base = base.as_ref();
     let mut text = String::new();
-    for path in files(base)? {
+    for (path, place) in looked_at(base)? {
         after_look(&path);
-        text.push_str(&format!("{}  {}\n", hash_file(base, &path)?, path));
+        text.push_str(&format!("{}  {}\n", hash_file(base, &path, place)?, path));
     }
     Ok(text)
 }

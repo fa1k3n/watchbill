@@ -264,6 +264,9 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
                 let Ok(value) = value.into_string() else {
                     return used(err, format!("the value of '--{}' is not UTF-8 text", option));
                 };
+                if value.is_empty() {
+                    return used(err, format!("the value of '--{}' is empty", option));
+                }
                 if values.iter().any(|(given, _)| given == name) {
                     return used(err, format!("'--{}' is given twice", option));
                 }

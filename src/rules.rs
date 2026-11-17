@@ -14,11 +14,11 @@ pub const ROLES: [&str; 5] = ["tester", "build", "review", "fix", "officer"];
 pub const ROLE_FIELDS: [&str; 6] = ["step", "produces", "reads", "may", "may_not_also_hold", "prompt"];
 pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
-/// The folder of the revision, fixed when `wb` is built. Until #25 moves it, it is the one in
-/// the checkout `wb` is built from.
-pub const REVISION_FOLDER: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/watchbill/revision");
-pub const RULES_FILE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/watchbill/revision/rules.yml");
-pub const MODELS_FILE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/watchbill/revision/models.yml");
+/// The folder of the revision, fixed when `wb` is built (`build.rs`): `revision/` in the folder
+/// of `manifest::PACKAGE_FOLDER`.
+pub const REVISION_FOLDER: &str = concat!(env!("WB_SHARE_FOLDER"), "/revision");
+pub const RULES_FILE: &str = concat!(env!("WB_SHARE_FOLDER"), "/revision/rules.yml");
+pub const MODELS_FILE: &str = concat!(env!("WB_SHARE_FOLDER"), "/revision/models.yml");
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Role {

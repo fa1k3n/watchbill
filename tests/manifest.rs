@@ -490,14 +490,10 @@ fn test_WB_REV_18_a_backup_file_that_ends_with_a_tilde_is_refused_by_name() {
 fn patterns() -> Vec<String> {
     let text = String::from_utf8(read_bytes(root().join("packaging/watchbill.spec"))).unwrap();
     let mut found = Vec::new();
-    let mut in_files = false;
-    for line in text.lines() {
-        if line.starts_with('%') && !line.starts_with("%{") {
-            in_files = line.starts_with("%files");
-        } else if in_files {
-            if let Some(rest) = line.trim().strip_prefix("%{_datadir}/watchbill/") {
-                found.push(rest.to_string());
-            }
+    let files = text.split("\n%files").nth(1).expect("the spec has no %files");
+    for line in files.lines() {
+        if let Some(rest) = line.trim().strip_prefix("%{_datadir}/watchbill/") {
+            found.push(rest.to_string());
         }
     }
     found

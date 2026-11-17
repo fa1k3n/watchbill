@@ -1,5 +1,5 @@
 //! The Rust `wb`, run as the command a person types: a process, its text and its exit status.
-//! The words are those of the Python `wb`, which is still the one that is installed.
+//! The words are those of the first `wb`, which was written in Python.
 
 // A test is named after the requirement it covers, and the ID has capitals.
 #![allow(non_snake_case)]

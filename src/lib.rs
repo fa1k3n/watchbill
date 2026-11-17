@@ -10,6 +10,7 @@ pub mod detect;
 pub mod init;
 pub mod interrupt;
 pub mod manifest;
+pub mod prompt;
 pub mod rules;
 mod word;
 pub mod yamlfile;

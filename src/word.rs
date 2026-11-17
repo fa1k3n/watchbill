@@ -5,7 +5,9 @@
 //! Python 3.9.25 (Enterprise Linux 9) that is 133 023 code points; on Python 3.14.10 (Fedora 44)
 //! it is 142 940, which hold all of the 133 023 and 9 917 more, from newer versions of Unicode.
 //! The table is the 133 023: a character is a word character here only when both versions take
-//! it, so a check on `\b` is never more lenient than the Python's.
+//! it. Where a check lower-cases a text first, as `rules.rs` does before `merg`, the character
+//! it comes from must be a word character too: Rust's Unicode knows capitals that Python 3.9's
+//! does not, and lower-cases them to word characters.
 
 /// Whether Python 3.9 and 3.14 both take `c` as a word character.
 pub fn is_word(c: char) -> bool {

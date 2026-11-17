@@ -60,8 +60,16 @@ fn with(place: &[Part], part: impl Into<Part>) -> Vec<Part> {
 
 /// `merg` at the start of a word: merge, merges, merged, merging.
 fn says_merge(entry: &str) -> bool {
-    let lower = entry.to_lowercase();
-    lower.match_indices("merg").any(|(at, _)| !lower[..at].chars().next_back().is_some_and(is_word))
+    // Each character of the entry in lower case, beside the character it comes from. A character
+    // before `merg` is a letter only when both are: a capital that an older Unicode does not know
+    // stays itself in the Python of Enterprise Linux 9, and is no letter there.
+    let lower: Vec<(char, char)> = entry.chars().flat_map(|c| c.to_lowercase().map(move |l| (l, c))).collect();
+    let merg = ['m', 'e', 'r', 'g'];
+    (0..lower.len()).any(|at| {
+        lower[at..].len() >= merg.len()
+            && lower[at..at + merg.len()].iter().map(|(l, _)| *l).eq(merg)
+            && !(at > 0 && is_word(lower[at - 1].0) && is_word(lower[at - 1].1))
+    })
 }
 
 fn role(doc: &Document, name: &str) -> Result<Role, YamlError> {

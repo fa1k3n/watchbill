@@ -24,4 +24,4 @@ The prompts of the first revision: tester, build, review and fix. What a revisio
 | WB-ROLE-18 | Every role prompt shall name the checkout and the branch it works in, and the address its task is read at. Issue: #43. | T | Implemented |
 | WB-ROLE-19 | The reviewer's and the fixer's prompts shall name the address the change is read and posted at. Issue: #43. | T | Implemented |
 | WB-ROLE-20 | Every role prompt shall say that how work is pushed and posted is taken from the project's own text. Issue: #43. | T | Implemented |
-| WB-ROLE-21 | Every role prompt shall say that a search opens every file it reads, and that a search is kept to the files the role may read. Issue: #44. | T | Draft |
+| WB-ROLE-21 | Every role prompt shall say that a search opens every file it reads, and that a search is kept to the files the role may read. Issue: #44. | T | Implemented |

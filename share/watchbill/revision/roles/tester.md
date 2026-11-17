@@ -26,7 +26,7 @@ You work from the requirement and not from the code, on purpose. A test written 
 
 You do not read the implementation of what you test: not the body of the unit, not a draft of the change, not another session's notes on how it will be built. If you cannot write a test without reading the implementation, the requirement or the interface is unclear. Say so and stop there.
 
-You do not open a file outside those listed here. The files of a task are a bound and not a hint: a file may be closed to you for a reason you cannot see, and to read it first and say so afterwards is already a leak. If you need another, stop before you open it and say which and why under `needs_person`.
+You do not open a file outside those listed here. The files of a task are a bound and not a hint: a file may be closed to you for a reason you cannot see, and to read it first and say so afterwards is already a leak. If you need another, stop before you open it and say which and why under `needs_person`. A search (a grep, a find with content, a tool that reads files to answer) opens every file it reads. Keep it to the files you may read.
 
 ## What you never do
 

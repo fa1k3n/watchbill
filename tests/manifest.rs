@@ -1013,15 +1013,54 @@ fn revision_files(folder: &Path, found: &mut Vec<PathBuf>) {
     }
 }
 
+/// The words of a text that name a file: they end in one of the extensions the repository uses.
+/// What stands round a word (quotes, a comma, a full stop, a star) is not part of it.
+fn named_files(text: &str) -> Vec<String> {
+    // STUB: red until the helper is written.
+    let _ = text;
+    Vec::new()
+}
+
+/// What a text names that is neither at the root of the repository nor under `revision/`.
+fn named_but_missing(text: &str, root: &Path, revision: &Path) -> Vec<String> {
+    named_files(text).into_iter().filter(|name| !root.join(name).is_file() && !revision.join(name).is_file()).collect()
+}
+
+#[test]
+fn test_WB_REV_26_a_name_that_is_not_in_the_repository_is_caught() {
+    let scratch = Scratch::new();
+    scratch.put("src/rules.rs", b"");
+    scratch.put("revision/roles/fix.md", b"");
+    let text = "# Read by watchbill/rules.py, or src/rules.rs, \"roles/fix.md\", roles/gone.md.\nversion 0.0.1, e.g. this.\n";
+    assert_eq!(
+        named_but_missing(text, scratch.path(), &scratch.path().join("revision")),
+        vec!["watchbill/rules.py".to_string(), "roles/gone.md".to_string()]
+    );
+}
+
+#[test]
+fn test_WB_REV_26_a_text_that_names_only_files_that_are_there_is_not_caught() {
+    let scratch = Scratch::new();
+    scratch.put("src/rules.rs", b"");
+    let text = "Read by src/rules.rs.\n";
+    assert_eq!(named_but_missing(text, scratch.path(), &scratch.path().join("revision")), Vec::<String>::new());
+    assert_eq!(named_files(text), vec!["src/rules.rs".to_string()]);
+}
+
 #[test]
 fn test_WB_REV_26_no_file_of_the_revision_names_a_file_that_is_not_in_the_repository() {
     let mut found = Vec::new();
     revision_files(&package().join("revision"), &mut found);
     assert!(!found.is_empty());
-    let naming: Vec<String> = found
-        .iter()
-        .filter(|path| String::from_utf8_lossy(&read_bytes(path)).contains("rules.py"))
-        .map(|path| path.display().to_string())
-        .collect();
+    let mut naming = Vec::new();
+    for path in &found {
+        let text = String::from_utf8_lossy(&read_bytes(path)).into_owned();
+        for name in named_but_missing(&text, &root(), &package().join("revision")) {
+            naming.push(format!("{}: {}", path.display(), name));
+        }
+    }
     assert_eq!(naming, Vec::<String>::new());
+    // The files that are named are found at all, so the check looks at something.
+    let rules = String::from_utf8_lossy(&read_bytes(package().join("revision/rules.yml"))).into_owned();
+    assert!(named_files(&rules).contains(&"src/rules.rs".to_string()));
 }

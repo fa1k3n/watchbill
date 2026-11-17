@@ -90,7 +90,7 @@ What follows from it:
   - a tag, a merge key and an alias are refused;
   - it decides itself what a plain value is, so the answer does not rest on which version of YAML the library follows;
   - a value is held to the type its field asks for. Where a text is expected and the value is written plain and could be read as something else (`no`, `1.10`, a date), the file is refused and the message says to put the value in quotes.
-- Until the Rust loader is in (#23), the loader on `main` is the Python one, which reads through PyYAML and takes an alias.
+- Until the move is done (#25), the loader that the installed `wb` runs is the Python one, which reads through PyYAML and takes an alias.
 - `.watchbill/watchbill.yml` and the organisation's file (point 11) are read with the same loader.
 - A file is hashed as its bytes. Nothing is rewritten before hashing, so the format does not touch the hash.
 

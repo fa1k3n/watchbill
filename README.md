@@ -60,7 +60,10 @@ ci: gitlab-ci
 
 ## Installing it
 
-Watchbill is written in Python, run by the Python of the distribution: 3.9 or later, which is what Enterprise Linux 9 has. It needs `git`. Today it uses only the standard library. It is decided that it will also use the YAML library the distribution packages (PyYAML), added when it is first read, and nothing from outside the distribution's own repositories ([docs/revision.md](docs/revision.md), point 6).
+Watchbill is being moved from Python to Rust. The owner decided this on 2026-11-17 (#20), and #21 to #25 do it.
+
+- **Today** the `wb` that is installed is the Python one, run by the Python of the distribution: 3.9 or later, which is what Enterprise Linux 9 has. It needs `git` and the YAML library the distribution packages (PyYAML).
+- **When the move is done** `wb` is one program, built from Rust and two crates that the distribution packages ([docs/revision.md](docs/revision.md), point 6). Building it on Enterprise Linux 9 needs EPEL, where the crates are. Installed, it needs `git` and no library of its own.
 
 On Fedora and Enterprise Linux it is an RPM package, installed and removed with `dnf` like any other program:
 

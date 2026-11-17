@@ -1,6 +1,6 @@
 # What a revision contains
 
-A revision is what a project is set up for and what its agents run under: the same on every machine, and checkable by anyone. This page says exactly what it is. Each point was settled with the owner on 2026-11-16 (#3).
+A revision is what a project is set up for and what its agents run under: the same on every machine, and checkable by anyone. This page says exactly what it is. Each point was settled with the owner on 2026-11-16 (#3). Points 1 and 6 were changed on 2026-11-17, when the owner decided that `wb` is written in Rust and not in Python (#20). Nothing else on the page changed: the files of a revision and their hash are the same.
 
 ## In short
 
@@ -13,18 +13,22 @@ A revision is what a project is set up for and what its agents run under: the sa
 
 The role prompts, the rule table and the model table. The code of `wb` is named by the version of the package, the files by their hash, and a revision is both.
 
-In the package:
+In the installed package, under `/usr/share/watchbill/`:
 
 | Path | Holds |
 |---|---|
-| `watchbill/revision/roles/<role>.md` | The prompt of a role |
-| `watchbill/revision/roles/placeholders.md` | The words a prompt is filled in with |
-| `watchbill/revision/rules.yml` | The rule table |
-| `watchbill/revision/models.yml` | The model table |
-| `watchbill/revision.sha256` | The manifest: the hash of every file above |
-| `watchbill/revisions.txt` | Each version of the package that was released, with the hash of its revision |
+| `revision/roles/<role>.md` | The prompt of a role |
+| `revision/roles/placeholders.md` | The words a prompt is filled in with |
+| `revision/rules.yml` | The rule table |
+| `revision/models.yml` | The model table |
+| `revision.sha256` | The manifest: the hash of every file above |
+| `revisions.txt` | Each version of the package that was released, with the hash of its revision |
 
-The code that reads them is `watchbill/manifest.py` (files, hashes, manifest) and `watchbill/rules.py` (the two tables).
+In a checkout the same files are under `share/watchbill/`.
+
+- The folder is fixed when `wb` is built. No option and no environment variable changes it when `wb` runs, so nobody points `wb` at another revision.
+- The code that reads them is `src/manifest.rs` (files, hashes, manifest) and `src/rules.rs` (the two tables).
+- Until the move to Rust is done (#25), the files are in the Python package, under `src/watchbill/` in a checkout, and the code that reads them is `manifest.py` and `rules.py` there.
 
 ## 2. The roles of the first revision
 
@@ -74,15 +78,19 @@ Figures on the findings of the first runs correct it. A changed model is a new r
 
 ## 6. The format of the tables
 
-YAML, read through a library: the YAML library that the distribution packages (PyYAML; `python3-pyyaml` in Fedora and in the base repository of Enterprise Linux 9). The owner chose this over JSON and over a reader of Watchbill's own.
+YAML, read through a library: the crate `yaml-rust2`, as the distribution packages it. The owner chose a library over JSON and over a reader of Watchbill's own.
 
 What follows from it:
 
-- `wb` needs one library beside Python's standard library. The RPM names it, so `dnf` brings it. Nothing is installed from outside the distribution's own repositories.
-- One loader in `wb` reads every YAML file, and nothing else calls the library:
-  - it uses the safe loader, which builds only plain values;
-  - a key written twice is refused. The library alone would keep the last one silently;
-  - a value is held to the type its field asks for. Where a text is expected and YAML reads something else (`no` as false, `1.10` as a number), the file is refused and the message says to put the value in quotes.
+- `wb` is built from Rust's standard library and two crates: `yaml-rust2`, and `sha2` for the hashes of point 8. Fedora packages both in its own repositories. Enterprise Linux 9 packages Rust but no crates, so there they come from EPEL. Nothing is fetched from crates.io, and a build asks nothing of the network.
+- The crates are built into `wb`. Installed, it needs `git` and no library of its own.
+- One loader in `wb` reads every YAML file, and nothing else uses the library:
+  - it reads the events the library gives and builds only plain values: texts, whole numbers, lists and tables;
+  - a key written twice is refused;
+  - a tag, a merge key and an alias are refused;
+  - it decides itself what a plain value is, so the answer does not rest on which version of YAML the library follows;
+  - a value is held to the type its field asks for. Where a text is expected and the value is written plain and could be read as something else (`no`, `1.10`, a date), the file is refused and the message says to put the value in quotes.
+- Until the Rust loader is in (#23), the loader on `main` is the Python one, which reads through PyYAML and takes an alias.
 - `.watchbill/watchbill.yml` and the organisation's file (point 11) are read with the same loader.
 - A file is hashed as its bytes. Nothing is rewritten before hashing, so the format does not touch the hash.
 
@@ -156,3 +164,5 @@ The pieces that build this have their requirements reserved as Draft rows in `re
 | `WB-CHECK` | `requirements/check.md` | #8 |
 | `WB-PROMPT` | `requirements/prompt.md` | #9, #10 |
 | `WB-CONF` | `requirements/conf.md` | #11 |
+
+The move to Rust builds no new area. #21 to #25 port what #2 and #4 to #6 built, row by row, and their new rows are reserved in `requirements/pkg.md`, `init.md`, `rule.md` and `rev.md`.

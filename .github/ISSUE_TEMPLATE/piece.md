@@ -21,7 +21,7 @@ about: One piece for one session. The issue is the spec.
 
 ## Done when
 
-- The tests pass on Python 3.9 and on the newest Python at hand.
+- The tests pass on the Rust that Enterprise Linux 9 packages and on the newest at hand.
 - The requirements of this piece are Implemented.
 
 ## Not in this piece

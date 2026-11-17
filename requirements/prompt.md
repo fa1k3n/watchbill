@@ -22,3 +22,9 @@ How a prompt is put together from the revision and the project's own text, and t
 | WB-PROMPT-16 | A value that starts with `-` or holds a line break shall arrive in the prompt as it was given. Issue: #10. | T | Implemented |
 | WB-PROMPT-17 | `wb prompt` shall write nothing and ask nothing of the network. Issue: #10. | T | Implemented |
 | WB-PROMPT-18 | `wb prompt` shall take one option for each placeholder on the list of the revision, named as the placeholder, and no other placeholder option. Issue: #43. | T | Implemented |
+| WB-PROMPT-19 | `wb prompt <role> --stamp` shall print, in place of the text, the stamp of the assignment as lines of `name: value` in the order of `docs/revision.md` point 12. Issue: #68. | T | Draft |
+| WB-PROMPT-20 | The `model` and `effort` of a stamp shall be those of the model table for the role. Issue: #68. | T | Draft |
+| WB-PROMPT-21 | A stamp shall have one `part:` line for each part of the prompt, as `--parts` gives it, in order. Issue: #68. | T | Draft |
+| WB-PROMPT-22 | A value with a line break shall be refused by name in a stamp, with status 2. Issue: #68. | T | Draft |
+| WB-PROMPT-23 | `wb prompt` given both `--stamp` and `--parts` shall end with 2. Issue: #68. | T | Draft |
+| WB-PROMPT-24 | `wb prompt --stamp` shall print nothing on standard output and end with 1 when the check of `wb check` does not hold. Issue: #68. | T | Draft |

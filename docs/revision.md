@@ -153,18 +153,30 @@ A level that decides where an assignment may run. It is a second axis beside the
 - **The program refuses, never a model.** No level given means the most restrictive. A person sets or lowers a level; an agent may only raise one.
 - **What it does not do:** stop a person from pasting code into another tool. The network rules of a runner do that. Watchbill refuses the handover and leaves a record.
 
+## 12. The stamp
+
+What a session ran as is said by the one who started it, not by the session. Settled with the owner on 2026-11-17 (#31), after two runs in which every session gave its effort as `unknown`.
+
+- **What is stamped:** the role; the model ID and the effort of the model table; the runner; the version of the package and the hash of the revision; the task, the change and the round; the branch and the checkout; the time; and the hash of each part of the prompt.
+- **What it means:** what was handed out. `wb prompt` knows what the table asks for and what the prompt holds. It cannot see what the session truly runs as. The one who starts the session starts it so; a starter that does both in one step closes the gap (#66).
+- **Who stamps:** the program that hands out the prompt: `wb prompt --stamp` (#68). A person who starts a session by hand posts the stamp as it was printed.
+- **Its form:** lines of `name: value` in a fixed order, the same on every machine, with one line for each part of the prompt in the form `sha256sum` prints. A program can read it and `sha256sum` can check its parts.
+- **Where it is kept:** on the task, one comment per session, whose first line starts with `[stamp] <role> round <n>`. The tester and the build run before there is a change, so the task is the one place that holds every session. #30 may move it later.
+- **The agent's own word:** `model` and `effort` stay in the last message, as what the session says of itself (#69). Where they differ from the stamp, that is a finding for a person, and the stamp is what counts. `unknown` is written down, not a finding: a session often cannot see its own effort.
+- **A session with no stamp:** its work is not taken as the work of a role, and nothing is handed on from it. Until a program hands work on (#66, the officer), a person keeps this rule: no stamp on the task, no next role.
+
 ## The requirements
 
 The pieces that build this have their requirements reserved as Draft rows in `requirements/`:
 
 | Area | File | Issue |
 |---|---|---|
-| `WB-ROLE` | `requirements/role.md` | #4 |
+| `WB-ROLE` | `requirements/role.md` | #4, #69 |
 | `WB-RULE` | `requirements/rule.md` | #5 |
 | `WB-REV` | `requirements/rev.md` | #6 |
 | `WB-PIN` | `requirements/pin.md` | #7 |
 | `WB-CHECK` | `requirements/check.md` | #8 |
-| `WB-PROMPT` | `requirements/prompt.md` | #9, #10 |
+| `WB-PROMPT` | `requirements/prompt.md` | #9, #10, #68 |
 | `WB-CONF` | `requirements/conf.md` | #11 |
 
 The move to Rust builds no new area. #21 to #25 port what #2 and #4 to #6 built, row by row, and their new rows are reserved in `requirements/pkg.md`, `init.md`, `rule.md` and `rev.md`.

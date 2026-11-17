@@ -13,3 +13,4 @@ What `wb init` writes of the revision into the repository it sets up. What a rev
 | WB-PIN-7 | When a folder on the way to a file `wb init` would write, from `.watchbill` down, is a link or is not a folder, `wb init` shall write nothing, name that path, and stop before it asks. Issue: #7. | T | Implemented |
 | WB-PIN-8 | When `.watchbill/revision` is already there, whatever it is and whatever it holds, `wb init` shall write nothing, name it, and stop before it asks. Issue: #7. | T | Implemented |
 | WB-PIN-9 | When writing a file fails part way, `wb init` shall remove what it made, leave what was there before, and end with 1. Issue: #7. | T | Implemented |
+| WB-PIN-10 | When a file `wb init` would write is not below `.watchbill`, `wb init` shall take it as in the way, write nothing and name it. Issue: #53. | T | Draft |

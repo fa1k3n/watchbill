@@ -398,3 +398,17 @@ pub fn repository_root(env: Option<&[(String, String)]>) -> Result<Option<String
         _ => Ok(None),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_WB_PIN_10_a_target_outside_the_folder_is_in_the_way_and_named() {
+        let found = in_the_way("/nowhere/.watchbill", &["/elsewhere/file.md".to_string()]);
+
+        let message = found.expect("a target outside the folder was taken as nothing in the way");
+        assert!(message.contains("/elsewhere/file.md"), "{}", message);
+    }
+}

@@ -134,7 +134,10 @@ Watchbill is a product of its own. [Handover Ledger](https://github.com/fa1k3n/h
 
 What a revision is, and each decision behind it, is in [docs/revision.md](docs/revision.md).
 
+## Licence
+
+Watchbill is licensed under the Apache License, Version 2.0. The text is in [LICENSE](LICENSE) and the holder of the copyright is named in [NOTICE](NOTICE).
+
 ## Not decided
 
-- The licence.
 - Which standard comes first, and which tools the first adapters are for.

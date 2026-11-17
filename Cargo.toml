@@ -5,7 +5,7 @@ version = "0.0.1"
 edition = "2021"
 rust-version = "1.97"
 description = "A harness for AI agents in embedded software development"
-# No licence is chosen yet.
+license = "Apache-2.0"
 publish = false
 
 # The crates come from the distribution's packages. yaml-rust2 is named without its default

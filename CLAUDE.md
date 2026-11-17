@@ -27,7 +27,12 @@ Watchbill: a harness for AI agents in embedded software development, deployed at
 ## The code
 
 - Rust, edition 2021, for the Rust that Enterprise Linux 9 packages (1.97) or later. The owner decided this on 2026-11-17 (#20); before that `wb` was written in Python.
-- `wb` is built from the standard library and two crates: `yaml-rust2` for YAML and `sha2` for SHA-256. The crates come from the distribution's packages: Fedora's own repositories, and EPEL on Enterprise Linux 9. Nothing is fetched from crates.io, and a build asks nothing of the network. No `Cargo.lock` is committed: the versions are the distribution's.
+- `wb` is built from the standard library and crates the distribution packages. A crate is taken where it does most of a job `wb` needs; where `wb` would use only a minor part of it, the lines are written instead. A crate is added to the list below by the issue that first needs it, and the owner agrees. The owner decided this on 2026-11-17 (#34).
+- The crates of `wb`, each with what it is for:
+  - `yaml-rust2`: reading YAML
+  - `sha2`: SHA-256
+  - `lexopt`: reading the command line; `wb` writes every word itself
+- The crates come from the distribution's packages: Fedora's own repositories, and EPEL on Enterprise Linux 9. Nothing is fetched from crates.io, and a build asks nothing of the network. No `Cargo.lock` is committed: the versions are the distribution's.
 - Installed, `wb` needs `git` and no library of its own.
 - Every YAML file is read through the one loader in `wb`: only plain values are built; a key written twice, a tag, a merge key and an alias are refused; a value is held to the type its field asks for ([docs/revision.md](docs/revision.md), point 6).
 - The folder that holds the files of the revision is fixed when `wb` is built. No option and no environment variable changes it when `wb` runs.

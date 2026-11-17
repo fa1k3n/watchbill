@@ -60,7 +60,7 @@ ci: gitlab-ci
 
 ## Installing it
 
-`wb` is one program, built from Rust and two crates that the distribution packages ([docs/revision.md](docs/revision.md), point 6). The owner decided this on 2026-11-17 (#20). Building it on Enterprise Linux 9 needs EPEL, where the crates are. Installed, it needs `git` and no library of its own.
+`wb` is one program, built from Rust and a few crates that the distribution packages ([docs/revision.md](docs/revision.md), point 6). The owner decided this on 2026-11-17 (#20, #34). Building it on Enterprise Linux 9 needs EPEL, where the crates are. Installed, it needs `git` and no library of its own.
 
 On Fedora and Enterprise Linux it is an RPM package, installed and removed with `dnf` like any other program:
 
@@ -69,7 +69,7 @@ packaging/rpm.sh                                                  # builds the p
 sudo dnf install build/rpm/RPMS/$(uname -m)/watchbill-[0-9]*.rpm      # puts wb in /usr/bin and the revision in /usr/share/watchbill
 ```
 
-The package is built here from a checkout. There is no repository to `dnf install watchbill` from yet. Building needs `rpm-build`, `git-core`, and the Rust of the distribution: `cargo`, `rust` (1.97 or later), `cargo-rpm-macros` and the crates `yaml-rust2` and `sha2` (`rust-yaml-rust2-devel`, `rust-sha2-devel`). On Enterprise Linux 9 it also needs **EPEL**: `cargo-rpm-macros` and the crates are only there.
+The package is built here from a checkout. There is no repository to `dnf install watchbill` from yet. Building needs `rpm-build`, `git-core`, and the Rust of the distribution: `cargo`, `rust` (1.97 or later), `cargo-rpm-macros` and the crates `yaml-rust2`, `sha2` and `lexopt` (`rust-yaml-rust2-devel`, `rust-sha2-devel`, `rust-lexopt-devel`). On Enterprise Linux 9 it also needs **EPEL**: `cargo-rpm-macros` and the crates are only there.
 
 ```sh
 sudo dnf install epel-release                    # Enterprise Linux 9 only
@@ -80,6 +80,7 @@ With only BaseOS and AppStream the build stops before it compiles anything, and 
 ```
 error: Failed build dependencies:
 	cargo-rpm-macros is needed by watchbill-0.0.1-1.el9.x86_64
+	crate(lexopt) >= 0.3 is needed by watchbill-0.0.1-1.el9.x86_64
 	crate(sha2) >= 0.10.9 is needed by watchbill-0.0.1-1.el9.x86_64
 	crate(yaml-rust2) >= 0.10.4 is needed by watchbill-0.0.1-1.el9.x86_64
 ```

@@ -2,8 +2,8 @@
 # Builds the RPM of this checkout: packaging/rpm.sh [<folder for the result>]
 # The default folder is build/rpm. The package is then installed with
 #   sudo dnf install build/rpm/RPMS/$(uname -m)/watchbill-[0-9]*.rpm
-# Needs: rpm-build git-core cargo rust cargo-rpm-macros rust-yaml-rust2-devel rust-sha2-devel
-# On Enterprise Linux 9 cargo-rpm-macros, rust-yaml-rust2-devel and rust-sha2-devel are in EPEL.
+# Needs: rpm-build git-core cargo rust cargo-rpm-macros rust-yaml-rust2-devel rust-sha2-devel rust-lexopt-devel
+# On Enterprise Linux 9 cargo-rpm-macros and the crates are in EPEL.
 set -eu
 
 here=$(cd "$(dirname "$0")/.." && pwd)

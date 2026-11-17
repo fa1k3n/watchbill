@@ -16,6 +16,10 @@ yaml-rust2 = { version = "0.10.4", default-features = false }
 # sha2 is named without its default features, which need const-oid: rust-sha2-devel does not bring
 # that crate. 0.10.9 is the oldest that builds with them (Fedora 44 has it; EPEL 9 has 0.11).
 sha2 = { version = ">=0.10.9, <0.12", default-features = false }
+# lexopt splits the command line into options and values; wb decides what each means and writes
+# every word itself. Fedora 44 and EPEL 9 both have 0.3.2. It has no features; without its default
+# the macros ask for rust-lexopt-devel alone, not rust-lexopt+default-devel as well.
+lexopt = { version = "0.3", default-features = false }
 
 [lib]
 path = "src/lib.rs"

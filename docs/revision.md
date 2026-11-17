@@ -81,7 +81,7 @@ YAML, read through a library: the crate `yaml-rust2`, as the distribution packag
 
 What follows from it:
 
-- `wb` is built from Rust's standard library and two crates: `yaml-rust2`, and `sha2` for the hashes of point 8. Fedora packages both in its own repositories. Enterprise Linux 9 packages Rust but no crates, so there they come from EPEL. Nothing is fetched from crates.io, and a build asks nothing of the network.
+- `wb` is built from Rust's standard library and the crates that `CLAUDE.md` lists: `yaml-rust2`, `sha2` for the hashes of point 8, and `lexopt` for the command line. A crate is taken where it does most of a job `wb` needs (#34). Fedora packages each in its own repositories. Enterprise Linux 9 packages Rust but no crates, so there they come from EPEL. Nothing is fetched from crates.io, and a build asks nothing of the network.
 - The crates are built into `wb`. Installed, it needs `git` and no library of its own.
 - One loader in `wb` reads every YAML file, and nothing else uses the library:
   - it reads the events the library gives and builds only plain values: texts, whole numbers, lists and tables;

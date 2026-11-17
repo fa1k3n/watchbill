@@ -51,9 +51,18 @@ fn assert_written(run: &Output, folder: &Path) {
 
 #[test]
 fn test_WB_INIT_39_dash_dash_before_the_command_does_as_the_command() {
+    // With no answers, `wb init` ends at the question whether it is OK and writes nothing.
     let folder = repository(None);
+    let plain = wb(&folder.path, &["init"], "");
+    let run = wb(&folder.path, &["--", "init"], "");
+    assert_eq!(code(&run), code(&plain));
+    assert_eq!(text(&run.stdout), text(&plain.stdout));
+    assert_eq!(text(&run.stderr), text(&plain.stderr));
+    assert!(text(&run.stdout).contains("project"), "{}", text(&run.stdout));
+
+    // After `--` every word is a word, also those after the command.
     let run = wb(&folder.path, &["--", "init", "--yes"], "");
-    assert_written(&run, &folder.path);
+    assert_refused(&run, &folder.path, &not_known("--yes"));
 }
 
 #[test]

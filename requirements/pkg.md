@@ -16,4 +16,4 @@ How `wb` is installed and what it needs. What the package carries of the revisio
 | WB-PKG-10 | A fault in `wb` itself shall end the command with 1 and one line, and print no panic message. Issue: #25. | T | Implemented |
 | WB-PKG-11 | The package shall name the licence of Watchbill in its metadata, and the `License:` of the spec and the `license` of `Cargo.toml` shall be the same SPDX name, `Apache-2.0`. Issue: #39. | T | Implemented |
 | WB-PKG-12 | The package shall install the files `LICENSE` and `NOTICE` as licence files. Issue: #39. | T | Implemented |
-| WB-PKG-13 | The crates `wb` is built from shall be those that the list in `CLAUDE.md` names, no more and no fewer. Issue: #34. | T | Draft |
+| WB-PKG-13 | The crates `wb` is built from shall be those that the list in `CLAUDE.md` names, no more and no fewer. Issue: #34. | T | Implemented |

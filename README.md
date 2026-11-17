@@ -86,7 +86,7 @@ error: Failed build dependencies:
 	cargo-rpm-macros is needed by watchbill-0.0.1-1.el9.noarch
 ```
 
-The build runs the tests of the Python and of the Rust `wb`. The package still installs the Python `wb`: the Rust one is built and tested, and not installed, until #25. A build asks nothing of the network. `.cargo/config.toml` takes crates from `/usr/share/cargo/registry`, where the distribution's `rust-<name>-devel` packages put them, and never from crates.io. On Fedora the container image leaves out documentation files (`tsflags=nodocs`), and some crates need their `README.md` to compile; a build host installs the crates with documentation.
+The build runs the tests of the Python and of the Rust `wb`. The package still installs the Python `wb`: the Rust one is built and tested, and not installed, until #25. A build asks nothing of the network: the macros of the distribution point cargo at `/usr/share/cargo/registry`, where the `rust-<name>-devel` packages put the crates, and never at crates.io. The `.cargo/config.toml` in the tree does the same for `cargo test` run by hand in a checkout.
 
 To try it without installing anything, from a checkout:
 

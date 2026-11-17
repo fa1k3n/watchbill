@@ -1,10 +1,11 @@
 # Crates come from the folder the distribution's packages install them to, and never from
 # the network. Fedora's `rust-<name>-devel` packages, and on Enterprise Linux 9 those of
-# EPEL, put them there.
+# EPEL, put them there. The source has the name the macros of the RPM build give it, so
+# that the two configs agree when the build folder is inside the checkout.
 [source.crates-io]
-replace-with = "distribution"
+replace-with = "local-registry"
 
-[source.distribution]
+[source.local-registry]
 directory = "/usr/share/cargo/registry"
 
 [net]

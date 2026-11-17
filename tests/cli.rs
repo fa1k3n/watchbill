@@ -42,8 +42,12 @@ fn text(bytes: &[u8]) -> String {
 
 /// The version a text sets as `__version__`.
 fn version_in(text: &str) -> Option<String> {
-    text.lines()
-        .find_map(|line| line.strip_prefix("__version__ = \"")?.strip_suffix('"').map(String::from))
+    text.lines().find_map(|line| {
+        let value = line.strip_prefix("__version__")?.trim_start().strip_prefix('=')?.trim_start();
+        let quote = value.chars().next().filter(|c| *c == '"' || *c == '\'')?;
+        let inside = &value[1..];
+        Some(inside[..inside.find(quote)?].to_string())
+    })
 }
 
 /// The version of the crate: the `version` line of the `[package]` table.

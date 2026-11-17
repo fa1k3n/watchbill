@@ -21,6 +21,28 @@ pub const USAGE: &str = "usage:
             manifest: the hash of every file the revision holds. Writes nothing
 ";
 
+/// A word of the command line as text. What is not UTF-8 is written as the Python `wb` writes
+/// it: each byte that is not part of a character as `\udcXX`.
+pub fn word(bytes: &[u8]) -> String {
+    let mut text = String::new();
+    let mut rest = bytes;
+    while !rest.is_empty() {
+        match std::str::from_utf8(rest) {
+            Ok(valid) => {
+                text.push_str(valid);
+                break;
+            }
+            Err(error) => {
+                let (valid, after) = rest.split_at(error.valid_up_to());
+                text.push_str(std::str::from_utf8(valid).unwrap_or(""));
+                text.push_str(&format!("\\udc{:02x}", after[0]));
+                rest = &after[1..];
+            }
+        }
+    }
+    text
+}
+
 /// Runs `wb` with the words after its name and returns the exit status:
 /// 0 it holds or it is done, 1 it does not hold or it was refused, 2 it was used wrongly.
 ///

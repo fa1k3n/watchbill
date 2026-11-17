@@ -525,3 +525,12 @@ fn test_WB_RULE_15_a_tab_anywhere_in_a_file_is_refused_with_the_line() {
     let doc = Folder::new().load("a: \"x\\ty\"\n");
     assert_eq!(doc.text(&at(&["a"])).unwrap(), "x\ty");
 }
+
+#[test]
+fn test_WB_RULE_12_an_empty_text_in_quotes_is_named_at_its_own_line() {
+    let doc = Folder::new().load("ok: 1\n'': 1\na:\n  - x\n  - ''\n");
+    let message = doc.only(&[], &["ok", "a"]).err().expect("the key '' was taken").to_string();
+    assert!(message.contains("line 2"), "{}", message);
+    let message = doc.texts(&at(&["a"]), false).err().expect("an empty text was taken").to_string();
+    assert!(message.contains("line 5"), "{}", message);
+}

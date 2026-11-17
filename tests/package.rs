@@ -228,6 +228,35 @@ fn test_WB_PKG_14_rpm_sh_takes_the_date_of_the_package_from_the_commit_it_builds
 }
 
 #[test]
+fn test_WB_PKG_14_rpm_sh_makes_the_tarball_with_the_commit_date_sorted_names_and_root_owner() {
+    let text = rpm_script();
+    let tar = text.split("\n  tar ").nth(1).expect("no tar command").split("\n\n").next().unwrap();
+    for flag in ["--sort=name", "--mtime=\"@$SOURCE_DATE_EPOCH\"", "--owner=0", "--group=0", "--numeric-owner"] {
+        assert!(tar.contains(flag), "tar is not given {}", flag);
+    }
+}
+
+#[test]
+fn test_WB_PKG_14_rpm_sh_outside_a_git_checkout_says_it_needs_one_and_stops_with_2() {
+    let base = std::env::temp_dir().join(format!("wb-pkg-14-{}", std::process::id()));
+    let tree = base.join("tree");
+    fs::create_dir_all(tree.join("packaging")).unwrap();
+    fs::copy(root().join("packaging/rpm.sh"), tree.join("packaging/rpm.sh")).unwrap();
+    fs::copy(root().join("Cargo.toml"), tree.join("Cargo.toml")).unwrap();
+    let run = std::process::Command::new("sh")
+        .arg(tree.join("packaging/rpm.sh"))
+        .arg(base.join("out"))
+        .env("GIT_CEILING_DIRECTORIES", &base)
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&run.stderr).to_string();
+    let _ = fs::remove_dir_all(&base);
+    assert_eq!(run.status.code(), Some(2), "{}", err);
+    assert!(err.contains("rpm.sh needs a git checkout"), "{}", err);
+    assert!(!err.contains("fatal:"), "git's own error came first: {}", err);
+}
+
+#[test]
 fn test_WB_PKG_14_rpm_sh_tells_rpmbuild_to_use_that_date_and_to_clamp_the_files_to_it() {
     let text = rpm_script();
     // The command, with the lines it is continued on.

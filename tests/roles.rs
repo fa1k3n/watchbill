@@ -359,3 +359,14 @@ fn test_WB_ROLE_20_every_prompt_takes_pushing_and_posting_from_the_project_text(
         assert!(point.contains("how work is pushed and posted here"), "{}: {}", role, point);
     }
 }
+
+// A search is an opening (#44).
+
+#[test]
+fn test_WB_ROLE_21_every_prompt_says_a_search_opens_every_file_it_reads() {
+    let search = "A search (a grep, a find with content, a tool that reads files to answer) opens every file it reads. \
+                  Keep it to the files you may read.";
+    for role in ROLES {
+        assert!(part(role, "## What you read").contains(search), "{}", role);
+    }
+}

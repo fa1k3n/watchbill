@@ -92,7 +92,7 @@ fn test_WB_PROMPT_2_with_no_project_text_the_prompt_is_the_role_filled_and_nothi
 }
 
 #[test]
-fn test_WB_PROMPT_2_a_placeholder_that_got_no_value_is_refused_by_name() {
+fn test_WB_PROMPT_14_a_placeholder_that_got_no_value_is_refused_by_name_in_the_library() {
     let folder = set_up();
 
     let why = match assemble(&folder.path, "build", &VALUES[1..]) {
@@ -116,6 +116,17 @@ fn test_WB_PROMPT_3_a_placeholder_not_on_the_list_is_refused_in_any_part_and_the
             let mut text = read(&path);
             text.push_str("\nSee {branch}.\n");
             fs::write(&path, text).unwrap();
+            // The manifest says the same of the file, so that only the placeholder is at fault.
+            let manifest = folder.path.join(".watchbill/revision.sha256");
+            let old = sha256(&folder.path.join(".watchbill/revision/roles/build.md"));
+            let lines: Vec<String> = read(&manifest)
+                .lines()
+                .map(|line| match line.strip_suffix("  revision/roles/build.md") {
+                    Some(_) => format!("{}  revision/roles/build.md", old),
+                    None => line.to_string(),
+                })
+                .collect();
+            fs::write(&manifest, lines.join("\n") + "\n").unwrap();
         } else {
             put(&folder.path, file, "Work on {branch}.\n");
         }
@@ -259,4 +270,131 @@ fn test_WB_PROMPT_9_a_link_for_the_folder_project_is_refused_before_the_question
     assert_eq!(code(&run), Some(1));
     assert!(!text(&run.stdout).contains("project:"), "it asked");
     assert_eq!(fs::read_dir(&outside.path).unwrap().count(), 0);
+}
+
+fn outside_file() -> Folder {
+    let outside = folder_named("outside");
+    put(&outside.path, "secret.md", "SECRET TEXT\n");
+    outside
+}
+
+fn link(to: &Path, at: &Path) {
+    fs::create_dir_all(at.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(to, at).unwrap();
+}
+
+#[test]
+fn test_WB_PROMPT_1_a_project_file_that_is_a_link_is_refused_by_name_and_not_read() {
+    for file in ["all.md", "build.md"] {
+        let folder = set_up();
+        let outside = outside_file();
+        link(&outside.path.join("secret.md"), &folder.path.join(".watchbill/project").join(file));
+
+        let why = refused(&folder.path, "build");
+
+        assert!(why.contains(&format!(".watchbill/project/{}", file)), "{}: {}", file, why);
+        assert!(!why.contains("SECRET"), "{}", why);
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_1_a_project_folder_that_is_a_link_is_refused_by_name_and_not_read() {
+    let folder = set_up();
+    let outside = outside_file();
+    put(&outside.path, "all.md", "SECRET TEXT\n");
+    fs::remove_dir_all(folder.path.join(".watchbill/project")).unwrap();
+    link(&outside.path, &folder.path.join(".watchbill/project"));
+
+    let why = refused(&folder.path, "build");
+
+    assert!(why.contains(".watchbill/project"), "{}", why);
+    assert!(!why.contains("SECRET"), "{}", why);
+}
+
+#[test]
+fn test_WB_PROMPT_1_a_project_file_that_is_not_a_plain_file_is_refused_and_does_not_hang() {
+    let folder = set_up();
+    let fifo = folder.path.join(".watchbill/project/all.md");
+    let made = Command::new("mkfifo").arg(&fifo).status().expect("mkfifo could not be started");
+    assert!(made.success());
+
+    let why = refused(&folder.path, "build");
+    assert!(why.contains(".watchbill/project/all.md"), "{}", why);
+
+    fs::remove_file(&fifo).unwrap();
+    fs::create_dir(&fifo).unwrap();
+    let why = refused(&folder.path, "build");
+    assert!(why.contains(".watchbill/project/all.md"), "{}", why);
+}
+
+#[test]
+fn test_WB_PROMPT_1_the_file_of_the_role_that_is_a_link_is_refused_by_name() {
+    let folder = set_up();
+    let outside = outside_file();
+    let file = folder.path.join(".watchbill/revision/roles/build.md");
+    fs::remove_file(&file).unwrap();
+    link(&outside.path.join("secret.md"), &file);
+
+    let why = refused(&folder.path, "build");
+
+    assert!(why.contains(".watchbill/revision/roles/build.md"), "{}", why);
+    assert!(!why.contains("SECRET"), "{}", why);
+}
+
+#[test]
+fn test_WB_PROMPT_6_the_roles_are_those_of_the_manifest_and_not_every_file_of_the_folder() {
+    let folder = set_up();
+    put(&folder.path, ".watchbill/revision/roles/pilot.md", "You are a pilot.\n");
+
+    let why = refused(&folder.path, "pilot");
+
+    for name in ["build", "fix", "review", "tester"] {
+        assert!(why.contains(name), "{}", why);
+    }
+    assert!(!why.contains("pilot.md"), "{}", why);
+    assert!(why.contains("no role 'pilot'"), "{}", why);
+}
+
+#[test]
+fn test_WB_PROMPT_7_a_role_file_that_is_not_the_one_of_the_manifest_is_refused_and_named() {
+    let folder = set_up();
+    let file = folder.path.join(".watchbill/revision/roles/build.md");
+    let mut changed = read(&file);
+    changed.push_str("One more rule.\n");
+    fs::write(&file, changed).unwrap();
+
+    let why = refused(&folder.path, "build");
+
+    assert!(why.contains(".watchbill/revision/roles/build.md"), "{}", why);
+    assert!(why.contains("manifest"), "{}", why);
+    // The others are as the manifest says, and are used.
+    assert!(assemble(&folder.path, "fix", &VALUES).is_ok());
+}
+
+#[test]
+fn test_WB_PROMPT_3_a_placeholder_is_a_lower_case_word_in_braces_with_no_dollar_before_it() {
+    let folder = set_up();
+    let text = "Shell: ${BUILD_DIR} ${task} {Task} {task-id} { task } {round2} {} {a b} $ {x}\n";
+    // Of these only `{x}` is a placeholder, and it is not on the list.
+    put(&folder.path, ".watchbill/project/all.md", &text.replace(" {x}", ""));
+
+    let prompt = assemble(&folder.path, "build", &VALUES).unwrap();
+
+    assert!(prompt.text.ends_with(&text.replace(" {x}", "")), "{}", prompt.text);
+
+    put(&folder.path, ".watchbill/project/all.md", text);
+    let why = refused(&folder.path, "build");
+    assert!(why.contains("{x}") && why.contains(".watchbill/project/all.md"), "{}", why);
+    for word in ["a_b", "task_id", "b"] {
+        put(&folder.path, ".watchbill/project/all.md", &format!("{{{}}}\n", word));
+        assert!(refused(&folder.path, "build").contains(&format!("{{{}}}", word)), "{}", word);
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_3_both_readmes_say_the_rule() {
+    let rule = "a lower-case word in braces";
+    let folder = set_up();
+    assert!(read(&folder.path.join(".watchbill/project/README.md")).contains(rule));
+    assert!(read(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("README.md")).contains(rule));
 }

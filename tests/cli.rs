@@ -12,6 +12,7 @@ use std::process::{Command, Output};
 
 const USAGE: &str = "usage:
   wb init [--yes]
+  wb check
   wb revision
   wb --version
 
@@ -21,6 +22,11 @@ const USAGE: &str = "usage:
             answer, show the file and write .watchbill/watchbill.yml at the
             root of the repository. --yes (-y) takes what it found and asks
             nothing. A file that is already there is never changed
+  check     say whether the repository still is at the revision it is pinned to:
+            each file under .watchbill/revision/ against the manifest, the
+            manifest against the revision line of watchbill.yml, and that
+            revision against the installed wb. Ends with 0 when all of it
+            holds, 1 when something differs. Writes nothing
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes nothing
 ";
@@ -132,8 +138,8 @@ fn test_WB_INIT_25_only_the_first_word_is_the_command() {
 
 #[test]
 fn test_WB_INIT_25_the_commands_that_are_not_built_yet_are_not_known() {
-    // `init` is built (#22) and `revision` is built (#24). `check` is built by #8.
-    for word in ["check"] {
+    // `init` is built (#22), `revision` is built (#24) and `check` is built (#8): none is left.
+    for word in [] as [&str; 0] {
         let run = wb(&[word]);
 
         assert_eq!(run.status.code(), Some(2), "{}", word);

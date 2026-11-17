@@ -72,6 +72,30 @@ ci: gitlab-ci
 - **A file that is already there is never changed.** When any file `wb init` would write is there, or a folder on the way to one is a link or not a folder, or `.watchbill/revision` is there, it writes nothing at all and names the path. Bringing a repository to a newer revision is a command of its own, later. A write that fails part way removes what it had written.
 - **The answers are only written down.** No adapter exists yet, so a git server or a tracker is a name and nothing more.
 
+## Checking it
+
+`wb check` says whether a repository still is at the revision it is pinned to, and whether the installed `wb` is that revision. Run it anywhere inside the repository. It writes nothing and asks nothing of the network.
+
+```
+$ wb check
+changed: .watchbill/revision/roles/build.md
+1 difference. The repository is not at the revision it is pinned to.
+```
+
+It compares three things, and names each file that differs and how:
+
+- each file under `.watchbill/revision/` with the manifest `.watchbill/revision.sha256`: `changed` (also a folder or a link where a file goes), `missing`, or `not of the revision` when the manifest has no line for it, or a folder it does not account for, even an empty one;
+- the manifest with the line `revision:` of `watchbill.yml`, which is the hash of the manifest;
+- the version and the revision the repository is pinned to with those of the installed `wb`. When they differ, both are named.
+
+A link is never followed, as `wb init` refuses one on the way: a link for `.watchbill`, `.watchbill/revision`, a folder below it, the manifest or `watchbill.yml` is named as a link, once, and what is behind it is not looked at.
+
+The exit status:
+
+- **0**: all of it holds.
+- **1**: something differs, or the file `watchbill.yml` is refused. Each difference is on standard output.
+- **2**: `wb check` was used wrongly, the folder is not in a git repository, or `.watchbill/watchbill.yml` is not there, so Watchbill is not set up. The reason is on standard error.
+
 ## Installing it
 
 `wb` is one program, built from Rust and a few crates that the distribution packages ([docs/revision.md](docs/revision.md), point 6). The owner decided this on 2026-11-17 (#20, #34). Building it on Enterprise Linux 9 needs EPEL, where the crates are. Installed, it needs `git` and no library of its own.

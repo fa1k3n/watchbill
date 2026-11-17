@@ -246,6 +246,11 @@ pub fn manifest_with(base: impl AsRef<Path>, after_look: &mut dyn FnMut(&str)) -
     Ok(text)
 }
 
+/// The SHA-256 of bytes as they are, in lower-case hex.
+pub fn hash_bytes(data: &[u8]) -> String {
+    hex(data)
+}
+
 /// The hash of the revision, given its manifest: the SHA-256 of the manifest.
 pub fn hash_of(text: &str) -> String {
     hex(text.as_bytes())

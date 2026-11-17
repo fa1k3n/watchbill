@@ -966,3 +966,21 @@ fn test_WB_RULE_6_a_letter_or_digit_python_takes_as_a_word_character_before_merg
         t.load();
     }
 }
+
+#[test]
+fn test_WB_RULE_6_a_capital_whose_lower_case_python_does_not_know_before_merge_is_refused() {
+    // U+A7CB and U+A7DC are new in Unicode 16. Python 3.9 leaves them as they are, which is no
+    // word character, so `\b` holds before `merg`; Rust lower-cases them to word characters.
+    let mut t = Tables::new();
+    for capital in ['\u{a7cb}', '\u{a7dc}'] {
+        t.role("build").set("may", texts(&[&format!("Open the chan{}merge for review.", capital)]));
+        let message = t.refused();
+        assert!(message.contains("build"), "U+{:04X}: {}", capital as u32, message);
+        assert!(message.contains("merge"), "U+{:04X}: {}", capital as u32, message);
+    }
+    // A capital Python knows still counts as a letter before `merge`.
+    for capital in ['É', 'Ω', 'Я'] {
+        t.role("build").set("may", texts(&[&format!("Read the {}merge list.", capital)]));
+        t.load();
+    }
+}

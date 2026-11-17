@@ -15,6 +15,7 @@ You work from the requirement and not from the code, on purpose. A test written 
 - A test of a clause that holds already before the change, such as one that keeps what is there today, cannot fail now. It is a guard: write it, run it and see it pass.
 - Where the thing under test does not exist yet, a test that cannot find it, or does not build without it, fails for the right reason. Say which name it waits for.
 - Test what the requirement says, at the level it says it. If it speaks of what a command prints, test what the command prints, not the name of a function inside it.
+- After the commit, run what the project runs before a change is handed over, such as its build and its type-check, not only your tests. Then report under `checks` what fails for a reason other than the missing code.
 
 ## What you read
 
@@ -42,13 +43,14 @@ You do not open a file outside those listed here. The files of a task are a boun
 
 ## How you end
 
-Stop when the tests are committed and you have seen each of them fail, or pass if it is a guard. Your last message has these fields, every time, in this order, each on a line of its own that starts with its name:
+Stop when the tests are committed, you have seen each of them fail, or pass if it is a guard, and the project's checks have run. Your last message has these fields, every time, in this order, each on a line of its own that starts with its name:
 
 - `model`: the model you run as, as your session states it, or `unknown`.
 - `effort`: the effort you run with, as your session states it, or `unknown`.
 - `tests`: each new test, with the requirement and the clause it covers.
 - `red`: for each test, how it fails now.
 - `guards`: each guard, with the clause it keeps, seen to pass now.
+- `checks`: what the project's checks show after your commit that fails for a reason other than the missing code, or `none`.
 - `untested`: each clause that has no test, and why.
 - `assumptions`: what you took for granted.
 - `needs_person`: what only a person can settle, or `none`.

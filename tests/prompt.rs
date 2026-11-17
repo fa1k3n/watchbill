@@ -14,8 +14,16 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use watchbill::prompt::{assemble, FIXED_LINE};
 
-const VALUES: [(&str, &str); 4] =
-    [("task", "T-1 brake light"), ("change", "42"), ("requirements", "WB-X-1, WB-X-2"), ("round", "1")];
+const VALUES: [(&str, &str); 8] = [
+    ("task", "T-1 brake light"),
+    ("change", "42"),
+    ("requirements", "WB-X-1, WB-X-2"),
+    ("round", "1"),
+    ("checkout", "/work/brakes"),
+    ("branch", "task-1"),
+    ("task_address", "tracker T-1"),
+    ("change_address", "server 42"),
+];
 
 fn package() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("share/watchbill")
@@ -114,7 +122,7 @@ fn test_WB_PROMPT_3_a_placeholder_not_on_the_list_is_refused_in_any_part_and_the
         if in_role {
             let path = folder.path.join(file);
             let mut text = read(&path);
-            text.push_str("\nSee {branch}.\n");
+            text.push_str("\nSee {colour}.\n");
             fs::write(&path, text).unwrap();
             // The manifest says the same of the file, so that only the placeholder is at fault.
             let manifest = folder.path.join(".watchbill/revision.sha256");
@@ -128,13 +136,13 @@ fn test_WB_PROMPT_3_a_placeholder_not_on_the_list_is_refused_in_any_part_and_the
                 .collect();
             fs::write(&manifest, lines.join("\n") + "\n").unwrap();
         } else {
-            put(&folder.path, file, "Work on {branch}.\n");
+            put(&folder.path, file, "Work on {colour}.\n");
         }
 
         let why = refused(&folder.path, "build");
 
         assert!(why.contains(file), "{}: {}", file, why);
-        assert!(why.contains("{branch}"), "{}: {}", file, why);
+        assert!(why.contains("{colour}"), "{}: {}", file, why);
     }
 }
 
@@ -151,8 +159,9 @@ fn test_WB_PROMPT_3_text_that_is_no_placeholder_is_left_as_it_is() {
 #[test]
 fn test_WB_PROMPT_4_a_value_that_is_filled_in_is_not_read_for_placeholders() {
     let folder = set_up();
-    let values =
-        [("task", "fix {change} and {nothing}"), ("change", "42"), ("requirements", "R-{task}"), ("round", "2")];
+    let mut values =
+        vec![("task", "fix {change} and {nothing}"), ("change", "42"), ("requirements", "R-{task}"), ("round", "2")];
+    values.extend(VALUES[4..].iter().copied());
 
     let prompt = assemble(&folder.path, "build", &values).unwrap();
 

@@ -21,3 +21,4 @@ How a prompt is put together from the revision and the project's own text, and t
 | WB-PROMPT-15 | An option of `wb prompt` that is no placeholder shall end with 2 and the usage. Issue: #10. | T | Implemented |
 | WB-PROMPT-16 | A value that starts with `-` or holds a line break shall arrive in the prompt as it was given. Issue: #10. | T | Implemented |
 | WB-PROMPT-17 | `wb prompt` shall write nothing and ask nothing of the network. Issue: #10. | T | Implemented |
+| WB-PROMPT-18 | `wb prompt` shall take one option for each placeholder on the list of the revision, named as the placeholder, and no other placeholder option. Issue: #43. | T | Draft |

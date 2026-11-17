@@ -322,3 +322,40 @@ fn test_WB_ROLE_8_each_prompt_starts_with_a_line_saying_it_is_a_draft() {
         assert_eq!(first, "Draft: this prompt has not yet run on a project.", "{}", role);
     }
 }
+
+// Where the work is (#43): the words a session needs to know where it works and where it reads.
+
+#[test]
+fn test_WB_ROLE_17_the_list_holds_the_checkout_the_branch_and_the_two_addresses() {
+    let names = listed();
+    for name in ["{checkout}", "{branch}", "{task_address}", "{change_address}"] {
+        assert!(names.contains(&name.to_string()), "{} is not on the list: {:?}", name, names);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_18_every_prompt_names_its_checkout_its_branch_and_where_its_task_is_read() {
+    for role in ROLES {
+        // Said before the first part, where the role is named.
+        let opening = split_parts(&prompt(role)).remove(0);
+        assert!(opening.contains("You work in the checkout {checkout}, on the branch {branch}."), "{}", role);
+        assert!(part(role, "## What you read").contains("The task {task}, at {task_address},"), "{}", role);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_19_review_and_fix_name_where_the_change_is_read_and_posted() {
+    for role in ["review", "fix"] {
+        assert!(part(role, "## What you read").contains("{change}, at {change_address}"), "{}", role);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_20_every_prompt_takes_pushing_and_posting_from_the_project_text() {
+    for role in ROLES {
+        let body = part(role, "## What you read");
+        let point = body.split('\n').find(|line| line.starts_with("- The project's own text, where it follows this prompt:"));
+        let point = point.unwrap_or_else(|| panic!("{}: no point for the project's own text", role));
+        assert!(point.contains("how work is pushed and posted here"), "{}: {}", role, point);
+    }
+}

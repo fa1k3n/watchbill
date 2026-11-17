@@ -14,7 +14,8 @@ const USAGE: &str = "usage:
   wb init [--yes]
   wb check
   wb prompt <role> [--task <text>] [--change <text>] [--requirements <text>]
-            [--round <text>] [--parts]
+            [--round <text>] [--checkout <text>] [--branch <text>]
+            [--task_address <text>] [--change_address <text>] [--parts]
   wb revision
   wb --version
 
@@ -30,8 +31,8 @@ const USAGE: &str = "usage:
             revision against the installed wb. Ends with 0 when all of it
             holds, 1 when something differs. Writes nothing
   prompt    print the prompt of a role on standard output and nothing else: the
-            role's text of the pinned revision with its placeholders filled
-            from --task, --change, --requirements and --round, then the
+            role's text of the pinned revision with each placeholder filled
+            from the option of its name, such as --task for {task}, then the
             project's own text. It runs the check of wb check first and prints
             nothing when that fails. --parts prints the path and the SHA-256 of
             each part, in the form sha256sum prints, in place of the text.

@@ -25,7 +25,7 @@ pub const USAGE: &str = "usage:
   wb check
   wb prompt <role> [--task <text>] [--change <text>] [--requirements <text>]
             [--round <text>] [--checkout <text>] [--branch <text>]
-            [--task_address <text>] [--change_address <text>] [--parts]
+            [--task_address <text>] [--change_address <text>] [--parts] [--stamp]
   wb revision
   wb --version
 
@@ -46,7 +46,10 @@ pub const USAGE: &str = "usage:
             project's own text. It runs the check of wb check first and prints
             nothing when that fails. --parts prints the path and the SHA-256 of
             each part, in the form sha256sum prints, in place of the text.
-            Ends with 0 when the prompt is printed, 1 when it is refused, 2
+            --stamp prints, in place of the text, what the assignment is: the
+            role, its model and effort, the version and revision, the task, the
+            change, the round, the branch, the checkout, the time, and each
+            part as --parts gives it. Not with --parts. Ends with 0 when the prompt is printed, 1 when it is refused, 2
             when it was used wrongly or the repository is not set up. Writes
             nothing
   revision  print the version of the package, the hash of its revision and the
@@ -247,6 +250,7 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     let mut role: Option<String> = None;
     let mut values: Vec<(&'static str, String)> = Vec::new();
     let mut parts = false;
+    let mut stamp = false;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
@@ -255,6 +259,7 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
         };
         match found {
             Word::Long(option) if option == "parts" => parts = true,
+            Word::Long(option) if option == "stamp" => stamp = true,
             Word::Long(option) if prompt::PLACEHOLDERS.contains(&option.as_str()) => {
                 let name = prompt::PLACEHOLDERS.iter().find(|name| **name == option).unwrap();
                 // A value is whatever follows, also when it starts with `-`.
@@ -283,6 +288,17 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     let Some(role) = role else {
         return used(err, "a role is needed".to_string());
     };
+    if stamp && parts {
+        return used(err, "'--stamp' and '--parts' are not used together".to_string());
+    }
+    // One line of a stamp stays one line.
+    if stamp {
+        for (name, value) in &values {
+            if prompt::STAMPED.contains(name) && value.contains(['\n', '\r']) {
+                return used(err, format!("the value of '--{}' holds a line break, and a stamp holds one line for it", name));
+            }
+        }
+    }
     let root = match init::repository_root(None) {
         Err(why) => {
             let _ = writeln!(err, "wb prompt: {}.", why);
@@ -310,7 +326,40 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
             1
         }
         Ok(found) => {
-            if parts {
+            if stamp {
+                let rules = match rules::load_revision() {
+                    Ok(rules) => rules,
+                    Err(why) => {
+                        let _ = writeln!(err, "wb prompt: {}", why);
+                        return 1;
+                    }
+                };
+                let Some(model) = rules.models.get(&role) else {
+                    let _ = writeln!(err, "wb prompt: the model table has no row for '{}'", role);
+                    return 1;
+                };
+                let revision = match manifest::manifest(Path::new(manifest::PACKAGE_FOLDER)) {
+                    Ok(text) => manifest::hash_of(&text),
+                    Err(why) => {
+                        let _ = writeln!(err, "wb prompt: {}", why);
+                        return 1;
+                    }
+                };
+                let seconds = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|since| since.as_secs())
+                    .unwrap_or(0);
+                let time = prompt::utc(seconds);
+                let said = prompt::Stamp {
+                    role: &role,
+                    model: &model.model,
+                    effort: &model.effort,
+                    version: VERSION,
+                    revision: &revision,
+                    time: &time,
+                };
+                let _ = out.write_all(prompt::stamp(&said, &given, &found.parts).as_bytes());
+            } else if parts {
                 let lines: String = found.parts.iter().map(|part| format!("{}  {}\n", part.hash, part.path)).collect();
                 let _ = out.write_all(lines.as_bytes());
             } else {

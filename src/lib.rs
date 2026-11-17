@@ -85,16 +85,22 @@ fn next(parser: &mut Parser) -> Result<Option<Word>, String> {
         Ok(Some(Arg::Long(option))) => Ok(Some(Word::Long(option.to_string()))),
         Ok(Some(Arg::Value(value))) => Ok(Some(Word::Value(value))),
         Err(lexopt::Error::UnexpectedValue { option, value }) => Err(format!("{}={}", option, word(value.as_bytes()))),
-        // `next` gives no other error; the text of `lexopt` is not shown.
+        // `next` of lexopt 0.3 gives no other error. Were a later one to, the text of `lexopt` is
+        // not shown: the word is named empty and the command is still refused with 2.
         Err(_) => Err(String::new()),
     }
 }
 
-/// A word a command does not take, as `wb` names it: a short option alone, a long option with
-/// the value written after it, and a value as it was given.
+/// A word a command does not take, as `wb` names it: an option alone, with the value written
+/// after it, and a value as it was given.
 fn named(found: Word, parser: &mut Parser) -> String {
     match found {
-        Word::Short(option) => format!("-{}", option),
+        // `-x=1`: the value is named with the option. Otherwise what follows `-x` in the word is
+        // other options, and the first that is not known is named alone.
+        Word::Short(option) => match parser.next() {
+            Err(lexopt::Error::UnexpectedValue { value, .. }) => format!("-{}={}", option, word(value.as_bytes())),
+            _ => format!("-{}", option),
+        },
         Word::Long(option) => match parser.optional_value() {
             Some(value) => format!("--{}={}", option, word(value.as_bytes())),
             None => format!("--{}", option),

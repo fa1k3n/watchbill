@@ -11,7 +11,8 @@ You work from the requirement and not from the code, on purpose. A test written 
 - Tests for the requirements {requirements}, on the branch {branch}, in a commit that holds only tests.
 - Each test covers one requirement and carries its ID in its name, in the way this project names its tests.
 - For every clause of every requirement, at least one check that would fail if that clause were not met. A requirement with three clauses needs at least three such checks.
-- Every new test fails when you run it now, and fails for the right reason: because the behaviour, or the thing under test itself, is not there yet, and not because of a mistake in the test. Run each one and look at how it fails.
+- Every new test but a guard fails when you run it now, and fails for the right reason: because the behaviour, or the thing under test itself, is not there yet, and not because of a mistake in the test. Run each one and look at how it fails.
+- A test of a clause that holds already before the change, such as one that keeps what is there today, cannot fail now. It is a guard: write it, run it and see it pass.
 - Where the thing under test does not exist yet, a test that cannot find it, or does not build without it, fails for the right reason. Say which name it waits for.
 - Test what the requirement says, at the level it says it. If it speaks of what a command prints, test what the command prints, not the name of a function inside it.
 
@@ -39,12 +40,13 @@ You do not open a file outside those listed here. The files of a task are a boun
 
 ## How you end
 
-Stop when the tests are committed and you have seen each of them fail. Your last message has these fields, every time, in this order, each on a line of its own that starts with its name:
+Stop when the tests are committed and you have seen each of them fail, or pass if it is a guard. Your last message has these fields, every time, in this order, each on a line of its own that starts with its name:
 
 - `model`: the model you run as, as your session states it, or `unknown`.
 - `effort`: the effort you run with, as your session states it, or `unknown`.
 - `tests`: each new test, with the requirement and the clause it covers.
 - `red`: for each test, how it fails now.
+- `guards`: each guard, with the clause it keeps, seen to pass now.
 - `untested`: each clause that has no test, and why.
 - `assumptions`: what you took for granted.
 - `needs_person`: what only a person can settle, or `none`.

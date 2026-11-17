@@ -26,6 +26,6 @@ The prompts of the first revision: tester, build, review and fix. What a revisio
 | WB-ROLE-20 | Every role prompt shall say that how work is pushed and posted is taken from the project's own text. Issue: #43. | T | Implemented |
 | WB-ROLE-21 | Every role prompt shall say that a search opens every file it reads, and that a search is kept to the files the role may read. Issue: #44. | T | Implemented |
 | WB-ROLE-22 | Every role prompt shall say that a last message without its fields is refused, and that the session is asked for it again. Issue: #45. | T | Implemented |
-| WB-ROLE-23 | The tester's prompt shall say that a test of a clause that holds already before the change is a guard, which is written, run and seen to pass. Issue: #46. | T | Draft |
-| WB-ROLE-24 | The tester's last message shall have the field `guards`, after `red`. Issue: #46. | T | Draft |
-| WB-ROLE-25 | The builder's prompt shall say that the guards pass before the change and after it. Issue: #46. | T | Draft |
+| WB-ROLE-23 | The tester's prompt shall say that a test of a clause that holds already before the change is a guard, which is written, run and seen to pass. Issue: #46. | T | Implemented |
+| WB-ROLE-24 | The tester's last message shall have the field `guards`, after `red`. Issue: #46. | T | Implemented |
+| WB-ROLE-25 | The builder's prompt shall say that the guards pass before the change and after it. Issue: #46. | T | Implemented |

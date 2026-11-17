@@ -14,6 +14,9 @@ publish = false
 # not bring that crate. 0.10.4 is the least: without that feature 0.10.3 does not compile.
 [dependencies]
 yaml-rust2 = { version = "0.10.4", default-features = false }
+# sha2 is named without its default features, which need const-oid: rust-sha2-devel does not bring
+# that crate. 0.10.9 is the oldest that builds with them (Fedora 44 has it; EPEL 9 has 0.11).
+sha2 = { version = ">=0.10.9, <0.12", default-features = false }
 
 [lib]
 path = "src/lib.rs"

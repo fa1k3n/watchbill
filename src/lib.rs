@@ -186,7 +186,7 @@ fn run_init(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write, e
             let _ = writeln!(err, "wb init: this folder is not in a git repository. Watchbill is set up in one.");
             1
         }
-        Ok(Some(root)) => init::init(&root, VERSION, yes, input, out, err, None),
+        Ok(Some(root)) => init::init(&root, VERSION, Path::new(manifest::PACKAGE_FOLDER), yes, input, out, err, None),
     }
 }
 

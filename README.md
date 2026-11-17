@@ -28,7 +28,7 @@ cd brake-controller
 wb init
 ```
 
-`wb init` proposes what the repository says about itself, asks one line per answer, shows the file and writes it:
+`wb init` proposes what the repository says about itself, asks one line per answer, shows the files and writes them:
 
 ```
 project: (brake-controller)
@@ -39,12 +39,25 @@ requirements (a path to files, the name of a tool, or none): (requirements/*.md)
 ci driver (github-actions, gitlab-ci, jenkins or none): (gitlab-ci)
 ```
 
-Enter keeps what stands in brackets. `wb init --yes` takes all of it and asks nothing; it shows the file before it writes it. Input that ends before a yes, and Ctrl-C, write nothing and end with 1. The result is `.watchbill/watchbill.yml` at the root of the repository, to be kept under version control with the code:
+Enter keeps what stands in brackets. `wb init --yes` takes all of it and asks nothing; it shows the files before it writes them. Input that ends before a yes, and Ctrl-C, write nothing and end with 1. The result is the folder `.watchbill/` at the root of the repository, to be kept under version control with the code:
+
+```
+.watchbill/
+├── watchbill.yml          the answers, the version and the hash of the revision
+├── revision.sha256        the manifest of the revision
+└── revision/              the files of the revision, byte for byte as the package has them
+    ├── models.yml
+    ├── rules.yml
+    └── roles/
+```
+
+`watchbill.yml` reads:
 
 ```yaml
 # How Watchbill is set up in this repository. Written by `wb init`.
 # `watchbill` is the version of the package the repository is set up for.
 watchbill: 0.0.1
+revision: <the SHA-256 of the manifest>
 project: brake-controller
 git_server: gitlab
 repository: brakes/controller
@@ -53,9 +66,10 @@ requirements: requirements/*.md
 ci: gitlab-ci
 ```
 
-- **`watchbill` is the version of the package** the repository is set up for: the version of the `wb` that wrote the file. A revision is the version and the hash of its files together ([docs/revision.md](docs/revision.md)); the hash is written by a later piece.
+- **`watchbill` is the version of the package** the repository is set up for: the version of the `wb` that wrote the file. A revision is the version and the hash of its files together ([docs/revision.md](docs/revision.md)); the hash is the line `revision`, and is the one `wb revision` prints.
 - **What it finds, it finds in the repository:** the name of the folder, the address of `origin` (only its host and path; a user name or a token in it is dropped), a folder of requirements, and the file a CI driver is known by. It asks nothing of the network.
-- **A file that is already there is never changed.**
+- **The revision is copied, never edited.** The files under `.watchbill/revision/` are written by `wb` and never by hand. `cd .watchbill && sha256sum -c revision.sha256` checks them without `wb`.
+- **A file that is already there is never changed.** When any file `wb init` would write is there, or a folder on the way to one is a link or not a folder, or `.watchbill/revision` is there, it writes nothing at all and names the path. Bringing a repository to a newer revision is a command of its own, later. A write that fails part way removes what it had written.
 - **The answers are only written down.** No adapter exists yet, so a git server or a tracker is a name and nothing more.
 
 ## Installing it

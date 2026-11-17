@@ -17,4 +17,4 @@ How `wb` is installed and what it needs. What the package carries of the revisio
 | WB-PKG-11 | The package shall name the licence of Watchbill in its metadata, and the `License:` of the spec and the `license` of `Cargo.toml` shall be the same SPDX name, `Apache-2.0`. Issue: #39. | T | Implemented |
 | WB-PKG-12 | The package shall install the files `LICENSE` and `NOTICE` as licence files. Issue: #39. | T | Implemented |
 | WB-PKG-13 | The crates `wb` is built from shall be those that the list in `CLAUDE.md` names, no more and no fewer. Issue: #34. | T | Implemented |
-| WB-PKG-14 | `packaging/rpm.sh` shall date the package by the commit it builds: two builds of one commit give packages whose files have the same dates, and the build warns of no date. Issue: #63. | T | Draft |
+| WB-PKG-14 | `packaging/rpm.sh` shall date the package by the commit it builds: two builds of one commit give packages whose files have the same dates, and the build warns of no date. Issue: #63. | T | Implemented |

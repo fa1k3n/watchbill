@@ -163,3 +163,91 @@ fn test_WB_PIN_6_sha256sum_passes_on_the_written_manifest() {
         .expect("sha256sum could not be started");
     assert!(check.status.success(), "{}{}", text(&check.stdout), text(&check.stderr));
 }
+
+/// Runs `wb init --yes` with a link, a file or a folder put where the revision goes, and checks that
+/// it ends with 1 before it asks, names the path, and writes nothing but what was put there.
+fn refused_at(prepare: impl Fn(&Path, &Path), way: &str) -> Folder {
+    let folder = repository(None);
+    let outside = folder_named("outside");
+    prepare(&folder.path, &outside.path);
+
+    let run = wb(&folder.path, &["init", "--yes"], "");
+
+    assert_eq!(code(&run), Some(1), "{}: {}", way, text(&run.stdout));
+    let named = real(&folder.path).join(".watchbill").join(way);
+    assert!(text(&run.stdout).contains(named.to_str().unwrap()), "{}: {}", way, text(&run.stdout));
+    assert!(text(&run.stdout).contains("Nothing written."), "{}", text(&run.stdout));
+    assert!(all_files(&outside.path).is_empty(), "{}: something was written outside", way);
+    assert!(!folder.path.join(".watchbill/watchbill.yml").exists(), "{}", way);
+    // Keep the folder of `outside` alive as long as the repository: it is a part of it.
+    std::mem::forget(outside);
+    folder
+}
+
+fn link(to: &Path, at: &Path) {
+    fs::create_dir_all(at.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(to, at).unwrap();
+}
+
+#[test]
+fn test_WB_PIN_7_a_link_to_a_folder_under_revision_is_refused_before_it_asks() {
+    refused_at(|repo, outside| link(outside, &repo.join(".watchbill/revision/roles")), "revision/roles");
+}
+
+#[test]
+fn test_WB_PIN_7_a_link_for_the_folder_watchbill_is_refused_before_it_asks() {
+    let folder = repository(None);
+    let outside = folder_named("outside");
+    link(&outside.path, &folder.path.join(".watchbill"));
+
+    let run = wb(&folder.path, &["init"], "");
+
+    assert_eq!(code(&run), Some(1));
+    assert!(text(&run.stdout).contains(real(&folder.path).join(".watchbill").to_str().unwrap()));
+    assert!(!text(&run.stdout).contains("project:"), "it asked");
+    assert!(all_files(&outside.path).is_empty());
+}
+
+#[test]
+fn test_WB_PIN_7_a_file_where_a_folder_goes_is_refused_before_it_asks() {
+    for way in [".watchbill", ".watchbill/revision/roles"] {
+        let folder = repository(None);
+        put(&folder.path, way, "mine\n");
+
+        let run = wb(&folder.path, &["init"], "");
+
+        assert_eq!(code(&run), Some(1), "{}", way);
+        assert!(text(&run.stdout).contains(real(&folder.path).join(way).to_str().unwrap()), "{}", way);
+        assert!(!text(&run.stdout).contains("project:"), "{}: it asked", way);
+        assert_eq!(read(&folder.path.join(way)), "mine\n");
+    }
+}
+
+#[test]
+fn test_WB_PIN_8_a_revision_that_is_there_is_refused_as_a_file_a_link_a_folder_and_an_empty_folder() {
+    refused_at(|repo, _| put(repo, ".watchbill/revision", "mine\n"), "revision");
+    refused_at(|repo, outside| link(outside, &repo.join(".watchbill/revision")), "revision");
+    let stale = refused_at(|repo, _| put(repo, ".watchbill/revision/stale.md", "old\n"), "revision");
+    assert_eq!(all_files(&stale.path.join(".watchbill")), vec!["revision/stale.md".to_string()]);
+    refused_at(|repo, _| fs::create_dir_all(repo.join(".watchbill/revision")).unwrap(), "revision");
+}
+
+#[test]
+fn test_WB_PIN_9_a_write_that_fails_part_way_removes_what_it_made_and_keeps_what_was_there() {
+    let folder = repository(None);
+    put(&folder.path, ".watchbill/project/notes.md", "mine\n");
+    // A limit on the size of a file, which holds as root too: no file of the revision of 512 bytes
+    // or more can be written, and an ignored signal makes the write fail and not end the program.
+    let run = Command::new("sh")
+        .args(["-c", "ulimit -f 1; trap '' XFSZ; exec \"$0\" init --yes", env!("CARGO_BIN_EXE_wb")])
+        .current_dir(&folder.path)
+        .env_clear()
+        .envs(env())
+        .output()
+        .unwrap();
+
+    assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
+    assert!(text(&run.stderr).contains("cannot write"), "{}", text(&run.stderr));
+    assert_eq!(all_files(&folder.path.join(".watchbill")), vec!["project/notes.md".to_string()]);
+    assert!(!folder.path.join(".watchbill/revision").exists());
+}

@@ -467,3 +467,39 @@ fn test_WB_RULE_15_no_fault_of_a_file_ends_in_a_panic() {
         }
     }
 }
+
+// Found by the comparison with the Python: files the Python refused and the loader took.
+
+#[test]
+fn test_WB_RULE_15_a_yaml_version_that_is_not_1_is_refused_with_the_line() {
+    let message = Folder::new().refused("%YAML 2.0\n---\na: 1\n", "table.yml");
+    assert!(message.contains("line 1"), "{}", message);
+    for text in ["%YAML 1.1\n---\na: 1\n", "%YAML 1.2\n---\na: 1\n"] {
+        assert_eq!(Folder::new().load(text).whole(&at(&["a"]), None).unwrap(), 1, "{:?}", text);
+    }
+}
+
+#[test]
+fn test_WB_RULE_15_a_line_break_of_yaml_1_1_alone_is_refused_with_the_line() {
+    for c in ['\u{85}', '\u{2028}', '\u{2029}'] {
+        let message = Folder::new().refused(&format!("ok: 1\na: x{}y\n", c), "table.yml");
+        assert!(message.contains("line 2"), "{:?}: {}", c, message);
+    }
+}
+
+#[test]
+fn test_WB_RULE_17_an_empty_item_of_a_list_is_named_at_its_own_line() {
+    for (text, line) in [("a:\n  - x\n  -\n  - y\n", "line 3"), ("a:\r\n  - x\r\n  -\r\n\r\n  - y\r\n", "line 3"), ("a: [x, , y]\n", "line 1")] {
+        let doc = match yamlfile::load(Folder::new().write(text, "table.yml")) {
+            Ok(doc) => doc,
+            // A list with an empty item in flow style is not YAML to the library: refused, with the line.
+            Err(error) => {
+                assert!(error.to_string().contains(line), "{:?}: {}", text, error);
+                continue;
+            }
+        };
+        let message = doc.texts(&at(&["a"]), false).err().expect("an empty item was taken as a text").to_string();
+        assert!(message.contains(line), "{:?}: {}", text, message);
+        assert!(message.contains("a.1"), "{:?}: {}", text, message);
+    }
+}

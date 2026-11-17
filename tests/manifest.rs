@@ -928,3 +928,46 @@ fn test_WB_REV_25_the_code_that_reads_the_revision_does_not_read_the_environment
     assert!(!text.contains("env::args"));
     assert!(text.contains("PACKAGE_FOLDER"));
 }
+
+#[test]
+fn test_WB_REV_24_a_file_that_becomes_a_link_after_it_was_looked_at_is_refused_by_name() {
+    let scratch = Scratch::new();
+    scratch.put("revision/a.md", b"one\n");
+    scratch.put("revision/b.md", b"one\n");
+    scratch.put("outside.md", b"two\n");
+    let base = scratch.path().to_path_buf();
+    let message = manifest::manifest_with(&base.clone(), &mut |path: &str| {
+        if path == "revision/b.md" {
+            fs::remove_file(base.join(path)).unwrap();
+            std::os::unix::fs::symlink(base.join("outside.md"), base.join(path)).unwrap();
+        }
+    })
+    .unwrap_err()
+    .to_string();
+    assert!(message.contains("revision/b.md"), "{}", message);
+}
+
+#[test]
+fn test_WB_REV_24_a_file_that_is_replaced_by_another_after_it_was_looked_at_is_refused_by_name() {
+    let scratch = Scratch::new();
+    scratch.put("revision/a.md", b"one\n");
+    let base = scratch.path().to_path_buf();
+    let message = manifest::manifest_with(&base.clone(), &mut |path: &str| {
+        fs::write(base.join("new.md"), b"two\n").unwrap();
+        fs::rename(base.join("new.md"), base.join(path)).unwrap();
+    })
+    .unwrap_err()
+    .to_string();
+    assert!(message.contains("revision/a.md"), "{}", message);
+}
+
+#[test]
+fn test_WB_REV_24_a_file_that_is_not_changed_is_hashed() {
+    let scratch = Scratch::new();
+    scratch.put("revision/a.md", b"one\n");
+    let base = scratch.path().to_path_buf();
+    let mut seen = Vec::new();
+    let text = manifest::manifest_with(&base, &mut |path: &str| seen.push(path.to_string())).unwrap();
+    assert_eq!(seen, ["revision/a.md"]);
+    assert_eq!(text, format!("{}  revision/a.md\n", sha256_hex(b"one\n")));
+}

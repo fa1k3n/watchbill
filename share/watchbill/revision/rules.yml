@@ -1,4 +1,4 @@
-# The rule table of the first revision. Read by watchbill/rules.py, which refuses it if it is wrong.
+# The rule table of the first revision. Read by src/rules.rs, which refuses it if it is wrong.
 # The program enforces this table. A prompt repeats a limit so that the agent knows it,
 # and no limit rests on the prompt alone.
 

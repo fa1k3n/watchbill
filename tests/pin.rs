@@ -78,7 +78,7 @@ fn test_WB_PIN_3_the_hash_of_the_revision_is_the_line_revision_of_the_file() {
     let printed = text(&wb(&folder.path, &["revision"], "").stdout);
     let hash = printed.lines().find_map(|line| line.strip_prefix("revision ")).unwrap().to_string();
     assert_eq!(hash.len(), 64);
-    assert!(read(&config(&folder.path)).contains(&format!("\nrevision: {}\n", hash)));
+    assert!(read(&config(&folder.path)).contains(&format!("\nrevision: {}\n", watchbill::init::yaml_value(&hash))));
 }
 
 #[test]

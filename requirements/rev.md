@@ -29,3 +29,4 @@ The files of a revision as the package carries them, their manifest, and `wb rev
 | WB-REV-23 | A `revision/` that is itself a symbolic link shall be refused by name. Issue: #24. | T | Implemented |
 | WB-REV-24 | A file of the revision that has become a named pipe after its kind was looked at shall be refused by name, without `wb` waiting on it. Issue: #24. | T | Implemented |
 | WB-REV-25 | No option and no environment variable shall change the folder `wb` reads the revision from. Issue: #24. | T | Implemented |
+| WB-REV-26 | No file of the revision shall name a file that is not in the repository, such as `rules.py`. Issue: #38. | T | Implemented |

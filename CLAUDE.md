@@ -29,7 +29,6 @@ Watchbill: a harness for AI agents in embedded software development, deployed at
 - Rust, edition 2021, for the Rust that Enterprise Linux 9 packages (1.97) or later. The owner decided this on 2026-11-17 (#20); before that `wb` was written in Python.
 - `wb` is built from the standard library and two crates: `yaml-rust2` for YAML and `sha2` for SHA-256. The crates come from the distribution's packages: Fedora's own repositories, and EPEL on Enterprise Linux 9. Nothing is fetched from crates.io, and a build asks nothing of the network. No `Cargo.lock` is committed: the versions are the distribution's.
 - Installed, `wb` needs `git` and no library of its own.
-- Until #25 is merged the Python `wb` stands beside the Rust, and it is the one the RPM installs. No new behaviour is written in Python.
 - Every YAML file is read through the one loader in `wb`: only plain values are built; a key written twice, a tag, a merge key and an alias are refused; a value is held to the type its field asks for ([docs/revision.md](docs/revision.md), point 6).
 - The folder that holds the files of the revision is fixed when `wb` is built. No option and no environment variable changes it when `wb` runs.
 - `wb` is installed with `dnf` from an RPM ([packaging/](packaging/)). Nothing in the code or the texts assumes another way.

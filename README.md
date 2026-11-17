@@ -93,6 +93,8 @@ cargo test                                       # every test of `wb`: needs car
 cargo run -- init                                # runs wb from the checkout; the revision is read from share/watchbill/
 ```
 
+The folder of the revision is fixed in the program when it is built, as the path of the checkout. After a checkout is moved, run `cargo clean` before building again.
+
 ## The revision it carries
 
 `wb revision` prints the version of the package, the hash of its revision and the manifest. It writes nothing.

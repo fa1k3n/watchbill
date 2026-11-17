@@ -13,3 +13,4 @@ How `wb` is installed and what it needs. What the package carries of the revisio
 | WB-PKG-7 | The package of `wb` shall require `git-core`, and no Python and no crate. Issue: #25. | D | Implemented |
 | WB-PKG-8 | The version in `Cargo.toml` shall be the version in `src/watchbill/__init__.py`, as long as both are there. Replaced by WB-PKG-9: the Python is removed. Issue: #21. | T | Deprecated |
 | WB-PKG-9 | The version in `Cargo.toml` shall be the version that `wb --version` prints, and the only place the version of the package is written. Issue: #25. | T | Implemented |
+| WB-PKG-10 | A fault in `wb` itself shall end the command with 1 and one line, and print no panic message. Issue: #25. | T | Implemented |

@@ -1,9 +1,9 @@
 # The package that `dnf install` takes: the commands `wb` and `watchbill`, built from Rust, and
 # the files of the revision under /usr/share/watchbill. packaging/rpm.sh builds it from a
-# checkout and passes the version as wb_version.
+# checkout and passes the version of Cargo.toml as wb_version: the spec has none of its own.
 
 Name:           watchbill
-Version:        %{?wb_version}%{!?wb_version:0.0.1}
+Version:        %{wb_version}
 Release:        1%{?dist}
 Summary:        A harness for AI agents in embedded software development
 

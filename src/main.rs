@@ -14,6 +14,10 @@ fn main() -> ExitCode {
     // interrupt prints must come after all that was printed before it. The files are not closed here.
     let mut out = ManuallyDrop::new(unsafe { File::from_raw_fd(1) });
     let mut err = ManuallyDrop::new(unsafe { File::from_raw_fd(2) });
-    let code = watchbill::run(&args, &mut io::stdin().lock(), &mut *out, &mut *err);
+    let mut fault = ManuallyDrop::new(unsafe { File::from_raw_fd(2) });
+    let code = watchbill::guarded(
+        || watchbill::run(&args, &mut io::stdin().lock(), &mut *out, &mut *err),
+        &mut *fault,
+    );
     ExitCode::from(code as u8)
 }

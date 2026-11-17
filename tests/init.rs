@@ -24,7 +24,8 @@ fn package_hash() -> String {
 fn expected(rows: &[&str]) -> String {
     let mut all: Vec<String> = HEAD.iter().map(|line| line.to_string()).collect();
     all.push(format!("watchbill: {}", REVISION));
-    all.push(format!("revision: {}", package_hash()));
+    // The hash is written as `wb init` writes it: in quotes when it starts with a digit.
+    all.push(format!("revision: {}", watchbill::init::yaml_value(&package_hash())));
     all.extend(rows.iter().map(|row| row.to_string()));
     all.push(String::new());
     all.join("\n")

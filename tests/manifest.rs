@@ -999,3 +999,29 @@ fn test_WB_REV_22_the_spec_names_the_files_of_the_revision_and_excludes_none() {
     assert_eq!(patterns_of(&text), patterns());
     assert!(!text.lines().any(|line| line.trim().starts_with("%exclude")));
 }
+
+// ---- The comments of the revision (#38)
+
+fn revision_files(folder: &Path, found: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(folder).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            revision_files(&path, found);
+        } else {
+            found.push(path);
+        }
+    }
+}
+
+#[test]
+fn test_WB_REV_26_no_file_of_the_revision_names_a_file_that_is_not_in_the_repository() {
+    let mut found = Vec::new();
+    revision_files(&package().join("revision"), &mut found);
+    assert!(!found.is_empty());
+    let naming: Vec<String> = found
+        .iter()
+        .filter(|path| String::from_utf8_lossy(&read_bytes(path)).contains("rules.py"))
+        .map(|path| path.display().to_string())
+        .collect();
+    assert_eq!(naming, Vec::<String>::new());
+}

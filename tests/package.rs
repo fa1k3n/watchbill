@@ -211,3 +211,61 @@ fn test_WB_PKG_13_a_listed_crate_that_is_not_in_cargo_toml_is_caught() {
     let cargo = "[package]\nversion = \"1\"\n\n[dependencies]\nyaml-rust2 = \"0.10\"\n\n[lib]\npath = \"src/lib.rs\"\n";
     assert_eq!(crate_differences(cargo, CLAUDE_LIST), (vec![], vec!["sha2".to_string()]));
 }
+
+fn rpm_script() -> String {
+    fs::read_to_string(root().join("packaging/rpm.sh")).expect("rpm.sh could not be read")
+}
+
+#[test]
+fn test_WB_PKG_14_rpm_sh_takes_the_date_of_the_package_from_the_commit_it_builds() {
+    let text = rpm_script();
+    let line = text
+        .lines()
+        .find(|line| line.contains("SOURCE_DATE_EPOCH=") && !line.trim_start().starts_with('#'))
+        .expect("rpm.sh does not set SOURCE_DATE_EPOCH");
+    assert!(line.contains("git") && line.contains("log -1 --format=%ct"), "{}", line);
+    assert!(text.contains("export SOURCE_DATE_EPOCH"), "SOURCE_DATE_EPOCH is not exported");
+}
+
+#[test]
+fn test_WB_PKG_14_rpm_sh_makes_the_tarball_with_the_commit_date_sorted_names_and_root_owner() {
+    let text = rpm_script();
+    let tar = text.split("\n  tar ").nth(1).expect("no tar command").split("\n\n").next().unwrap();
+    for flag in ["--sort=name", "--mtime=\"@$SOURCE_DATE_EPOCH\"", "--owner=0", "--group=0", "--numeric-owner"] {
+        assert!(tar.contains(flag), "tar is not given {}", flag);
+    }
+}
+
+#[test]
+fn test_WB_PKG_14_rpm_sh_outside_a_git_checkout_says_it_needs_one_and_stops_with_2() {
+    let base = std::env::temp_dir().join(format!("wb-pkg-14-{}", std::process::id()));
+    let tree = base.join("tree");
+    fs::create_dir_all(tree.join("packaging")).unwrap();
+    fs::copy(root().join("packaging/rpm.sh"), tree.join("packaging/rpm.sh")).unwrap();
+    fs::copy(root().join("Cargo.toml"), tree.join("Cargo.toml")).unwrap();
+    let run = std::process::Command::new("sh")
+        .arg(tree.join("packaging/rpm.sh"))
+        .arg(base.join("out"))
+        .env("GIT_CEILING_DIRECTORIES", &base)
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&run.stderr).to_string();
+    let _ = fs::remove_dir_all(&base);
+    assert_eq!(run.status.code(), Some(2), "{}", err);
+    assert!(err.contains("rpm.sh needs a git checkout"), "{}", err);
+    assert!(!err.contains("fatal:"), "git's own error came first: {}", err);
+}
+
+#[test]
+fn test_WB_PKG_14_rpm_sh_tells_rpmbuild_to_use_that_date_and_to_clamp_the_files_to_it() {
+    let text = rpm_script();
+    // The command, with the lines it is continued on.
+    let build = text.split("\nrpmbuild").nth(1).expect("no rpmbuild line").split("\n\n").next().unwrap();
+    for define in [
+        "use_source_date_epoch_as_buildtime 1",
+        "clamp_mtime_to_source_date_epoch 1",
+        "source_date_epoch_from_changelog 0",
+    ] {
+        assert!(build.contains(define), "rpmbuild is not given {}", define);
+    }
+}

@@ -141,32 +141,47 @@ fn read_pin(package: &Path) -> Result<Pin, String> {
     Ok(Pin { files, hash })
 }
 
-/// The first path that is in the way of the files, or `None`. It is a file that is there already; a
-/// folder on the way to a file that is a link or not a folder (a link would take the files to where it
-/// points); or `.watchbill/revision` of any kind, so that no other file stays beside the revision
-/// (WB-PIN-4, 7 and 8).
+/// What is in the way of the files, said as a sentence, or `None`. It is a file that is there
+/// already; a folder on the way to a file that is a link or not a folder (a link would take the files
+/// to where it points); a target that is not below the folder; or `.watchbill/revision` of any kind,
+/// so that no other file stays beside the revision (WB-PIN-4, 7, 8 and 10).
 fn in_the_way(folder: &str, targets: &[String]) -> Option<String> {
-    if let Some(file) = targets.iter().find(|path| fs::symlink_metadata(path).is_ok()) {
-        return Some(file.clone());
-    }
+    let said = |path: &str, why: &str| Some(format!("{} {}. wb init does not change it. Nothing written.", path, why));
     for target in targets {
         let mut path = PathBuf::from(folder);
-        let below = Path::new(target).strip_prefix(folder).ok()?.parent()?;
+        let below = match Path::new(target).strip_prefix(folder).ok().and_then(|rest| rest.parent()) {
+            Some(below) => below,
+            None => return said(target, &format!("is not below {}", folder)),
+        };
         let mut names = vec![path.clone()];
         for part in below {
             path.push(part);
             names.push(path.clone());
         }
-        for each in names {
-            match fs::symlink_metadata(&each) {
+        // The folder above is the one at fault when a path below it cannot be looked at.
+        let mut above = &names[0];
+        for each in &names {
+            match fs::symlink_metadata(each) {
                 Ok(meta) if meta.is_dir() => {}
                 Err(error) if error.kind() == ErrorKind::NotFound => break,
-                _ => return Some(each.to_string_lossy().into_owned()),
+                Ok(meta) => {
+                    let why = if meta.file_type().is_symlink() { "is a link" } else { "is not a folder" };
+                    return said(&each.to_string_lossy(), why);
+                }
+                Err(_) => return said(&above.to_string_lossy(), "cannot be looked at"),
             }
+            above = each;
         }
     }
+    if let Some(file) = targets.iter().find(|path| fs::symlink_metadata(path).is_ok()) {
+        return said(file, "is already there");
+    }
     let revision = format!("{}/{}", folder, REVISION_FOLDER);
-    fs::symlink_metadata(&revision).ok().map(|_| revision)
+    match fs::symlink_metadata(&revision) {
+        Ok(_) => said(&revision, "is already there"),
+        Err(error) if error.kind() == ErrorKind::NotFound => None,
+        Err(_) => said(folder, "cannot be looked at"),
+    }
 }
 
 /// The place of the answers: where the questions go and where the lines come from.
@@ -271,8 +286,8 @@ pub fn init(
     // so that a repository that holds it is one that was set up whole.
     let mut targets: Vec<String> = pin.files.iter().map(|(path, _)| format!("{}/{}", folder, path)).collect();
     targets.push(file.clone());
-    if let Some(found) = in_the_way(&folder, &targets) {
-        talk.say(&format!("{} is already there. wb init does not change it. Nothing written.", found));
+    if let Some(message) = in_the_way(&folder, &targets) {
+        talk.say(&message);
         return 1;
     }
 
@@ -396,5 +411,35 @@ pub fn repository_root(env: Option<&[(String, String)]>) -> Result<Option<String
             Err(_) => Err("the path of the repository is not UTF-8 text".to_string()),
         },
         _ => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_WB_PIN_10_a_target_outside_the_folder_is_in_the_way_and_named() {
+        let found = in_the_way("/nowhere/.watchbill", &["/elsewhere/file.md".to_string()]);
+
+        let message = found.expect("a target outside the folder was taken as nothing in the way");
+        assert!(message.contains("/elsewhere/file.md is not below /nowhere/.watchbill"), "{}", message);
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_WB_PIN_7_a_folder_that_cannot_be_looked_at_is_named_by_the_folder_above_it() {
+        // A name of 300 bytes cannot be looked at, as root too.
+        let folder = std::env::temp_dir().join(format!("wb53-unit-{}", std::process::id()));
+        fs::create_dir_all(&folder).unwrap();
+        let name = "a".repeat(300);
+        let target = format!("{}/{}/file.md", folder.display(), name);
+
+        let found = in_the_way(folder.to_str().unwrap(), &[target]);
+
+        fs::remove_dir_all(&folder).unwrap();
+        let message = found.expect("a folder that cannot be looked at was taken as nothing in the way");
+        assert!(message.starts_with(&format!("{} cannot be looked at", folder.display())), "{}", message);
     }
 }

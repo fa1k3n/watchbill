@@ -398,3 +398,19 @@ fn test_WB_PROMPT_3_both_readmes_say_the_rule() {
     assert!(read(&folder.path.join(".watchbill/project/README.md")).contains(rule));
     assert!(read(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("README.md")).contains(rule));
 }
+
+#[test]
+fn test_WB_PROMPT_9_a_link_where_project_goes_is_named_as_a_link() {
+    let folder = repository(None);
+    let outside = folder_named("outside");
+    fs::create_dir_all(folder.path.join(".watchbill")).unwrap();
+    std::os::unix::fs::symlink(&outside.path, folder.path.join(".watchbill/project")).unwrap();
+
+    let run = wb(&folder.path, &["init", "--yes"], "");
+
+    assert_eq!(code(&run), Some(1));
+    let named = fs::canonicalize(&folder.path).unwrap().join(".watchbill/project");
+    let out = text(&run.stdout);
+    assert!(out.contains(&format!("{} is a link", named.to_str().unwrap())), "{}", out);
+    assert_eq!(fs::read_dir(&outside.path).unwrap().count(), 0);
+}

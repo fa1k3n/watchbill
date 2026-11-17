@@ -359,6 +359,7 @@ fn wait_for_output(child: &mut std::process::Child, marker: &str) -> String {
 
 extern "C" {
     fn kill(pid: i32, signal: i32) -> i32;
+    fn signal(signal: i32, handler: usize) -> usize;
 }
 
 const SIGINT: i32 = 2;
@@ -509,5 +510,59 @@ fn test_WB_INIT_38_a_path_that_is_not_utf_8_is_refused_in_words() {
 
     assert_eq!(code(&run), Some(1));
     assert_eq!(text(&run.stderr), "wb init: the path of the repository is not UTF-8 text. Nothing written.\n");
+    assert!(!folder.path.join(".watchbill").exists());
+}
+
+#[test]
+fn test_WB_INIT_32_an_interrupt_that_came_in_ignored_stays_ignored() {
+    use std::os::unix::process::CommandExt;
+    let folder = repository(None);
+    let mut command = Command::new(env!("CARGO_BIN_EXE_wb"));
+    command
+        .arg("init")
+        .current_dir(&folder.path)
+        .env_clear()
+        .envs(env())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    // As under `nohup`: the parent has set SIGINT to be ignored. Python then keeps ignoring it.
+    unsafe {
+        command.pre_exec(|| {
+            signal(SIGINT, 1);
+            Ok(())
+        });
+    }
+    let mut child = command.spawn().expect("wb could not be started");
+    let before = wait_for_output(&mut child, "project: (brake-controller) ");
+    interrupt(&child);
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(child.try_wait().unwrap().is_none(), "wb ended on an interrupt that is ignored");
+    use std::io::Write;
+    child.stdin.take().unwrap().write_all(lines(&["", "", "", "", "", "yes"]).as_bytes()).unwrap();
+    let (status, out, err) = finish(child, before);
+    assert_eq!(status, Some(0), "{}", err);
+    assert!(!out.contains("Nothing written."));
+    assert!(config(&folder.path).exists());
+}
+
+#[test]
+fn test_WB_INIT_38_an_error_of_reading_is_not_called_not_utf_8() {
+    let folder = repository(None);
+    // Standard input is a folder: reading it fails with an error that is not about text.
+    let run = Command::new(env!("CARGO_BIN_EXE_wb"))
+        .arg("init")
+        .current_dir(&folder.path)
+        .env_clear()
+        .envs(env())
+        .stdin(fs::File::open("/").unwrap())
+        .output()
+        .expect("wb could not be started");
+
+    assert_eq!(code(&run), Some(1));
+    let err = text(&run.stderr);
+    assert!(err.starts_with("wb init: cannot read standard input: "), "{}", err);
+    assert!(err.ends_with(". Nothing written.\n"), "{}", err);
+    assert!(!err.contains("UTF-8"), "{}", err);
     assert!(!folder.path.join(".watchbill").exists());
 }

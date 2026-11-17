@@ -41,6 +41,19 @@ fn test_WB_INIT_3_an_address_is_read_in_each_of_its_forms() {
 }
 
 #[test]
+fn test_WB_INIT_3_every_letter_python_takes_for_a_scheme_is_taken() {
+    // `[a-z]` of Python with `re.IGNORECASE` takes four letters beyond ASCII, found by testing every
+    // code point of Unicode on Python 3.9 and 3.14: U+0130, U+0131, U+017F and U+212A.
+    for letter in ['\u{130}', '\u{131}', '\u{17f}', '\u{212a}'] {
+        for url in [format!("{}ssh://host/x", letter), format!("s{}h://host/x", letter)] {
+            assert_eq!(parse_remote(&url), Some(remote("host", "", "x")), "{:?}", url);
+        }
+    }
+    // Others are not letters of a scheme.
+    assert_eq!(parse_remote("\u{e9}ssh://host/x"), None);
+}
+
+#[test]
 fn test_WB_INIT_2_the_kind_of_git_server_is_taken_from_the_host_and_the_port() {
     let kind = |url: &str| git_server_of(parse_remote(url).as_ref());
 

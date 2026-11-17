@@ -72,7 +72,7 @@ packaging/rpm.sh                                                  # builds the p
 sudo dnf install build/rpm/RPMS/noarch/watchbill-*.noarch.rpm     # puts wb in /usr/bin
 ```
 
-The package is built here from a checkout. There is no repository to `dnf install watchbill` from yet. Building needs `rpm-build`, `python3-devel`, `pyproject-rpm-macros`, `python3-setuptools`, `python3-pip`, `python3-wheel`, `git-core`, and the Rust of the distribution: `cargo`, `rust` (1.97 or later), `cargo-rpm-macros` and the crate `yaml-rust2` (`rust-yaml-rust2-devel`). On Enterprise Linux 9 it also needs `python3-tomli` and the CRB repository, and **EPEL**: `cargo-rpm-macros` and the crates are only there.
+The package is built here from a checkout. There is no repository to `dnf install watchbill` from yet. Building needs `rpm-build`, `python3-devel`, `pyproject-rpm-macros`, `python3-setuptools`, `python3-pip`, `python3-wheel`, `git-core`, and the Rust of the distribution: `cargo`, `rust` (1.97 or later), `cargo-rpm-macros` and the crates `yaml-rust2` and `sha2` (`rust-yaml-rust2-devel`, `rust-sha2-devel`). On Enterprise Linux 9 it also needs `python3-tomli` and the CRB repository, and **EPEL**: `cargo-rpm-macros` and the crates are only there.
 
 ```sh
 sudo dnf install epel-release                    # Enterprise Linux 9 only
@@ -84,6 +84,7 @@ With only BaseOS, AppStream and CRB the build stops before it compiles anything,
 ```
 error: Failed build dependencies:
 	cargo-rpm-macros is needed by watchbill-0.0.1-1.el9.noarch
+	crate(sha2) >= 0.10.9 is needed by watchbill-0.0.1-1.el9.noarch
 	crate(yaml-rust2) >= 0.10.4 is needed by watchbill-0.0.1-1.el9.noarch
 ```
 

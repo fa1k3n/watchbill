@@ -142,8 +142,8 @@ fn test_WB_INIT_25_only_the_first_word_is_the_command() {
 
 #[test]
 fn test_WB_INIT_25_the_commands_that_are_not_built_yet_are_not_known() {
-    // `revision` is in the Python `wb`. This program does not have it yet (#24). `init` is built (#22).
-    for word in ["revision"] {
+    // `init` is built (#22) and `revision` is built (#24). `check` is built by #8.
+    for word in ["check"] {
         let run = wb(&[word]);
 
         assert_eq!(run.status.code(), Some(2), "{}", word);

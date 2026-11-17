@@ -1,10 +1,12 @@
 //! The command `wb`.
 
 use std::io::{BufRead, Write};
+use std::path::Path;
 
 pub mod detect;
 pub mod init;
 pub mod interrupt;
+pub mod manifest;
 pub mod rules;
 mod word;
 pub mod yamlfile;
@@ -52,8 +54,6 @@ pub fn word(bytes: &[u8]) -> String {
 
 /// Runs `wb` with the words after its name and returns the exit status:
 /// 0 it holds or it is done, 1 it does not hold or it was refused, 2 it was used wrongly.
-///
-/// `revision` is not built in this program yet (#24), so it is a command it does not know.
 pub fn run(args: &[String], input: &mut dyn BufRead, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     // A failed write, such as a closed pipe, does not change what the command ended with.
     match args.first().map(String::as_str) {
@@ -70,6 +70,7 @@ pub fn run(args: &[String], input: &mut dyn BufRead, out: &mut dyn Write, err: &
             0
         }
         Some("init") => run_init(&args[1..], input, out, err),
+        Some("revision") => revision(&args[1..], Path::new(manifest::PACKAGE_FOLDER), out, err),
         Some(command) => {
             let _ = write!(err, "wb: no command '{}'\n\n{}", command, USAGE);
             2
@@ -100,5 +101,25 @@ fn run_init(args: &[String], input: &mut dyn BufRead, out: &mut dyn Write, err: 
             1
         }
         Ok(Some(root)) => init::init(&root, VERSION, yes, input, out, err, None),
+    }
+}
+
+/// `wb revision`: the version of the package, the hash of the revision and the manifest. It writes
+/// nothing. The folder that holds `revision/` is an argument so that a test can give its own; `run`
+/// gives the one fixed when `wb` was built.
+pub fn revision(args: &[String], base: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    if let Some(arg) = args.first() {
+        let _ = write!(err, "wb revision: '{}' is not known\n\n{}", arg, USAGE);
+        return 2;
+    }
+    match manifest::manifest(base) {
+        Err(why) => {
+            let _ = writeln!(err, "wb revision: {}", why);
+            1
+        }
+        Ok(text) => {
+            let _ = write!(out, "watchbill {}\nrevision {}\n\n{}", VERSION, manifest::hash_of(&text), text);
+            0
+        }
     }
 }

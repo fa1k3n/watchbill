@@ -403,3 +403,34 @@ fn test_WB_ROLE_25_the_builder_keeps_the_guards_passing_before_and_after() {
     let opening = split_parts(&prompt("build")).remove(0);
     assert!(opening.contains("guards, tests of what holds already, which pass before your change and after it"), "{}", opening);
 }
+
+// What a role reads is cut where the work needs it (#47).
+
+#[test]
+fn test_WB_ROLE_26_the_tester_reads_the_interface_the_task_names_and_not_the_file() {
+    let body = part("tester", "## What you read");
+    assert!(body.contains("the interface of the thing under test that the task names"), "{}", body);
+    assert!(body.contains("Where it shares a file with the body, read only the interface and not the file."), "{}", body);
+}
+
+#[test]
+fn test_WB_ROLE_27_every_role_that_reads_tests_reads_their_helpers() {
+    for role in ROLES {
+        assert!(part(role, "## What you read").contains("the helpers those tests use"), "{}", role);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_28_a_helper_is_part_of_the_test_it_serves() {
+    for role in ["tester", "build", "fix"] {
+        assert!(part(role, "## What you never do").contains("A helper a test uses is part of that test."), "{}", role);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_29_the_reviewer_reads_what_the_changed_code_calls() {
+    let body = part("review", "## What you read");
+    let point = body.split('\n').find(|line| line.starts_with("- What the changed code calls"));
+    let point = point.unwrap_or_else(|| panic!("no point for what the changed code calls: {}", body));
+    assert!(point.contains("nothing of how it was made"), "{}", point);
+}

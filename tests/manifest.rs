@@ -28,7 +28,7 @@ fn root() -> PathBuf {
 }
 
 fn package() -> PathBuf {
-    root().join("src/watchbill")
+    root().join("share/watchbill")
 }
 
 fn fixtures() -> PathBuf {
@@ -483,20 +483,28 @@ fn test_WB_REV_18_a_backup_file_that_ends_with_a_tilde_is_refused_by_name() {
     assert!(scratch.refused().contains("revision/a.md~"));
 }
 
-// ---- TestPackageData
+// ---- TestPackageData: the files the spec installs
 
+/// The patterns of the files the spec installs under `/usr/share/watchbill/`: the lines of
+/// `%files` that begin with `%{_datadir}/watchbill/`, written relative to that folder.
 fn patterns() -> Vec<String> {
-    let text = String::from_utf8(read_bytes(root().join("setup.cfg"))).unwrap();
+    patterns_of(&String::from_utf8(read_bytes(root().join("packaging/watchbill.spec"))).unwrap())
+}
+
+/// The same for the text of a spec. A line that leaves a file of the revision out of the package,
+/// `%exclude` of a path under `/usr/share/watchbill`, is refused: rpmbuild does not stop at it.
+fn patterns_of(text: &str) -> Vec<String> {
     let mut found = Vec::new();
-    let (mut in_section, mut in_key) = (false, false);
-    for line in text.lines() {
-        if line.starts_with('[') {
-            in_section = line == "[options.package_data]";
-            in_key = false;
-        } else if in_section && !line.starts_with(' ') && !line.starts_with('\t') {
-            in_key = line.starts_with("watchbill");
-        } else if in_section && in_key && !line.trim().is_empty() {
-            found.push(line.trim().to_string());
+    let files = text.split("\n%files").nth(1).expect("the spec has no %files");
+    for line in files.lines() {
+        let line = line.trim();
+        assert!(
+            !(line.starts_with("%exclude") && line.contains("watchbill")),
+            "the spec excludes a file of the revision: {}",
+            line
+        );
+        if let Some(rest) = line.strip_prefix("%{_datadir}/watchbill/") {
+            found.push(rest.to_string());
         }
     }
     found
@@ -513,7 +521,7 @@ fn fnmatch(pattern: &[char], name: &[char]) -> bool {
 }
 
 fn uncovered(paths: &[&str], patterns: &[String]) -> Vec<String> {
-    // A pattern of setup.cfg takes one folder level for each `*`-free part: no `**`.
+    // A pattern of the spec takes one folder level for each `*`-free part: no `**`.
     paths
         .iter()
         .filter(|path| {
@@ -532,19 +540,20 @@ fn committed_paths() -> Vec<String> {
 }
 
 #[test]
-fn test_WB_REV_15_every_path_of_the_committed_manifest_matches_a_pattern_of_package_data() {
+fn test_WB_REV_22_every_path_of_the_committed_manifest_is_among_the_files_the_spec_installs() {
     let paths = committed_paths();
     let paths: Vec<&str> = paths.iter().map(String::as_str).collect();
+    assert!(!patterns().is_empty(), "the spec installs no file of the revision");
     assert_eq!(uncovered(&paths, &patterns()), Vec::<String>::new());
 }
 
 #[test]
-fn test_WB_REV_15_the_manifest_and_revisions_txt_are_package_data() {
+fn test_WB_REV_22_the_manifest_and_revisions_txt_are_among_the_files_the_spec_installs() {
     assert_eq!(uncovered(&["revision.sha256", "revisions.txt"], &patterns()), Vec::<String>::new());
 }
 
 #[test]
-fn test_WB_REV_15_a_file_in_a_new_folder_or_of_a_new_type_is_found() {
+fn test_WB_REV_22_a_file_in_a_new_folder_or_of_a_new_type_is_found() {
     let paths = ["revision/lenses/one.md", "revision/roles/x.txt", "revision/roles/a.md"];
     assert_eq!(uncovered(&paths, &patterns()), ["revision/lenses/one.md", "revision/roles/x.txt"]);
 }
@@ -970,4 +979,23 @@ fn test_WB_REV_24_a_file_that_is_not_changed_is_hashed() {
     let text = manifest::manifest_with(&base, &mut |path: &str| seen.push(path.to_string())).unwrap();
     assert_eq!(seen, ["revision/a.md"]);
     assert_eq!(text, format!("{}  revision/a.md\n", sha256_hex(b"one\n")));
+}
+
+#[test]
+fn test_WB_REV_25_built_in_a_checkout_the_folder_is_share_watchbill_of_the_checkout() {
+    // The build fixes it: the checkout's own `share/watchbill`, unless the spec gives `WB_SHARE`.
+    assert_eq!(Path::new(manifest::PACKAGE_FOLDER), package());
+}
+
+#[test]
+#[should_panic(expected = "the spec excludes a file of the revision")]
+fn test_WB_REV_22_a_spec_that_excludes_a_file_of_the_revision_is_refused() {
+    patterns_of("Name: x\n%files\n%{_datadir}/watchbill/revision/roles/*.md\n%exclude %{_datadir}/watchbill/revision/roles/fix.md\n");
+}
+
+#[test]
+fn test_WB_REV_22_the_spec_names_the_files_of_the_revision_and_excludes_none() {
+    let text = String::from_utf8(read_bytes(root().join("packaging/watchbill.spec"))).unwrap();
+    assert_eq!(patterns_of(&text), patterns());
+    assert!(!text.lines().any(|line| line.trim().starts_with("%exclude")));
 }

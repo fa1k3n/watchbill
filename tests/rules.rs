@@ -288,7 +288,7 @@ fn test_WB_RULE_1_the_rule_table_of_the_package_has_the_five_roles() {
 
 #[test]
 fn test_WB_RULE_1_the_files_of_the_package_are_in_the_revision_folder() {
-    let revision = root().join("src").join("watchbill").join("revision");
+    let revision = root().join("share").join("watchbill").join("revision");
     assert_eq!(Path::new(rules::RULES_FILE), revision.join("rules.yml"));
     assert_eq!(Path::new(rules::MODELS_FILE), revision.join("models.yml"));
     assert!(Path::new(rules::RULES_FILE).is_file());
@@ -390,18 +390,6 @@ fn test_WB_RULE_9_the_models_and_efforts_of_the_first_table() {
         assert_eq!((table.models[name].model.as_str(), table.models[name].effort.as_str()), ("claude-sonnet-5-5", "medium"));
     }
     assert_eq!((table.models["review"].model.as_str(), table.models["review"].effort.as_str()), ("claude-opus-5-5", "high"));
-}
-
-#[test]
-fn test_WB_RULE_23_only_rules_py_names_the_two_tables() {
-    // The row is about the Python `wb`, which stands until #25: the same check as the Python test.
-    let sources = files(&root().join("src").join("watchbill"), ".py");
-    assert!(sources.iter().any(|path| path.ends_with("rules.py")));
-    for path in sources {
-        if path.file_name().unwrap() != "rules.py" {
-            assert!(!names_a_table(&fs::read_to_string(&path).unwrap()), "{}", path.display());
-        }
-    }
 }
 
 // TestShape

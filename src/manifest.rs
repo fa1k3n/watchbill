@@ -19,9 +19,10 @@ use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
-/// The folder that holds `revision/`, the manifest and `revisions.txt`. Until the files move
-/// (#25) it is the folder of the Python package in the checkout.
-pub const PACKAGE_FOLDER: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/watchbill");
+/// The folder that holds `revision/`, the manifest and `revisions.txt`. `build.rs` fixes it when
+/// `wb` is built: the folder the spec gives in `WB_SHARE` (`/usr/share/watchbill` in the package),
+/// and in a checkout `share/watchbill` of the checkout.
+pub const PACKAGE_FOLDER: &str = env!("WB_SHARE_FOLDER");
 pub const MANIFEST_FILE: &str = "revision.sha256";
 pub const RELEASED_FILE: &str = "revisions.txt";
 

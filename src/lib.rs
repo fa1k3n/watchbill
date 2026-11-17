@@ -30,6 +30,20 @@ pub const USAGE: &str = "usage:
             manifest: the hash of every file the revision holds. Writes nothing
 ";
 
+/// Runs a command so that a fault in `wb` itself is not shown as a panic: the hook prints nothing,
+/// and a panic that is caught ends the command with 1 (it did not hold) and one line on `err`.
+/// `main` runs every command through it. The body is a parameter so that a test can make it panic.
+pub fn guarded(body: impl FnOnce() -> i32, err: &mut dyn Write) -> i32 {
+    std::panic::set_hook(Box::new(|_| {}));
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)) {
+        Ok(code) => code,
+        Err(_) => {
+            let _ = writeln!(err, "wb: an internal error. This is a fault in wb, not in what it was given.");
+            1
+        }
+    }
+}
+
 /// A word of the command line as text. What is not UTF-8 is written as the Python `wb` writes
 /// it: each byte that is not part of a character as `\udcXX`.
 pub fn word(bytes: &[u8]) -> String {

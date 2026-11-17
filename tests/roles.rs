@@ -43,7 +43,7 @@ const PRODUCTS: [&str; 24] = [
 ];
 
 fn roles_folder() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/watchbill/revision/roles")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("share/watchbill/revision/roles")
 }
 
 fn raw(name: &str) -> Vec<u8> {

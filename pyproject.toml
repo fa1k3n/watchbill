@@ -1,4 +1,0 @@
-# The metadata is in setup.cfg, which also the setuptools of older distributions read.
-[build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"

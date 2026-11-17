@@ -1,12 +1,9 @@
-# The package that `dnf install` takes: the commands `wb` and `watchbill`, run by
-# the Python of the distribution. packaging/rpm.sh builds it from a checkout and
-# passes the revision as wb_version.
-#
-# The Rust `wb` is built and its tests are run here, and it is not installed yet: the
-# installed `wb` is the Python one until #25. The package stays noarch for that reason.
+# The package that `dnf install` takes: the commands `wb` and `watchbill`, built from Rust, and
+# the files of the revision under /usr/share/watchbill. packaging/rpm.sh builds it from a
+# checkout and passes the version of Cargo.toml as wb_version: the spec has none of its own.
 
 Name:           watchbill
-Version:        %{?wb_version}%{!?wb_version:0.0.1}
+Version:        %{wb_version}
 Release:        1%{?dist}
 Summary:        A harness for AI agents in embedded software development
 
@@ -15,12 +12,6 @@ License:        LicenseRef-Not-Chosen
 URL:            https://github.com/fa1k3n/watchbill
 Source:         %{name}-%{version}.tar.gz
 
-BuildArch:      noarch
-BuildRequires:  python3-devel
-BuildRequires:  pyproject-rpm-macros
-# The tests read the two tables of the revision through the YAML library. The library
-# `wb` runs with is named in setup.cfg, and the package asks for it from there.
-BuildRequires:  python3-pyyaml
 # The tests make git repositories.
 BuildRequires:  git-core
 # The Rust of the distribution, and the macros that build with it and take every crate
@@ -50,22 +41,33 @@ at a fixed revision onto a project that already exists. The command is wb.
 %cargo_prep
 
 %generate_buildrequires
-%pyproject_buildrequires
 %cargo_generate_buildrequires
 
 %build
-%pyproject_wheel
+# The folder of the revision is fixed in the program here, and only here: the tests that run
+# after the build read the files of the checkout.
+export WB_SHARE=%{_datadir}/watchbill
 %cargo_build
 
 %install
-%pyproject_install
-%pyproject_save_files watchbill
+install -D -m 0755 target/rpm/wb %{buildroot}%{_bindir}/wb
+ln -s wb %{buildroot}%{_bindir}/watchbill
+mkdir -p %{buildroot}%{_datadir}/watchbill
+cp -a share/watchbill/. %{buildroot}%{_datadir}/watchbill/
 
 %check
-%{python3} -m unittest discover -s tests -v
 %cargo_test
 
-%files -f %{pyproject_files}
+# One line for each kind of file: a file of the revision that is not named here is not packaged,
+# and rpmbuild stops at it. A test holds the manifest to these lines (WB-REV-22).
+%files
 %doc README.md
 %{_bindir}/wb
 %{_bindir}/watchbill
+%dir %{_datadir}/watchbill
+%dir %{_datadir}/watchbill/revision
+%dir %{_datadir}/watchbill/revision/roles
+%{_datadir}/watchbill/revision/roles/*.md
+%{_datadir}/watchbill/revision/*.yml
+%{_datadir}/watchbill/revision.sha256
+%{_datadir}/watchbill/revisions.txt

@@ -60,43 +60,40 @@ ci: gitlab-ci
 
 ## Installing it
 
-Watchbill is being moved from Python to Rust. The owner decided this on 2026-11-17 (#20), and #21 to #25 do it.
-
-- **Today** the `wb` that is installed is the Python one, run by the Python of the distribution: 3.9 or later, which is what Enterprise Linux 9 has. It needs `git` and the YAML library the distribution packages (PyYAML).
-- **When the move is done** `wb` is one program, built from Rust and two crates that the distribution packages ([docs/revision.md](docs/revision.md), point 6). Building it on Enterprise Linux 9 needs EPEL, where the crates are. Installed, it needs `git` and no library of its own.
+`wb` is one program, built from Rust and two crates that the distribution packages ([docs/revision.md](docs/revision.md), point 6). The owner decided this on 2026-11-17 (#20). Building it on Enterprise Linux 9 needs EPEL, where the crates are. Installed, it needs `git` and no library of its own.
 
 On Fedora and Enterprise Linux it is an RPM package, installed and removed with `dnf` like any other program:
 
 ```sh
 packaging/rpm.sh                                                  # builds the package from this checkout
-sudo dnf install build/rpm/RPMS/noarch/watchbill-*.noarch.rpm     # puts wb in /usr/bin
+sudo dnf install build/rpm/RPMS/$(uname -m)/watchbill-[0-9]*.rpm      # puts wb in /usr/bin and the revision in /usr/share/watchbill
 ```
 
-The package is built here from a checkout. There is no repository to `dnf install watchbill` from yet. Building needs `rpm-build`, `python3-devel`, `pyproject-rpm-macros`, `python3-setuptools`, `python3-pip`, `python3-wheel`, `git-core`, and the Rust of the distribution: `cargo`, `rust` (1.97 or later), `cargo-rpm-macros` and the crates `yaml-rust2` and `sha2` (`rust-yaml-rust2-devel`, `rust-sha2-devel`). On Enterprise Linux 9 it also needs `python3-tomli` and the CRB repository, and **EPEL**: `cargo-rpm-macros` and the crates are only there.
+The package is built here from a checkout. There is no repository to `dnf install watchbill` from yet. Building needs `rpm-build`, `git-core`, and the Rust of the distribution: `cargo`, `rust` (1.97 or later), `cargo-rpm-macros` and the crates `yaml-rust2` and `sha2` (`rust-yaml-rust2-devel`, `rust-sha2-devel`). On Enterprise Linux 9 it also needs **EPEL**: `cargo-rpm-macros` and the crates are only there.
 
 ```sh
 sudo dnf install epel-release                    # Enterprise Linux 9 only
-sudo dnf config-manager --set-enabled crb        # Enterprise Linux 9 only
 ```
 
-With only BaseOS, AppStream and CRB the build stops before it compiles anything, and says what is missing:
+With only BaseOS and AppStream the build stops before it compiles anything, and says what is missing:
 
 ```
 error: Failed build dependencies:
-	cargo-rpm-macros is needed by watchbill-0.0.1-1.el9.noarch
-	crate(sha2) >= 0.10.9 is needed by watchbill-0.0.1-1.el9.noarch
-	crate(yaml-rust2) >= 0.10.4 is needed by watchbill-0.0.1-1.el9.noarch
+	cargo-rpm-macros is needed by watchbill-0.0.1-1.el9.x86_64
+	crate(sha2) >= 0.10.9 is needed by watchbill-0.0.1-1.el9.x86_64
+	crate(yaml-rust2) >= 0.10.4 is needed by watchbill-0.0.1-1.el9.x86_64
 ```
 
-The build runs the tests of the Python and of the Rust `wb`. The package still installs the Python `wb`: the Rust one is built and tested, and not installed, until #25. A build asks nothing of the network: the macros of the distribution point cargo at `/usr/share/cargo/registry`, where the `rust-<name>-devel` packages put the crates, and never at crates.io. The `.cargo/config.toml` in the tree does the same for `cargo test` run by hand in a checkout.
+The build runs the tests of `wb`. The package is built for the architecture of the machine, and it installs the program as `wb` and `watchbill`, and the files of the revision under `/usr/share/watchbill/`. That folder is fixed in the program when it is built. A build asks nothing of the network: the macros of the distribution point cargo at `/usr/share/cargo/registry`, where the `rust-<name>-devel` packages put the crates, and never at crates.io. The `.cargo/config.toml` in the tree does the same for `cargo test` run by hand in a checkout.
 
 To try it without installing anything, from a checkout:
 
 ```sh
-python3 -m unittest discover -s tests            # every test of the Python wb
-cargo test                                       # every test of the Rust wb: needs cargo, rust 1.97 or later
-PYTHONPATH=/path/to/watchbill/src python3 -m watchbill init
+cargo test                                       # every test of `wb`: needs cargo, rust 1.97 or later
+cargo run -- init                                # runs wb from the checkout; the revision is read from share/watchbill/
 ```
+
+The folder of the revision is fixed in the program when it is built, as the path of the checkout. After a checkout is moved, run `cargo clean` before building again.
 
 ## The revision it carries
 
@@ -114,13 +111,13 @@ revision <the SHA-256 of the manifest>
 The manifest has one line per file of the revision, in the form `sha256sum` prints, sorted by path. The package holds it as `revision.sha256`, beside the folder `revision/`. Anyone can check the files without `wb`. In a checkout:
 
 ```sh
-cd src/watchbill && sha256sum -c revision.sha256
+cd share/watchbill && sha256sum -c revision.sha256
 ```
 
 In an installed package, in the folder that holds `revision/`:
 
 ```sh
-cd "$(python3 -c 'import os, watchbill; print(os.path.dirname(watchbill.__file__))')" && sha256sum -c revision.sha256
+cd /usr/share/watchbill && sha256sum -c revision.sha256
 ```
 
 Every line ends in `OK` when the files are the revision. `revisions.txt` beside it lists each released version with the hash of its revision. What is in a revision: [docs/revision.md](docs/revision.md).

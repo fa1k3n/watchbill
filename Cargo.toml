@@ -1,7 +1,6 @@
 [package]
 name = "watchbill"
-# The version of the package: the same as __version__ in src/watchbill/__init__.py,
-# which a test holds until the Python is removed (#25).
+# The version of the package: `wb --version` prints it and packaging/rpm.sh builds the RPM with it.
 version = "0.0.1"
 edition = "2021"
 rust-version = "1.97"

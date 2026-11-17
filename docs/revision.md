@@ -28,7 +28,6 @@ In a checkout the same files are under `share/watchbill/`.
 
 - The folder is fixed when `wb` is built. No option and no environment variable changes it when `wb` runs, so nobody points `wb` at another revision.
 - The code that reads them is `src/manifest.rs` (files, hashes, manifest) and `src/rules.rs` (the two tables).
-- Until the move to Rust is done (#25), the files are in the Python package, under `src/watchbill/` in a checkout, and the code that reads them is `manifest.py` and `rules.py` there.
 
 ## 2. The roles of the first revision
 
@@ -90,7 +89,6 @@ What follows from it:
   - a tag, a merge key and an alias are refused;
   - it decides itself what a plain value is, so the answer does not rest on which version of YAML the library follows;
   - a value is held to the type its field asks for. Where a text is expected and the value is written plain and could be read as something else (`no`, `1.10`, a date), the file is refused and the message says to put the value in quotes.
-- Until the move is done (#25), the loader that the installed `wb` runs is the Python one, which reads through PyYAML and takes an alias.
 - `.watchbill/watchbill.yml` and the organisation's file (point 11) are read with the same loader.
 - A file is hashed as its bytes. Nothing is rewritten before hashing, so the format does not touch the hash.
 

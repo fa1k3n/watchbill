@@ -7,6 +7,10 @@
 set -eu
 
 here=$(cd "$(dirname "$0")/.." && pwd)
+if ! git -C "$here" rev-parse --git-dir >/dev/null 2>&1; then
+  echo "rpm.sh needs a git checkout: $here is not one" >&2
+  exit 2
+fi
 out=${1:-$here/build/rpm}
 mkdir -p "$out/SOURCES"
 out=$(cd "$out" && pwd)

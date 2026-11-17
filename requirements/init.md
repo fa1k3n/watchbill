@@ -41,4 +41,4 @@ What `wb init` does today: it sets Watchbill up in a git repository. What it wri
 | WB-INIT-35 | `wb help` and `wb -h` shall do as `wb --help`. Issue: #2. | T | Implemented |
 | WB-INIT-36 | `wb -v` shall do as `wb --version`. Issue: #2. | T | Implemented |
 | WB-INIT-37 | `wb init` shall take any usable text for the git server, the tracker and the CI driver, not only the names its question lists. Issue: #2. | T | Implemented |
-| WB-INIT-38 | `wb init` shall refuse an answer that is not UTF-8 in words, without a panic. Issue: #22. | T | Draft |
+| WB-INIT-38 | `wb init` shall refuse an answer that is not UTF-8 in words, without a panic. Issue: #22. | T | Implemented |

@@ -1,4 +1,7 @@
+use std::fs::File;
 use std::io;
+use std::mem::ManuallyDrop;
+use std::os::fd::FromRawFd;
 use std::os::unix::ffi::OsStrExt;
 use std::process::ExitCode;
 
@@ -7,6 +10,10 @@ fn main() -> ExitCode {
         .skip(1)
         .map(|arg| watchbill::word(arg.as_bytes()))
         .collect();
-    let code = watchbill::run(&args, &mut io::stdout().lock(), &mut io::stderr().lock());
+    // Standard output and standard error are written as they come, not held in a buffer: what an
+    // interrupt prints must come after all that was printed before it. The files are not closed here.
+    let mut out = ManuallyDrop::new(unsafe { File::from_raw_fd(1) });
+    let mut err = ManuallyDrop::new(unsafe { File::from_raw_fd(2) });
+    let code = watchbill::run(&args, &mut io::stdin().lock(), &mut *out, &mut *err);
     ExitCode::from(code as u8)
 }

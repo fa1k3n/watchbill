@@ -9,7 +9,7 @@ use std::os::raw::{c_int, c_void};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 extern "C" {
-    fn signal(signal: c_int, handler: extern "C" fn(c_int)) -> usize;
+    fn signal(signal: c_int, handler: usize) -> usize;
     fn write(fd: c_int, buffer: *const c_void, count: usize) -> isize;
     fn _exit(status: c_int) -> !;
 }
@@ -29,10 +29,16 @@ extern "C" fn on_interrupt(_: c_int) {
     }
 }
 
-/// From now on an interrupt ends the program with `Nothing written.` and 1.
+/// `SIG_IGN` as the C library has it.
+const IGNORED: usize = 1;
+
+/// From now on an interrupt ends the program with `Nothing written.` and 1, unless the parent had set
+/// SIGINT to be ignored (`nohup`, `trap '' INT`): Python keeps it ignored then, and so does this.
 pub fn install() {
     unsafe {
-        signal(SIGINT, on_interrupt);
+        if signal(SIGINT, on_interrupt as extern "C" fn(c_int) as usize) == IGNORED {
+            signal(SIGINT, IGNORED);
+        }
     }
 }
 

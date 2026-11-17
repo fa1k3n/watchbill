@@ -100,8 +100,15 @@ pub fn render(revision: &str, setup: &Setup) -> String {
     text
 }
 
-/// What is said, with 1, when an answer is not UTF-8 text.
-const NOT_UTF_8: &str = "wb init: what was typed is not UTF-8 text. Nothing written.\n";
+/// What is said, with 1, when reading the answers failed: an answer that is not UTF-8 text, or an
+/// error of reading, which is told as it is.
+fn read_failure(error: &io::Error) -> String {
+    if error.kind() == ErrorKind::InvalidData {
+        "wb init: what was typed is not UTF-8 text. Nothing written.\n".to_string()
+    } else {
+        format!("wb init: cannot read standard input: {}. Nothing written.\n", error)
+    }
+}
 
 /// The place of the answers: where the questions go and where the lines come from.
 struct Talk<'a> {
@@ -212,8 +219,8 @@ pub fn init(
         talk.say("");
         setup = match talk.answers(&setup) {
             Ok(setup) => setup,
-            Err(_) => {
-                let _ = err.write_all(NOT_UTF_8.as_bytes());
+            Err(error) => {
+                let _ = err.write_all(read_failure(&error).as_bytes());
                 return 1;
             }
         };
@@ -234,8 +241,8 @@ pub fn init(
                     return 1;
                 }
             }
-            Err(_) => {
-                let _ = err.write_all(NOT_UTF_8.as_bytes());
+            Err(error) => {
+                let _ = err.write_all(read_failure(&error).as_bytes());
                 return 1;
             }
         }

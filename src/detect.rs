@@ -69,9 +69,10 @@ fn host_port_path(text: &str) -> Option<Remote> {
     Some(Remote { host: host.to_lowercase(), port: port.to_string(), path: clean(path) })
 }
 
-/// A letter of the pattern `[a-z]` of Python with its flag for case: those two are taken for `s` and `k`.
+/// A letter of the pattern `[a-z]` of Python with its flag for case. Beyond ASCII it takes four, found
+/// by testing every code point on Python 3.9 and 3.14: U+0130, U+0131, U+017F and U+212A.
 fn is_scheme_letter(c: char) -> bool {
-    c.is_ascii_alphabetic() || c == '\u{17f}' || c == '\u{212a}'
+    c.is_ascii_alphabetic() || matches!(c, '\u{130}' | '\u{131}' | '\u{17f}' | '\u{212a}')
 }
 
 /// `scheme://[user[:password]@]host[:port]/path`

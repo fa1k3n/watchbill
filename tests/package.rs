@@ -211,3 +211,31 @@ fn test_WB_PKG_13_a_listed_crate_that_is_not_in_cargo_toml_is_caught() {
     let cargo = "[package]\nversion = \"1\"\n\n[dependencies]\nyaml-rust2 = \"0.10\"\n\n[lib]\npath = \"src/lib.rs\"\n";
     assert_eq!(crate_differences(cargo, CLAUDE_LIST), (vec![], vec!["sha2".to_string()]));
 }
+
+fn rpm_script() -> String {
+    fs::read_to_string(root().join("packaging/rpm.sh")).expect("rpm.sh could not be read")
+}
+
+#[test]
+fn test_WB_PKG_14_rpm_sh_takes_the_date_of_the_package_from_the_commit_it_builds() {
+    let text = rpm_script();
+    let line = text
+        .lines()
+        .find(|line| line.contains("SOURCE_DATE_EPOCH=") && !line.trim_start().starts_with('#'))
+        .expect("rpm.sh does not set SOURCE_DATE_EPOCH");
+    assert!(line.contains("git") && line.contains("log -1 --format=%ct"), "{}", line);
+    assert!(text.contains("export SOURCE_DATE_EPOCH"), "SOURCE_DATE_EPOCH is not exported");
+}
+
+#[test]
+fn test_WB_PKG_14_rpm_sh_tells_rpmbuild_to_use_that_date_and_to_clamp_the_files_to_it() {
+    let text = rpm_script();
+    let build = text.lines().find(|line| line.starts_with("rpmbuild")).expect("no rpmbuild line");
+    for define in [
+        "use_source_date_epoch_as_buildtime 1",
+        "clamp_mtime_to_source_date_epoch 1",
+        "source_date_epoch_from_changelog 0",
+    ] {
+        assert!(build.contains(define), "rpmbuild is not given {}", define);
+    }
+}

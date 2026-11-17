@@ -20,7 +20,7 @@ The prompts of the first revision: tester, build, review and fix. What a revisio
 | WB-ROLE-14 | The last message of every role shall start with the fields `model` and `effort`: what the session states that it runs as, or `unknown`. Issue: #4. | T | Implemented |
 | WB-ROLE-15 | Every role prompt shall say that the role opens no file outside those the prompt lists, and that where it needs another it stops and asks before it opens it. Issue: #4. | T | Implemented |
 | WB-ROLE-16 | The builder's prompt shall say that the builder never changes a file the task does not name, and the reviewer's that a file changed outside those the task names is a finding. Issue: #4. | I | Implemented |
-| WB-ROLE-17 | The list of placeholders shall hold `{checkout}`, `{branch}`, `{task_address}` and `{change_address}`: where the session works and where its task and its change are read. Issue: #43. | T | Draft |
-| WB-ROLE-18 | Every role prompt shall name the checkout and the branch it works in, and the address its task is read at. Issue: #43. | T | Draft |
-| WB-ROLE-19 | The reviewer's and the fixer's prompts shall name the address the change is read and posted at. Issue: #43. | T | Draft |
-| WB-ROLE-20 | Every role prompt shall say that how work is pushed and posted is taken from the project's own text. Issue: #43. | T | Draft |
+| WB-ROLE-17 | The list of placeholders shall hold `{checkout}`, `{branch}`, `{task_address}` and `{change_address}`: where the session works and where its task and its change are read. Issue: #43. | T | Implemented |
+| WB-ROLE-18 | Every role prompt shall name the checkout and the branch it works in, and the address its task is read at. Issue: #43. | T | Implemented |
+| WB-ROLE-19 | The reviewer's and the fixer's prompts shall name the address the change is read and posted at. Issue: #43. | T | Implemented |
+| WB-ROLE-20 | Every role prompt shall say that how work is pushed and posted is taken from the project's own text. Issue: #43. | T | Implemented |

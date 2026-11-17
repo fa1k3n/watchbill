@@ -6,5 +6,9 @@ A role prompt is filled in with these words and no others. Each stands in the pr
 - `{change}`: the change under review or being fixed, as the git server names it.
 - `{requirements}`: the IDs of the requirements the task names.
 - `{round}`: the review round, 1 or 2.
+- `{checkout}`: the folder of the checkout the session works in.
+- `{branch}`: the branch the session works on.
+- `{task_address}`: where the task is read: its address at the tracker, or the command that shows it.
+- `{change_address}`: where the change is read and posted on: its address at the git server, or the command that shows it.
 
 A value is put in as it is given. It is never itself read for placeholders.

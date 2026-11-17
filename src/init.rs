@@ -421,6 +421,22 @@ mod tests {
         let found = in_the_way("/nowhere/.watchbill", &["/elsewhere/file.md".to_string()]);
 
         let message = found.expect("a target outside the folder was taken as nothing in the way");
-        assert!(message.contains("/elsewhere/file.md"), "{}", message);
+        assert!(message.contains("/elsewhere/file.md is not below /nowhere/.watchbill"), "{}", message);
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_WB_PIN_7_a_folder_that_cannot_be_looked_at_is_named_by_the_folder_above_it() {
+        // A name of 300 bytes cannot be looked at, as root too.
+        let folder = std::env::temp_dir().join(format!("wb53-unit-{}", std::process::id()));
+        fs::create_dir_all(&folder).unwrap();
+        let name = "a".repeat(300);
+        let target = format!("{}/{}/file.md", folder.display(), name);
+
+        let found = in_the_way(folder.to_str().unwrap(), &[target]);
+
+        fs::remove_dir_all(&folder).unwrap();
+        let message = found.expect("a folder that cannot be looked at was taken as nothing in the way");
+        assert!(message.starts_with(&format!("{} cannot be looked at", folder.display())), "{}", message);
     }
 }

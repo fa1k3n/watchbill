@@ -241,6 +241,22 @@ fn test_WB_PIN_7_a_link_where_a_folder_goes_is_named_as_a_link() {
 }
 
 #[test]
+fn test_WB_PIN_7_a_link_for_revision_to_a_folder_with_its_files_is_named_as_a_link() {
+    let folder = repository(None);
+    let outside = folder_named("outside");
+    put(&outside.path, "models.yml", "theirs\n");
+    link(&outside.path, &folder.path.join(".watchbill/revision"));
+
+    let run = wb(&folder.path, &["init", "--yes"], "");
+
+    let out = text(&run.stdout);
+    let named = real(&folder.path).join(".watchbill/revision");
+    assert_eq!(code(&run), Some(1), "{}", out);
+    assert!(out.contains(&format!("{} is a link", named.to_str().unwrap())), "{}", out);
+    assert_eq!(all_files(&outside.path), vec!["models.yml".to_string()]);
+}
+
+#[test]
 fn test_WB_PIN_7_a_file_where_a_folder_goes_is_named_as_not_a_folder() {
     let folder = repository(None);
     put(&folder.path, ".watchbill/revision/roles", "mine\n");

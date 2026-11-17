@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use crate::word::is_word;
 use crate::yamlfile::{self, Document, Part, YamlError};
 
 /// The roles of the first revision. The officer has rows and no prompt yet.
@@ -55,11 +56,6 @@ fn with(place: &[Part], part: impl Into<Part>) -> Vec<Part> {
     let mut longer = place.to_vec();
     longer.push(part.into());
     longer
-}
-
-/// Whether a character is a letter, a digit or `_`, as `\w` of Python takes it in a text.
-fn is_word(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
 }
 
 /// `merg` at the start of a word: merge, merges, merged, merging.

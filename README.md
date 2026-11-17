@@ -84,7 +84,7 @@ With only BaseOS, AppStream and CRB the build stops before it compiles anything,
 ```
 error: Failed build dependencies:
 	cargo-rpm-macros is needed by watchbill-0.0.1-1.el9.noarch
-	crate(yaml-rust2) >= 0.10 is needed by watchbill-0.0.1-1.el9.noarch
+	crate(yaml-rust2) >= 0.10.4 is needed by watchbill-0.0.1-1.el9.noarch
 ```
 
 The build runs the tests of the Python and of the Rust `wb`. The package still installs the Python `wb`: the Rust one is built and tested, and not installed, until #25. A build asks nothing of the network: the macros of the distribution point cargo at `/usr/share/cargo/registry`, where the `rust-<name>-devel` packages put the crates, and never at crates.io. The `.cargo/config.toml` in the tree does the same for `cargo test` run by hand in a checkout.

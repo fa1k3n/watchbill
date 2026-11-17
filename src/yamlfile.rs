@@ -107,6 +107,31 @@ pub enum Reading {
 }
 
 impl Reading {
+    /// What is said of a value written plain: what YAML may read it as, when a version of YAML
+    /// writes it so, and else that it is too close to that (`yES`, `nULL`, `.nAn`).
+    fn said(&self, text: &str) -> String {
+        let spelt = |forms: &[&str]| forms.contains(&text);
+        let as_yaml_writes_it = match self {
+            Reading::Boolean => spelt(&[
+                "yes", "Yes", "YES", "no", "No", "NO", "true", "True", "TRUE", "false", "False", "FALSE", "on", "On", "ON", "off",
+                "Off", "OFF",
+            ]),
+            Reading::Nothing => spelt(&["", "~", "null", "Null", "NULL"]),
+            Reading::Number => {
+                let rest = unsigned(text);
+                ![".inf", ".nan"].contains(&rest.to_ascii_lowercase().as_str())
+                    || [".inf", ".Inf", ".INF"].contains(&rest)
+                    || [".nan", ".NaN", ".NAN"].contains(&text)
+            }
+            _ => true,
+        };
+        if as_yaml_writes_it {
+            format!("YAML may read it as {}", self.words())
+        } else {
+            format!("written plain, it is too close to {}", self.words())
+        }
+    }
+
     fn words(&self) -> &'static str {
         match self {
             Reading::Text => "a text",
@@ -365,6 +390,19 @@ fn characters(text: &str) -> Vec<(char, usize, bool)> {
     all
 }
 
+/// The lines of a text, as the library counts them: CR LF, CR and LF each end one.
+fn lines(text: &str) -> Vec<&str> {
+    let mut all = Vec::new();
+    let mut rest = text;
+    while let Some(at) = rest.find(['\r', '\n']) {
+        all.push(&rest[..at]);
+        let width = if rest[at..].starts_with("\r\n") { 2 } else { 1 };
+        rest = &rest[at + width..];
+    }
+    all.push(rest);
+    all
+}
+
 /// The version a `%YAML` directive on this line names, when it names one that is not 1.
 fn other_version(line: &str) -> Option<&str> {
     let rest = line.strip_prefix("%YAML")?;
@@ -425,8 +463,11 @@ impl Builder<'_> {
         if !value.is_empty() || style != TScalarStyle::Plain {
             return mark.line();
         }
-        if let Some(Open::Table(_, _, Some(key), _)) = self.open.last() {
-            return key.line;
+        match self.open.last() {
+            Some(Open::Table(_, _, Some(key), _)) => return key.line,
+            // An empty key: the library gives the place where it stands.
+            Some(Open::Table(_, _, None, _)) => return mark.line(),
+            _ => {}
         }
         // The place given is that of what follows: the next item, past its `-`, or what ends the list.
         let text = self.text;
@@ -468,6 +509,11 @@ impl Builder<'_> {
                 Some(key) => entries.push((key, node)),
                 None => {
                     let text = match node.value {
+                        Value::Plain(text, _) if text.is_empty() => {
+                            *pending = Some(Key { text: String::new(), line });
+                            self.faults.push((line, "a key is empty here; a key is a text".to_string()));
+                            return;
+                        }
                         Value::Plain(text, _) | Value::Quoted(text) => text,
                         Value::List(_) | Value::Table(_) => {
                             let what = if matches!(node.value, Value::List(_)) { "a list" } else { "a mapping" };
@@ -603,8 +649,19 @@ pub fn load(path: impl AsRef<Path>) -> Result<Document, YamlError> {
         .map_err(|error| YamlError::new(format!("{}: cannot be read ({})", shown, system_words(&error))))?;
     let text = String::from_utf8(bytes).map_err(|_| YamlError::new(format!("{}: is not text in UTF-8", shown)))?;
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
-    for (index, line) in text.split('\n').enumerate() {
+    let mut before_document = true;
+    for (index, line) in lines(text).into_iter().enumerate() {
         let line_number = index + 1;
+        if before_document {
+            let first = line.trim_start_matches([' ', '\t']);
+            if first == "..." || first.starts_with("... ") || first.starts_with("...\t") {
+                return Err(YamlError::new(format!(
+                    "{}, line {}: a document end (`...`) stands before the document; one document is read",
+                    shown, line_number
+                )));
+            }
+            before_document = first.is_empty() || first.starts_with('#') || first.starts_with('%');
+        }
         if let Some(c) = line.chars().find(|c| !printable(*c)) {
             return Err(YamlError::new(format!(
                 "{}, line {}: holds the character U+{:04X}, which YAML does not allow",
@@ -624,7 +681,7 @@ pub fn load(path: impl AsRef<Path>) -> Result<Document, YamlError> {
                 shown, line_number, c as u32
             )));
         }
-        if let Some(version) = other_version(line.trim_end_matches('\r')) {
+        if let Some(version) = other_version(line) {
             return Err(YamlError::new(format!("{}, line {}: YAML version `{}` is not read; version 1 is", shown, line_number, version)));
         }
     }
@@ -743,8 +800,8 @@ impl Document {
                 return Err(self.fail(
                     place,
                     &format!(
-                        "a text is expected, but YAML may read it as {}{}. Put the value in quotes.",
-                        read.words(),
+                        "a text is expected, but {}{}. Put the value in quotes.",
+                        read.said(text),
                         written
                     ),
                     false,
@@ -774,7 +831,7 @@ impl Document {
                     _ => Ok(*number),
                 }
             }
-            Value::Plain(_, read) => format!("YAML may read {} here", read.words()),
+            Value::Plain(text, read) => format!("{} here", read.said(text)),
             Value::Quoted(_) => "a text in quotes is here".to_string(),
             Value::List(_) => "a list is here".to_string(),
             Value::Table(_) => "a mapping is here".to_string(),

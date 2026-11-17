@@ -11,9 +11,9 @@ publish = false
 
 # The crates come from the distribution's packages. yaml-rust2 is named without its default
 # feature, which needs encoding_rs: the loader reads UTF-8 only, and rust-yaml-rust2-devel does
-# not bring that crate.
+# not bring that crate. 0.10.4 is the least: without that feature 0.10.3 does not compile.
 [dependencies]
-yaml-rust2 = { version = "0.10", default-features = false }
+yaml-rust2 = { version = "0.10.4", default-features = false }
 
 [lib]
 path = "src/lib.rs"

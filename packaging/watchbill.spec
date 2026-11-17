@@ -31,8 +31,9 @@ BuildRequires:  git-core
 BuildRequires:  cargo
 BuildRequires:  rust >= 1.97
 BuildRequires:  cargo-rpm-macros
-# The YAML library the Rust `wb` reads every YAML file with.
-BuildRequires:  crate(yaml-rust2) >= 0.10
+# The YAML library the Rust `wb` reads every YAML file with. 0.10.3 does not compile without
+# its default feature, which Cargo.toml turns off.
+BuildRequires:  crate(yaml-rust2) >= 0.10.4
 # `wb init` asks git for the root of the repository and the address of origin.
 Requires:       git-core
 

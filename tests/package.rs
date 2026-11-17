@@ -136,7 +136,14 @@ fn cargo_crates(cargo: &str) -> Vec<String> {
     for line in cargo.lines() {
         let line = line.trim();
         if line.starts_with('[') {
-            in_dependencies = line.trim_matches(|c| c == '[' || c == ']').ends_with("dependencies");
+            let table = line.trim_matches(|c| c == '[' || c == ']');
+            in_dependencies = table.ends_with("dependencies");
+            // A crate may have a table of its own: [dependencies.name].
+            if let Some((head, name)) = table.rsplit_once('.') {
+                if head.ends_with("dependencies") {
+                    crates.push(name.trim_matches('"').to_string());
+                }
+            }
         } else if in_dependencies && !line.is_empty() && !line.starts_with('#') {
             let name = line.split('=').next().unwrap().trim().trim_matches('"');
             crates.push(name.to_string());
@@ -193,8 +200,8 @@ const CLAUDE_LIST: &str = "Text.\n- The crates of `wb`, each with what it is for
 
 #[test]
 fn test_WB_PKG_13_a_crate_in_cargo_toml_that_is_not_listed_is_caught() {
-    let cargo = "[package]\nname = \"w\"\n\n[dependencies]\n# a comment\nyaml-rust2 = \"0.10\"\nsha2 = { version = \"0.10\" }\n\n[dev-dependencies]\nlexopt = \"0.3\"\n";
-    assert_eq!(crate_differences(cargo, CLAUDE_LIST), (vec!["lexopt".to_string()], vec![]));
+    let cargo = "[package]\nname = \"w\"\n\n[dependencies]\n# a comment\nyaml-rust2 = \"0.10\"\nsha2 = { version = \"0.10\" }\n\n[dev-dependencies]\nlexopt = \"0.3\"\n\n[dependencies.sha3]\nversion = \"0.10\"\n";
+    assert_eq!(crate_differences(cargo, CLAUDE_LIST), (vec!["lexopt".to_string(), "sha3".to_string()], vec![]));
 }
 
 #[test]

@@ -44,5 +44,5 @@ What `wb init` does today: it sets Watchbill up in a git repository. What it wri
 | WB-INIT-38 | `wb init` shall refuse an answer that is not UTF-8 in words, without a panic. Issue: #22. | T | Implemented |
 | WB-INIT-39 | `wb` shall take `--` as the end of the options, in every command: a word after it is never an option, `wb -- init` does as `wb init`, `wb init --` as `wb init`, and `wb --` as `wb`. Issue: #34. | T | Implemented |
 | WB-INIT-40 | `wb init` shall take short options written together, so that `-yy` does as `-y`. Issue: #34. | T | Implemented |
-| WB-INIT-41 | `wb` shall refuse an option given a value it does not take, such as `--yes=x`, `-y=x` or `--version=1`, as an option it does not know, and name it with the value. Issue: #34. | T | Implemented |
-| WB-INIT-42 | `wb init` shall name an option it does not know alone, also when it is written with others (`-yx` names `-x`), and write a byte of its name that is not UTF-8 as `�`. Issue: #34. | T | Implemented |
+| WB-INIT-41 | `wb` shall refuse an option given a value it does not take, such as `--yes=x`, `-y=x` or `--version=1`, as an option it does not know, and name it with the value; an option it does not know is named with its value too, `--force=1` and `-x=1`. Issue: #34. | T | Implemented |
+| WB-INIT-42 | `wb init` and `wb revision` shall name an option they do not know alone, also when it is written with others (`-yx` names `-x`), and write a byte of its name that is not UTF-8 as `�`. Issue: #34. | T | Implemented |

@@ -205,3 +205,28 @@ fn test_WB_INIT_25_an_option_at_the_top_that_is_not_utf_8_is_written_as_python_w
     let run = wb_os(&folder.path, &[b"-\xff"]);
     assert_refused(&run, &folder.path, &no_command("-\\udcff"));
 }
+
+// Round 1 of the review of #41: the same naming in every command, and a short option keeps its value.
+
+#[test]
+fn test_WB_INIT_42_revision_names_an_option_written_with_others_alone() {
+    let folder = folder();
+    let run = wb(&folder.path, &["revision", "-ab"], "");
+    assert_eq!(code(&run), Some(2));
+    assert_eq!(text(&run.stdout), "");
+    assert_eq!(text(&run.stderr), format!("wb revision: '-a' is not known\n\n{}", USAGE));
+}
+
+#[test]
+fn test_WB_INIT_41_an_unknown_short_option_is_named_with_its_value() {
+    let folder = repository(None);
+    let run = wb(&folder.path, &["init", "-x=1"], "");
+    assert_refused(&run, &folder.path, &not_known("-x=1"));
+
+    let run = wb(&folder.path, &["init", "-yx=1"], "");
+    assert_refused(&run, &folder.path, &not_known("-x=1"));
+
+    let run = wb(&folder.path, &["revision", "-y=x"], "");
+    assert_eq!(code(&run), Some(2));
+    assert_eq!(text(&run.stderr), format!("wb revision: '-y=x' is not known\n\n{}", USAGE));
+}

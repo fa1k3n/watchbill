@@ -26,11 +26,9 @@ pub const USAGE: &str = "usage:
   init      set Watchbill up in the git repository of this folder: propose what
             the repository says about itself (its name, the git server of
             origin, a folder of requirements, the CI driver), ask one line per
-            answer, show the files and write .watchbill/watchbill.yml at the
-            root of the repository, with the revision the package carries
-            beside it. --yes (-y) takes what it found and asks nothing. A
-            file that is already there is never changed, and then nothing
-            is written
+            answer, show the file and write .watchbill/watchbill.yml at the
+            root of the repository. --yes (-y) takes what it found and asks
+            nothing. A file that is already there is never changed
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes nothing
 ";

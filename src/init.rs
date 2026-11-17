@@ -147,9 +147,6 @@ fn read_pin(package: &Path) -> Result<Pin, String> {
 /// so that no other file stays beside the revision (WB-PIN-4, 7, 8 and 10).
 fn in_the_way(folder: &str, targets: &[String]) -> Option<String> {
     let said = |path: &str, why: &str| Some(format!("{} {}. wb init does not change it. Nothing written.", path, why));
-    if let Some(file) = targets.iter().find(|path| fs::symlink_metadata(path).is_ok()) {
-        return said(file, "is already there");
-    }
     for target in targets {
         let mut path = PathBuf::from(folder);
         let below = match Path::new(target).strip_prefix(folder).ok().and_then(|rest| rest.parent()) {
@@ -161,23 +158,29 @@ fn in_the_way(folder: &str, targets: &[String]) -> Option<String> {
             path.push(part);
             names.push(path.clone());
         }
-        for each in names {
-            match fs::symlink_metadata(&each) {
+        // The folder above is the one at fault when a path below it cannot be looked at.
+        let mut above = &names[0];
+        for each in &names {
+            match fs::symlink_metadata(each) {
                 Ok(meta) if meta.is_dir() => {}
                 Err(error) if error.kind() == ErrorKind::NotFound => break,
                 Ok(meta) => {
                     let why = if meta.file_type().is_symlink() { "is a link" } else { "is not a folder" };
                     return said(&each.to_string_lossy(), why);
                 }
-                Err(_) => return said(&each.to_string_lossy(), "cannot be looked at"),
+                Err(_) => return said(&above.to_string_lossy(), "cannot be looked at"),
             }
+            above = each;
         }
+    }
+    if let Some(file) = targets.iter().find(|path| fs::symlink_metadata(path).is_ok()) {
+        return said(file, "is already there");
     }
     let revision = format!("{}/{}", folder, REVISION_FOLDER);
     match fs::symlink_metadata(&revision) {
-        Ok(meta) if meta.file_type().is_symlink() => said(&revision, "is a link"),
         Ok(_) => said(&revision, "is already there"),
-        Err(_) => None,
+        Err(error) if error.kind() == ErrorKind::NotFound => None,
+        Err(_) => said(folder, "cannot be looked at"),
     }
 }
 

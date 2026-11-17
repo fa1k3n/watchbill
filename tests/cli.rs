@@ -4,7 +4,9 @@
 // A test is named after the requirement it covers, and the ID has capitals.
 #![allow(non_snake_case)]
 
+use std::ffi::OsStr;
 use std::fs;
+use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::process::{Command, Output};
 
@@ -38,10 +40,9 @@ fn text(bytes: &[u8]) -> String {
     String::from_utf8(bytes.to_vec()).expect("wb wrote text that is not UTF-8")
 }
 
-/// The version the package has: the one line of `__init__.py` that sets it.
-fn python_version() -> Option<String> {
-    let file = fs::read_to_string(root().join("src/watchbill/__init__.py")).ok()?;
-    file.lines()
+/// The version a text sets as `__version__`.
+fn version_in(text: &str) -> Option<String> {
+    text.lines()
         .find_map(|line| line.strip_prefix("__version__ = \"")?.strip_suffix('"').map(String::from))
 }
 
@@ -150,7 +151,45 @@ fn test_WB_INIT_25_the_commands_that_are_not_built_yet_are_not_known() {
 #[test]
 fn test_WB_PKG_8_the_version_of_the_crate_is_the_version_of_the_package() {
     // As long as both are there: the Python package is removed by #25.
-    if let Some(package) = python_version() {
+    let file = root().join("src/watchbill/__init__.py");
+    if file.exists() {
+        let text = fs::read_to_string(&file).expect("__init__.py could not be read");
+        let package = version_in(&text).expect("__init__.py has no __version__ this test can read");
         assert_eq!(crate_version(), package);
     }
+}
+
+#[test]
+fn test_WB_PKG_8_the_version_is_found_in_every_form_python_allows() {
+    for text in [
+        "__version__ = \"0.0.1\"\n",
+        "__version__ = '0.0.1'\n",
+        "__version__ = \"0.0.1\"  # the version\n",
+        "\"\"\"doc\"\"\"\n\n__version__=\"0.0.1\"\n",
+    ] {
+        assert_eq!(version_in(text).as_deref(), Some("0.0.1"), "{:?}", text);
+    }
+    assert_eq!(version_in("version = \"0.0.1\"\n"), None);
+}
+
+#[test]
+fn test_WB_PKG_6_the_source_of_crates_has_the_name_the_macros_give_it() {
+    // `packaging/rpm.sh` builds in a folder that may be inside the checkout. `%cargo_prep` then
+    // writes a config that cargo merges with this one, and two names for the one folder are refused.
+    let text = fs::read_to_string(root().join(".cargo/config.toml")).expect(".cargo/config.toml is not there");
+    assert!(text.contains("[source.local-registry]"), "the source is not named local-registry");
+    assert!(text.contains("directory = \"/usr/share/cargo/registry\""));
+    assert!(text.contains("replace-with = \"local-registry\""));
+}
+
+#[test]
+fn test_WB_INIT_25_a_word_that_is_not_utf_8_is_written_as_python_writes_it() {
+    let run = Command::new(env!("CARGO_BIN_EXE_wb"))
+        .arg(OsStr::from_bytes(b"a\xffb"))
+        .output()
+        .expect("wb could not be started");
+
+    assert_eq!(run.status.code(), Some(2));
+    assert_eq!(text(&run.stdout), "");
+    assert_eq!(text(&run.stderr), format!("wb: no command 'a\\udcffb'\n\n{}", USAGE));
 }

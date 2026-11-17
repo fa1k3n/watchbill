@@ -230,7 +230,8 @@ fn test_WB_PKG_14_rpm_sh_takes_the_date_of_the_package_from_the_commit_it_builds
 #[test]
 fn test_WB_PKG_14_rpm_sh_tells_rpmbuild_to_use_that_date_and_to_clamp_the_files_to_it() {
     let text = rpm_script();
-    let build = text.lines().find(|line| line.starts_with("rpmbuild")).expect("no rpmbuild line");
+    // The command, with the lines it is continued on.
+    let build = text.split("\nrpmbuild").nth(1).expect("no rpmbuild line").split("\n\n").next().unwrap();
     for define in [
         "use_source_date_epoch_as_buildtime 1",
         "clamp_mtime_to_source_date_epoch 1",

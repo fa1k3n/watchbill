@@ -945,3 +945,24 @@ fn test_WB_RULE_1_the_tables_read_hold_what_the_files_say() {
     assert_eq!(build.may_not_also_hold, vec!["tester", "review", "fix", "officer"]);
     assert_eq!(build.prompt, "roles/build.md");
 }
+
+#[test]
+fn test_WB_RULE_6_a_mark_that_python_takes_as_no_letter_before_merge_is_refused() {
+    // Python's `\b` takes no combining mark as a word character: U+0345, U+0363, U+05B0, U+0903.
+    let mut t = Tables::new();
+    for mark in ['\u{345}', '\u{363}', '\u{36f}', '\u{5b0}', '\u{903}', '\u{20d0}'] {
+        t.role("build").set("may", texts(&[&format!("Open the chan{}merge for review.", mark)]));
+        let message = t.refused();
+        assert!(message.contains("build"), "U+{:04X}: {}", mark as u32, message);
+        assert!(message.contains("merge"), "U+{:04X}: {}", mark as u32, message);
+    }
+}
+
+#[test]
+fn test_WB_RULE_6_a_letter_or_digit_python_takes_as_a_word_character_before_merge_is_accepted() {
+    let mut t = Tables::new();
+    for letter in ['é', 'ſ', 'ß', 'Ω', 'я', '中', '٣', '_', 'ǅ', 'ª', '²'] {
+        t.role("build").set("may", texts(&[&format!("Read the {}merge list.", letter)]));
+        t.load();
+    }
+}

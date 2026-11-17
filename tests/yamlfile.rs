@@ -534,3 +534,47 @@ fn test_WB_RULE_12_an_empty_text_in_quotes_is_named_at_its_own_line() {
     let message = doc.texts(&at(&["a"]), false).err().expect("an empty text was taken").to_string();
     assert!(message.contains("line 5"), "{}", message);
 }
+
+// The answers to round 1 of the review of #35.
+
+#[test]
+fn test_WB_RULE_15_a_document_end_before_the_document_is_refused_with_the_line() {
+    for text in ["...\na: 1\n", "# a comment\n\n...\na: 1\n", "%YAML 1.1\n...\na: 1\n"] {
+        let message = Folder::new().refused(text, "table.yml");
+        assert!(message.contains("`...`"), "{:?}: {}", text, message);
+    }
+    let message = Folder::new().refused("# a comment\n...\na: 1\n", "table.yml");
+    assert!(message.contains("line 2"), "{}", message);
+    assert_eq!(Folder::new().load("a: 1\n...\n").whole(&at(&["a"]), None).unwrap(), 1);
+    assert_eq!(Folder::new().load("---\na: 1\n...\n").whole(&at(&["a"]), None).unwrap(), 1);
+}
+
+#[test]
+fn test_WB_RULE_15_with_line_ends_of_cr_alone_the_line_is_counted_right() {
+    for text in ["a: 1\rb: 2\rc: \"x\ty\"\r", "a: 1\rb: 2\rc: x\u{2028}y\r", "a: 1\r\nb: 2\r\nc: x\u{0}y\r\n", "a: 1\rb: 2\r%YAML 2.0\r"] {
+        let message = Folder::new().refused(text, "table.yml");
+        assert!(message.contains("line 3"), "{:?}: {}", text, message);
+    }
+}
+
+#[test]
+fn test_WB_RULE_15_an_empty_key_is_refused_with_the_line() {
+    let message = Folder::new().refused("ok: 1\n: x\n", "table.yml");
+    assert!(message.contains("line 2"), "{}", message);
+    assert!(message.contains("key"), "{}", message);
+    assert_eq!(Folder::new().load("ok: 1\n'': x\n").table(&[]).unwrap(), vec!["ok", ""]);
+}
+
+#[test]
+fn test_WB_RULE_17_a_value_no_version_reads_as_another_type_is_not_said_to_be_read_so() {
+    for written in ["yES", "nULL", ".nAn", "oN", "+.iNf"] {
+        let message = text_of(written).err().unwrap_or_else(|| panic!("`{}` was taken as a text", written));
+        assert!(message.contains("too close to"), "{}: {}", written, message);
+        assert!(message.contains("quotes"), "{}: {}", written, message);
+        assert!(!message.contains("YAML may read"), "{}: {}", written, message);
+    }
+    for written in ["yes", "No", "TRUE", "~", "null", "NULL", ".inf", "-.Inf", ".NaN", "1.10"] {
+        let message = text_of(written).err().unwrap_or_else(|| panic!("`{}` was taken as a text", written));
+        assert!(message.contains("YAML may read"), "{}: {}", written, message);
+    }
+}

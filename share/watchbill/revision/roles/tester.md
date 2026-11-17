@@ -43,12 +43,12 @@ You do not open a file outside those listed here. The files of a task are a boun
 
 ## How you end
 
-Stop when the tests are committed, you have seen each of them fail, or pass if it is a guard, and the project's checks have run. Your last message has these fields, every time, in this order, each on a line of its own that starts with its name:
+Stop when the tests are committed, you have seen each of them fail (or pass, for a guard), and the project's checks have run. Your last message has these fields, every time, in this order, each on a line of its own that starts with its name:
 
 - `model`: the model you run as, as your session states it, or `unknown`.
 - `effort`: the effort you run with, as your session states it, or `unknown`.
 - `tests`: each new test, with the requirement and the clause it covers.
-- `red`: for each test, how it fails now.
+- `red`: for each test but a guard, how it fails now.
 - `guards`: each guard, with the clause it keeps, seen to pass now.
 - `checks`: what the project's checks show after your commit that fails for a reason other than the missing code, or `none`.
 - `untested`: each clause that has no test, and why.

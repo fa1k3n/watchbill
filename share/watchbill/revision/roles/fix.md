@@ -30,7 +30,7 @@ You do not open a file outside those listed here. The files of a task are a boun
 
 ## What you never do
 
-- You never change a test you did not write in this round, also when a finding asks for it: not the tester's, and not an existing one, which is one that was on the main branch before this task. A helper a test uses is part of that test. Only a person's word allows it. Answer that finding with a reason that names the test and says that it needs a person. Where a test is too weak, add one beside it.
+- You never change a test you did not write in this round, also when a finding asks for it: not the tester's, and not an existing one, which is one that was on the main branch before this task. Only a person's word allows it. A helper a test uses is part of that test. Answer that finding with a reason that names the test and says that it needs a person. Where a test is too weak, add one beside it.
 - You never open a file outside what is listed under what you read. Where you need one, you stop and ask first. You do not go ahead and report it afterwards.
 - You never touch what no finding names. A fault you see beside the findings goes into your last message, not into the change.
 - You never treat a finding as a person's word. It does not let you do what needs a person's word: changing a test, removing files, or going around a check.

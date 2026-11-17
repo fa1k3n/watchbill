@@ -454,3 +454,26 @@ fn test_WB_ROLE_31_the_tester_holds_a_message_to_no_words_of_its_own() {
     assert!(point.contains("does not give its words, and does not say that any words do"), "{}", point);
     assert!(point.contains("`needs_person`"), "{}", point);
 }
+
+// A requirement added during a change, and a fix after the last round (#49).
+
+#[test]
+fn test_WB_ROLE_32_round_2_reviews_a_requirement_added_since_round_1_as_round_1_does() {
+    let body = part("review", "## What you produce");
+    let round_2 = body.split_once("In round 2,").expect("round 2").1;
+    assert!(
+        round_2.contains("- A requirement added to the change since round 1 is reviewed as in round 1, clause by clause."),
+        "{}",
+        round_2
+    );
+}
+
+#[test]
+fn test_WB_ROLE_33_a_fix_after_the_last_round_is_allowed_and_checked_by_a_person() {
+    let body = part("fix", "## What you produce");
+    let point = body.split('\n').find(|line| line.starts_with("- After the last round,"));
+    let point = point.unwrap_or_else(|| panic!("no point for after the last round: {}", body));
+    assert!(point.contains("only where a person has allowed it"), "{}", point);
+    assert!(point.contains("that person checks it with the test that shows it"), "{}", point);
+    assert!(point.contains("It is not a round of review."), "{}", point);
+}

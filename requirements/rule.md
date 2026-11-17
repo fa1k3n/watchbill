@@ -37,3 +37,7 @@ The two tables of the first revision and the one loader that reads YAML. What a 
 | WB-RULE-31 | The rule table shall give how many times a session is asked for a last message that has the fields its role names, and the first table shall give two. Issue: #45. | T | Implemented |
 | WB-RULE-32 | The first rule table shall send to a person a last message that still lacks its fields after the last ask. Issue: #45. | T | Implemented |
 | WB-RULE-33 | A number of asks for the last message that is not a whole number of at least 1 shall be refused, and the message shall name the field. Issue: #45. | T | Implemented |
+| WB-RULE-34 | The rule table shall name, in order, the roles that a requirement a person adds to a change under review goes to on the same change, and the first table shall name tester, then build. Issue: #49. | T | Draft |
+| WB-RULE-35 | A role in the list for an added requirement that is not a role with a prompt, or that is written twice, and a list with no role, shall be refused, and the message shall name the field. Issue: #49. | T | Draft |
+| WB-RULE-36 | The first rule table shall send to a person a requirement added to a change. Issue: #49. | T | Draft |
+| WB-RULE-37 | The first rule table shall send to a person the check of a fix made after the last round. Issue: #49. | T | Draft |

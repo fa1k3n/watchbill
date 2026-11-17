@@ -477,3 +477,20 @@ fn test_WB_ROLE_33_a_fix_after_the_last_round_is_allowed_and_checked_by_a_person
     assert!(point.contains("that person checks it with the test that shows it"), "{}", point);
     assert!(point.contains("It is not a round of review."), "{}", point);
 }
+
+// The tester runs the project's checks on its commit (#50).
+
+#[test]
+fn test_WB_ROLE_34_the_tester_runs_the_checks_of_the_project_after_its_commit() {
+    let body = part("tester", "## What you produce");
+    let point = body.split('\n').find(|line| line.starts_with("- After the commit, run what the project runs before a change is handed over"));
+    let point = point.unwrap_or_else(|| panic!("no point for the checks of the project: {}", body));
+    assert!(point.contains("report under `checks` what fails for a reason other than the missing code"), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_35_the_last_message_of_the_tester_gives_the_checks_after_the_guards() {
+    let found = fields(&part("tester", "## How you end"));
+    let guards = found.iter().position(|name| name == "guards").expect("guards");
+    assert_eq!(found.get(guards + 1).map(String::as_str), Some("checks"), "{:?}", found);
+}

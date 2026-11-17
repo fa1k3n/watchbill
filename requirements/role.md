@@ -37,3 +37,5 @@ The prompts of the first revision: tester, build, review and fix. What a revisio
 | WB-ROLE-31 | The tester's prompt shall say that where a requirement about a message does not give its words, and does not say that any words do, the tester holds the message to no words of its own and asks. Issue: #48. | T | Implemented |
 | WB-ROLE-32 | The reviewer's prompt shall say that in round 2 a requirement added to the change since round 1 is reviewed as in round 1. Issue: #49. | T | Implemented |
 | WB-ROLE-33 | The fixer's prompt shall say that after the last round a fix is made only where a person has allowed it, that this person checks it with the test that shows it, and that it is not a round of review. Issue: #49. | T | Implemented |
+| WB-ROLE-34 | The tester's prompt shall say that after its commit the tester runs what the project runs before a change is handed over, and reports what fails for a reason other than the missing code. Issue: #50. | T | Draft |
+| WB-ROLE-35 | The tester's last message shall have the field `checks`, after `guards`. Issue: #50. | T | Draft |

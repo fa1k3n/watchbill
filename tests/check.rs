@@ -300,8 +300,139 @@ fn test_WB_CHECK_9_the_status_of_git_is_the_same_after_a_run() {
     assert_eq!(status(&folder), before);
 }
 
+/// What the folder `.watchbill` or one file or folder of it is made, put outside the repository: a
+/// copy of what is under `from`, so that a link to it reads as a revision that holds.
+fn copy_outside(folder: &Folder, from: &str) -> std::path::PathBuf {
+    let outside = folder.path.parent().unwrap().join("outside");
+    fs::create_dir_all(&outside).unwrap();
+    let to = outside.join(from.replace('/', "_"));
+    let status = std::process::Command::new("cp")
+        .arg("-r")
+        .arg(watchbill_dir(folder).join(from))
+        .arg(&to)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    to
+}
+
+/// What is at `.watchbill/<path>` is taken away, and a link to a copy of it outside the repository is put there.
+fn link_to_copy(folder: &Folder, path: &str) {
+    let copy = copy_outside(folder, path);
+    let at = watchbill_dir(folder).join(path);
+    if at.is_dir() {
+        fs::remove_dir_all(&at).unwrap();
+    } else {
+        fs::remove_file(&at).unwrap();
+    }
+    std::os::unix::fs::symlink(copy, at).unwrap();
+}
+
+#[test]
+fn test_WB_CHECK_11_a_link_for_a_part_of_the_pin_is_named_and_never_followed() {
+    for path in ["revision", "revision/roles", "revision.sha256", "watchbill.yml"] {
+        let folder = set_up();
+        link_to_copy(&folder, path);
+
+        let run = wb(&folder.path, &["check"], "");
+
+        assert_eq!(code(&run), Some(1), "{}: {}{}", path, text(&run.stdout), text(&run.stderr));
+        let out = text(&run.stdout);
+        let named = out.lines().filter(|line| line.contains(&format!(".watchbill/{}", path)) && line.contains("link"));
+        assert_eq!(named.count(), 1, "{}: the link is named on one line: {}", path, out);
+        assert!(!out.contains("missing:"), "{}: what is below a link is not looked at: {}", path, out);
+    }
+}
+
+#[test]
+fn test_WB_CHECK_11_a_link_for_the_watchbill_folder_is_named_and_never_followed() {
+    let folder = set_up();
+    let moved = folder.path.parent().unwrap().join("outside-watchbill");
+    fs::rename(watchbill_dir(&folder), &moved).unwrap();
+    std::os::unix::fs::symlink(&moved, watchbill_dir(&folder)).unwrap();
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
+    let out = text(&run.stdout);
+    assert!(out.lines().any(|line| line.contains(".watchbill") && line.contains("link")), "{}", out);
+}
+
+#[test]
+fn test_WB_CHECK_11_a_link_for_a_file_of_the_revision_is_named_as_changed() {
+    let folder = set_up();
+    link_to_copy(&folder, "revision/rules.yml");
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
+    let out = text(&run.stdout);
+    assert!(
+        out.lines().any(|line| line.contains("changed") && line.contains("revision/rules.yml") && line.contains("link")),
+        "{}",
+        out
+    );
+}
+
+#[test]
+fn test_WB_CHECK_2_a_folder_where_a_file_of_the_revision_goes_is_named_as_changed() {
+    let folder = set_up();
+    let file = watchbill_dir(&folder).join("revision/rules.yml");
+    fs::remove_file(&file).unwrap();
+    fs::create_dir(&file).unwrap();
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    let out = text(&run.stdout);
+    assert!(out.lines().any(|line| line.contains("changed") && line.contains("revision/rules.yml")), "{}", out);
+    assert!(!out.contains("missing:"), "{}", out);
+}
+
+#[test]
+fn test_WB_CHECK_4_a_folder_the_manifest_does_not_account_for_is_not_of_the_revision() {
+    let folder = set_up();
+    fs::create_dir(watchbill_dir(&folder).join("revision/empty")).unwrap();
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    let out = text(&run.stdout);
+    assert!(
+        out.lines().any(|line| line.contains("not of the revision") && line.contains("revision/empty")),
+        "{}",
+        out
+    );
+}
+
+#[test]
+fn test_WB_CHECK_3_a_manifest_that_is_not_there_is_named_as_missing() {
+    let folder = set_up();
+    fs::remove_file(watchbill_dir(&folder).join("revision.sha256")).unwrap();
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    let out = text(&run.stdout);
+    assert!(out.lines().any(|line| line.contains("missing") && line.contains("revision.sha256")), "{}", out);
+    assert_eq!(text(&run.stderr), "");
+}
+
+#[test]
+fn test_WB_CHECK_12_a_watchbill_yml_the_loader_refuses_ends_with_1_and_is_named() {
+    let folder = set_up();
+    fs::write(config(&folder.path), "watchbill: 0.0.1\nwatchbill: 0.0.2\n").unwrap();
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    let out = text(&run.stdout);
+    assert!(out.contains("watchbill.yml"), "{}", out);
+    assert_eq!(text(&run.stderr), "");
+}
+
 /// Values that `wb init` can be given: what a repository or a person may type. Each is written
-/// into every field, and must be read back as it was.
+/// into every field of a file that `wb check` reads, and the file must be read, and read back as it was.
 const VALUES: [&str; 40] = [
     "none", "github", "yes", "no", "Yes", "NO", "y", "n", "on", "off", "true", "false", "null", "Null", "~",
     "1", "1.10", "1.2.3", "0.1.0-rc.1", "1e3", "0x1F", "0o17", "2026-11-17", "12:30", "1_000", ".inf", "-",
@@ -310,8 +441,8 @@ const VALUES: [&str; 40] = [
 
 #[test]
 fn test_WB_CHECK_10_every_value_init_can_write_is_read_back_unchanged() {
-    let folder = folder();
-    let file = folder.path.join("watchbill.yml");
+    let folder = set_up();
+    let hash = installed_hash();
     for value in VALUES {
         let setup = Setup {
             project: value.to_string(),
@@ -321,29 +452,51 @@ fn test_WB_CHECK_10_every_value_init_can_write_is_read_back_unchanged() {
             requirements: value.to_string(),
             ci: value.to_string(),
         };
-        let written = watchbill::init::render("1.2.3", &"ab".repeat(32), &setup);
-        fs::write(&file, &written).unwrap();
+        fs::write(config(&folder.path), watchbill::init::render(REVISION, &hash, &setup)).unwrap();
 
-        let document = match load(&file) {
-            Ok(document) => document,
-            Err(why) => panic!("{:?}: the file is refused: {}\n{}", value, why, written),
-        };
+        // `wb check` reads the file with the loader, and it holds when what it reads is the pin.
+        let run = wb(&folder.path, &["check"], "");
+        assert_eq!(code(&run), Some(0), "{:?}: {}{}", value, text(&run.stdout), text(&run.stderr));
+        let document = load(config(&folder.path)).unwrap();
         for key in ["project", "git_server", "repository", "tracker", "requirements", "ci"] {
-            let read = document.text(&[Part::from(key)]);
-            assert_eq!(read.as_deref(), Ok(value), "{:?} in {}\n{}", value, key, written);
+            assert_eq!(document.text(&[Part::from(key)]).as_deref(), Ok(value), "{:?} in {}", value, key);
         }
-        assert_eq!(document.text(&[Part::from("watchbill")]).as_deref(), Ok("1.2.3"));
-        assert_eq!(document.text(&[Part::from("revision")]).unwrap(), "ab".repeat(32));
     }
 }
 
 #[test]
-fn test_WB_CHECK_10_the_file_that_init_wrote_is_read_back() {
+fn test_WB_CHECK_10_a_hash_that_starts_with_a_digit_is_written_in_quotes_and_read_back_by_check() {
     let folder = set_up();
+    // A revision other than the installed one, whose hash starts with a digit, as the manifest has it.
+    let mut pinned = String::new();
+    for number in 0..200 {
+        fs::write(watchbill_dir(&folder).join("revision/roles/build.md"), format!("mine {}\n", number)).unwrap();
+        pinned = manifest::revision_hash(watchbill_dir(&folder)).unwrap();
+        if pinned.starts_with(|c: char| c.is_ascii_digit()) {
+            break;
+        }
+    }
+    assert!(pinned.starts_with(|c: char| c.is_ascii_digit()), "no hash that starts with a digit was found");
+    let manifest_text = manifest::manifest(watchbill_dir(&folder)).unwrap();
+    fs::write(watchbill_dir(&folder).join("revision.sha256"), &manifest_text).unwrap();
+    let setup = Setup {
+        project: "brake-controller".to_string(),
+        git_server: "none".to_string(),
+        repository: "none".to_string(),
+        tracker: "none".to_string(),
+        requirements: "none".to_string(),
+        ci: "none".to_string(),
+    };
+    let written = watchbill::init::render(REVISION, &pinned, &setup);
+    assert!(written.contains(&format!("revision: '{}'\n", pinned)), "{}", written);
+    fs::write(config(&folder.path), written).unwrap();
 
-    let document = load(config(&folder.path)).expect("the file of wb init is refused");
+    let run = wb(&folder.path, &["check"], "");
 
-    assert_eq!(document.text(&[Part::from("watchbill")]).as_deref(), Ok(REVISION));
-    assert_eq!(document.text(&[Part::from("revision")]).unwrap(), installed_hash());
-    assert_eq!(document.text(&[Part::from("project")]).as_deref(), Ok("brake-controller"));
+    // The files, the manifest and the line agree; only the installed `wb` is another revision, and
+    // that is the one difference, named with the hash as it was written.
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    let out = text(&run.stdout);
+    assert!(out.contains(&pinned) && out.contains(&installed_hash()), "{}", out);
+    assert!(!out.contains("changed") && !out.contains("watchbill.yml:"), "{}", out);
 }

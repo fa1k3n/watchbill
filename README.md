@@ -66,7 +66,7 @@ On Fedora and Enterprise Linux it is an RPM package, installed and removed with 
 
 ```sh
 packaging/rpm.sh                                                  # builds the package from this checkout
-sudo dnf install build/rpm/RPMS/$(uname -m)/watchbill-*.rpm      # puts wb in /usr/bin and the revision in /usr/share/watchbill
+sudo dnf install build/rpm/RPMS/$(uname -m)/watchbill-[0-9]*.rpm      # puts wb in /usr/bin and the revision in /usr/share/watchbill
 ```
 
 The package is built here from a checkout. There is no repository to `dnf install watchbill` from yet. Building needs `rpm-build`, `git-core`, and the Rust of the distribution: `cargo`, `rust` (1.97 or later), `cargo-rpm-macros` and the crates `yaml-rust2` and `sha2` (`rust-yaml-rust2-devel`, `rust-sha2-devel`). On Enterprise Linux 9 it also needs **EPEL**: `cargo-rpm-macros` and the crates are only there.

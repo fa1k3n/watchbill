@@ -14,5 +14,5 @@ Whether a repository still is at the revision it is pinned to, and whether the i
 | WB-CHECK-8 | `wb check` shall give the same result from a folder inside the repository as from its root. Issue: #8. | T | Implemented |
 | WB-CHECK-9 | `wb check` shall write nothing and ask nothing of the network. Issue: #8. | T | Implemented |
 | WB-CHECK-10 | Every value `wb init` can write into `watchbill.yml` shall be read back unchanged. Issue: #8. | T | Implemented |
-| WB-CHECK-11 | `wb check` shall never follow a link: a link for `.watchbill`, `.watchbill/revision`, a folder below it, the manifest or `watchbill.yml` shall be named as a link and end with 1, and a link in the place of a file of the revision shall be named as changed. Issue: #8. | T | Draft |
-| WB-CHECK-12 | `wb check` shall end with 1 and name the manifest when it is missing, and name `watchbill.yml` when the YAML loader refuses it. Issue: #8. | T | Draft |
+| WB-CHECK-11 | `wb check` shall never follow a link: a link for `.watchbill`, `.watchbill/revision`, a folder below it, the manifest or `watchbill.yml` shall be named as a link and end with 1, and a link in the place of a file of the revision shall be named as changed. Issue: #8. | T | Implemented |
+| WB-CHECK-12 | `wb check` shall end with 1 and name the manifest when it is missing, and name `watchbill.yml` when the YAML loader refuses it. Issue: #8. | T | Implemented |

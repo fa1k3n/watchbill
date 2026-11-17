@@ -84,9 +84,11 @@ changed: .watchbill/revision/roles/build.md
 
 It compares three things, and names each file that differs and how:
 
-- each file under `.watchbill/revision/` with the manifest `.watchbill/revision.sha256`: `changed`, `missing`, or `not of the revision` when the manifest has no line for it;
+- each file under `.watchbill/revision/` with the manifest `.watchbill/revision.sha256`: `changed` (also a folder or a link where a file goes), `missing`, or `not of the revision` when the manifest has no line for it, or a folder it does not account for, even an empty one;
 - the manifest with the line `revision:` of `watchbill.yml`, which is the hash of the manifest;
 - the version and the revision the repository is pinned to with those of the installed `wb`. When they differ, both are named.
+
+A link is never followed, as `wb init` refuses one on the way: a link for `.watchbill`, `.watchbill/revision`, a folder below it, the manifest or `watchbill.yml` is named as a link, once, and what is behind it is not looked at.
 
 The exit status:
 

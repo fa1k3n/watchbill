@@ -18,13 +18,16 @@ use crate::manifest::{self, MANIFEST_FILE};
 use crate::yamlfile::{load, Part};
 
 /// What a path under `revision/` is.
+#[derive(PartialEq)]
 enum Kind {
     File,
+    Folder,
+    Link,
     Other,
 }
 
 /// The paths under `folder`, relative to `base` and written with `/`. A folder is gone into; a link
-/// or anything that is not a plain file is `Other`, and is never opened.
+/// is never followed, and nothing that is not a folder or a plain file is ever opened.
 fn walk(base: &Path, folder: &Path, found: &mut BTreeMap<String, Kind>) {
     let Ok(entries) = fs::read_dir(folder) else { return };
     for entry in entries.flatten() {
@@ -36,7 +39,13 @@ fn walk(base: &Path, folder: &Path, found: &mut BTreeMap<String, Kind>) {
             .collect::<Vec<_>>()
             .join("/");
         match fs::symlink_metadata(&path) {
-            Ok(meta) if meta.is_dir() => walk(base, &path, found),
+            Ok(meta) if meta.file_type().is_symlink() => {
+                found.insert(shown, Kind::Link);
+            }
+            Ok(meta) if meta.is_dir() => {
+                found.insert(shown, Kind::Folder);
+                walk(base, &path, found);
+            }
             Ok(meta) if meta.is_file() => {
                 found.insert(shown, Kind::File);
             }
@@ -45,6 +54,20 @@ fn walk(base: &Path, folder: &Path, found: &mut BTreeMap<String, Kind>) {
             }
         }
     }
+}
+
+/// What is at a path, looked at without following a link: `None` when nothing is there.
+fn look(path: &Path) -> Option<Kind> {
+    let meta = fs::symlink_metadata(path).ok()?;
+    Some(if meta.file_type().is_symlink() {
+        Kind::Link
+    } else if meta.is_dir() {
+        Kind::Folder
+    } else if meta.is_file() {
+        Kind::File
+    } else {
+        Kind::Other
+    })
 }
 
 fn is_hash(text: &str) -> bool {
@@ -75,93 +98,161 @@ fn parse(manifest: &str, found: &mut Vec<String>) -> Vec<(String, String)> {
     lines
 }
 
+const LINK: &str = "(a link is never followed)";
+
+fn finish(found: &[String], out: &mut dyn Write) -> i32 {
+    if found.is_empty() {
+        let _ = writeln!(out, "The repository is at the revision it is pinned to, and the installed wb is that revision.");
+        return 0;
+    }
+    for line in found {
+        let _ = writeln!(out, "{}", line);
+    }
+    let _ = writeln!(
+        out,
+        "{} difference{}. The repository is not at the revision it is pinned to.",
+        found.len(),
+        if found.len() == 1 { "" } else { "s" }
+    );
+    1
+}
+
 /// Checks the repository at `root` against the installed `wb`: its `version` and the revision its
 /// package holds in `package`. 0 all holds, 1 something differs, 2 the repository is not set up.
+/// A link is never followed: it is named, and what is behind it is not looked at.
 pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let folder = Path::new(root).join(CONFIG_FOLDER);
     let config = folder.join(CONFIG_FILE);
-    if !config.is_file() {
-        let _ = writeln!(
-            err,
-            "wb check: {}/{} is not there. Watchbill is not set up in this repository.",
-            CONFIG_FOLDER, CONFIG_FILE
-        );
+    let name = |path: &str| format!("{}/{}", CONFIG_FOLDER, path);
+    let mut found: Vec<String> = Vec::new();
+    match look(&folder) {
+        Some(Kind::Link) => {
+            found.push(format!("link: {} {}", CONFIG_FOLDER, LINK));
+            return finish(&found, out);
+        }
+        Some(Kind::Folder) => {}
+        _ => {
+            let _ = writeln!(err, "wb check: {} is not there. Watchbill is not set up in this repository.", name(CONFIG_FILE));
+            return 2;
+        }
+    }
+    let config_kind = look(&config);
+    if config_kind.is_none() {
+        let _ = writeln!(err, "wb check: {} is not there. Watchbill is not set up in this repository.", name(CONFIG_FILE));
         return 2;
     }
-    let mut found: Vec<String> = Vec::new();
 
     // The files of the revision against the manifest.
     let manifest_path = folder.join(MANIFEST_FILE);
-    let manifest_bytes = fs::read(&manifest_path).ok();
     let mut pinned_hash = None;
-    match &manifest_bytes {
-        None => found.push(format!("missing: {}/{}", CONFIG_FOLDER, MANIFEST_FILE)),
-        Some(bytes) => {
-            pinned_hash = Some(manifest::hash_bytes(bytes));
-            let listed = parse(&String::from_utf8_lossy(bytes), &mut found);
-            let mut on_disk = BTreeMap::new();
-            walk(&folder, &folder.join("revision"), &mut on_disk);
+    let mut listed = Vec::new();
+    match look(&manifest_path) {
+        None => found.push(format!("missing: {}", name(MANIFEST_FILE))),
+        Some(Kind::Link) => found.push(format!("link: {} {}", name(MANIFEST_FILE), LINK)),
+        Some(Kind::File) => match fs::read(&manifest_path) {
+            Ok(bytes) => {
+                pinned_hash = Some(manifest::hash_bytes(&bytes));
+                listed = parse(&String::from_utf8_lossy(&bytes), &mut found);
+            }
+            Err(error) => found.push(format!("changed: {} (it cannot be read: {})", name(MANIFEST_FILE), error)),
+        },
+        Some(_) => found.push(format!("changed: {} (it is not a plain file)", name(MANIFEST_FILE))),
+    }
+    if pinned_hash.is_some() {
+        let mut on_disk = BTreeMap::new();
+        let revision = folder.join("revision");
+        // Below a link, or a thing that is not a folder, nothing is looked at.
+        let looked_into = match look(&revision) {
+            Some(Kind::Link) => {
+                found.push(format!("link: {} {}", name("revision"), LINK));
+                false
+            }
+            Some(Kind::Folder) | None => {
+                walk(&folder, &revision, &mut on_disk);
+                true
+            }
+            Some(_) => {
+                found.push(format!("changed: {} (it is not a folder)", name("revision")));
+                false
+            }
+        };
+        if looked_into {
             for (hash, path) in &listed {
-                match on_disk.get(path) {
-                    None => found.push(format!("missing: {}/{}", CONFIG_FOLDER, path)),
-                    Some(Kind::Other) => {
-                        found.push(format!("changed: {}/{} (it is not a plain file)", CONFIG_FOLDER, path))
+                // What is below a link is not looked at: the link is named once.
+                let mut above = String::new();
+                let below_link = path.split('/').rev().skip(1).collect::<Vec<_>>().into_iter().rev().any(|part| {
+                    if !above.is_empty() {
+                        above.push('/');
                     }
+                    above.push_str(part);
+                    on_disk.get(&above) == Some(&Kind::Link)
+                });
+                if below_link {
+                    continue;
+                }
+                match on_disk.get(path) {
+                    None => found.push(format!("missing: {}", name(path))),
+                    Some(Kind::Folder) => found.push(format!("changed: {} (it is a folder, not a plain file)", name(path))),
+                    Some(Kind::Link) => found.push(format!("changed: {} (it is a link, {})", name(path), "never followed")),
+                    Some(Kind::Other) => found.push(format!("changed: {} (it is not a plain file)", name(path))),
                     Some(Kind::File) => match fs::read(folder.join(path)) {
                         Ok(bytes) if manifest::hash_bytes(&bytes) == *hash => {}
-                        Ok(_) => found.push(format!("changed: {}/{}", CONFIG_FOLDER, path)),
-                        Err(error) => {
-                            found.push(format!("changed: {}/{} (it cannot be read: {})", CONFIG_FOLDER, path, error))
-                        }
+                        Ok(_) => found.push(format!("changed: {}", name(path))),
+                        Err(error) => found.push(format!("changed: {} (it cannot be read: {})", name(path), error)),
                     },
                 }
             }
-            for path in on_disk.keys() {
-                if !listed.iter().any(|(_, listed)| listed == path) {
-                    found.push(format!("not of the revision: {}/{}", CONFIG_FOLDER, path));
+            for (path, kind) in &on_disk {
+                let is_listed = listed.iter().any(|(_, listed)| listed == path);
+                let below = format!("{}/", path);
+                match kind {
+                    Kind::File if !is_listed => found.push(format!("not of the revision: {}", name(path))),
+                    Kind::Other if !is_listed => {
+                        found.push(format!("not of the revision: {} (it is not a plain file)", name(path)))
+                    }
+                    Kind::Link if !is_listed => found.push(format!("link: {} {}", name(path), LINK)),
+                    Kind::Folder if !is_listed && !listed.iter().any(|(_, listed)| listed.starts_with(&below)) => {
+                        found.push(format!("not of the revision: {}/ (a folder the manifest does not account for)", name(path)))
+                    }
+                    _ => {}
                 }
             }
         }
     }
 
     // The manifest against the line `revision:`, and the pin against the installed `wb`.
-    match load(&config) {
-        Err(why) => found.push(format!("watchbill.yml: {}", why)),
-        Ok(document) => {
-            let line = document.text(&[Part::from("revision")]);
-            let pinned_version = document.text(&[Part::from("watchbill")]);
-            match (&line, &pinned_hash) {
-                (Err(why), _) => found.push(format!("watchbill.yml: {}", why)),
-                (Ok(line), Some(hash)) if line != hash => found.push(format!(
-                    "the manifest {} has the hash {}, and the line revision of {} says {}",
-                    MANIFEST_FILE, hash, CONFIG_FILE, line
-                )),
-                _ => {}
-            }
-            if let Err(why) = &pinned_version {
-                found.push(format!("watchbill.yml: {}", why));
-            }
-            let installed = manifest::revision_hash(package);
-            match (&pinned_version, &line, &installed) {
-                (_, _, Err(why)) => found.push(format!("the installed wb cannot read its revision: {}", why)),
-                (Ok(pinned_version), Ok(line), Ok(installed)) if pinned_version != version || line != installed => {
-                    found.push(format!(
-                        "the repository is pinned to version {}, revision {}; the installed wb is version {}, revision {}",
-                        pinned_version, line, version, installed
-                    ))
+    match config_kind {
+        Some(Kind::Link) => found.push(format!("link: {} {}", name(CONFIG_FILE), LINK)),
+        Some(Kind::File) => match load(&config) {
+            Err(why) => found.push(format!("{}: {}", CONFIG_FILE, why)),
+            Ok(document) => {
+                let line = document.text(&[Part::from("revision")]);
+                let pinned_version = document.text(&[Part::from("watchbill")]);
+                match (&line, &pinned_hash) {
+                    (Err(why), _) => found.push(format!("{}: {}", CONFIG_FILE, why)),
+                    (Ok(line), Some(hash)) if line != hash => found.push(format!(
+                        "the manifest {} has the hash {}, and the line revision of {} says {}",
+                        MANIFEST_FILE, hash, CONFIG_FILE, line
+                    )),
+                    _ => {}
                 }
-                _ => {}
+                if let Err(why) = &pinned_version {
+                    found.push(format!("{}: {}", CONFIG_FILE, why));
+                }
+                let installed = manifest::revision_hash(package);
+                match (&pinned_version, &line, &installed) {
+                    (_, _, Err(why)) => found.push(format!("the installed wb cannot read its revision: {}", why)),
+                    (Ok(pinned_version), Ok(line), Ok(installed)) if pinned_version != version || line != installed => {
+                        found.push(format!(
+                            "the repository is pinned to version {}, revision {}; the installed wb is version {}, revision {}",
+                            pinned_version, line, version, installed
+                        ))
+                    }
+                    _ => {}
+                }
             }
-        }
+        },
+        _ => found.push(format!("changed: {} (it is not a plain file)", name(CONFIG_FILE))),
     }
-
-    if found.is_empty() {
-        let _ = writeln!(out, "The repository is at the revision it is pinned to, and the installed wb is that revision.");
-        return 0;
-    }
-    for line in &found {
-        let _ = writeln!(out, "{}", line);
-    }
-    let _ = writeln!(out, "{} difference{}. The repository is not at the revision it is pinned to.", found.len(), if found.len() == 1 { "" } else { "s" });
-    1
+    finish(&found, out)
 }

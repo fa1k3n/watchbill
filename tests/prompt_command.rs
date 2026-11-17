@@ -138,6 +138,43 @@ fn test_WB_PROMPT_12_one_changed_byte_of_a_prompt_ends_with_1_prints_nothing_and
 }
 
 #[test]
+fn test_WB_PROMPT_12_a_changed_file_of_another_role_fails_the_check_too() {
+    // The role asked for is as it was shipped: only the check of `wb check` can refuse this.
+    let folder = set_up();
+    let file = folder.path.join(".watchbill/revision/roles/review.md");
+    let mut bytes = fs::read(&file).unwrap();
+    bytes.insert(0, b'x');
+    fs::write(&file, bytes).unwrap();
+
+    let run = wb(&folder.path, &["prompt", "build", "--task", "1", "--requirements", "R"], "");
+
+    assert_eq!(code(&run), Some(1));
+    assert_eq!(text(&run.stdout), "");
+    assert!(text(&run.stderr).contains("revision/roles/review.md"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_PROMPT_6_a_role_that_is_not_utf_8_is_a_role_the_revision_does_not_have() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    let folder = set_up();
+
+    let run = Command::new(env!("CARGO_BIN_EXE_wb"))
+        .args(["prompt"])
+        .arg(OsStr::from_bytes(b"b\xffd"))
+        .current_dir(&folder.path)
+        .output()
+        .unwrap();
+
+    assert_eq!(code(&run), Some(1));
+    assert_eq!(text(&run.stdout), "");
+    let err = text(&run.stderr);
+    for role in ["build", "fix", "review", "tester"] {
+        assert!(err.contains(role), "{}: {}", role, err);
+    }
+}
+
+#[test]
 fn test_WB_PROMPT_12_a_repository_pinned_to_another_revision_than_the_installed_wb_ends_with_1() {
     let folder = set_up();
     let file = config(&folder.path);
@@ -179,6 +216,8 @@ fn test_WB_PROMPT_13_a_folder_that_is_not_in_a_git_repository_ends_with_2() {
 
     assert_eq!(code(&run), Some(2));
     assert_eq!(text(&run.stdout), "");
+    assert!(text(&run.stderr).starts_with("wb prompt: "), "{}", text(&run.stderr));
+    assert!(text(&run.stderr).contains("git repository"), "{}", text(&run.stderr));
 }
 
 #[test]
@@ -204,7 +243,7 @@ fn test_WB_PROMPT_14_no_option_at_all_is_refused_for_a_placeholder_that_is_used(
 }
 
 #[test]
-fn test_WB_PROMPT_14_a_role_the_revision_does_not_have_is_refused_with_the_roles_it_has() {
+fn test_WB_PROMPT_6_a_role_the_revision_does_not_have_is_refused_with_the_roles_it_has() {
     let folder = set_up();
 
     let run = wb(&folder.path, &["prompt", "captain", "--task", "1"], "");
@@ -252,7 +291,27 @@ fn test_WB_PROMPT_15_a_missing_role_a_second_word_and_a_repeated_option_end_with
 
         assert_eq!(code(&run), Some(2), "{:?}", args);
         assert_eq!(text(&run.stdout), "", "{:?}", args);
+        assert!(text(&run.stderr).starts_with("wb prompt: "), "{:?}: {}", args, text(&run.stderr));
         assert!(text(&run.stderr).ends_with(&format!("\n\n{}", USAGE)), "{:?}: {}", args, text(&run.stderr));
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_15_an_empty_value_is_refused_by_name_and_ends_with_2() {
+    let folder = set_up();
+
+    for (args, name) in [
+        (vec!["prompt", "build", "--task=", "--requirements", "R"], "--task"),
+        (vec!["prompt", "build", "--task", "", "--requirements", "R"], "--task"),
+        (vec!["prompt", "build", "--task", "1", "--requirements", ""], "--requirements"),
+    ] {
+        let run = wb(&folder.path, &args, "");
+
+        assert_eq!(code(&run), Some(2), "{:?}", args);
+        assert_eq!(text(&run.stdout), "", "{:?}", args);
+        let err = text(&run.stderr);
+        assert!(err.starts_with("wb prompt: ") && err.contains(&format!("'{}'", name)), "{:?}: {}", args, err);
+        assert!(err.ends_with(&format!("\n\n{}", USAGE)), "{:?}: {}", args, err);
     }
 }
 
@@ -312,7 +371,8 @@ fn test_WB_PROMPT_16_a_value_that_starts_with_a_dash_or_holds_a_line_break_arriv
         (vec!["prompt", "build", "--task", "-x", "--requirements", "R"], "-x", "R"),
         (vec!["prompt", "build", "--task=-x", "--requirements=-y"], "-x", "-y"),
         (vec!["prompt", "build", "--task", "--", "--requirements", "a\nb\n\nc"], "--", "a\nb\n\nc"),
-        (vec!["prompt", "build", "--task", "one\ntwo", "--requirements", ""], "one\ntwo", ""),
+        (vec!["prompt", "build", "--task", "{change}", "--requirements", "{round}{task}"], "{change}", "{round}{task}"),
+        (vec!["prompt", "build", "--task", "one\ntwo", "--requirements", "R"], "one\ntwo", "R"),
     ] {
         let run = wb(&folder.path, &args, "");
 
@@ -327,13 +387,14 @@ fn test_WB_PROMPT_17_a_run_changes_nothing_under_the_repository() {
     put(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
     let before = snapshot(&folder.path);
 
-    for args in [
-        vec!["prompt", "build", "--task", "1", "--requirements", "R"],
-        vec!["prompt", "build", "--parts", "--task", "1", "--requirements", "R"],
-        vec!["prompt", "build"],
-        vec!["prompt", "nobody"],
+    for (args, status) in [
+        (vec!["prompt", "build", "--task", "1", "--requirements", "R"], 0),
+        (vec!["prompt", "build", "--parts", "--task", "1", "--requirements", "R"], 0),
+        (vec!["prompt", "build"], 1),
+        (vec!["prompt", "nobody"], 1),
     ] {
-        wb(&folder.path, &args, "");
+        let run = wb(&folder.path, &args, "");
+        assert_eq!(code(&run), Some(status), "{:?}: {}", args, text(&run.stderr));
         assert_eq!(snapshot(&folder.path), before, "{:?}", args);
     }
 }

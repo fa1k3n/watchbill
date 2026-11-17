@@ -34,8 +34,49 @@ fn filled(role: &str, values: &[(&str, &str)]) -> String {
     text
 }
 
-const ALL: [&str; 8] = ["--task", "T-1", "--change", "34", "--requirements", "WB-X-1", "--round", "1"];
-const ALL_VALUES: [(&str, &str); 4] = [("task", "T-1"), ("change", "34"), ("requirements", "WB-X-1"), ("round", "1")];
+const ALL: [&str; 16] = [
+    "--task",
+    "T-1",
+    "--change",
+    "34",
+    "--requirements",
+    "WB-X-1",
+    "--round",
+    "1",
+    "--checkout",
+    "/work/brakes",
+    "--branch",
+    "task-1",
+    "--task_address",
+    "tracker T-1",
+    "--change_address",
+    "server 34",
+];
+const ALL_VALUES: [(&str, &str); 8] = [
+    ("task", "T-1"),
+    ("change", "34"),
+    ("requirements", "WB-X-1"),
+    ("round", "1"),
+    ("checkout", "/work/brakes"),
+    ("branch", "task-1"),
+    ("task_address", "tracker T-1"),
+    ("change_address", "server 34"),
+];
+
+/// Where the work is (#43): every role prompt names the checkout, the branch and the task's address.
+const WHERE: [&str; 6] = ["--checkout", "/work/brakes", "--branch", "task-1", "--task_address", "tracker T-1"];
+const WHERE_VALUES: [(&str, &str); 3] = [("checkout", "/work/brakes"), ("branch", "task-1"), ("task_address", "tracker T-1")];
+
+/// The words of a run with the options of where the work is added at the end.
+fn with_where<'a>(args: &[&'a str]) -> Vec<&'a str> {
+    args.iter().copied().chain(WHERE).collect()
+}
+
+/// A role of the package filled with the values given and those of where the work is.
+fn filled_where(role: &str, values: &[(&str, &str)]) -> String {
+    let all: Vec<(&str, &str)> = values.iter().copied().chain(WHERE_VALUES).collect();
+    filled(role, &all)
+}
 
 /// Every plain file under a folder, with its bytes, sorted by path.
 fn snapshot(folder: &Path) -> Vec<(String, Vec<u8>)> {
@@ -59,10 +100,10 @@ fn snapshot(folder: &Path) -> Vec<(String, Vec<u8>)> {
 fn test_WB_PROMPT_10_a_fresh_repository_prints_the_build_prompt_with_the_task_filled_in() {
     let folder = set_up();
 
-    let run = wb(&folder.path, &["prompt", "build", "--task", "12", "--requirements", "WB-X-1"], "");
+    let run = wb(&folder.path, &with_where(&["prompt", "build", "--task", "12", "--requirements", "WB-X-1"]), "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert_eq!(text(&run.stdout), filled("build", &[("task", "12"), ("requirements", "WB-X-1")]));
+    assert_eq!(text(&run.stdout), filled_where("build", &[("task", "12"), ("requirements", "WB-X-1")]));
     assert_eq!(text(&run.stderr), "");
 }
 
@@ -72,10 +113,10 @@ fn test_WB_PROMPT_10_with_project_text_the_output_is_the_three_parts_in_order() 
     put(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
     put(&folder.path, ".watchbill/project/build.md", "Builders: run make test.\n");
 
-    let run = wb(&folder.path, &["prompt", "build", "--task", "T-1", "--requirements", "WB-X-1"], "");
+    let run = wb(&folder.path, &with_where(&["prompt", "build", "--task", "T-1", "--requirements", "WB-X-1"]), "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    let role = filled("build", &[("task", "T-1"), ("requirements", "WB-X-1")]);
+    let role = filled_where("build", &[("task", "T-1"), ("requirements", "WB-X-1")]);
     assert_eq!(
         text(&run.stdout),
         format!("{}\n{}\n\nEveryone: use make.\n\nBuilders: run make test.\n", role, FIXED_LINE)
@@ -86,10 +127,10 @@ fn test_WB_PROMPT_10_with_project_text_the_output_is_the_three_parts_in_order() 
 fn test_WB_PROMPT_10_an_option_may_come_before_the_role() {
     let folder = set_up();
 
-    let run = wb(&folder.path, &["prompt", "--task", "7", "tester", "--requirements", "R"], "");
+    let run = wb(&folder.path, &with_where(&["prompt", "--task", "7", "tester", "--requirements", "R"]), "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert_eq!(text(&run.stdout), filled("tester", &[("task", "7"), ("requirements", "R")]));
+    assert_eq!(text(&run.stdout), filled_where("tester", &[("task", "7"), ("requirements", "R")]));
 }
 
 #[test]
@@ -262,8 +303,8 @@ fn test_WB_PROMPT_15_an_option_that_is_no_placeholder_ends_with_2_and_the_usage(
     let folder = set_up();
 
     for args in [
-        vec!["prompt", "build", "--branch", "x"],
-        vec!["prompt", "build", "--branch=x"],
+        vec!["prompt", "build", "--colour", "x"],
+        vec!["prompt", "build", "--colour=x"],
         vec!["prompt", "build", "-t"],
     ] {
         let run = wb(&folder.path, &args, "");
@@ -374,10 +415,10 @@ fn test_WB_PROMPT_16_a_value_that_starts_with_a_dash_or_holds_a_line_break_arriv
         (vec!["prompt", "build", "--task", "{change}", "--requirements", "{round}{task}"], "{change}", "{round}{task}"),
         (vec!["prompt", "build", "--task", "one\ntwo", "--requirements", "R"], "one\ntwo", "R"),
     ] {
-        let run = wb(&folder.path, &args, "");
+        let run = wb(&folder.path, &with_where(&args), "");
 
         assert_eq!(code(&run), Some(0), "{:?}: {}", args, text(&run.stderr));
-        assert_eq!(text(&run.stdout), filled("build", &[("task", task), ("requirements", requirements)]), "{:?}", args);
+        assert_eq!(text(&run.stdout), filled_where("build", &[("task", task), ("requirements", requirements)]), "{:?}", args);
     }
 }
 
@@ -388,13 +429,52 @@ fn test_WB_PROMPT_17_a_run_changes_nothing_under_the_repository() {
     let before = snapshot(&folder.path);
 
     for (args, status) in [
-        (vec!["prompt", "build", "--task", "1", "--requirements", "R"], 0),
-        (vec!["prompt", "build", "--parts", "--task", "1", "--requirements", "R"], 0),
+        (with_where(&["prompt", "build", "--task", "1", "--requirements", "R"]), 0),
+        (with_where(&["prompt", "build", "--parts", "--task", "1", "--requirements", "R"]), 0),
         (vec!["prompt", "build"], 1),
         (vec!["prompt", "nobody"], 1),
     ] {
         let run = wb(&folder.path, &args, "");
         assert_eq!(code(&run), Some(status), "{:?}: {}", args, text(&run.stderr));
         assert_eq!(snapshot(&folder.path), before, "{:?}", args);
+    }
+}
+
+/// The placeholders of the list of the package, `- `{name}`: ` lines, in order.
+fn listed() -> Vec<String> {
+    let text = fs::read_to_string(package().join("revision/roles/placeholders.md")).unwrap();
+    text.lines()
+        .filter_map(|line| line.strip_prefix("- `{"))
+        .filter_map(|rest| rest.split_once("}`").map(|(name, _)| name.to_string()))
+        .collect()
+}
+
+#[test]
+fn test_WB_PROMPT_18_the_options_are_the_placeholders_of_the_list() {
+    let mut options: Vec<String> = watchbill::prompt::PLACEHOLDERS.iter().map(|name| name.to_string()).collect();
+    let mut names = listed();
+    options.sort();
+    names.sort();
+    assert_eq!(options, names);
+}
+
+#[test]
+fn test_WB_PROMPT_18_an_option_of_where_the_work_is_is_taken_and_filled_in() {
+    let folder = set_up();
+
+    for name in ["checkout", "branch", "task_address", "change_address"] {
+        // Every option of ALL, with a value of its own for the one under test.
+        let option = format!("--{}", name);
+        let value = format!("the value of {}", name);
+        let mut args = vec!["prompt", "review"];
+        for pair in ALL.chunks(2) {
+            args.push(pair[0]);
+            args.push(if pair[0] == option { value.as_str() } else { pair[1] });
+        }
+
+        let run = wb(&folder.path, &args, "");
+
+        assert_eq!(code(&run), Some(0), "{}: {}", name, text(&run.stderr));
+        assert!(text(&run.stdout).contains(&value), "{}: {}", name, text(&run.stdout));
     }
 }

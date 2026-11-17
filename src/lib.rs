@@ -24,7 +24,8 @@ pub const USAGE: &str = "usage:
   wb init [--yes]
   wb check
   wb prompt <role> [--task <text>] [--change <text>] [--requirements <text>]
-            [--round <text>] [--parts]
+            [--round <text>] [--checkout <text>] [--branch <text>]
+            [--task_address <text>] [--change_address <text>] [--parts]
   wb revision
   wb --version
 
@@ -40,8 +41,8 @@ pub const USAGE: &str = "usage:
             revision against the installed wb. Ends with 0 when all of it
             holds, 1 when something differs. Writes nothing
   prompt    print the prompt of a role on standard output and nothing else: the
-            role's text of the pinned revision with its placeholders filled
-            from --task, --change, --requirements and --round, then the
+            role's text of the pinned revision with each placeholder filled
+            from the option of its name, such as --task for {task}, then the
             project's own text. It runs the check of wb check first and prints
             nothing when that fails. --parts prints the path and the SHA-256 of
             each part, in the form sha256sum prints, in place of the text.
@@ -235,9 +236,9 @@ fn run_check(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i
     }
 }
 
-/// `wb prompt <role> [--task X] [--change X] [--requirements X] [--round X] [--parts]`: the prompt of
-/// a role, or with `--parts` the path and hash of each of its parts. Nothing is printed unless the
-/// check of `wb check` holds and the prompt can be put together. It writes nothing.
+/// `wb prompt <role> [--<placeholder> X]... [--parts]`: the prompt of a role, filled from one option for
+/// each placeholder of the list (`prompt::PLACEHOLDERS`), or with `--parts` the path and hash of each of
+/// its parts. Nothing is printed unless the check of `wb check` holds and the prompt can be put together. It writes nothing.
 fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let used = |err: &mut dyn Write, why: String| {
         let _ = write!(err, "wb prompt: {}\n\n{}", why, USAGE);

@@ -72,7 +72,7 @@ ci: gitlab-ci
 - **What it finds, it finds in the repository:** the name of the folder, the address of `origin` (only its host and path; a user name or a token in it is dropped), a folder of requirements, and the file a CI driver is known by. It asks nothing of the network.
 - **The revision is copied, never edited.** The files under `.watchbill/revision/` are written by `wb` and never by hand. `cd .watchbill && sha256sum -c revision.sha256` checks them without `wb`.
 - **A file that is already there is never changed.** When any file `wb init` would write is there, or a folder on the way to one is a link or not a folder, or `.watchbill/revision` is there, it writes nothing at all and names the path. Bringing a repository to a newer revision is a command of its own, later. A write that fails part way removes what it had written.
-- **The project's own text goes in `.watchbill/project/`.** `all.md` is added to the prompt of every role and `<role>.md` (`build.md`, `review.md`, `fix.md`, `tester.md`) to that of one role. Both are optional. They are the project's files: not part of the revision, not in the manifest, and `wb check` does not fail on them. A prompt is the role's text of the revision, then one fixed line, then `all.md`, then `<role>.md`. This text says how things are done here: the commands, the board, the words. It never lifts a limit of a role. `wb init` leaves `project/README.md`, which says so. The placeholders (`{task}`, `{change}`, `{requirements}`, `{round}`) are filled in every part, and any other placeholder is refused. A placeholder is a lower-case word in braces: `{`, a letter a to z, letters a to z or `_`, then `}`, with no `$` just before it. Anything else in braces is text and stays as it is, such as `${BUILD_DIR}`, `{Task}`, `{task-id}` and `{ task }`. A value that is filled in is never itself read for placeholders. The command that prints a prompt comes later.
+- **The project's own text goes in `.watchbill/project/`.** `all.md` is added to the prompt of every role and `<role>.md` (`build.md`, `review.md`, `fix.md`, `tester.md`) to that of one role. Both are optional. They are the project's files: not part of the revision, not in the manifest, and `wb check` does not fail on them. A prompt is the role's text of the revision, then one fixed line, then `all.md`, then `<role>.md`. This text says how things are done here: the commands, the board, the words. It never lifts a limit of a role. `wb init` leaves `project/README.md`, which says so. The placeholders of `revision/roles/placeholders.md` (`{task}`, `{branch}` and the others) are filled in every part, and any other placeholder is refused. A placeholder is a lower-case word in braces: `{`, a letter a to z, letters a to z or `_`, then `}`, with no `$` just before it. Anything else in braces is text and stays as it is, such as `${BUILD_DIR}`, `{Task}`, `{task-id}` and `{ task }`. A value that is filled in is never itself read for placeholders. The command that prints a prompt comes later.
 - **The answers are only written down.** No adapter exists yet, so a git server or a tracker is a name and nothing more.
 
 ## Checking it
@@ -105,7 +105,7 @@ The exit status:
 
 The prompt is the role's text of the pinned revision, then the project's own text (`.watchbill/project/all.md` and `.watchbill/project/<role>.md`, where they are). The placeholders are filled from the options, one for each:
 
-- `--task <text>`, `--change <text>`, `--requirements <text>`, `--round <text>`.
+- `--task <text>`, `--change <text>`, `--requirements <text>`, `--round <text>`, `--checkout <text>`, `--branch <text>`, `--task_address <text>`, `--change_address <text>`. What each is, is in `.watchbill/revision/roles/placeholders.md`.
 - A value is taken as it is given, also when it starts with `-` (`--task -x` or `--task=-x`) or holds a line break.
 - A placeholder that the prompt uses and that got no value is refused by name. An option for one it does not use is ignored. An empty value (`--task ""`, or a variable that is not set) is refused by name, as an option with no value is: a prompt is never handed over with a hole in it. Only an empty value is refused: a value of white space is taken as it is given.
 - `--parts` prints, in place of the text, the SHA-256 and the path of each part, one line each, in the form `sha256sum` prints. Run `sha256sum -c` on them at the root of the repository to see that the files are as they were.
@@ -118,11 +118,12 @@ The exit status:
 - **1**: it was refused and nothing is printed: the check does not hold, the role is not one of the revision (the roles it has are named), a project file is not UTF-8, or a placeholder is not known or got no value.
 - **2**: `wb prompt` was used wrongly (no role, a word or an option that is not known, an option given twice, with no value or with an empty one), the folder is not in a git repository, or Watchbill is not set up. The usage or the reason is on standard error.
 
-Three lines of shell that start a session with it, and record what the session was given. The files are written to a folder of their own and moved only when both calls succeed, so a failed call leaves none:
+Four lines of shell that start a session with it, and record what the session was given. The files are written to a folder of their own and moved only when both calls succeed, so a failed call leaves none:
 
 ```
 t=$(mktemp -d) || exit 1; trap 'rm -rf "$t"' EXIT
-wb prompt build --parts --task 12 --requirements WB-X-1 > "$t/session.sha256" && wb prompt build --task 12 --requirements WB-X-1 > "$t/session.md" || exit 1
+set -- build --task 12 --requirements WB-X-1 --checkout "$PWD" --branch task-12 --task_address "tracker 12"
+wb prompt "$@" --parts > "$t/session.sha256" && wb prompt "$@" > "$t/session.md" || exit 1
 mv "$t/session.sha256" "$t/session.md" . && your-agent --prompt-file session.md
 ```
 

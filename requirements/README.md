@@ -25,6 +25,7 @@ As a pattern: `WB-[A-Z]{2,8}-[1-9][0-9]*`.
 The row above is an example and no requirement.
 
 - **Requirement:** one "shall" per row, about one thing that can be seen from outside: what a command prints, writes, refuses or ends with. A row that needs "and" between two behaviours is two rows.
+- **Cases:** a requirement that says "the same as" or "any" names its cases, so that its tests reach each of them. A requirement about a message gives its words, or says that any words do.
 - **Issue:** a row names the issue that asked for it, as `Issue: #<number>`, at the end of its text.
 - **Ver** is how the requirement is verified:
 

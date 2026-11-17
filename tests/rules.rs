@@ -162,6 +162,7 @@ fn role_row(name: &str) -> J {
 fn good_rules() -> J {
     map(vec![
         ("review_rounds", J::I(2)),
+        ("last_message_asks", J::I(2)),
         (
             "always_to_a_person",
             texts(&[
@@ -174,6 +175,7 @@ fn good_rules() -> J {
         ),
         ("classed_code", map(vec![("verifier", s("person"))])),
         ("officer_queues", J::L(vec![])),
+        ("added_requirement_goes_to", texts(&["tester", "build"])),
         ("roles", J::M(ROLES.iter().map(|name| (name.to_string(), role_row(name))).collect())),
     ])
 }
@@ -344,6 +346,9 @@ fn test_WB_RULE_4_what_always_goes_to_a_person_is_listed() {
             "change_under_watchbill_folder",
             "verification_of_classed_code",
             "finding_open_after_last_round",
+            "last_message_without_its_fields_after_last_ask",
+            "requirement_added_to_a_change",
+            "check_of_a_fix_after_last_round",
             "merge",
         ])
     );
@@ -971,4 +976,90 @@ fn test_WB_RULE_6_a_capital_whose_lower_case_python_does_not_know_before_merge_i
         t.role("build").set("may", texts(&[&format!("Read the {}merge list.", capital)]));
         t.load();
     }
+}
+
+// The last message is checked (#45).
+
+#[test]
+fn test_WB_RULE_31_the_first_table_asks_twice_for_a_last_message_with_its_fields() {
+    assert_eq!(first_revision().last_message_asks, 2);
+}
+
+#[test]
+fn test_WB_RULE_31_a_table_without_the_asks_is_refused_and_names_the_field() {
+    let mut t = Tables::new();
+    t.rules.del("last_message_asks");
+    assert!(t.refused().contains("last_message_asks"));
+}
+
+#[test]
+fn test_WB_RULE_32_a_last_message_without_its_fields_after_the_last_ask_goes_to_a_person() {
+    let person = first_revision().always_to_a_person;
+    assert!(person.contains(&"last_message_without_its_fields_after_last_ask".to_string()), "{:?}", person);
+}
+
+#[test]
+fn test_WB_RULE_33_a_number_of_asks_that_is_not_a_whole_number_of_at_least_1_is_refused() {
+    let mut t = Tables::new();
+    for bad in [J::I(0), J::I(-1), J::F(1.5), s("2"), J::B(true), J::Null, J::L(vec![J::I(2)])] {
+        t.rules.set("last_message_asks", bad.clone());
+        assert!(t.refused().contains("last_message_asks"), "{:?}", bad);
+    }
+}
+
+#[test]
+fn test_WB_RULE_33_a_whole_number_of_at_least_1_is_accepted() {
+    let mut t = Tables::new();
+    for good in [1, 2, 5] {
+        t.rules.set("last_message_asks", J::I(good));
+        assert_eq!(t.load().last_message_asks, good);
+    }
+}
+
+// A requirement added during a change, and a fix after the last round (#49).
+
+#[test]
+fn test_WB_RULE_34_the_first_table_sends_an_added_requirement_to_the_tester_then_the_builder() {
+    assert_eq!(first_revision().added_requirement_goes_to, ["tester", "build"]);
+}
+
+#[test]
+fn test_WB_RULE_34_a_table_without_the_list_for_an_added_requirement_is_refused_and_names_it() {
+    let mut t = Tables::new();
+    t.rules.del("added_requirement_goes_to");
+    assert!(t.refused().contains("added_requirement_goes_to"));
+}
+
+#[test]
+fn test_WB_RULE_34_the_list_is_read_in_its_order() {
+    let mut t = Tables::new();
+    t.rules.set("added_requirement_goes_to", texts(&["build", "tester", "review"]));
+    assert_eq!(t.load().added_requirement_goes_to, ["build", "tester", "review"]);
+}
+
+#[test]
+fn test_WB_RULE_35_a_role_without_a_prompt_twice_or_none_in_the_list_for_an_added_requirement_is_refused() {
+    let mut t = Tables::new();
+    for bad in [
+        texts(&["tester", "officer"]),
+        texts(&["tester", "captain"]),
+        texts(&["tester", "build", "tester"]),
+        J::L(vec![]),
+        s("tester"),
+    ] {
+        t.rules.set("added_requirement_goes_to", bad.clone());
+        assert!(t.refused().contains("added_requirement_goes_to"), "{:?}", bad);
+    }
+}
+
+#[test]
+fn test_WB_RULE_36_a_requirement_added_to_a_change_goes_to_a_person() {
+    let person = first_revision().always_to_a_person;
+    assert!(person.contains(&"requirement_added_to_a_change".to_string()), "{:?}", person);
+}
+
+#[test]
+fn test_WB_RULE_37_the_check_of_a_fix_after_the_last_round_goes_to_a_person() {
+    let person = first_revision().always_to_a_person;
+    assert!(person.contains(&"check_of_a_fix_after_last_round".to_string()), "{:?}", person);
 }

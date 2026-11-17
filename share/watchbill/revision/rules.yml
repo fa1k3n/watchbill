@@ -5,12 +5,20 @@
 # At most this many rounds of review on one change.
 review_rounds: 2
 
+# At most this many times a session is asked for its last message: at its end, and again when
+# that message lacks a field its role's prompt names under how it ends. The fields are checked
+# by name, not by what they say.
+last_message_asks: 2
+
 # What always goes to a person, whatever else the table says.
 always_to_a_person:
   - change_to_an_existing_test
   - change_under_watchbill_folder
   - verification_of_classed_code
   - finding_open_after_last_round
+  - last_message_without_its_fields_after_last_ask
+  - requirement_added_to_a_change
+  - check_of_a_fix_after_last_round
   - merge
 
 # The one rule for classed code. Which paths are classed is the project's to say.
@@ -20,6 +28,12 @@ classed_code:
 # The queues the officer may take an unassigned task from. None in the first revision.
 officer_queues: []
 
+# A requirement that a person adds to a change under review goes, on the same change, to these
+# roles in this order, before the next round of review. That round covers it. A fix that a person
+# allows after the last round is checked by that person, with the test that shows it: it is not
+# another round.
+added_requirement_goes_to: [tester, build]
+
 # For each role: the step and what it produces, what it may read, what it may do,
 # the roles the same team member may not also hold on one change, and the prompt file.
 roles:
@@ -28,8 +42,8 @@ roles:
     produces: Tests that each carry a requirement ID and fail for the right reason, in a commit that holds only tests.
     reads:
       - The task and the rows of its requirements.
-      - The files the task names, and the tests among them.
-      - The interface of what is tested, not its body.
+      - The files the task names, and the tests among them with their helpers.
+      - The interface of what is tested that the task names, not its body.
     may:
       - Add new tests on the branch of the task.
       - Commit the tests.
@@ -41,7 +55,7 @@ roles:
     produces: The smallest change that meets the requirements, opened for review with every check green.
     reads:
       - The task and the rows of its requirements.
-      - The tester's tests.
+      - The tester's tests and their helpers.
       - The files the task names.
       - The project's instructions for how code is written and checked.
     may:
@@ -58,7 +72,8 @@ roles:
       - The task and the rows of its requirements.
       - The diff of the change first, then its description and commit messages as claims to check.
       - The result of its checks.
-      - The files the task names, and the tests among them, the tester's tests too.
+      - The files the task names, and the tests among them with their helpers, the tester's tests too.
+      - What the changed code calls.
       - In round 2, the findings, the answers and the commits since.
     may:
       - Post its findings on the change.
@@ -71,7 +86,7 @@ roles:
     reads:
       - The task and the rows of its requirements.
       - The findings of the round and the diff of the change.
-      - The files the task names, and the files and tests the findings name.
+      - The files the task names, and the files and tests the findings name, with the helpers of those tests.
     may:
       - Commit fixes on the branch of the change.
       - Add a test beside a weak one, written first.

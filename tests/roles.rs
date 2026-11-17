@@ -322,3 +322,175 @@ fn test_WB_ROLE_8_each_prompt_starts_with_a_line_saying_it_is_a_draft() {
         assert_eq!(first, "Draft: this prompt has not yet run on a project.", "{}", role);
     }
 }
+
+// Where the work is (#43): the words a session needs to know where it works and where it reads.
+
+#[test]
+fn test_WB_ROLE_17_the_list_holds_the_checkout_the_branch_and_the_two_addresses() {
+    let names = listed();
+    for name in ["{checkout}", "{branch}", "{task_address}", "{change_address}"] {
+        assert!(names.contains(&name.to_string()), "{} is not on the list: {:?}", name, names);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_18_every_prompt_names_its_checkout_its_branch_and_where_its_task_is_read() {
+    for role in ROLES {
+        // Said before the first part, where the role is named.
+        let opening = split_parts(&prompt(role)).remove(0);
+        assert!(opening.contains("You work in the checkout {checkout}, on the branch {branch}."), "{}", role);
+        assert!(part(role, "## What you read").contains("The task {task}, at {task_address},"), "{}", role);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_19_review_and_fix_name_where_the_change_is_read_and_posted() {
+    for role in ["review", "fix"] {
+        assert!(part(role, "## What you read").contains("{change}, at {change_address}"), "{}", role);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_20_every_prompt_takes_pushing_and_posting_from_the_project_text() {
+    for role in ROLES {
+        let body = part(role, "## What you read");
+        let point = body.split('\n').find(|line| line.starts_with("- The project's own text, where it follows this prompt:"));
+        let point = point.unwrap_or_else(|| panic!("{}: no point for the project's own text", role));
+        assert!(point.contains("how work is pushed and posted here"), "{}: {}", role, point);
+    }
+}
+
+// A search is an opening (#44).
+
+#[test]
+fn test_WB_ROLE_21_every_prompt_says_a_search_opens_every_file_it_reads() {
+    let search = "A search (a grep, a find with content, a tool that reads files to answer) opens every file it reads. \
+                  Keep it to the files you may read.";
+    for role in ROLES {
+        assert!(part(role, "## What you read").contains(search), "{}", role);
+    }
+}
+
+// The last message is checked (#45).
+
+#[test]
+fn test_WB_ROLE_22_every_prompt_says_a_last_message_without_its_fields_is_refused_and_asked_for_again() {
+    for role in ROLES {
+        let body = part(role, "## How you end");
+        assert!(body.contains("A last message without these fields is refused, and you are asked for it again."), "{}", role);
+    }
+}
+
+// A guard: a test of a clause that holds already (#46).
+
+#[test]
+fn test_WB_ROLE_23_the_tester_writes_a_guard_runs_it_and_sees_it_pass() {
+    let body = part("tester", "## What you produce");
+    assert!(body.contains("- Every new test but a guard fails when you run it now"), "{}", body);
+    assert!(body.contains("A test of a clause that holds already before the change"), "{}", body);
+    assert!(body.contains("It is a guard: write it, run it and see it pass."), "{}", body);
+}
+
+#[test]
+fn test_WB_ROLE_24_the_last_message_of_the_tester_lists_the_guards_after_red() {
+    let found = fields(&part("tester", "## How you end"));
+    let red = found.iter().position(|name| name == "red").expect("red");
+    assert_eq!(found.get(red + 1).map(String::as_str), Some("guards"), "{:?}", found);
+}
+
+#[test]
+fn test_WB_ROLE_25_the_builder_keeps_the_guards_passing_before_and_after() {
+    let opening = split_parts(&prompt("build")).remove(0);
+    assert!(opening.contains("guards, tests of what holds already, which pass before your change and after it"), "{}", opening);
+}
+
+// What a role reads is cut where the work needs it (#47).
+
+#[test]
+fn test_WB_ROLE_26_the_tester_reads_the_interface_the_task_names_and_not_the_file() {
+    let body = part("tester", "## What you read");
+    assert!(body.contains("the interface of the thing under test that the task names"), "{}", body);
+    assert!(body.contains("Where it shares a file with the body, read only the interface and not the file."), "{}", body);
+}
+
+#[test]
+fn test_WB_ROLE_27_every_role_that_reads_tests_reads_their_helpers() {
+    for role in ROLES {
+        assert!(part(role, "## What you read").contains("the helpers those tests use"), "{}", role);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_28_a_helper_is_part_of_the_test_it_serves() {
+    for role in ["tester", "build", "fix"] {
+        assert!(part(role, "## What you never do").contains("A helper a test uses is part of that test."), "{}", role);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_29_the_reviewer_reads_what_the_changed_code_calls() {
+    let body = part("review", "## What you read");
+    let point = body.split('\n').find(|line| line.starts_with("- What the changed code calls"));
+    let point = point.unwrap_or_else(|| panic!("no point for what the changed code calls: {}", body));
+    assert!(point.contains("nothing of how it was made"), "{}", point);
+}
+
+// A requirement names its cases, and one about a message gives its words (#48).
+
+#[test]
+fn test_WB_ROLE_30_the_tester_asks_for_the_cases_a_requirement_does_not_name() {
+    let body = part("tester", "## What you never do");
+    let point = body.split('\n').find(|line| line.starts_with("- You never guess the cases of a requirement."));
+    let point = point.unwrap_or_else(|| panic!("no point for the cases: {}", body));
+    assert!(point.contains("\"the same as\" or \"any\""), "{}", point);
+    assert!(point.contains("ask which cases there are under `needs_person`"), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_31_the_tester_holds_a_message_to_no_words_of_its_own() {
+    let body = part("tester", "## What you never do");
+    let point = body.split('\n').find(|line| line.starts_with("- You never hold a message to words of your own."));
+    let point = point.unwrap_or_else(|| panic!("no point for the words of a message: {}", body));
+    assert!(point.contains("does not give its words, and does not say that any words do"), "{}", point);
+    assert!(point.contains("`needs_person`"), "{}", point);
+}
+
+// A requirement added during a change, and a fix after the last round (#49).
+
+#[test]
+fn test_WB_ROLE_32_round_2_reviews_a_requirement_added_since_round_1_as_round_1_does() {
+    let body = part("review", "## What you produce");
+    let round_2 = body.split_once("In round 2,").expect("round 2").1;
+    assert!(
+        round_2.contains("- A requirement added to the change since round 1 is reviewed as in round 1, clause by clause."),
+        "{}",
+        round_2
+    );
+}
+
+#[test]
+fn test_WB_ROLE_33_a_fix_after_the_last_round_is_allowed_and_checked_by_a_person() {
+    let body = part("fix", "## What you produce");
+    let point = body.split('\n').find(|line| line.starts_with("- After the last round,"));
+    let point = point.unwrap_or_else(|| panic!("no point for after the last round: {}", body));
+    assert!(point.contains("only where a person has allowed it"), "{}", point);
+    assert!(point.contains("that person checks it with the test that shows it"), "{}", point);
+    assert!(point.contains("It is not a round of review."), "{}", point);
+}
+
+// The tester runs the project's checks on its commit (#50).
+
+#[test]
+fn test_WB_ROLE_34_the_tester_runs_the_checks_of_the_project_after_its_commit() {
+    let body = part("tester", "## What you produce");
+    let point = body.split('\n').find(|line| line.starts_with("- After the commit, run what the project runs before a change is handed over"));
+    let point = point.unwrap_or_else(|| panic!("no point for the checks of the project: {}", body));
+    assert!(point.contains("report under `checks` what fails for a reason other than the missing code"), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_35_the_last_message_of_the_tester_gives_the_checks_after_the_guards() {
+    let found = fields(&part("tester", "## How you end"));
+    let guards = found.iter().position(|name| name == "guards").expect("guards");
+    assert_eq!(found.get(guards + 1).map(String::as_str), Some("checks"), "{:?}", found);
+}

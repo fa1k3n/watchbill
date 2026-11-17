@@ -19,7 +19,8 @@ const MANIFEST_PATH: &str = ".watchbill/revision.sha256";
 const PLACEHOLDERS_FILE: &str = "placeholders.md";
 
 /// The words a prompt is filled in with and no others: `roles/placeholders.md` of the revision.
-pub const PLACEHOLDERS: [&str; 4] = ["task", "change", "requirements", "round"];
+pub const PLACEHOLDERS: [&str; 8] =
+    ["task", "change", "requirements", "round", "checkout", "branch", "task_address", "change_address"];
 
 /// The line between the role's text and the project's own text.
 pub const FIXED_LINE: &str =
@@ -42,8 +43,8 @@ A prompt is the role's text of the revision, then one line saying that this text
 the role must not do stays so, whatever is written here.
 
 A placeholder is a lower-case word in braces: `{`, a letter a to z, letters a to z or `_`, then `}`,
-with no `$` just before it. `{task}`, `{change}`, `{requirements}` and `{round}` are known and are
-filled in; any other placeholder is refused. Anything else in braces is text: `${BUILD_DIR}`,
+with no `$` just before it. The words of `.watchbill/revision/roles/placeholders.md`, such as `{task}`
+and `{branch}`, are known and are filled in; any other placeholder is refused. Anything else in braces is text: `${BUILD_DIR}`,
 `{Task}`, `{task-id}` and `{ task }` stay as they are. A review of a change to `.watchbill/` reads that this text does not
 speak against the role.
 ";

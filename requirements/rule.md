@@ -34,3 +34,11 @@ The two tables of the first revision and the one loader that reads YAML. What a 
 | WB-RULE-28 | A role named twice in a role's list of roles it may not also hold shall be refused. Issue: #5. | T | Implemented |
 | WB-RULE-29 | Nothing in `wb` but `src/rules.rs` shall name the two tables. Issue: #23. | T | Implemented |
 | WB-RULE-30 | An anchor or an alias in a YAML file shall be refused, with the line. Issue: #23. | T | Implemented |
+| WB-RULE-31 | The rule table shall give how many times a session is asked for a last message that has the fields its role names, and the first table shall give two. Issue: #45. | T | Implemented |
+| WB-RULE-32 | The first rule table shall send to a person a last message that still lacks its fields after the last ask. Issue: #45. | T | Implemented |
+| WB-RULE-33 | A number of asks for the last message that is not a whole number of at least 1 shall be refused, and the message shall name the field. Issue: #45. | T | Implemented |
+| WB-RULE-34 | The rule table shall name, in order, the roles that a requirement a person adds to a change under review goes to on the same change, and the first table shall name tester, then build. Issue: #49. | T | Implemented |
+| WB-RULE-35 | A role in the list for an added requirement that is not a role with a prompt, or that is written twice, and a list with no role, shall be refused, and the message shall name the field. Issue: #49. | T | Implemented |
+| WB-RULE-36 | The first rule table shall send to a person a requirement added to a change. Issue: #49. | T | Implemented |
+| WB-RULE-37 | The first rule table shall send to a person the check of a fix made after the last round. Issue: #49. | T | Implemented |
+| WB-RULE-38 | Where a task or a project names another model or effort than the model table, the table shall win: a task may ask for a stronger model or a higher effort, never less, and what ran is recorded by the stamp of #31. `docs/revision.md`, point 5, and the model table shall say so. Issue: #51. | I | Implemented |

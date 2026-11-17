@@ -1016,9 +1016,15 @@ fn revision_files(folder: &Path, found: &mut Vec<PathBuf>) {
 /// The words of a text that name a file: they end in one of the extensions the repository uses.
 /// What stands round a word (quotes, a comma, a full stop, a star) is not part of it.
 fn named_files(text: &str) -> Vec<String> {
-    // STUB: red until the helper is written.
-    let _ = text;
-    Vec::new()
+    const EXTENSIONS: [&str; 9] = ["py", "rs", "md", "yml", "yaml", "toml", "sh", "txt", "json"];
+    text.split(|c: char| !(c.is_ascii_alphanumeric() || "_./-".contains(c)))
+        .map(|word| word.trim_matches(|c| c == '.' || c == '/'))
+        .filter(|word| match word.rsplit_once('.') {
+            Some((stem, extension)) => !stem.is_empty() && EXTENSIONS.contains(&extension),
+            None => false,
+        })
+        .map(|word| word.to_string())
+        .collect()
 }
 
 /// What a text names that is neither at the root of the repository nor under `revision/`.

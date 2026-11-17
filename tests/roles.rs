@@ -380,3 +380,26 @@ fn test_WB_ROLE_22_every_prompt_says_a_last_message_without_its_fields_is_refuse
         assert!(body.contains("A last message without these fields is refused, and you are asked for it again."), "{}", role);
     }
 }
+
+// A guard: a test of a clause that holds already (#46).
+
+#[test]
+fn test_WB_ROLE_23_the_tester_writes_a_guard_runs_it_and_sees_it_pass() {
+    let body = part("tester", "## What you produce");
+    assert!(body.contains("- Every new test but a guard fails when you run it now"), "{}", body);
+    assert!(body.contains("A test of a clause that holds already before the change"), "{}", body);
+    assert!(body.contains("It is a guard: write it, run it and see it pass."), "{}", body);
+}
+
+#[test]
+fn test_WB_ROLE_24_the_last_message_of_the_tester_lists_the_guards_after_red() {
+    let found = fields(&part("tester", "## How you end"));
+    let red = found.iter().position(|name| name == "red").expect("red");
+    assert_eq!(found.get(red + 1).map(String::as_str), Some("guards"), "{:?}", found);
+}
+
+#[test]
+fn test_WB_ROLE_25_the_builder_keeps_the_guards_passing_before_and_after() {
+    let opening = split_parts(&prompt("build")).remove(0);
+    assert!(opening.contains("guards, tests of what holds already, which pass before your change and after it"), "{}", opening);
+}

@@ -13,6 +13,8 @@ use std::process::{Command, Output};
 const USAGE: &str = "usage:
   wb init [--yes]
   wb check
+  wb prompt <role> [--task <text>] [--change <text>] [--requirements <text>]
+            [--round <text>] [--parts]
   wb revision
   wb --version
 
@@ -27,6 +29,15 @@ const USAGE: &str = "usage:
             manifest against the revision line of watchbill.yml, and that
             revision against the installed wb. Ends with 0 when all of it
             holds, 1 when something differs. Writes nothing
+  prompt    print the prompt of a role on standard output and nothing else: the
+            role's text of the pinned revision with its placeholders filled
+            from --task, --change, --requirements and --round, then the
+            project's own text. It runs the check of wb check first and prints
+            nothing when that fails. --parts prints the path and the SHA-256 of
+            each part, in the form sha256sum prints, in place of the text.
+            Ends with 0 when the prompt is printed, 1 when it is refused, 2
+            when it was used wrongly or the repository is not set up. Writes
+            nothing
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes nothing
 ";

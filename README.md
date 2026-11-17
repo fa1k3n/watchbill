@@ -107,7 +107,7 @@ The prompt is the role's text of the pinned revision, then the project's own tex
 
 - `--task <text>`, `--change <text>`, `--requirements <text>`, `--round <text>`.
 - A value is taken as it is given, also when it starts with `-` (`--task -x` or `--task=-x`) or holds a line break.
-- A placeholder that the prompt uses and that got no value is refused by name. An option for one it does not use is ignored. An empty value (`--task ""`, or a variable that is not set) is refused by name, as an option with no value is: a prompt is never handed over with a hole in it.
+- A placeholder that the prompt uses and that got no value is refused by name. An option for one it does not use is ignored. An empty value (`--task ""`, or a variable that is not set) is refused by name, as an option with no value is: a prompt is never handed over with a hole in it. Only an empty value is refused: a value of white space is taken as it is given.
 - `--parts` prints, in place of the text, the SHA-256 and the path of each part, one line each, in the form `sha256sum` prints. Run `sha256sum -c` on them at the root of the repository to see that the files are as they were.
 
 `wb prompt` runs the check of `wb check` first. When the repository is not at its revision, it prints nothing on standard output and says why on standard error.
@@ -118,12 +118,12 @@ The exit status:
 - **1**: it was refused and nothing is printed: the check does not hold, the role is not one of the revision (the roles it has are named), a project file is not UTF-8, or a placeholder is not known or got no value.
 - **2**: `wb prompt` was used wrongly (no role, a word or an option that is not known, an option given twice, with no value or with an empty one), the folder is not in a git repository, or Watchbill is not set up. The usage or the reason is on standard error.
 
-Three lines of shell that start a session with it, and record what the session was given:
+Three lines of shell that start a session with it, and record what the session was given. The files are written to a folder of their own and moved only when both calls succeed, so a failed call leaves none:
 
 ```
-$ wb prompt build --parts --task 12 --requirements WB-X-1 > session.sha256 || exit 1
-$ wb prompt build --task 12 --requirements WB-X-1 > session.md || exit 1
-$ your-agent --prompt-file session.md
+t=$(mktemp -d) || exit 1; trap 'rm -rf "$t"' EXIT
+wb prompt build --parts --task 12 --requirements WB-X-1 > "$t/session.sha256" && wb prompt build --task 12 --requirements WB-X-1 > "$t/session.md" || exit 1
+mv "$t/session.sha256" "$t/session.md" . && your-agent --prompt-file session.md
 ```
 
 ## Installing it

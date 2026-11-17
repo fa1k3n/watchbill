@@ -23,6 +23,8 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const USAGE: &str = "usage:
   wb init [--yes]
   wb check
+  wb prompt <role> [--task <text>] [--change <text>] [--requirements <text>]
+            [--round <text>] [--parts]
   wb revision
   wb --version
 
@@ -37,6 +39,15 @@ pub const USAGE: &str = "usage:
             manifest against the revision line of watchbill.yml, and that
             revision against the installed wb. Ends with 0 when all of it
             holds, 1 when something differs. Writes nothing
+  prompt    print the prompt of a role on standard output and nothing else: the
+            role's text of the pinned revision with its placeholders filled
+            from --task, --change, --requirements and --round, then the
+            project's own text. It runs the check of wb check first and prints
+            nothing when that fails. --parts prints the path and the SHA-256 of
+            each part, in the form sha256sum prints, in place of the text.
+            Ends with 0 when the prompt is printed, 1 when it is refused, 2
+            when it was used wrongly or the repository is not set up. Writes
+            nothing
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes nothing
 ";
@@ -137,7 +148,7 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
             "version".to_string()
         }
         Ok(Some(Word::Value(value))) => match value.to_str() {
-            Some(name @ ("help" | "init" | "check" | "revision")) => name.to_string(),
+            Some(name @ ("help" | "init" | "check" | "prompt" | "revision")) => name.to_string(),
             _ => {
                 let _ = write!(err, "wb: no command '{}'\n\n{}", word(value.as_bytes()), USAGE);
                 return 2;
@@ -160,6 +171,7 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
         }
         "init" => run_init(&mut parser, input, out, err),
         "check" => run_check(&mut parser, out, err),
+        "prompt" => run_prompt(&mut parser, out, err),
         _ => run_revision(&mut parser, Path::new(manifest::PACKAGE_FOLDER), out, err),
     }
 }
@@ -220,6 +232,88 @@ fn run_check(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i
             2
         }
         Ok(Some(root)) => check::check(&root, VERSION, Path::new(manifest::PACKAGE_FOLDER), out, err),
+    }
+}
+
+/// `wb prompt <role> [--task X] [--change X] [--requirements X] [--round X] [--parts]`: the prompt of
+/// a role, or with `--parts` the path and hash of each of its parts. Nothing is printed unless the
+/// check of `wb check` holds and the prompt can be put together. It writes nothing.
+fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let used = |err: &mut dyn Write, why: String| {
+        let _ = write!(err, "wb prompt: {}\n\n{}", why, USAGE);
+        2
+    };
+    let mut role: Option<String> = None;
+    let mut values: Vec<(&'static str, String)> = Vec::new();
+    let mut parts = false;
+    loop {
+        let found = match next(parser) {
+            Ok(None) => break,
+            Ok(Some(found)) => found,
+            Err(refused) => return used(err, format!("'{}' is not known", refused)),
+        };
+        match found {
+            Word::Long(option) if option == "parts" => parts = true,
+            Word::Long(option) if prompt::PLACEHOLDERS.contains(&option.as_str()) => {
+                let name = prompt::PLACEHOLDERS.iter().find(|name| **name == option).unwrap();
+                // A value is whatever follows, also when it starts with `-`.
+                let value = match parser.value() {
+                    Ok(value) => value,
+                    Err(_) => return used(err, format!("'--{}' needs a value", option)),
+                };
+                let Ok(value) = value.into_string() else {
+                    return used(err, format!("the value of '--{}' is not UTF-8 text", option));
+                };
+                if values.iter().any(|(given, _)| given == name) {
+                    return used(err, format!("'--{}' is given twice", option));
+                }
+                values.push((name, value));
+            }
+            Word::Value(value) if role.is_none() => role = Some(word(value.as_bytes())),
+            found => {
+                let refused = named(found, parser);
+                return used(err, format!("'{}' is not known", refused));
+            }
+        }
+    }
+    let Some(role) = role else {
+        return used(err, "a role is needed".to_string());
+    };
+    let root = match init::repository_root(None) {
+        Err(why) => {
+            let _ = writeln!(err, "wb prompt: {}.", why);
+            return 2;
+        }
+        Ok(None) => {
+            let _ = writeln!(err, "wb prompt: this folder is not in a git repository. Watchbill is set up in one.");
+            return 2;
+        }
+        Ok(Some(root)) => root,
+    };
+    // What `wb check` says is for standard error here: standard output holds the prompt or nothing.
+    let (mut said, mut why) = (Vec::new(), Vec::new());
+    let status = check::check(&root, VERSION, Path::new(manifest::PACKAGE_FOLDER), &mut said, &mut why);
+    if status != 0 {
+        let _ = writeln!(err, "wb prompt: nothing printed, the check of `wb check` does not hold.");
+        let _ = err.write_all(&said);
+        let _ = err.write_all(&why);
+        return status;
+    }
+    let given: Vec<(&str, &str)> = values.iter().map(|(name, value)| (*name, value.as_str())).collect();
+    match prompt::assemble(Path::new(&root), &role, &given) {
+        Err(why) => {
+            let _ = writeln!(err, "wb prompt: {}", why);
+            1
+        }
+        Ok(found) => {
+            if parts {
+                let lines: String = found.parts.iter().map(|part| format!("{}  {}\n", part.hash, part.path)).collect();
+                let _ = out.write_all(lines.as_bytes());
+            } else {
+                let _ = out.write_all(found.text.as_bytes());
+            }
+            0
+        }
     }
 }
 

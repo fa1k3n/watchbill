@@ -99,6 +99,33 @@ The exit status:
 - **1**: something differs, or the file `watchbill.yml` is refused. Each difference is on standard output.
 - **2**: `wb check` was used wrongly, the folder is not in a git repository, or `.watchbill/watchbill.yml` is not there, so Watchbill is not set up. The reason is on standard error.
 
+## The prompt of an assignment
+
+`wb prompt <role>` prints the prompt of a role on standard output, and nothing else. Whatever starts an agent's session, in any language, calls it as a process. Run it anywhere inside the repository. It writes nothing and asks nothing of the network.
+
+The prompt is the role's text of the pinned revision, then the project's own text (`.watchbill/project/all.md` and `.watchbill/project/<role>.md`, where they are). The placeholders are filled from the options, one for each:
+
+- `--task <text>`, `--change <text>`, `--requirements <text>`, `--round <text>`.
+- A value is taken as it is given, also when it starts with `-` (`--task -x` or `--task=-x`) or holds a line break.
+- A placeholder that the prompt uses and that got no value is refused by name. An option for one it does not use is ignored.
+- `--parts` prints, in place of the text, the SHA-256 and the path of each part, one line each, in the form `sha256sum` prints. Run `sha256sum -c` on them at the root of the repository to see that the files are as they were.
+
+`wb prompt` runs the check of `wb check` first. When the repository is not at its revision, it prints nothing on standard output and says why on standard error.
+
+The exit status:
+
+- **0**: the prompt is printed.
+- **1**: it was refused and nothing is printed: the check does not hold, the role is not one of the revision (the roles it has are named), a project file is not UTF-8, or a placeholder is not known or got no value.
+- **2**: `wb prompt` was used wrongly (no role, a word or an option that is not known, an option given twice or with no value), the folder is not in a git repository, or Watchbill is not set up. The usage or the reason is on standard error.
+
+Three lines of shell that start a session with it, and record what the session was given:
+
+```
+$ wb prompt build --parts --task 12 --requirements WB-X-1 > session.sha256
+$ wb prompt build --task 12 --requirements WB-X-1 > session.md || exit 1
+$ your-agent --prompt-file session.md
+```
+
 ## Installing it
 
 `wb` is one program, built from Rust and a few crates that the distribution packages ([docs/revision.md](docs/revision.md), point 6). The owner decided this on 2026-11-17 (#20, #34). Building it on Enterprise Linux 9 needs EPEL, where the crates are. Installed, it needs `git` and no library of its own.

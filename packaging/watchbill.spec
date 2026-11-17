@@ -1,6 +1,9 @@
 # The package that `dnf install` takes: the commands `wb` and `watchbill`, run by
 # the Python of the distribution. packaging/rpm.sh builds it from a checkout and
 # passes the revision as wb_version.
+#
+# The Rust `wb` is built and its tests are run here, and it is not installed yet: the
+# installed `wb` is the Python one until #25. The package stays noarch for that reason.
 
 Name:           watchbill
 Version:        %{?wb_version}%{!?wb_version:0.0.1}
@@ -20,6 +23,12 @@ BuildRequires:  pyproject-rpm-macros
 BuildRequires:  python3-pyyaml
 # The tests make git repositories.
 BuildRequires:  git-core
+# The Rust of the distribution, and the macros that build with it and take every crate
+# from the distribution's packages. On Enterprise Linux 9 the macros are in EPEL, so the
+# build needs EPEL there. No crate is named yet: each piece that needs one adds it.
+BuildRequires:  cargo
+BuildRequires:  rust >= 1.97
+BuildRequires:  cargo-rpm-macros
 # `wb init` asks git for the root of the repository and the address of origin.
 Requires:       git-core
 
@@ -29,12 +38,16 @@ at a fixed revision onto a project that already exists. The command is wb.
 
 %prep
 %autosetup -n %{name}-%{version}
+# Points cargo at the crates of the distribution and the network off, as .cargo/config.toml does.
+%cargo_prep
 
 %generate_buildrequires
 %pyproject_buildrequires
+%cargo_generate_buildrequires
 
 %build
 %pyproject_wheel
+%cargo_build
 
 %install
 %pyproject_install
@@ -42,6 +55,7 @@ at a fixed revision onto a project that already exists. The command is wb.
 
 %check
 %{python3} -m unittest discover -s tests -v
+%cargo_test
 
 %files -f %{pyproject_files}
 %doc README.md

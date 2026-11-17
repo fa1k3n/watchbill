@@ -26,6 +26,6 @@ The files of a revision as the package carries them, their manifest, and `wb rev
 | WB-REV-20 | A folder under `revision/` that cannot be listed shall be refused by name, and its files shall not be left out in silence. Issue: #6. | T | Implemented |
 | WB-REV-21 | Anything under `revision/` that is not a plain file or a folder, such as a named pipe, shall be refused by name and not opened. Issue: #6. | T | Implemented |
 | WB-REV-22 | Every path of the committed manifest, and the manifest and `revisions.txt`, shall be among the files the RPM installs. Issue: #25. | T | Draft |
-| WB-REV-23 | A `revision/` that is itself a symbolic link shall be refused by name. Issue: #24. | T | Draft |
-| WB-REV-24 | A file of the revision that has become a named pipe after its kind was looked at shall be refused by name, without `wb` waiting on it. Issue: #24. | T | Draft |
-| WB-REV-25 | No option and no environment variable shall change the folder `wb` reads the revision from. Issue: #24. | T | Draft |
+| WB-REV-23 | A `revision/` that is itself a symbolic link shall be refused by name. Issue: #24. | T | Implemented |
+| WB-REV-24 | A file of the revision that has become a named pipe after its kind was looked at shall be refused by name, without `wb` waiting on it. Issue: #24. | T | Implemented |
+| WB-REV-25 | No option and no environment variable shall change the folder `wb` reads the revision from. Issue: #24. | T | Implemented |

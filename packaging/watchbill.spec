@@ -34,6 +34,9 @@ BuildRequires:  cargo-rpm-macros
 # The YAML library the Rust `wb` reads every YAML file with. 0.10.3 does not compile without
 # its default feature, which Cargo.toml turns off.
 BuildRequires:  crate(yaml-rust2) >= 0.10.4
+# The SHA-256 of the manifest of the revision. 0.10.9 is the oldest that builds with the
+# features Cargo.toml names.
+BuildRequires:  crate(sha2) >= 0.10.9
 # `wb init` asks git for the root of the repository and the address of origin.
 Requires:       git-core
 

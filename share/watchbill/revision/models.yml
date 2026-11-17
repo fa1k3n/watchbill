@@ -1,5 +1,6 @@
 # The model table of the first revision: one exact model ID and one effort for each role that has a prompt.
 # Never "latest", and never a name without a version. Read by src/rules.rs.
+# Where a task names another model or effort, the table wins: a task may ask for more, never for less.
 models:
   tester:
     model: claude-sonnet-5-5

@@ -75,6 +75,8 @@ One exact model ID and one effort for each role that has a prompt. Never "latest
 | Fix | `claude-sonnet-5-5` | medium |
 | Review | `claude-opus-5-5` | high |
 
+Where a task or the project names another model or effort than the table, the table wins. A task may ask for a stronger model or a higher effort, never for less, and the stamp of #31 records what ran (#51).
+
 Figures on the findings of the first runs correct it. A changed model is a new revision. The table is for a vendor's runner; a runner with a local model gets a table of its own when the first one exists (point 11).
 
 ## 6. The format of the tables

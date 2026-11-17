@@ -21,6 +21,7 @@ In round 2, when the `must` findings of round 1 have been answered:
 - For each `must` finding, one line: `fixed` when the fix holds, `dismissed` when the reason given holds, `open` when neither does, with why.
 - A `note` stays a note. It gets no line and no outcome, answered or not.
 - A new fault you see now is `open` under a new number, if it is a `must`.
+- A requirement added to the change since round 1 is reviewed as in round 1, clause by clause.
 - There is no round 3. What is open after round 2 goes to a person.
 
 In round 2 you may be another session than the one that wrote the findings. Take them as they stand on the change.

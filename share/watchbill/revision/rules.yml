@@ -17,6 +17,8 @@ always_to_a_person:
   - verification_of_classed_code
   - finding_open_after_last_round
   - last_message_without_its_fields_after_last_ask
+  - requirement_added_to_a_change
+  - check_of_a_fix_after_last_round
   - merge
 
 # The one rule for classed code. Which paths are classed is the project's to say.
@@ -25,6 +27,12 @@ classed_code:
 
 # The queues the officer may take an unassigned task from. None in the first revision.
 officer_queues: []
+
+# A requirement that a person adds to a change under review goes, on the same change, to these
+# roles in this order, before the next round of review. That round covers it. A fix that a person
+# allows after the last round is checked by that person, with the test that shows it: it is not
+# another round.
+added_requirement_goes_to: [tester, build]
 
 # For each role: the step and what it produces, what it may read, what it may do,
 # the roles the same team member may not also hold on one change, and the prompt file.

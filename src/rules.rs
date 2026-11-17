@@ -46,6 +46,8 @@ pub struct Rules {
     pub always_to_a_person: Vec<String>,
     pub classed_code_verifier: String,
     pub officer_queues: Vec<String>,
+    /// The roles, in order, that a requirement a person adds to a change under review goes to.
+    pub added_requirement_goes_to: Vec<String>,
     pub roles: BTreeMap<String, Role>,
     pub models: BTreeMap<String, Model>,
 }
@@ -125,7 +127,15 @@ fn role(doc: &Document, name: &str) -> Result<Role, YamlError> {
 
 fn read_rules(path: &Path) -> Result<Rules, YamlError> {
     let doc = yamlfile::load(path)?;
-    let top = ["review_rounds", "last_message_asks", "always_to_a_person", "classed_code", "officer_queues", "roles"];
+    let top = [
+        "review_rounds",
+        "last_message_asks",
+        "always_to_a_person",
+        "classed_code",
+        "officer_queues",
+        "added_requirement_goes_to",
+        "roles",
+    ];
     doc.only(&[], &top)?;
     doc.need(&[], &top)?;
     let rounds = doc.whole(&at(&["review_rounds"]), Some(1))?;
@@ -152,6 +162,7 @@ fn read_rules(path: &Path) -> Result<Rules, YamlError> {
         ));
     }
     let queues = doc.texts(&at(&["officer_queues"]), true)?;
+    let added = doc.texts(&at(&["added_requirement_goes_to"]), false)?;
     doc.only(&at(&["roles"]), &ROLES)?;
     doc.need(&at(&["roles"]), &ROLES)?;
     let mut roles = BTreeMap::new();
@@ -180,12 +191,28 @@ fn read_rules(path: &Path) -> Result<Rules, YamlError> {
             ));
         }
     }
+    // An added requirement goes to roles that a session can hold, each once.
+    let with_prompt: Vec<&str> = ROLES.iter().copied().filter(|name| roles[*name].prompt != "none").collect();
+    for (index, name) in added.iter().enumerate() {
+        let here = with(&at(&["added_requirement_goes_to"]), index);
+        if added[..index].contains(name) {
+            return Err(doc.fail(&here, &format!("`{}` is written twice", name), false));
+        }
+        if !with_prompt.contains(&name.as_str()) {
+            return Err(doc.fail(
+                &here,
+                &format!("`{}` is not a role with a prompt; those are: {}", name, with_prompt.join(", ")),
+                false,
+            ));
+        }
+    }
     Ok(Rules {
         review_rounds: rounds,
         last_message_asks: asks,
         always_to_a_person: person,
         classed_code_verifier: verifier,
         officer_queues: queues,
+        added_requirement_goes_to: added,
         roles,
         models: BTreeMap::new(),
     })

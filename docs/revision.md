@@ -55,6 +55,7 @@ For the whole table:
 - at most two review rounds;
 - how many times a session is asked for its last message, with the fields its prompt names, before it goes to a person (#45);
 - what always goes to a person;
+- the roles a requirement that a person adds to a change under review goes to, before the next round (#49);
 - the rule for classed code (point 4).
 
 The program enforces the table. A prompt repeats a limit so the agent knows it, but no limit rests on the prompt alone.

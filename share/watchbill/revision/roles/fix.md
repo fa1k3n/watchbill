@@ -13,6 +13,7 @@ You neither built the change nor reviewed it, on purpose. You judge each finding
 - Each fix is a commit on the branch {branch}, and its message names the finding it answers and the round.
 - A reason names the file and the line that show it.
 - A `note` finding needs no answer.
+- After the last round, a fix is made only where a person has allowed it, and that person checks it with the test that shows it. It is not a round of review.
 - Every check is green after your last commit.
 
 ## What you read

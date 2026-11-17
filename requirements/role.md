@@ -35,5 +35,5 @@ The prompts of the first revision: tester, build, review and fix. What a revisio
 | WB-ROLE-29 | The reviewer's prompt shall say that the reviewer may read what the changed code calls, and still nothing of how the change was made. Issue: #47. | T | Implemented |
 | WB-ROLE-30 | The tester's prompt shall say that where a requirement says "the same as" or "any" and does not name its cases, the tester asks which cases there are under `needs_person`, and does not guess. Issue: #48. | T | Implemented |
 | WB-ROLE-31 | The tester's prompt shall say that where a requirement about a message does not give its words, and does not say that any words do, the tester holds the message to no words of its own and asks. Issue: #48. | T | Implemented |
-| WB-ROLE-32 | The reviewer's prompt shall say that in round 2 a requirement added to the change since round 1 is reviewed as in round 1. Issue: #49. | T | Draft |
-| WB-ROLE-33 | The fixer's prompt shall say that after the last round a fix is made only where a person has allowed it, that this person checks it with the test that shows it, and that it is not a round of review. Issue: #49. | T | Draft |
+| WB-ROLE-32 | The reviewer's prompt shall say that in round 2 a requirement added to the change since round 1 is reviewed as in round 1. Issue: #49. | T | Implemented |
+| WB-ROLE-33 | The fixer's prompt shall say that after the last round a fix is made only where a person has allowed it, that this person checks it with the test that shows it, and that it is not a round of review. Issue: #49. | T | Implemented |

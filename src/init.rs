@@ -141,6 +141,34 @@ fn read_pin(package: &Path) -> Result<Pin, String> {
     Ok(Pin { files, hash })
 }
 
+/// The first path that is in the way of the files, or `None`. It is a file that is there already; a
+/// folder on the way to a file that is a link or not a folder (a link would take the files to where it
+/// points); or `.watchbill/revision` of any kind, so that no other file stays beside the revision
+/// (WB-PIN-4, 7 and 8).
+fn in_the_way(folder: &str, targets: &[String]) -> Option<String> {
+    if let Some(file) = targets.iter().find(|path| fs::symlink_metadata(path).is_ok()) {
+        return Some(file.clone());
+    }
+    for target in targets {
+        let mut path = PathBuf::from(folder);
+        let below = Path::new(target).strip_prefix(folder).ok()?.parent()?;
+        let mut names = vec![path.clone()];
+        for part in below {
+            path.push(part);
+            names.push(path.clone());
+        }
+        for each in names {
+            match fs::symlink_metadata(&each) {
+                Ok(meta) if meta.is_dir() => {}
+                Err(error) if error.kind() == ErrorKind::NotFound => break,
+                _ => return Some(each.to_string_lossy().into_owned()),
+            }
+        }
+    }
+    let revision = format!("{}/{}", folder, REVISION_FOLDER);
+    fs::symlink_metadata(&revision).ok().map(|_| revision)
+}
+
 /// The place of the answers: where the questions go and where the lines come from.
 struct Talk<'a> {
     input: &'a mut dyn BufRead,
@@ -243,15 +271,7 @@ pub fn init(
     // so that a repository that holds it is one that was set up whole.
     let mut targets: Vec<String> = pin.files.iter().map(|(path, _)| format!("{}/{}", folder, path)).collect();
     targets.push(file.clone());
-    // The folder `revision/` may be there, empty or not: it is the files in it that are not changed.
-    // Anything else of that name is in the way.
-    let revision_folder = format!("{}/{}", folder, REVISION_FOLDER);
-    let in_the_way = fs::symlink_metadata(&revision_folder).map(|meta| !meta.is_dir()).unwrap_or(false);
-    let found = targets
-        .iter()
-        .find(|path| fs::symlink_metadata(path).is_ok())
-        .or(if in_the_way { Some(&revision_folder) } else { None });
-    if let Some(found) = found {
+    if let Some(found) = in_the_way(&folder, &targets) {
         talk.say(&format!("{} is already there. wb init does not change it. Nothing written.", found));
         return 1;
     }

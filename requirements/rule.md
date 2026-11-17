@@ -32,3 +32,5 @@ The two tables of the first revision and the one loader that reads YAML. What a 
 | WB-RULE-26 | A merge key (`<<`) in a YAML file shall be refused, and the message shall name the file and the line. Issue: #5. | T | Implemented |
 | WB-RULE-27 | A rule table whose list of what always goes to a person lacks `merge` shall be refused. Issue: #5. | T | Implemented |
 | WB-RULE-28 | A role named twice in a role's list of roles it may not also hold shall be refused. Issue: #5. | T | Implemented |
+| WB-RULE-29 | Nothing in `wb` but `src/rules.rs` shall name the two tables. Issue: #23. | T | Draft |
+| WB-RULE-30 | An anchor or an alias in a YAML file shall be refused, with the line. Issue: #23. | T | Draft |

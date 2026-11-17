@@ -14,7 +14,7 @@ Watchbill: a harness for AI agents in embedded software development, deployed at
 
 - Each piece of work is an issue, and the issue is the spec: build what it says, and write any deviation into the issue before or with the code.
 - An issue starts with its Run line: the model, the effort, what it needs that a session cannot do alone, and the issues it depends on. Read it first. If the session's model differs, say so before starting. An issue is started only when the issues it depends on are closed.
-- Tests first, from the issue's list, with `unittest`. No test framework. Every new test is red before the code.
+- Tests first, from the issue's list, with Rust's own test harness (`cargo test`). No test crate. Every new test is red before the code. A test that does not compile because the code is not there yet is red.
 - A change reaches `main` only through a pull request, from a branch `issue-<number>-<words>`. Documents too.
 - The review is a fresh session, one model level above the one that built the change (haiku, sonnet, opus, fable). It starts from the issue and the diff, never from the author's summary. It writes its findings as one comment on the pull request whose first line starts with `[review]`. A piece built at the top level is reviewed by the owner.
 - A pull request is opened as a draft and stays one while the agents' review goes on: the review, the answers to it, and the second look. A piece that the owner alone reviews is opened ready.
@@ -26,8 +26,12 @@ Watchbill: a harness for AI agents in embedded software development, deployed at
 
 ## The code
 
-- Python 3.9 or later, which is what Enterprise Linux 9 has. When `wb` runs it uses the standard library and one more library, the YAML library the distribution packages (PyYAML). Nothing is installed from outside the distribution's own repositories.
-- Every YAML file is read through the one loader in `wb`: the safe loader, a key written twice refused, a value held to the type its field asks for ([docs/revision.md](docs/revision.md), point 6).
+- Rust, edition 2021, for the Rust that Enterprise Linux 9 packages (1.97) or later. The owner decided this on 2026-11-17 (#20); before that `wb` was written in Python.
+- `wb` is built from the standard library and two crates: `yaml-rust2` for YAML and `sha2` for SHA-256. The crates come from the distribution's packages: Fedora's own repositories, and EPEL on Enterprise Linux 9. Nothing is fetched from crates.io, and a build asks nothing of the network. No `Cargo.lock` is committed: the versions are the distribution's.
+- Installed, `wb` needs `git` and no library of its own.
+- Until #25 is merged the Python `wb` stands beside the Rust, and it is the one the RPM installs. No new behaviour is written in Python.
+- Every YAML file is read through the one loader in `wb`: only plain values are built; a key written twice, a tag, a merge key and an alias are refused; a value is held to the type its field asks for ([docs/revision.md](docs/revision.md), point 6).
+- The folder that holds the files of the revision is fixed when `wb` is built. No option and no environment variable changes it when `wb` runs.
 - `wb` is installed with `dnf` from an RPM ([packaging/](packaging/)). Nothing in the code or the texts assumes another way.
 - Every exit status means the same in every command: 0 it holds or it is done, 1 it does not hold or it was refused, 2 the command was used wrongly or the repository is not set up.
 - A command that only reads writes nothing. A command that writes says what it will write first, and never writes over a file that is there.

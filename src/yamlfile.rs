@@ -331,6 +331,55 @@ fn printable(c: char) -> bool {
         || c >= '\u{10000}'
 }
 
+/// Whether a character is a line break in YAML 1.1 and not in YAML 1.2, where it is part of a text.
+fn break_of_one_version(c: char) -> bool {
+    matches!(c, '\u{85}' | '\u{2028}' | '\u{2029}')
+}
+
+/// Each character of a text with its line, and whether it is written content: not white
+/// space, not a line break, and not on a line that is a comment. Lines are counted as the
+/// library counts them: CR LF, CR and LF are each one break.
+fn characters(text: &str) -> Vec<(char, usize, bool)> {
+    let mut all = Vec::new();
+    let (mut line, mut after_cr, mut comment, mut line_start) = (1, false, false, true);
+    for c in text.chars() {
+        let is_break = c == '\n' || c == '\r';
+        if line_start && c == '#' {
+            comment = true;
+        }
+        if !matches!(c, ' ' | '\t') {
+            line_start = false;
+        }
+        all.push((c, line, !is_break && !matches!(c, ' ' | '\t') && !comment));
+        if c == '\n' && after_cr {
+            after_cr = false;
+            continue;
+        }
+        after_cr = c == '\r';
+        if is_break {
+            line += 1;
+            comment = false;
+            line_start = true;
+        }
+    }
+    all
+}
+
+/// The version a `%YAML` directive on this line names, when it names one that is not 1.
+fn other_version(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix("%YAML")?;
+    if !rest.starts_with([' ', '\t']) {
+        return None;
+    }
+    let version = rest.split_whitespace().next().unwrap_or("");
+    let one = version.strip_prefix("1.").is_some_and(|minor| all(minor, is_digit));
+    if one {
+        None
+    } else {
+        Some(version)
+    }
+}
+
 /// A tag as it is written: `!!str` for the tags of YAML, `!local` for others.
 fn tag_words(tag: &Tag) -> String {
     if tag.handle == "tag:yaml.org,2002:" {
@@ -354,26 +403,50 @@ enum Open {
     Table(Vec<(Key, Node)>, usize, Option<Key>, HashMap<String, usize>),
 }
 
-struct Builder {
+struct Builder<'a> {
+    text: &'a str,
+    /// Made when an empty value in a list first needs its line.
+    content: Option<Vec<(char, usize, bool)>>,
     open: Vec<Open>,
     root: Option<Node>,
     documents: usize,
     faults: Vec<(usize, String)>,
 }
 
-impl Builder {
+impl Builder<'_> {
     fn fault(&mut self, line: usize, words: String) {
         self.faults.push((line, words));
     }
 
-    /// The line of a scalar. An empty value in a table is on the line of its key.
-    fn scalar_line(&self, value: &str, mark: &Marker) -> usize {
-        if value.is_empty() {
-            if let Some(Open::Table(_, _, Some(key), _)) = self.open.last() {
-                return key.line;
-            }
+    /// The line of a scalar. An empty value in a table is on the line of its key, and one
+    /// elsewhere on the line where something was last written: the library gives the place of
+    /// what comes after it.
+    fn scalar_line(&mut self, value: &str, mark: &Marker) -> usize {
+        if !value.is_empty() {
+            return mark.line();
         }
-        mark.line()
+        if let Some(Open::Table(_, _, Some(key), _)) = self.open.last() {
+            return key.line;
+        }
+        // The place given is that of what follows: the next item, past its `-`, or what ends the list.
+        let text = self.text;
+        let all = self.content.get_or_insert_with(|| characters(text));
+        let mut at = mark.index().min(all.len());
+        let skip_blank = |at: &mut usize| {
+            while *at > 0 && !all[*at - 1].2 {
+                *at -= 1;
+            }
+        };
+        skip_blank(&mut at);
+        if at > 0 && all[at - 1].0 == '-' && all[at - 1].1 == mark.line() && (at == 1 || !all[at - 2].2) {
+            at -= 1;
+            skip_blank(&mut at);
+        }
+        if at > 0 {
+            all[at - 1].1
+        } else {
+            mark.line()
+        }
     }
 
     fn anchor_and_tag(&mut self, line: usize, anchor: usize, tag: &Option<Tag>) {
@@ -438,6 +511,10 @@ impl Builder {
                 self.anchor_and_tag(line, anchor, &tag);
                 let key_expected = matches!(self.open.last(), Some(Open::Table(_, _, None, _)));
                 let value = if style == TScalarStyle::Plain {
+                    if value.contains('\t') {
+                        // PyYAML stops at a tab inside a plain value, and YAML 1.2 takes it as a space.
+                        self.fault(line, "a tab inside a value written plain is not read: put the value in quotes".to_string());
+                    }
                     if value == "<<" {
                         if key_expected {
                             self.fault(line, "a merge key (`<<`) is not read: write the keys out".to_string());
@@ -487,7 +564,7 @@ impl Builder {
 
 /// Reads the events of a text into one value, or the faults found, each with its line.
 fn build(text: &str) -> Result<Option<Node>, Vec<(usize, String)>> {
-    let mut builder = Builder { open: Vec::new(), root: None, documents: 0, faults: Vec::new() };
+    let mut builder = Builder { text, content: None, open: Vec::new(), root: None, documents: 0, faults: Vec::new() };
     // Events are taken one by one: the library's own `load` calls itself for each level of nesting.
     let mut parser = Parser::new_from_str(text);
     loop {
@@ -530,16 +607,22 @@ pub fn load(path: impl AsRef<Path>) -> Result<Document, YamlError> {
         .map_err(|error| YamlError::new(format!("{}: cannot be read ({})", shown, system_words(&error))))?;
     let text = String::from_utf8(bytes).map_err(|_| YamlError::new(format!("{}: is not text in UTF-8", shown)))?;
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
-    let mut line = 1;
-    for c in text.chars() {
-        if !printable(c) {
+    for (index, line) in text.split('\n').enumerate() {
+        let line_number = index + 1;
+        if let Some(c) = line.chars().find(|c| !printable(*c)) {
             return Err(YamlError::new(format!(
                 "{}, line {}: holds the character U+{:04X}, which YAML does not allow",
-                shown, line, c as u32
+                shown, line_number, c as u32
             )));
         }
-        if c == '\n' {
-            line += 1;
+        if let Some(c) = line.chars().find(|c| break_of_one_version(*c)) {
+            return Err(YamlError::new(format!(
+                "{}, line {}: holds the character U+{:04X}, which YAML 1.1 reads as a line break and YAML 1.2 does not: write a line break or a space",
+                shown, line_number, c as u32
+            )));
+        }
+        if let Some(version) = other_version(line.trim_end_matches('\r')) {
+            return Err(YamlError::new(format!("{}, line {}: YAML version `{}` is not read; version 1 is", shown, line_number, version)));
         }
     }
     // The library is not to panic on any text; should it, the file is refused all the same.

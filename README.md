@@ -45,6 +45,8 @@ Enter keeps what stands in brackets. `wb init --yes` takes all of it and asks no
 .watchbill/
 ├── watchbill.yml          the answers, the version and the hash of the revision
 ├── revision.sha256        the manifest of the revision
+├── project/
+│   └── README.md          what the project's own files are for
 └── revision/              the files of the revision, byte for byte as the package has them
     ├── models.yml
     ├── rules.yml
@@ -70,6 +72,7 @@ ci: gitlab-ci
 - **What it finds, it finds in the repository:** the name of the folder, the address of `origin` (only its host and path; a user name or a token in it is dropped), a folder of requirements, and the file a CI driver is known by. It asks nothing of the network.
 - **The revision is copied, never edited.** The files under `.watchbill/revision/` are written by `wb` and never by hand. `cd .watchbill && sha256sum -c revision.sha256` checks them without `wb`.
 - **A file that is already there is never changed.** When any file `wb init` would write is there, or a folder on the way to one is a link or not a folder, or `.watchbill/revision` is there, it writes nothing at all and names the path. Bringing a repository to a newer revision is a command of its own, later. A write that fails part way removes what it had written.
+- **The project's own text goes in `.watchbill/project/`.** `all.md` is added to the prompt of every role and `<role>.md` (`build.md`, `review.md`, `fix.md`, `tester.md`) to that of one role. Both are optional. They are the project's files: not part of the revision, not in the manifest, and `wb check` does not fail on them. A prompt is the role's text of the revision, then one fixed line, then `all.md`, then `<role>.md`. This text says how things are done here: the commands, the board, the words. It never lifts a limit of a role. `wb init` leaves `project/README.md`, which says so. The placeholders (`{task}`, `{change}`, `{requirements}`, `{round}`) are filled in every part, and any other placeholder is refused. A placeholder is a lower-case word in braces: `{`, a letter a to z, letters a to z or `_`, then `}`, with no `$` just before it. Anything else in braces is text and stays as it is, such as `${BUILD_DIR}`, `{Task}`, `{task-id}` and `{ task }`. A value that is filled in is never itself read for placeholders. The command that prints a prompt comes later.
 - **The answers are only written down.** No adapter exists yet, so a git server or a tracker is a name and nothing more.
 
 ## Checking it

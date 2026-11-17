@@ -6,11 +6,12 @@ import subprocess
 import sys
 from typing import List, Optional
 
-from watchbill import __version__
+from watchbill import __version__, manifest
 from watchbill.init import init
 
 USAGE = """usage:
   wb init [--yes]
+  wb revision
   wb --version
 
   init      set Watchbill up in the git repository of this folder: propose what
@@ -19,6 +20,8 @@ USAGE = """usage:
             answer, show the file and write .watchbill/watchbill.yml at the
             root of the repository. --yes (-y) takes what it found and asks
             nothing. A file that is already there is never changed
+  revision  print the version of the package, the hash of its revision and the
+            manifest: the hash of every file the revision holds. Writes nothing
 """
 
 
@@ -51,6 +54,22 @@ def _say(text: str) -> None:
     print(text)
 
 
+def _revision(args: List[str]) -> int:
+    if args:
+        sys.stderr.write("wb revision: '{}' is not known\n\n{}".format(args[0], USAGE))
+        return 2
+    try:
+        text = manifest.manifest()
+    except manifest.ManifestError as error:
+        sys.stderr.write("wb revision: {}\n".format(error))
+        return 1
+    print("watchbill {}".format(__version__))
+    print("revision {}".format(manifest.hash_of(text)))
+    print()
+    sys.stdout.write(text)
+    return 0
+
+
 def main(argv: List[str]) -> int:
     command = argv[0] if argv else None
     if command in (None, "--help", "-h", "help"):
@@ -59,6 +78,8 @@ def main(argv: List[str]) -> int:
     if command in ("--version", "-v"):
         print(__version__)
         return 0
+    if command == "revision":
+        return _revision(argv[1:])
     if command != "init":
         sys.stderr.write("wb: no command '{}'\n\n{}".format(command, USAGE))
         return 2

@@ -29,7 +29,7 @@ The prompts of the first revision: tester, build, review and fix. What a revisio
 | WB-ROLE-23 | The tester's prompt shall say that a test of a clause that holds already before the change is a guard, which is written, run and seen to pass. Issue: #46. | T | Implemented |
 | WB-ROLE-24 | The tester's last message shall have the field `guards`, after `red`. Issue: #46. | T | Implemented |
 | WB-ROLE-25 | The builder's prompt shall say that the guards pass before the change and after it. Issue: #46. | T | Implemented |
-| WB-ROLE-26 | The tester's prompt shall say that the tester reads the interface the task names, and not the rest of a file that also holds the body. Issue: #47. | T | Draft |
-| WB-ROLE-27 | Every role prompt shall say that the role may read the helpers of the tests it may read. Issue: #47. | T | Draft |
-| WB-ROLE-28 | The prompts of the tester, the builder and the fixer shall say that a helper a test uses is part of that test. Issue: #47. | T | Draft |
-| WB-ROLE-29 | The reviewer's prompt shall say that the reviewer may read what the changed code calls, and still nothing of how the change was made. Issue: #47. | T | Draft |
+| WB-ROLE-26 | The tester's prompt shall say that the tester reads the interface the task names, and not the rest of a file that also holds the body. Issue: #47. | T | Implemented |
+| WB-ROLE-27 | Every role prompt shall say that the role may read the helpers of the tests it may read. Issue: #47. | T | Implemented |
+| WB-ROLE-28 | The prompts of the tester, the builder and the fixer shall say that a helper a test uses is part of that test. Issue: #47. | T | Implemented |
+| WB-ROLE-29 | The reviewer's prompt shall say that the reviewer may read what the changed code calls, and still nothing of how the change was made. Issue: #47. | T | Implemented |

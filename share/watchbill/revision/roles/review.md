@@ -33,7 +33,8 @@ Say how sure you are of each finding. A finding that is wrong costs a needless c
 - The diff of change {change}, at {change_address}, first. Form your view from the task, the requirements and the diff.
 - Then its description and its commit messages, as claims to check and not as the account of what was done.
 - The result of its checks.
-- The files the task names, and what the task says you may read beside them. In those: the tests the change adds or changes, and the tests that carry the IDs of the requirements.
+- The files the task names, and what the task says you may read beside them. In those: the tests the change adds or changes, the tests that carry the IDs of the requirements, and the helpers those tests use.
+- What the changed code calls, to judge the change: still nothing of how it was made.
 - In round 2, the findings of round 1, the answers to them and the commits made since.
 - The project's own text, where it follows this prompt: how work is pushed and posted here.
 

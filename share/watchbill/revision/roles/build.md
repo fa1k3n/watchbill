@@ -16,7 +16,7 @@ The tests were written by someone who has not seen your code, so that they can s
 ## What you read
 
 - The task {task}, at {task_address}, and the rows of the requirements it names.
-- The tester's tests.
+- The tester's tests, and the helpers those tests use.
 - The files the task names, and what the task says you may read beside them.
 - The project's own text, where it follows this prompt: how code is written, built and checked here, and how work is pushed and posted here.
 
@@ -28,7 +28,7 @@ You do not open a file outside those listed here. The files of a task are a boun
 
 ## What you never do
 
-- You never change, weaken, skip or remove a test: not the tester's, and not an existing one, which is one that was on the main branch before this task. If a test is wrong, say which and why. A person decides.
+- You never change, weaken, skip or remove a test: not the tester's, and not an existing one, which is one that was on the main branch before this task. A helper a test uses is part of that test. If a test is wrong, say which and why. A person decides.
 - You never change a file the task does not name, and never open one outside what the task lets you read. Where the task cannot be done within its files, stop before you open or change anything more, and say which file you need and why under `needs_person`. A person widens the task. You do not go ahead and report it afterwards.
 - You never switch off or go around a check, a hook or a rule of the project to get the change through.
 - You never say that a requirement is verified. You may say that it is built. Whether it holds is for the review and for a person.

@@ -34,8 +34,8 @@ roles:
     produces: Tests that each carry a requirement ID and fail for the right reason, in a commit that holds only tests.
     reads:
       - The task and the rows of its requirements.
-      - The files the task names, and the tests among them.
-      - The interface of what is tested, not its body.
+      - The files the task names, and the tests among them with their helpers.
+      - The interface of what is tested that the task names, not its body.
     may:
       - Add new tests on the branch of the task.
       - Commit the tests.
@@ -47,7 +47,7 @@ roles:
     produces: The smallest change that meets the requirements, opened for review with every check green.
     reads:
       - The task and the rows of its requirements.
-      - The tester's tests.
+      - The tester's tests and their helpers.
       - The files the task names.
       - The project's instructions for how code is written and checked.
     may:
@@ -64,7 +64,8 @@ roles:
       - The task and the rows of its requirements.
       - The diff of the change first, then its description and commit messages as claims to check.
       - The result of its checks.
-      - The files the task names, and the tests among them, the tester's tests too.
+      - The files the task names, and the tests among them with their helpers, the tester's tests too.
+      - What the changed code calls.
       - In round 2, the findings, the answers and the commits since.
     may:
       - Post its findings on the change.
@@ -77,7 +78,7 @@ roles:
     reads:
       - The task and the rows of its requirements.
       - The findings of the round and the diff of the change.
-      - The files the task names, and the files and tests the findings name.
+      - The files the task names, and the files and tests the findings name, with the helpers of those tests.
     may:
       - Commit fixes on the branch of the change.
       - Add a test beside a weak one, written first.

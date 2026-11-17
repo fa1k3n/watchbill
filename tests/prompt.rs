@@ -95,12 +95,12 @@ fn test_WB_PROMPT_2_with_no_project_text_the_prompt_is_the_role_filled_and_nothi
 fn test_WB_PROMPT_2_a_placeholder_that_got_no_value_is_refused_by_name() {
     let folder = set_up();
 
-    let why = match assemble(&folder.path, "build", &VALUES[..3]) {
+    let why = match assemble(&folder.path, "build", &VALUES[1..]) {
         Ok(_) => panic!("it was not refused"),
         Err(why) => why.to_string(),
     };
 
-    assert!(why.contains("{round}"), "{}", why);
+    assert!(why.contains("{task}"), "{}", why);
 }
 
 #[test]

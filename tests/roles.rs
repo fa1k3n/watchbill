@@ -434,3 +434,23 @@ fn test_WB_ROLE_29_the_reviewer_reads_what_the_changed_code_calls() {
     let point = point.unwrap_or_else(|| panic!("no point for what the changed code calls: {}", body));
     assert!(point.contains("nothing of how it was made"), "{}", point);
 }
+
+// A requirement names its cases, and one about a message gives its words (#48).
+
+#[test]
+fn test_WB_ROLE_30_the_tester_asks_for_the_cases_a_requirement_does_not_name() {
+    let body = part("tester", "## What you never do");
+    let point = body.split('\n').find(|line| line.starts_with("- You never guess the cases of a requirement."));
+    let point = point.unwrap_or_else(|| panic!("no point for the cases: {}", body));
+    assert!(point.contains("\"the same as\" or \"any\""), "{}", point);
+    assert!(point.contains("ask which cases there are under `needs_person`"), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_31_the_tester_holds_a_message_to_no_words_of_its_own() {
+    let body = part("tester", "## What you never do");
+    let point = body.split('\n').find(|line| line.starts_with("- You never hold a message to words of your own."));
+    let point = point.unwrap_or_else(|| panic!("no point for the words of a message: {}", body));
+    assert!(point.contains("does not give its words, and does not say that any words do"), "{}", point);
+    assert!(point.contains("`needs_person`"), "{}", point);
+}

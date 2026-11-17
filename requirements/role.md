@@ -33,3 +33,5 @@ The prompts of the first revision: tester, build, review and fix. What a revisio
 | WB-ROLE-27 | Every role prompt shall say that the role may read the helpers of the tests it may read. Issue: #47. | T | Implemented |
 | WB-ROLE-28 | The prompts of the tester, the builder and the fixer shall say that a helper a test uses is part of that test. Issue: #47. | T | Implemented |
 | WB-ROLE-29 | The reviewer's prompt shall say that the reviewer may read what the changed code calls, and still nothing of how the change was made. Issue: #47. | T | Implemented |
+| WB-ROLE-30 | The tester's prompt shall say that where a requirement says "the same as" or "any" and does not name its cases, the tester asks which cases there are under `needs_person`, and does not guess. Issue: #48. | T | Draft |
+| WB-ROLE-31 | The tester's prompt shall say that where a requirement about a message does not give its words, and does not say that any words do, the tester holds the message to no words of its own and asks. Issue: #48. | T | Draft |

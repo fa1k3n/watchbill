@@ -26,9 +26,11 @@ pub const USAGE: &str = "usage:
   init      set Watchbill up in the git repository of this folder: propose what
             the repository says about itself (its name, the git server of
             origin, a folder of requirements, the CI driver), ask one line per
-            answer, show the file and write .watchbill/watchbill.yml at the
-            root of the repository. --yes (-y) takes what it found and asks
-            nothing. A file that is already there is never changed
+            answer, show the files and write .watchbill/watchbill.yml at the
+            root of the repository, with the revision the package carries
+            beside it. --yes (-y) takes what it found and asks nothing. A
+            file that is already there is never changed, and then nothing
+            is written
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes nothing
 ";
@@ -186,7 +188,7 @@ fn run_init(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write, e
             let _ = writeln!(err, "wb init: this folder is not in a git repository. Watchbill is set up in one.");
             1
         }
-        Ok(Some(root)) => init::init(&root, VERSION, yes, input, out, err, None),
+        Ok(Some(root)) => init::init(&root, VERSION, Path::new(manifest::PACKAGE_FOLDER), yes, input, out, err, None),
     }
 }
 

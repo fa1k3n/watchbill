@@ -1,18 +1,22 @@
 //! `wb init`: sets Watchbill up in a repository, the way `git init` starts one.
 //!
 //! It proposes what the repository says about itself, asks one line per answer,
-//! shows the file and writes `.watchbill/watchbill.yml`. A file that is already
-//! there is never changed.
+//! shows the files and writes them: `.watchbill/watchbill.yml`, and the revision the package carries,
+//! its files under `.watchbill/revision/` and its manifest as `.watchbill/revision.sha256`
+//! (docs/revision.md, point 7). A file that is already there is never changed, and when one is
+//! there nothing at all is written.
 
 use std::fs;
 use std::io::{self, BufRead, ErrorKind, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::detect::{detect, strip, universal_newlines, Setup, NONE};
 use crate::interrupt;
+use crate::manifest;
 
 pub const CONFIG_FOLDER: &str = ".watchbill";
 pub const CONFIG_FILE: &str = "watchbill.yml";
+const REVISION_FOLDER: &str = "revision";
 
 const QUESTIONS: [(&str, &str); 6] = [
     ("project", "project"),
@@ -80,9 +84,10 @@ pub fn yaml_value(value: &str) -> String {
 }
 
 /// The file `wb init` writes.
-pub fn render(revision: &str, setup: &Setup) -> String {
+pub fn render(revision: &str, hash: &str, setup: &Setup) -> String {
     let rows = [
         ("watchbill", revision),
+        ("revision", hash),
         ("project", &setup.project),
         ("git_server", &setup.git_server),
         ("repository", &setup.repository),
@@ -108,6 +113,32 @@ fn read_failure(error: &io::Error) -> String {
     } else {
         format!("wb init: cannot read standard input: {}. Nothing written.\n", error)
     }
+}
+
+/// The revision of the package, as it is to be written: each file with its bytes, the manifest and
+/// its hash. Paths are relative to `.watchbill/`.
+struct Pin {
+    files: Vec<(String, Vec<u8>)>,
+    hash: String,
+}
+
+/// Reads the revision from the package. Each file is read once, and what was read must be what the
+/// manifest says of it, so that what is written is what is hashed.
+fn read_pin(package: &Path) -> Result<Pin, String> {
+    let manifest = manifest::manifest(package).map_err(|why| why.to_string())?;
+    let mut files = Vec::new();
+    for line in manifest.lines() {
+        let (hash, path) = line.split_once("  ").ok_or("the manifest is not in the form of sha256sum")?;
+        let bytes = fs::read(package.join(path)).map_err(|error| format!("{}: cannot be read ({})", path, error))?;
+        let same = std::str::from_utf8(&bytes).map(|text| manifest::hash_of(text) == hash).unwrap_or(false);
+        if !same {
+            return Err(format!("{}: changed while it was read", path));
+        }
+        files.push((path.to_string(), bytes));
+    }
+    let hash = manifest::hash_of(&manifest);
+    files.push((manifest::MANIFEST_FILE.to_string(), manifest.into_bytes()));
+    Ok(Pin { files, hash })
 }
 
 /// The place of the answers: where the questions go and where the lines come from.
@@ -191,6 +222,7 @@ impl Talk<'_> {
 pub fn init(
     root: &str,
     revision: &str,
+    package: &Path,
     yes: bool,
     input: &mut dyn BufRead,
     out: &mut dyn Write,
@@ -200,8 +232,27 @@ pub fn init(
     let mut talk = Talk { input, out };
     let folder = if root.ends_with('/') { format!("{}{}", root, CONFIG_FOLDER) } else { format!("{}/{}", root, CONFIG_FOLDER) };
     let file = format!("{}/{}", folder, CONFIG_FILE);
-    if fs::symlink_metadata(&file).is_ok() {
-        talk.say(&format!("{} is already there. wb init does not change it.", file));
+    let pin = match read_pin(package) {
+        Ok(pin) => pin,
+        Err(why) => {
+            let _ = writeln!(err, "wb init: the revision of the package cannot be read: {}. Nothing written.", why);
+            return 1;
+        }
+    };
+    // The files, as paths to write: the manifest and the files of the revision, then the config last,
+    // so that a repository that holds it is one that was set up whole.
+    let mut targets: Vec<String> = pin.files.iter().map(|(path, _)| format!("{}/{}", folder, path)).collect();
+    targets.push(file.clone());
+    // The folder `revision/` may be there, empty or not: it is the files in it that are not changed.
+    // Anything else of that name is in the way.
+    let revision_folder = format!("{}/{}", folder, REVISION_FOLDER);
+    let in_the_way = fs::symlink_metadata(&revision_folder).map(|meta| !meta.is_dir()).unwrap_or(false);
+    let found = targets
+        .iter()
+        .find(|path| fs::symlink_metadata(path).is_ok())
+        .or(if in_the_way { Some(&revision_folder) } else { None });
+    if let Some(found) = found {
+        talk.say(&format!("{} is already there. wb init does not change it. Nothing written.", found));
         return 1;
     }
 
@@ -226,8 +277,13 @@ pub fn init(
         };
     }
 
-    let text = render(revision, &setup);
+    let text = render(revision, &pin.hash, &setup);
     talk.say(&format!("\nAbout to write {}:\n\n{}", file, text));
+    talk.say("and these files of the revision, byte for byte as the package has them:\n");
+    for path in &targets[..targets.len() - 1] {
+        talk.say(&format!("  {}", path));
+    }
+    talk.say("");
     if !yes {
         match talk.ask("Is this OK? (yes) ") {
             Ok(None) => {
@@ -250,24 +306,62 @@ pub fn init(
 
     // From here an interrupt no longer leaves nothing written.
     interrupt::writing();
-    if let Err(error) = write_file(Path::new(&folder), Path::new(&file), &text) {
-        if error.kind() == ErrorKind::AlreadyExists && fs::symlink_metadata(&file).is_ok() {
-            talk.say(&format!("{} is already there. wb init does not change it.", file));
+    let mut contents: Vec<&[u8]> = pin.files.iter().map(|(_, bytes)| bytes.as_slice()).collect();
+    contents.push(text.as_bytes());
+    if let Err((path, error)) = write_all(&targets, &contents) {
+        if error.kind() == ErrorKind::AlreadyExists {
+            talk.say(&format!("{} is already there. wb init does not change it. Nothing written.", path.display()));
         } else {
-            let _ = writeln!(err, "wb init: cannot write {}: {}", file, error);
+            let _ = writeln!(err, "wb init: cannot write {}: {}. Nothing written.", path.display(), error);
         }
         return 1;
     }
-    talk.say(&format!("Wrote {}.", file));
-    talk.say("Keep it under version control with the code.");
+    for path in &targets {
+        talk.say(&format!("Wrote {}.", path));
+    }
+    talk.say("Keep them under version control with the code.");
     0
 }
 
-fn write_file(folder: &Path, file: &Path, text: &str) -> io::Result<()> {
-    fs::create_dir_all(folder)?;
-    // `create_new`: never over a file that came to be there meanwhile.
-    let mut out = fs::OpenOptions::new().write(true).create_new(true).open(file)?;
-    out.write_all(text.as_bytes())
+/// Writes every file, the last one last. Nothing is written over a file that is there. When one
+/// fails, what this call made is removed again, so a failure leaves no half set-up repository: the
+/// error is the path that failed and why.
+fn write_all(files: &[String], contents: &[&[u8]]) -> Result<(), (PathBuf, io::Error)> {
+    let mut made: Vec<(PathBuf, bool)> = Vec::new();
+    let result = (|| {
+        for (file, bytes) in files.iter().zip(contents) {
+            let file = Path::new(file);
+            // The folders above it, from the outside in, each noted when this call made it.
+            let mut missing = Vec::new();
+            let mut above = file.parent();
+            while let Some(path) = above {
+                if path.exists() || path.as_os_str().is_empty() {
+                    break;
+                }
+                missing.push(path);
+                above = path.parent();
+            }
+            for path in missing.into_iter().rev() {
+                fs::create_dir(path).map_err(|error| (path.to_path_buf(), error))?;
+                made.push((path.to_path_buf(), true));
+            }
+            // `create_new`: never over a file that came to be there meanwhile.
+            let mut out = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(file)
+                .map_err(|error| (file.to_path_buf(), error))?;
+            made.push((file.to_path_buf(), false));
+            out.write_all(bytes).map_err(|error| (file.to_path_buf(), error))?;
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        for (path, is_folder) in made.into_iter().rev() {
+            let _ = if is_folder { fs::remove_dir(&path) } else { fs::remove_file(&path) };
+        }
+    }
+    result
 }
 
 /// The root of the git repository the command runs in: `Ok(None)` outside one. An error is a path

@@ -505,13 +505,23 @@ fn test_WB_RULE_17_an_empty_item_of_a_list_is_named_at_its_own_line() {
 }
 
 #[test]
-fn test_WB_RULE_15_a_tab_inside_a_value_written_plain_is_refused_with_the_line() {
-    for text in ["ok: 1\na: x\ty\n", "ok: 1\na: [x\ty]\n", "ok: 1\nx\ty: 1\n"] {
+fn test_WB_RULE_15_a_tab_anywhere_in_a_file_is_refused_with_the_line() {
+    // PyYAML stops at a tab wherever a token could start; the loader refuses every tab.
+    for text in [
+        "ok: 1\na: x\ty\n",
+        "ok: 1\na: [x\ty]\n",
+        "ok: 1\nx\ty: 1\n",
+        "ok: 1\na: x\t\n",
+        "ok: 1\na\t: x\n",
+        "ok: 1\na: [x,\ty]\n",
+        "ok: 1\na: \"x\ty\"\n",
+        "ok: 1\na: x # a\tcomment\n",
+        "a: |\n  x\ty\nok: 1\n",
+    ] {
         let message = Folder::new().refused(text, "table.yml");
         assert!(message.contains("line 2"), "{:?}: {}", text, message);
-        assert!(message.contains("quotes"), "{:?}: {}", text, message);
+        assert!(message.contains("tab"), "{:?}: {}", text, message);
     }
-    let doc = Folder::new().load("a: \"x\ty\"\nb: x\t\n");
+    let doc = Folder::new().load("a: \"x\\ty\"\n");
     assert_eq!(doc.text(&at(&["a"])).unwrap(), "x\ty");
-    assert_eq!(doc.text(&at(&["b"])).unwrap(), "x");
 }

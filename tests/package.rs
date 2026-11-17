@@ -91,3 +91,40 @@ fn test_WB_PKG_9_the_spec_holds_no_version_of_its_own() {
     let line = text.lines().find(|line| line.starts_with("Version:")).expect("the spec has no Version");
     assert_eq!(line.split_whitespace().nth(1), Some("%{wb_version}"), "{}", line);
 }
+
+/// The value of a line such as `License:        Apache-2.0` in the spec.
+fn spec_licence() -> String {
+    let text = spec();
+    let line = text.lines().find(|line| line.starts_with("License:")).expect("the spec has no License");
+    line["License:".len()..].trim().to_string()
+}
+
+/// The value of `license = "..."` in the [package] table of Cargo.toml.
+fn cargo_licence() -> String {
+    let text = fs::read_to_string(root().join("Cargo.toml")).expect("Cargo.toml could not be read");
+    let line = text.lines().find(|line| line.starts_with("license =")).expect("Cargo.toml has no license");
+    line.split('"').nth(1).expect("the license is not quoted").to_string()
+}
+
+#[test]
+fn test_WB_PKG_11_the_spec_and_cargo_toml_name_the_same_licence() {
+    assert_eq!(spec_licence(), cargo_licence());
+    assert_eq!(spec_licence(), "Apache-2.0");
+}
+
+#[test]
+fn test_WB_PKG_11_the_licence_is_not_the_placeholder() {
+    assert!(!spec_licence().contains("LicenseRef-Not-Chosen"), "{}", spec_licence());
+    assert!(!cargo_licence().contains("LicenseRef-Not-Chosen"), "{}", cargo_licence());
+}
+
+#[test]
+fn test_WB_PKG_12_the_spec_installs_license_and_notice_and_both_are_in_the_repository() {
+    let text = spec();
+    let files = text.split("\n%files").nth(1).expect("the spec has no %files");
+    let line = files.lines().find(|line| line.starts_with("%license")).expect("%files has no %license");
+    for name in ["LICENSE", "NOTICE"] {
+        assert!(line.split_whitespace().any(|word| word == name), "{}", line);
+        assert!(root().join(name).is_file(), "{} is not in the repository", name);
+    }
+}

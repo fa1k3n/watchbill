@@ -224,6 +224,55 @@ fn test_WB_PIN_7_a_file_where_a_folder_goes_is_refused_before_it_asks() {
 }
 
 #[test]
+fn test_WB_PIN_7_a_link_where_a_folder_goes_is_named_as_a_link() {
+    let folder = repository(None);
+    let outside = folder_named("outside");
+    link(&outside.path, &folder.path.join(".watchbill/revision/roles"));
+
+    let run = wb(&folder.path, &["init", "--yes"], "");
+
+    let out = text(&run.stdout);
+    let named = real(&folder.path).join(".watchbill/revision/roles");
+    assert_eq!(code(&run), Some(1), "{}", out);
+    assert!(out.contains(&format!("{} is a link", named.to_str().unwrap())), "{}", out);
+    assert!(out.contains("Nothing written."), "{}", out);
+    assert!(all_files(&outside.path).is_empty());
+    assert!(!folder.path.join(".watchbill/watchbill.yml").exists());
+}
+
+#[test]
+fn test_WB_PIN_7_a_link_for_revision_to_a_folder_with_its_files_is_named_as_a_link() {
+    let folder = repository(None);
+    let outside = folder_named("outside");
+    put(&outside.path, "models.yml", "theirs\n");
+    link(&outside.path, &folder.path.join(".watchbill/revision"));
+
+    let run = wb(&folder.path, &["init", "--yes"], "");
+
+    let out = text(&run.stdout);
+    let named = real(&folder.path).join(".watchbill/revision");
+    assert_eq!(code(&run), Some(1), "{}", out);
+    assert!(out.contains(&format!("{} is a link", named.to_str().unwrap())), "{}", out);
+    assert_eq!(all_files(&outside.path), vec!["models.yml".to_string()]);
+}
+
+#[test]
+fn test_WB_PIN_7_a_file_where_a_folder_goes_is_named_as_not_a_folder() {
+    let folder = repository(None);
+    put(&folder.path, ".watchbill/revision/roles", "mine\n");
+
+    let run = wb(&folder.path, &["init", "--yes"], "");
+
+    let out = text(&run.stdout);
+    let named = real(&folder.path).join(".watchbill/revision/roles");
+    assert_eq!(code(&run), Some(1), "{}", out);
+    assert!(out.contains(&format!("{} is not a folder", named.to_str().unwrap())), "{}", out);
+    assert!(out.contains("Nothing written."), "{}", out);
+    assert_eq!(read(&named), "mine\n");
+    assert!(!folder.path.join(".watchbill/watchbill.yml").exists());
+}
+
+#[test]
 fn test_WB_PIN_8_a_revision_that_is_there_is_refused_as_a_file_a_link_a_folder_and_an_empty_folder() {
     refused_at(|repo, _| put(repo, ".watchbill/revision", "mine\n"), "revision");
     refused_at(|repo, outside| link(outside, &repo.join(".watchbill/revision")), "revision");

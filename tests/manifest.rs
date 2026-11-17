@@ -730,6 +730,14 @@ fn test_WB_REV_8_the_current_version_does_not_stand_with_another_hash() {
 }
 
 #[test]
+fn test_WB_REV_8_the_current_version_stands_in_revisions_txt_with_the_computed_hash() {
+    // A new version whose line was left out would pass the test above; this one does not.
+    let entries = manifest::released(package().join(manifest::RELEASED_FILE)).unwrap();
+    let digest = manifest::revision_hash(package()).unwrap();
+    assert!(entries.contains(&pair(VERSION, &digest)), "{} {} is not in revisions.txt: {:?}", VERSION, digest, entries);
+}
+
+#[test]
 fn test_WB_REV_8_the_same_check_finds_the_version_with_another_hash() {
     let scratch = Scratch::new();
     scratch.put("revisions.txt", format!("{}  {}\n", VERSION, "0".repeat(64)).as_bytes());

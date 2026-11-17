@@ -25,7 +25,8 @@ pub const USAGE: &str = "usage:
   wb check
   wb prompt <role> [--task <text>] [--change <text>] [--requirements <text>]
             [--round <text>] [--checkout <text>] [--branch <text>]
-            [--task_address <text>] [--change_address <text>] [--parts] [--stamp]
+            [--task_address <text>] [--change_address <text>] [--parts]
+            [--stamp]
   wb revision
   wb --version
 
@@ -258,8 +259,13 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
             Err(refused) => return used(err, format!("'{}' is not known", refused)),
         };
         match found {
-            Word::Long(option) if option == "parts" => parts = true,
-            Word::Long(option) if option == "stamp" => stamp = true,
+            Word::Long(option) if option == "parts" || option == "stamp" => {
+                let flag = if option == "parts" { &mut parts } else { &mut stamp };
+                if *flag {
+                    return used(err, format!("'--{}' is given twice", option));
+                }
+                *flag = true;
+            }
             Word::Long(option) if prompt::PLACEHOLDERS.contains(&option.as_str()) => {
                 let name = prompt::PLACEHOLDERS.iter().find(|name| **name == option).unwrap();
                 // A value is whatever follows, also when it starts with `-`.
@@ -291,11 +297,19 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     if stamp && parts {
         return used(err, "'--stamp' and '--parts' are not used together".to_string());
     }
-    // One line of a stamp stays one line.
+    // One field of a stamp stays one line, and one that a comment may trim: no control character, no
+    // line or paragraph separator, and no white space at its start or end.
     if stamp {
         for (name, value) in &values {
-            if prompt::STAMPED.contains(name) && value.contains(['\n', '\r']) {
-                return used(err, format!("the value of '--{}' holds a line break, and a stamp holds one line for it", name));
+            let broken = value.chars().any(|c| c.is_control() || c == '\u{2028}' || c == '\u{2029}');
+            if prompt::STAMPED.contains(name) && (broken || value.trim() != value) {
+                return used(
+                    err,
+                    format!(
+                        "the value of '--{}' holds a control character or a line break, or white space at its start or end, and a stamp holds it as one line",
+                        name
+                    ),
+                );
             }
         }
     }
@@ -338,17 +352,21 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
                     let _ = writeln!(err, "wb prompt: the model table has no row for '{}'", role);
                     return 1;
                 };
-                let revision = match manifest::manifest(Path::new(manifest::PACKAGE_FOLDER)) {
-                    Ok(text) => manifest::hash_of(&text),
+                let revision = match manifest::revision_hash(manifest::PACKAGE_FOLDER) {
+                    Ok(hash) => hash,
                     Err(why) => {
                         let _ = writeln!(err, "wb prompt: {}", why);
                         return 1;
                     }
                 };
-                let seconds = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|since| since.as_secs())
-                    .unwrap_or(0);
+                // A clock that fails, or is before 1970, gives no stamp: a false time is worse than none.
+                let seconds = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+                    Ok(since) => since.as_secs(),
+                    Err(_) => {
+                        let _ = writeln!(err, "wb prompt: the clock of this machine reads before 1970 or cannot be read. No stamp.");
+                        return 1;
+                    }
+                };
                 let time = prompt::utc(seconds);
                 let said = prompt::Stamp {
                     role: &role,
@@ -358,7 +376,7 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
                     revision: &revision,
                     time: &time,
                 };
-                let _ = out.write_all(prompt::stamp(&said, &given, &found.parts).as_bytes());
+                let _ = out.write_all(prompt::stamp(&said, &given, &found).as_bytes());
             } else if parts {
                 let lines: String = found.parts.iter().map(|part| format!("{}  {}\n", part.hash, part.path)).collect();
                 let _ = out.write_all(lines.as_bytes());

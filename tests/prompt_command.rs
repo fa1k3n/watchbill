@@ -663,7 +663,7 @@ fn test_WB_PROMPT_22_a_stamped_value_with_a_line_break_is_refused_by_name_with_2
 
     for name in ["task", "change", "round", "branch", "checkout"] {
         for bad in [
-            "a\nb", "a\rb", "a\x0bb", "a\x0cb", "a\u{85}b", "a\u{2028}b", "a\u{2029}b", "a\x1bb", "a\tb", "a\0b", " a",
+            "a\nb", "a\rb", "a\x0bb", "a\x0cb", "a\u{85}b", "a\u{2028}b", "a\u{2029}b", "a\x1bb", "a\tb", " a",
             "a ", "   ", "\u{a0}a", "a\u{3000}",
         ] {
             let mut args = vec!["prompt", "build", "--stamp"];

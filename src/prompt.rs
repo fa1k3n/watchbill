@@ -62,6 +62,8 @@ pub struct Part {
 pub struct Prompt {
     pub text: String,
     pub parts: Vec<Part>,
+    /// The placeholders that the parts hold, each once, in the order of the list.
+    pub used: Vec<&'static str>,
 }
 
 /// Why a prompt cannot be put together. The text says what and which file.
@@ -234,8 +236,13 @@ pub fn assemble(root: &Path, role: &str, values: &[(&str, &str)]) -> Result<Prom
         }
         text.push_str(&fill(&part.text, values));
     }
+    let used = PLACEHOLDERS
+        .iter()
+        .copied()
+        .filter(|name| parts.iter().any(|part| placeholders(&part.text).iter().any(|(_, _, found)| found == name)))
+        .collect();
     let parts = parts.into_iter().map(|part| Part { path: part.path, hash: part.hash }).collect();
-    Ok(Prompt { text, parts })
+    Ok(Prompt { text, parts, used })
 }
 
 fn known() -> String {
@@ -296,10 +303,16 @@ pub struct Stamp<'a> {
 }
 
 /// The stamp of an assignment (`docs/revision.md`, point 12): lines of `name: value` in a fixed order,
-/// then one line `part: <sha256>  <path>` for each part, as `--parts` gives it. A value that is empty is
+/// then one line `part: <sha256>  <path>` for each part, as `--parts` gives it. A value that is empty, or that the prompt does not hold, is
 /// written as the name and the colon alone. `runner` is empty until a runner is given (#11).
-pub fn stamp(said: &Stamp, values: &[(&str, &str)], parts: &[Part]) -> String {
-    let given = |name: &str| values.iter().find(|(given, _)| *given == name).map(|(_, value)| *value).unwrap_or("");
+pub fn stamp(said: &Stamp, values: &[(&str, &str)], prompt: &Prompt) -> String {
+    // A value the prompt does not hold was not handed out, and is written empty.
+    let given = |name: &str| {
+        if !prompt.used.contains(&name) {
+            return "";
+        }
+        values.iter().find(|(given, _)| *given == name).map(|(_, value)| *value).unwrap_or("")
+    };
     let mut lines: Vec<(&str, &str)> = vec![
         ("role", said.role),
         ("model", said.model),
@@ -322,7 +335,7 @@ pub fn stamp(said: &Stamp, values: &[(&str, &str)], parts: &[Part]) -> String {
             text.push_str(&format!("{}: {}\n", name, value));
         }
     }
-    for part in parts {
+    for part in &prompt.parts {
         text.push_str(&format!("part: {}  {}\n", part.hash, part.path));
     }
     text

@@ -488,11 +488,22 @@ fn test_WB_REV_18_a_backup_file_that_ends_with_a_tilde_is_refused_by_name() {
 /// The patterns of the files the spec installs under `/usr/share/watchbill/`: the lines of
 /// `%files` that begin with `%{_datadir}/watchbill/`, written relative to that folder.
 fn patterns() -> Vec<String> {
-    let text = String::from_utf8(read_bytes(root().join("packaging/watchbill.spec"))).unwrap();
+    patterns_of(&String::from_utf8(read_bytes(root().join("packaging/watchbill.spec"))).unwrap())
+}
+
+/// The same for the text of a spec. A line that leaves a file of the revision out of the package,
+/// `%exclude` of a path under `/usr/share/watchbill`, is refused: rpmbuild does not stop at it.
+fn patterns_of(text: &str) -> Vec<String> {
     let mut found = Vec::new();
     let files = text.split("\n%files").nth(1).expect("the spec has no %files");
     for line in files.lines() {
-        if let Some(rest) = line.trim().strip_prefix("%{_datadir}/watchbill/") {
+        let line = line.trim();
+        assert!(
+            !(line.starts_with("%exclude") && line.contains("watchbill")),
+            "the spec excludes a file of the revision: {}",
+            line
+        );
+        if let Some(rest) = line.strip_prefix("%{_datadir}/watchbill/") {
             found.push(rest.to_string());
         }
     }
@@ -974,4 +985,17 @@ fn test_WB_REV_24_a_file_that_is_not_changed_is_hashed() {
 fn test_WB_REV_25_built_in_a_checkout_the_folder_is_share_watchbill_of_the_checkout() {
     // The build fixes it: the checkout's own `share/watchbill`, unless the spec gives `WB_SHARE`.
     assert_eq!(Path::new(manifest::PACKAGE_FOLDER), package());
+}
+
+#[test]
+#[should_panic(expected = "the spec excludes a file of the revision")]
+fn test_WB_REV_22_a_spec_that_excludes_a_file_of_the_revision_is_refused() {
+    patterns_of("Name: x\n%files\n%{_datadir}/watchbill/revision/roles/*.md\n%exclude %{_datadir}/watchbill/revision/roles/fix.md\n");
+}
+
+#[test]
+fn test_WB_REV_22_the_spec_names_the_files_of_the_revision_and_excludes_none() {
+    let text = String::from_utf8(read_bytes(root().join("packaging/watchbill.spec"))).unwrap();
+    assert_eq!(patterns_of(&text), patterns());
+    assert!(!text.lines().any(|line| line.trim().starts_with("%exclude")));
 }

@@ -84,3 +84,10 @@ fn test_WB_PKG_9_the_version_of_the_package_is_taken_from_cargo_toml_and_from_no
     assert!(!script.contains("__init__"));
     assert!(!script.contains("__version__"));
 }
+
+#[test]
+fn test_WB_PKG_9_the_spec_holds_no_version_of_its_own() {
+    let text = spec();
+    let line = text.lines().find(|line| line.starts_with("Version:")).expect("the spec has no Version");
+    assert_eq!(line.split_whitespace().nth(1), Some("%{wb_version}"), "{}", line);
+}

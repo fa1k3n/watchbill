@@ -172,3 +172,40 @@ fn test_WB_INIT_25_a_word_that_is_not_utf_8_is_written_as_python_writes_it() {
     assert_eq!(text(&run.stdout), "");
     assert_eq!(text(&run.stderr), format!("wb: no command 'a\\udcffb'\n\n{}", USAGE));
 }
+
+// A fault in `wb` itself: the panic hook is quiet, and the command ends with 1 and one line.
+
+const CHILD: &str = "WB_TEST_PANIC_CHILD";
+
+/// Runs only in the child process of the test below: it makes the program panic through
+/// `guarded`, which is how `main` runs a command, and prints what `guarded` returned.
+#[test]
+fn test_WB_PKG_10_helper_a_panic_in_the_command_is_caught() {
+    if std::env::var_os(CHILD).is_none() {
+        return;
+    }
+    let mut err = std::io::stderr();
+    let code = watchbill::guarded(|| panic!("a fault in wb"), &mut err);
+    println!("code {}", code);
+}
+
+#[test]
+fn test_WB_PKG_10_a_panic_in_the_command_ends_with_1_and_one_line_and_no_panic_message() {
+    let run = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "test_WB_PKG_10_helper_a_panic_in_the_command_is_caught", "--nocapture", "--test-threads=1"])
+        .env(CHILD, "1")
+        .output()
+        .expect("the test program could not be started");
+    let (out, err) = (text(&run.stdout), text(&run.stderr));
+
+    assert!(out.contains("code 1\n"), "{}", out);
+    assert!(err.contains("wb: an internal error. This is a fault in wb, not in what it was given.\n"), "{}", err);
+    assert!(!err.contains("panicked"), "{}", err);
+    assert!(!err.contains("a fault in wb\n"), "{}", err);
+}
+
+#[test]
+fn test_WB_PKG_10_main_runs_the_command_guarded() {
+    let main = fs::read_to_string(root().join("src/main.rs")).unwrap();
+    assert!(main.contains("watchbill::guarded("));
+}

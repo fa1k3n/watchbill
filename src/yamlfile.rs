@@ -511,10 +511,6 @@ impl Builder<'_> {
                 self.anchor_and_tag(line, anchor, &tag);
                 let key_expected = matches!(self.open.last(), Some(Open::Table(_, _, None, _)));
                 let value = if style == TScalarStyle::Plain {
-                    if value.contains('\t') {
-                        // PyYAML stops at a tab inside a plain value, and YAML 1.2 takes it as a space.
-                        self.fault(line, "a tab inside a value written plain is not read: put the value in quotes".to_string());
-                    }
                     if value == "<<" {
                         if key_expected {
                             self.fault(line, "a merge key (`<<`) is not read: write the keys out".to_string());
@@ -613,6 +609,13 @@ pub fn load(path: impl AsRef<Path>) -> Result<Document, YamlError> {
             return Err(YamlError::new(format!(
                 "{}, line {}: holds the character U+{:04X}, which YAML does not allow",
                 shown, line_number, c as u32
+            )));
+        }
+        if line.contains('\t') {
+            // PyYAML stops at a tab wherever a token could start, and YAML 1.2 takes one as a space.
+            return Err(YamlError::new(format!(
+                "{}, line {}: holds a tab, which is not read: indent and separate with spaces, and write `\\t` in double quotes for a tab in a text",
+                shown, line_number
             )));
         }
         if let Some(c) = line.chars().find(|c| break_of_one_version(*c)) {

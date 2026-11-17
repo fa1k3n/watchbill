@@ -370,3 +370,13 @@ fn test_WB_ROLE_21_every_prompt_says_a_search_opens_every_file_it_reads() {
         assert!(part(role, "## What you read").contains(search), "{}", role);
     }
 }
+
+// The last message is checked (#45).
+
+#[test]
+fn test_WB_ROLE_22_every_prompt_says_a_last_message_without_its_fields_is_refused_and_asked_for_again() {
+    for role in ROLES {
+        let body = part(role, "## How you end");
+        assert!(body.contains("A last message without these fields is refused, and you are asked for it again."), "{}", role);
+    }
+}

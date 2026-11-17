@@ -25,3 +25,4 @@ The prompts of the first revision: tester, build, review and fix. What a revisio
 | WB-ROLE-19 | The reviewer's and the fixer's prompts shall name the address the change is read and posted at. Issue: #43. | T | Implemented |
 | WB-ROLE-20 | Every role prompt shall say that how work is pushed and posted is taken from the project's own text. Issue: #43. | T | Implemented |
 | WB-ROLE-21 | Every role prompt shall say that a search opens every file it reads, and that a search is kept to the files the role may read. Issue: #44. | T | Implemented |
+| WB-ROLE-22 | Every role prompt shall say that a last message without its fields is refused, and that the session is asked for it again. Issue: #45. | T | Draft |

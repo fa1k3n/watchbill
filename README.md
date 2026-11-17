@@ -84,6 +84,7 @@ With only BaseOS, AppStream and CRB the build stops before it compiles anything,
 ```
 error: Failed build dependencies:
 	cargo-rpm-macros is needed by watchbill-0.0.1-1.el9.noarch
+	crate(sha2) >= 0.10.9 is needed by watchbill-0.0.1-1.el9.noarch
 	crate(yaml-rust2) >= 0.10.4 is needed by watchbill-0.0.1-1.el9.noarch
 ```
 

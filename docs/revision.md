@@ -53,6 +53,7 @@ For each role:
 For the whole table:
 
 - at most two review rounds;
+- how many times a session is asked for its last message, with the fields its prompt names, before it goes to a person (#45);
 - what always goes to a person;
 - the rule for classed code (point 4).
 

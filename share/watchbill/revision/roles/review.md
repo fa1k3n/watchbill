@@ -64,3 +64,5 @@ Stop when your findings are posted on the change. Your last message has these fi
 - `test_changes`: the existing tests the change alters, and the reason it gives.
 - `doubts`: what you are not sure of.
 - `needs_person`: what only a person can settle, or `none`.
+
+A last message without these fields is refused, and you are asked for it again.

@@ -50,3 +50,5 @@ Your last message has these fields, every time, in this order, each on a line of
 - `seen`: faults you saw beside the findings and did not touch.
 - `assumptions`: what you took for granted.
 - `needs_person`: what only a person can settle, or `none`.
+
+A last message without these fields is refused, and you are asked for it again.

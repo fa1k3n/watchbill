@@ -5,12 +5,18 @@
 # At most this many rounds of review on one change.
 review_rounds: 2
 
+# At most this many times a session is asked for its last message: at its end, and again when
+# that message lacks a field its role's prompt names under how it ends. The fields are checked
+# by name, not by what they say.
+last_message_asks: 2
+
 # What always goes to a person, whatever else the table says.
 always_to_a_person:
   - change_to_an_existing_test
   - change_under_watchbill_folder
   - verification_of_classed_code
   - finding_open_after_last_round
+  - last_message_without_its_fields_after_last_ask
   - merge
 
 # The one rule for classed code. Which paths are classed is the project's to say.

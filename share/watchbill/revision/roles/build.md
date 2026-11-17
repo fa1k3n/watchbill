@@ -47,3 +47,5 @@ Your last message has these fields, every time, in this order, each on a line of
 - `untested`: behaviour you built that no test covers.
 - `assumptions`: what you took for granted.
 - `needs_person`: what only a person can settle, or `none`.
+
+A last message without these fields is refused, and you are asked for it again.

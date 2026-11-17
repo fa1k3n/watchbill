@@ -48,3 +48,5 @@ Stop when the tests are committed and you have seen each of them fail. Your last
 - `untested`: each clause that has no test, and why.
 - `assumptions`: what you took for granted.
 - `needs_person`: what only a person can settle, or `none`.
+
+A last message without these fields is refused, and you are asked for it again.

@@ -13,9 +13,18 @@ use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use sha2::{Digest, Sha256};
+
+/// The hash of the revision: the SHA-256 of the manifest the package holds.
+fn package_hash() -> String {
+    let manifest = fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/share/watchbill/revision.sha256")).unwrap();
+    Sha256::digest(&manifest).iter().map(|byte| format!("{:02x}", byte)).collect()
+}
+
 fn expected(rows: &[&str]) -> String {
     let mut all: Vec<String> = HEAD.iter().map(|line| line.to_string()).collect();
     all.push(format!("watchbill: {}", REVISION));
+    all.push(format!("revision: {}", package_hash()));
     all.extend(rows.iter().map(|row| row.to_string()));
     all.push(String::new());
     all.join("\n")

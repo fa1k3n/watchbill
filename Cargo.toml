@@ -9,6 +9,12 @@ description = "A harness for AI agents in embedded software development"
 # No licence is chosen yet.
 publish = false
 
+# The crates come from the distribution's packages. yaml-rust2 is named without its default
+# feature, which needs encoding_rs: the loader reads UTF-8 only, and rust-yaml-rust2-devel does
+# not bring that crate.
+[dependencies]
+yaml-rust2 = { version = "0.10", default-features = false }
+
 [lib]
 path = "src/lib.rs"
 

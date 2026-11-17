@@ -5,6 +5,8 @@ use std::io::{BufRead, Write};
 pub mod detect;
 pub mod init;
 pub mod interrupt;
+pub mod rules;
+pub mod yamlfile;
 
 /// The version of the package.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

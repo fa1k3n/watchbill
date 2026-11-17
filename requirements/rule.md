@@ -26,11 +26,11 @@ The two tables of the first revision and the one loader that reads YAML. What a 
 | WB-RULE-20 | An effort that is not one of low, medium, high, xhigh and max shall be refused, and the message shall name the role. Issue: #5. | T | Implemented |
 | WB-RULE-21 | A table that is not there or cannot be read shall be refused with the file named and without a stack trace. Issue: #5. | T | Implemented |
 | WB-RULE-22 | A role named in a role's list of roles it may not also hold that is not one of the five, or is the role itself, shall be refused. Issue: #5. | T | Implemented |
-| WB-RULE-23 | Nothing in `wb` but `rules.py` shall name the two tables. Issue: #5. | T | Implemented |
+| WB-RULE-23 | Nothing in `wb` but `rules.py` shall name the two tables. Replaced by WB-RULE-29. Issue: #5. | T | Deprecated |
 | WB-RULE-24 | A role's prompt that is not `none` or a relative path that ends in `.md` and has no `..` part shall be refused, and the message shall name the role. Issue: #5. | T | Implemented |
 | WB-RULE-25 | A name written twice in the list of what always goes to a person shall be refused. Issue: #5. | T | Implemented |
 | WB-RULE-26 | A merge key (`<<`) in a YAML file shall be refused, and the message shall name the file and the line. Issue: #5. | T | Implemented |
 | WB-RULE-27 | A rule table whose list of what always goes to a person lacks `merge` shall be refused. Issue: #5. | T | Implemented |
 | WB-RULE-28 | A role named twice in a role's list of roles it may not also hold shall be refused. Issue: #5. | T | Implemented |
-| WB-RULE-29 | Nothing in `wb` but `src/rules.rs` shall name the two tables. Issue: #23. | T | Draft |
-| WB-RULE-30 | An anchor or an alias in a YAML file shall be refused, with the line. Issue: #23. | T | Draft |
+| WB-RULE-29 | Nothing in `wb` but `src/rules.rs` shall name the two tables. Issue: #23. | T | Implemented |
+| WB-RULE-30 | An anchor or an alias in a YAML file shall be refused, with the line. Issue: #23. | T | Implemented |

@@ -24,11 +24,15 @@ BuildRequires:  python3-pyyaml
 # The tests make git repositories.
 BuildRequires:  git-core
 # The Rust of the distribution, and the macros that build with it and take every crate
-# from the distribution's packages. On Enterprise Linux 9 the macros are in EPEL, so the
-# build needs EPEL there. No crate is named yet: each piece that needs one adds it.
+# from the distribution's packages. On Enterprise Linux 9 the macros and the crates are in
+# EPEL, so the build needs EPEL there. The macros ask for the crates of Cargo.toml when they
+# generate the build requirements; each crate is also named here, so that a build without
+# them says so at once.
 BuildRequires:  cargo
 BuildRequires:  rust >= 1.97
 BuildRequires:  cargo-rpm-macros
+# The YAML library the Rust `wb` reads every YAML file with.
+BuildRequires:  crate(yaml-rust2) >= 0.10
 # `wb init` asks git for the root of the repository and the address of origin.
 Requires:       git-core
 

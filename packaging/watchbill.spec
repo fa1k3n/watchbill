@@ -7,8 +7,7 @@ Version:        %{wb_version}
 Release:        1%{?dist}
 Summary:        A harness for AI agents in embedded software development
 
-# No licence is chosen yet. This line says so, and is to be replaced when one is.
-License:        LicenseRef-Not-Chosen
+License:        Apache-2.0
 URL:            https://github.com/fa1k3n/watchbill
 Source:         %{name}-%{version}.tar.gz
 
@@ -61,6 +60,7 @@ cp -a share/watchbill/. %{buildroot}%{_datadir}/watchbill/
 # One line for each kind of file: a file of the revision that is not named here is not packaged,
 # and rpmbuild stops at it. A test holds the manifest to these lines (WB-REV-22).
 %files
+%license LICENSE NOTICE
 %doc README.md
 %{_bindir}/wb
 %{_bindir}/watchbill

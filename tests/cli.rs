@@ -15,7 +15,8 @@ const USAGE: &str = "usage:
   wb check
   wb prompt <role> [--task <text>] [--change <text>] [--requirements <text>]
             [--round <text>] [--checkout <text>] [--branch <text>]
-            [--task_address <text>] [--change_address <text>] [--parts] [--stamp]
+            [--task_address <text>] [--change_address <text>] [--parts]
+            [--stamp]
   wb revision
   wb --version
 

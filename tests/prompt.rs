@@ -423,3 +423,22 @@ fn test_WB_PROMPT_9_a_link_where_project_goes_is_named_as_a_link() {
     assert!(out.contains(&format!("{} is a link", named.to_str().unwrap())), "{}", out);
     assert_eq!(fs::read_dir(&outside.path).unwrap().count(), 0);
 }
+
+#[test]
+fn test_WB_PROMPT_19_utc_writes_fixed_times_in_the_form_of_the_stamp() {
+    for (seconds, expected) in [
+        (0, "1970-01-01T00:00:00Z"),
+        (951_782_400, "2000-02-29T00:00:00Z"),
+        (951_868_800, "2000-03-01T00:00:00Z"),
+        (1_709_164_800, "2024-02-29T00:00:00Z"),
+        (1_709_251_199, "2024-02-29T23:59:59Z"),
+        (1_735_689_599, "2024-12-31T23:59:59Z"),
+        (1_735_689_600, "2025-01-01T00:00:00Z"),
+        (1_763_390_645, "2025-11-17T14:44:05Z"),
+        (4_107_542_399, "2100-02-28T23:59:59Z"),
+        (4_107_542_400, "2100-03-01T00:00:00Z"),
+        (253_402_300_799, "9999-12-31T23:59:59Z"),
+    ] {
+        assert_eq!(watchbill::prompt::utc(seconds), expected, "{}", seconds);
+    }
+}

@@ -548,11 +548,13 @@ fn test_WB_PROMPT_19_a_stamp_is_the_twelve_lines_in_order_and_the_parts_for_each
         assert!(found.iter().skip(12).all(|(name, _)| name == "part"), "{}: {}", role, out);
         assert!(out.ends_with('\n'), "{}", role);
         assert_eq!(value(&found, "role"), role);
-        assert_eq!(value(&found, "task"), "T-1");
-        assert_eq!(value(&found, "change"), "34");
-        assert_eq!(value(&found, "round"), "1");
-        assert_eq!(value(&found, "branch"), "task-1");
-        assert_eq!(value(&found, "checkout"), "/work/brakes");
+        // A value the prompt does not hold is written empty: it was not handed out.
+        let role_text = fs::read_to_string(package().join("revision/roles").join(format!("{}.md", role))).unwrap();
+        for name in ["task", "change", "round", "branch", "checkout"] {
+            let given = ALL_VALUES.iter().find(|(n, _)| *n == name).unwrap().1;
+            let expected = if role_text.contains(&format!("{{{}}}", name)) { given } else { "" };
+            assert_eq!(value(&found, name), expected, "{} {}", role, name);
+        }
         assert_eq!(value(&found, "runner"), "", "{}", role);
         // The prompt itself is not in the stamp.
         assert!(!out.contains("Everyone"), "{}", role);
@@ -660,7 +662,10 @@ fn test_WB_PROMPT_22_a_stamped_value_with_a_line_break_is_refused_by_name_with_2
     let folder = set_up();
 
     for name in ["task", "change", "round", "branch", "checkout"] {
-        for bad in ["a\nb", "a\rb"] {
+        for bad in [
+            "a\nb", "a\rb", "a\x0bb", "a\x0cb", "a\u{85}b", "a\u{2028}b", "a\u{2029}b", "a\x1bb", "a\tb", "a\0b", " a",
+            "a ", "   ", "\u{a0}a", "a\u{3000}",
+        ] {
             let mut args = vec!["prompt", "build", "--stamp"];
             for pair in ALL.chunks(2) {
                 args.push(pair[0]);
@@ -672,7 +677,7 @@ fn test_WB_PROMPT_22_a_stamped_value_with_a_line_break_is_refused_by_name_with_2
             assert_eq!(code(&run), Some(2), "{} {:?}", name, bad);
             assert_eq!(text(&run.stdout), "", "{} {:?}", name, bad);
             assert!(text(&run.stderr).contains(&format!("--{}", name)), "{}: {}", name, text(&run.stderr));
-            assert!(text(&run.stderr).contains("line break"), "{}: {}", name, text(&run.stderr));
+            assert!(text(&run.stderr).contains("one line"), "{}: {}", name, text(&run.stderr));
         }
     }
 }
@@ -731,6 +736,8 @@ fn test_WB_PROMPT_24_a_repository_that_is_not_set_up_ends_with_2_and_prints_noth
 
     assert_eq!(code(&run), Some(2));
     assert_eq!(text(&run.stdout), "");
+    assert!(text(&run.stderr).contains("not set up"), "{}", text(&run.stderr));
+    assert!(!text(&run.stderr).contains("is not known"), "{}", text(&run.stderr));
 }
 
 #[test]
@@ -749,4 +756,46 @@ fn test_WB_PROMPT_19_the_usage_names_stamp() {
     let run = wb(&folder().path, &["--help"], "");
 
     assert!(text(&run.stdout).contains("[--stamp]"), "{}", text(&run.stdout));
+}
+
+#[test]
+fn test_WB_PROMPT_19_a_value_the_prompt_does_not_use_is_written_empty() {
+    let folder = set_up();
+    let mut args = vec!["prompt", "build", "--stamp", "--change", "5", "--round", "2"];
+    args.extend(with_where(&["--task", "1", "--requirements", "R"]));
+
+    let run = wb(&folder.path, &args, "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let out = text(&run.stdout);
+    assert!(out.lines().any(|line| line == "change:"), "{}", out);
+    assert!(out.lines().any(|line| line == "round:"), "{}", out);
+}
+
+#[test]
+fn test_WB_PROMPT_22_a_stamped_value_may_hold_white_space_inside() {
+    let folder = set_up();
+    let mut args = vec!["prompt", "build", "--stamp", "--requirements", "R", "--checkout", "/work/my brakes"];
+    args.extend(["--task", "T 1", "--branch", "task-1", "--task_address", "x"]);
+
+    let run = wb(&folder.path, &args, "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("\ntask: T 1\n"), "{}", text(&run.stdout));
+}
+
+#[test]
+fn test_WB_PROMPT_23_stamp_or_parts_given_twice_ends_with_2_and_prints_nothing() {
+    let folder = set_up();
+
+    for flag in ["--stamp", "--parts"] {
+        let mut args = vec!["prompt", "build", flag, flag];
+        args.extend(ALL);
+
+        let run = wb(&folder.path, &args, "");
+
+        assert_eq!(code(&run), Some(2), "{}", flag);
+        assert_eq!(text(&run.stdout), "", "{}", flag);
+        assert!(text(&run.stderr).contains(&format!("'{}' is given twice", flag)), "{}", text(&run.stderr));
+    }
 }

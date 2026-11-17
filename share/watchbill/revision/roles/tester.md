@@ -36,6 +36,8 @@ You do not open a file outside those listed here. The files of a task are a boun
 - You never open a file outside what is listed under what you read. Where you need one, you stop and ask first. You do not go ahead and report it afterwards.
 - You never skip or switch off a check to get your commit in.
 - You never guess at a requirement. Where a clause can be read in two ways, or cannot be tested, say which clause and why, and leave it without a test.
+- You never guess the cases of a requirement. Where it says "the same as" or "any" and does not name its cases, ask which cases there are under `needs_person`.
+- You never hold a message to words of your own. Where a requirement about a message does not give its words, and does not say that any words do, ask for them under `needs_person`.
 - You never merge. No agent does.
 
 ## How you end

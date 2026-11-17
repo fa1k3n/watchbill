@@ -128,3 +128,77 @@ fn test_WB_PKG_12_the_spec_installs_license_and_notice_and_both_are_in_the_repos
         assert!(root().join(name).is_file(), "{} is not in the repository", name);
     }
 }
+
+/// The crates that Cargo.toml names, in every table of dependencies.
+fn cargo_crates(cargo: &str) -> Vec<String> {
+    let mut crates = Vec::new();
+    let mut in_dependencies = false;
+    for line in cargo.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_dependencies = line.trim_matches(|c| c == '[' || c == ']').ends_with("dependencies");
+        } else if in_dependencies && !line.is_empty() && !line.starts_with('#') {
+            let name = line.split('=').next().unwrap().trim().trim_matches('"');
+            crates.push(name.to_string());
+        }
+    }
+    crates.sort();
+    crates
+}
+
+/// The crates of the list in CLAUDE.md: the items under "The crates of `wb`", as `` - `name`: ``.
+fn listed_crates(claude: &str) -> Vec<String> {
+    let mut crates = Vec::new();
+    let mut lines = claude.lines().skip_while(|line| !line.starts_with("- The crates of `wb`"));
+    lines.next().expect("CLAUDE.md has no list of crates");
+    for line in lines.take_while(|line| line.starts_with("  - ")) {
+        let name = line["  - ".len()..].split('`').nth(1).expect("an item of the list names no crate");
+        crates.push(name.to_string());
+    }
+    crates.sort();
+    crates
+}
+
+/// The crates Cargo.toml names that the list does not, and those the list names that Cargo.toml does not.
+fn crate_differences(cargo: &str, claude: &str) -> (Vec<String>, Vec<String>) {
+    let (named, listed) = (cargo_crates(cargo), listed_crates(claude));
+    let unlisted = named.iter().filter(|name| !listed.contains(name)).cloned().collect();
+    let unused = listed.iter().filter(|name| !named.contains(name)).cloned().collect();
+    (unlisted, unused)
+}
+
+#[test]
+fn test_WB_PKG_13_the_crates_of_cargo_toml_are_the_crates_claude_md_lists() {
+    let cargo = fs::read_to_string(root().join("Cargo.toml")).unwrap();
+    let claude = fs::read_to_string(root().join("CLAUDE.md")).unwrap();
+    assert_eq!(crate_differences(&cargo, &claude), (vec![], vec![]));
+    assert_eq!(listed_crates(&claude), ["lexopt", "sha2", "yaml-rust2"]);
+}
+
+#[test]
+fn test_WB_PKG_13_the_spec_asks_for_each_listed_crate_when_building() {
+    let claude = fs::read_to_string(root().join("CLAUDE.md")).unwrap();
+    let text = spec();
+    for name in listed_crates(&claude) {
+        let wanted = format!("crate({})", name);
+        assert!(
+            text.lines().any(|line| line.starts_with("BuildRequires:") && line.contains(&wanted)),
+            "the spec does not ask for {}",
+            wanted
+        );
+    }
+}
+
+const CLAUDE_LIST: &str = "Text.\n- The crates of `wb`, each with what it is for:\n  - `yaml-rust2`: reading YAML\n  - `sha2`: SHA-256\n- Something else.\n";
+
+#[test]
+fn test_WB_PKG_13_a_crate_in_cargo_toml_that_is_not_listed_is_caught() {
+    let cargo = "[package]\nname = \"w\"\n\n[dependencies]\n# a comment\nyaml-rust2 = \"0.10\"\nsha2 = { version = \"0.10\" }\n\n[dev-dependencies]\nlexopt = \"0.3\"\n";
+    assert_eq!(crate_differences(cargo, CLAUDE_LIST), (vec!["lexopt".to_string()], vec![]));
+}
+
+#[test]
+fn test_WB_PKG_13_a_listed_crate_that_is_not_in_cargo_toml_is_caught() {
+    let cargo = "[package]\nversion = \"1\"\n\n[dependencies]\nyaml-rust2 = \"0.10\"\n\n[lib]\npath = \"src/lib.rs\"\n";
+    assert_eq!(crate_differences(cargo, CLAUDE_LIST), (vec![], vec!["sha2".to_string()]));
+}

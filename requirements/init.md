@@ -42,3 +42,7 @@ What `wb init` does today: it sets Watchbill up in a git repository. What it wri
 | WB-INIT-36 | `wb -v` shall do as `wb --version`. Issue: #2. | T | Implemented |
 | WB-INIT-37 | `wb init` shall take any usable text for the git server, the tracker and the CI driver, not only the names its question lists. Issue: #2. | T | Implemented |
 | WB-INIT-38 | `wb init` shall refuse an answer that is not UTF-8 in words, without a panic. Issue: #22. | T | Implemented |
+| WB-INIT-39 | `wb` shall take `--` as the end of the options, in every command: a word after it is never an option, `wb -- init` does as `wb init`, `wb init --` as `wb init`, and `wb --` as `wb`. Issue: #34. | T | Draft |
+| WB-INIT-40 | `wb init` shall take short options written together, so that `-yy` does as `-y`. Issue: #34. | T | Draft |
+| WB-INIT-41 | `wb` shall refuse an option given a value it does not take, such as `--yes=x`, `-y=x` or `--version=1`, as an option it does not know, and name it with the value. Issue: #34. | T | Draft |
+| WB-INIT-42 | `wb init` shall name an option it does not know alone, also when it is written with others (`-yx` names `-x`), and write a byte of its name that is not UTF-8 as `�`. Issue: #34. | T | Draft |

@@ -72,12 +72,27 @@ packaging/rpm.sh                                                  # builds the p
 sudo dnf install build/rpm/RPMS/noarch/watchbill-*.noarch.rpm     # puts wb in /usr/bin
 ```
 
-The package is built here from a checkout. There is no repository to `dnf install watchbill` from yet. Building needs `rpm-build`, `python3-devel`, `pyproject-rpm-macros`, `python3-setuptools`, `python3-pip` and `python3-wheel`, and on Enterprise Linux 9 also `python3-tomli` and the CRB repository.
+The package is built here from a checkout. There is no repository to `dnf install watchbill` from yet. Building needs `rpm-build`, `python3-devel`, `pyproject-rpm-macros`, `python3-setuptools`, `python3-pip`, `python3-wheel`, `git-core`, and the Rust of the distribution: `cargo`, `rust` (1.97 or later) and `cargo-rpm-macros`. On Enterprise Linux 9 it also needs `python3-tomli` and the CRB repository, and **EPEL**: `cargo-rpm-macros` is only there, and so are the crates that the Rust `wb` will be built from.
+
+```sh
+sudo dnf install epel-release                    # Enterprise Linux 9 only
+sudo dnf config-manager --set-enabled crb        # Enterprise Linux 9 only
+```
+
+With only BaseOS, AppStream and CRB the build stops before it compiles anything, and says what is missing:
+
+```
+error: Failed build dependencies:
+	cargo-rpm-macros is needed by watchbill-0.0.1-1.el9.noarch
+```
+
+The build runs the tests of the Python and of the Rust `wb`. The package still installs the Python `wb`: the Rust one is built and tested, and not installed, until #25. A build asks nothing of the network. `.cargo/config.toml` takes crates from `/usr/share/cargo/registry`, where the distribution's `rust-<name>-devel` packages put them, and never from crates.io. On Fedora the container image leaves out documentation files (`tsflags=nodocs`), and some crates need their `README.md` to compile; a build host installs the crates with documentation.
 
 To try it without installing anything, from a checkout:
 
 ```sh
-python3 -m unittest discover -s tests            # every test
+python3 -m unittest discover -s tests            # every test of the Python wb
+cargo test                                       # every test of the Rust wb: needs cargo, rust 1.97 or later
 PYTHONPATH=/path/to/watchbill/src python3 -m watchbill init
 ```
 

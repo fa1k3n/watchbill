@@ -1,0 +1,11 @@
+# Crates come from the folder the distribution's packages install them to, and never from
+# the network. Fedora's `rust-<name>-devel` packages, and on Enterprise Linux 9 those of
+# EPEL, put them there.
+[source.crates-io]
+replace-with = "distribution"
+
+[source.distribution]
+directory = "/usr/share/cargo/registry"
+
+[net]
+offline = true

@@ -1,0 +1,17 @@
+[package]
+name = "watchbill"
+# The version of the package: the same as __version__ in src/watchbill/__init__.py,
+# which a test holds until the Python is removed (#25).
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.97"
+description = "A harness for AI agents in embedded software development"
+# No licence is chosen yet.
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "wb"
+path = "src/main.rs"

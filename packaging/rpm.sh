@@ -3,7 +3,9 @@
 # The default folder is build/rpm. The package is then installed with
 #   sudo dnf install build/rpm/RPMS/noarch/watchbill-*.noarch.rpm
 # Needs: rpm-build python3-devel pyproject-rpm-macros python3-setuptools python3-pip python3-wheel python3-pyyaml git-core
-# and on Enterprise Linux 9 also python3-tomli, with the CRB repository enabled.
+# cargo rust cargo-rpm-macros
+# and on Enterprise Linux 9 also python3-tomli, with the CRB repository enabled, and
+# cargo-rpm-macros from EPEL (and later the crates of the distribution, also from EPEL).
 set -eu
 
 here=$(cd "$(dirname "$0")/.." && pwd)

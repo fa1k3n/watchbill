@@ -6,6 +6,7 @@ use std::io::{BufRead, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
+pub mod check;
 pub mod detect;
 pub mod init;
 pub mod interrupt;
@@ -20,6 +21,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// What `wb --help` prints. The words are those of the Python `wb`.
 pub const USAGE: &str = "usage:
   wb init [--yes]
+  wb check
   wb revision
   wb --version
 
@@ -29,6 +31,11 @@ pub const USAGE: &str = "usage:
             answer, show the file and write .watchbill/watchbill.yml at the
             root of the repository. --yes (-y) takes what it found and asks
             nothing. A file that is already there is never changed
+  check     say whether the repository still is at the revision it is pinned to:
+            each file under .watchbill/revision/ against the manifest, the
+            manifest against the revision line of watchbill.yml, and that
+            revision against the installed wb. Ends with 0 when all of it
+            holds, 1 when something differs. Writes nothing
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes nothing
 ";
@@ -129,7 +136,7 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
             "version".to_string()
         }
         Ok(Some(Word::Value(value))) => match value.to_str() {
-            Some(name @ ("help" | "init" | "revision")) => name.to_string(),
+            Some(name @ ("help" | "init" | "check" | "revision")) => name.to_string(),
             _ => {
                 let _ = write!(err, "wb: no command '{}'\n\n{}", word(value.as_bytes()), USAGE);
                 return 2;
@@ -151,6 +158,7 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
             0
         }
         "init" => run_init(&mut parser, input, out, err),
+        "check" => run_check(&mut parser, out, err),
         _ => run_revision(&mut parser, Path::new(manifest::PACKAGE_FOLDER), out, err),
     }
 }
@@ -187,6 +195,30 @@ fn run_init(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write, e
             1
         }
         Ok(Some(root)) => init::init(&root, VERSION, Path::new(manifest::PACKAGE_FOLDER), yes, input, out, err, None),
+    }
+}
+
+/// `wb check`: the repository against its pinned revision and the installed `wb`. It writes nothing.
+fn run_check(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let refused = match next(parser) {
+        Ok(None) => None,
+        Ok(Some(found)) => Some(named(found, parser)),
+        Err(refused) => Some(refused),
+    };
+    if let Some(refused) = refused {
+        let _ = write!(err, "wb check: '{}' is not known\n\n{}", refused, USAGE);
+        return 2;
+    }
+    match init::repository_root(None) {
+        Err(why) => {
+            let _ = writeln!(err, "wb check: {}.", why);
+            2
+        }
+        Ok(None) => {
+            let _ = writeln!(err, "wb check: this folder is not in a git repository. Watchbill is set up in one.");
+            2
+        }
+        Ok(Some(root)) => check::check(&root, VERSION, Path::new(manifest::PACKAGE_FOLDER), out, err),
     }
 }
 

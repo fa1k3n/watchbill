@@ -228,6 +228,116 @@ pub fn is_accepted(root: &Path, task: &str) -> bool {
     text.lines().find_map(|line| line.strip_prefix("sha256: ")) == Some(hash.as_str())
 }
 
+/// The roles that are given the task's file in their prompts.
+pub const ROLES: [&str; 4] = ["tester", "build", "review", "fix"];
+
+/// A task's file that a prompt is made from: read, held to its form, and accepted as it is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Used {
+    pub task: Task,
+    /// The path from the root of the repository.
+    pub path: String,
+    /// The SHA-256 of the file as it was read.
+    pub hash: String,
+}
+
+/// A character that a path in a prompt never holds: a control character, a line or paragraph
+/// separator, or the mark that turns the direction of the text.
+fn is_unsafe(c: char) -> bool {
+    c.is_control() || matches!(c, '\u{2028}' | '\u{2029}' | '\u{202E}')
+}
+
+/// The task's file for a prompt of a role (`wb prompt`, #76). `Ok(None)` when the task has no file, so
+/// a project goes on without one. When there is one it is used only if it is accepted as it is and
+/// holds to its form; else the reason is the error, and no prompt is handed out.
+pub fn for_prompt(root: &Path, task: &str) -> Result<Option<Used>, String> {
+    if !is_name(task) {
+        return Ok(None);
+    }
+    if let Some(why) = way_fault(root) {
+        return Err(format!("{}. No prompt is handed out.", why));
+    }
+    let shown = format!("{}/{}.yml", FOLDER, task);
+    let file = file_of(root, task);
+    match fs::symlink_metadata(&file) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("{} cannot be read ({}). No prompt is handed out.", shown, error)),
+        Ok(found) if !found.is_file() => return Err(format!("{} is not a plain file. No prompt is handed out.", shown)),
+        Ok(_) => {}
+    }
+    let bytes = fs::read(&file).map_err(|error| format!("{} cannot be read ({}). No prompt is handed out.", shown, error))?;
+    let hash = crate::manifest::hash_bytes(&bytes);
+    let accepted = accepted_of(root, task);
+    let body = match fs::symlink_metadata(&accepted) {
+        Ok(found) if found.is_file() => fs::read_to_string(&accepted).ok(),
+        _ => None,
+    };
+    let Some(body) = body else {
+        return Err(format!(
+            "the task's file {} is not accepted. To accept it, run `wb accept {}`. No prompt is handed out.",
+            shown, task
+        ));
+    };
+    if body.lines().find_map(|line| line.strip_prefix("sha256: ")) != Some(hash.as_str()) {
+        return Err(format!(
+            "the task's file {} is not accepted: it changed since its acceptance. Remove {}/{}.accepted and run `wb accept {}` again. No prompt is handed out.",
+            shown, FOLDER, task, task
+        ));
+    }
+    let prefix = format!("{}/", root.display().to_string().trim_end_matches('/'));
+    let read = read(&file).map_err(|why| format!("{}. No prompt is handed out.", why.replace(&prefix, "")))?;
+    if fs::read(&file).map(|now| crate::manifest::hash_bytes(&now)).ok().as_deref() != Some(hash.as_str()) {
+        return Err(format!("{} changed while it was read. No prompt is handed out.", shown));
+    }
+    if read.task != task {
+        return Err(format!("{} says the task is {}, not {}. No prompt is handed out.", shown, self::shown(&read.task), task));
+    }
+    if !read.questions.is_empty() {
+        return Err(format!("{} holds a question, and a file with one is not used. No prompt is handed out.", shown));
+    }
+    let lists = std::iter::once(("changes".to_string(), &read.changes))
+        .chain(read.reads.iter().map(|(role, list)| (format!("reads.{}", role), list)));
+    for (name, list) in lists {
+        if list.iter().any(|path| path.chars().any(is_unsafe)) {
+            return Err(format!(
+                "{}: a path of `{}` holds a control character, a line or paragraph separator or a direction mark. No prompt is handed out.",
+                shown, name
+            ));
+        }
+    }
+    Ok(Some(Used { task: read, path: shown, hash }))
+}
+
+impl Used {
+    /// What `{requirements}` is filled with: each ID and its text, one to a line.
+    pub fn requirements(&self) -> String {
+        if self.task.requirements.is_empty() {
+            return "none: the task's file holds no requirement".to_string();
+        }
+        let lines: Vec<String> = self.task.requirements.iter().map(|r| format!("- {}: {}", r.id, r.text)).collect();
+        format!("\n{}", lines.join("\n"))
+    }
+
+    /// The two parts of a prompt the task's file adds for a role: the interface, and what the role may
+    /// change and read. It is put in as it is, and is never read for placeholders.
+    pub fn text(&self, role: &str) -> String {
+        let list = |paths: &[String]| -> String {
+            if paths.is_empty() {
+                return "- none\n".to_string();
+            }
+            paths.iter().map(|path| format!("- {}\n", path)).collect()
+        };
+        let reads = self.task.reads.iter().find(|(name, _)| name == role).map(|(_, paths)| paths.as_slice()).unwrap_or(&[]);
+        let interface = if self.task.interface.ends_with('\n') { self.task.interface.clone() } else { format!("{}\n", self.task.interface) };
+        format!(
+            "## The interface\n\n{}\n## What you may change and read\n\nYou may change:\n\n{}\nYou may read, besides those:\n\n{}",
+            interface,
+            list(&self.task.changes),
+            list(reads)
+        )
+    }
+}
+
 /// One value of `git config`, or why there is none.
 fn git_value(root: &str, key: &str) -> Result<String, String> {
     let none = || format!("git has no {} for this repository. Set it with `git config {} <value>`.", key, key);

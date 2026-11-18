@@ -176,6 +176,24 @@ fn read_part(root: &Path, path: String) -> Result<Option<Read>, PromptError> {
 /// It is refused when the role is not one of the revision, when a file of the project is not UTF-8,
 /// when a part holds a placeholder that is not on the list, or one that got no value.
 pub fn assemble(root: &Path, role: &str, values: &[(&str, &str)]) -> Result<Prompt, PromptError> {
+    assemble_with(root, role, values, None)
+}
+
+/// What a task's file adds to a prompt (#76): a part that stands after the role's text, with the path
+/// and hash of the file it was made from. Its text is put in as it is and is never read for placeholders.
+pub struct Extra<'a> {
+    pub path: &'a str,
+    pub hash: &'a str,
+    pub text: &'a str,
+}
+
+/// As `assemble`, with the part of a task's file after the role's text and before the project's.
+pub fn assemble_with(
+    root: &Path,
+    role: &str,
+    values: &[(&str, &str)],
+    extra: Option<&Extra>,
+) -> Result<Prompt, PromptError> {
     let have = roles(root)?;
     let expected = match have.iter().find(|(name, _)| name == role) {
         Some((_, hash)) => hash.clone(),
@@ -235,13 +253,24 @@ pub fn assemble(root: &Path, role: &str, values: &[(&str, &str)]) -> Result<Prom
             text.push('\n');
         }
         text.push_str(&fill(&part.text, values));
+        if let (0, Some(extra)) = (n, extra) {
+            // The task's part follows the role's text as it is, and is not read for placeholders.
+            if !text.ends_with('\n') {
+                text.push('\n');
+            }
+            text.push('\n');
+            text.push_str(extra.text);
+        }
     }
     let used = PLACEHOLDERS
         .iter()
         .copied()
         .filter(|name| parts.iter().any(|part| placeholders(&part.text).iter().any(|(_, _, found)| found == name)))
         .collect();
-    let parts = parts.into_iter().map(|part| Part { path: part.path, hash: part.hash }).collect();
+    let mut parts: Vec<Part> = parts.into_iter().map(|part| Part { path: part.path, hash: part.hash }).collect();
+    if let Some(extra) = extra {
+        parts.insert(1, Part { path: extra.path.to_string(), hash: extra.hash.to_string() });
+    }
     Ok(Prompt { text, parts, used })
 }
 
@@ -450,6 +479,8 @@ pub struct Stamp<'a> {
     pub version: &'a str,
     pub revision: &'a str,
     pub time: &'a str,
+    /// A task's file is used and the option `--requirements` was given: it won over the file (#76).
+    pub requirements_given: bool,
 }
 
 /// The stamp of an assignment (`docs/revision.md`, point 12): lines of `name: value` in a fixed order,
@@ -484,6 +515,9 @@ pub fn stamp(said: &Stamp, values: &[(&str, &str)], prompt: &Prompt) -> String {
         } else {
             text.push_str(&format!("{}: {}\n", name, value));
         }
+    }
+    if said.requirements_given {
+        text.push_str("requirements: given\n");
     }
     for part in &prompt.parts {
         text.push_str(&format!("part: {}  {}\n", part.hash, part.path));

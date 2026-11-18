@@ -16,7 +16,7 @@ const USAGE: &str = "usage:
   wb prompt <role> [<issue>] [--issue <text>] [--change <text>]
             [--requirements <text>] [--round <text>] [--checkout <text>]
             [--branch <text>] [--issue_address <text>]
-            [--change_address <text>] [--parts] [--stamp]
+            [--change_address <text>] [--runner <name>] [--parts] [--stamp]
   wb revision
   wb accept <issue>
   wb --version
@@ -44,9 +44,15 @@ const USAGE: &str = "usage:
             the path and the SHA-256 of each part, in the form sha256sum
             prints, in place of the text.
             --stamp prints, in place of the text, what the assignment is: the
-            role, its model and effort, the version and revision, the issue,
-            the change, the round, the branch, the checkout, the time, and
-            each part as --parts gives it. Not with --parts. Ends with 0 when
+            role, its model and effort, the runner, the version and revision,
+            the issue, the change, the round, the branch, the checkout, the
+            time, and each part as --parts gives it. Not with --parts.
+            --runner names the runner the prompt is handed to. The breakdown
+            needs it, and is handed out only to a runner that
+            /etc/watchbill/organisation.yml clears for the breakdown up to the
+            level of the repository, the line confidentiality: of
+            watchbill.yml. Its stamp then has the model and effort of that
+            file, and --parts adds the level and the runner. Ends with 0 when
             the prompt is printed, 1 when it is refused, 2 when it was used
             wrongly or the repository is not set up. Writes nothing
   revision  print the version of the package, the hash of its revision and the

@@ -165,3 +165,40 @@ pub fn issues_ready(folder: &Path, issues: &[&str]) {
     git(folder, &add);
     git(folder, &["commit", "-q", "-m", "The issues' files and their acceptances"]);
 }
+
+/// Runs `wb prompt` in the test process, through `watchbill::prompt`, with the organisation's file at
+/// `organisation` in place of the path fixed in `wb` (#93), so that no test reads the real `/etc`.
+/// `args` are the words after `prompt`. The result is as the program gives it.
+pub fn prompt_with(folder: &Path, organisation: &Path, args: &[&str]) -> Output {
+    use std::os::unix::process::ExitStatusExt;
+    let args: Vec<std::ffi::OsString> = args.iter().map(std::ffi::OsString::from).collect();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let status = watchbill::prompt(&args, folder, organisation, &mut out, &mut err);
+    Output { status: std::process::ExitStatus::from_raw(status << 8), stdout: out, stderr: err }
+}
+
+/// An organisation's file that clears the runner `claude-code` for the breakdown up to `public`.
+pub const ORGANISATION: &str = "levels: [public, internal, confidential]
+runners:
+  claude-code:
+    tools: this machine
+    model: Anthropic, under the organisation's agreement
+    agreement: EU, no retention, no training
+    up_to: internal
+    breakdown:
+      up_to: public
+      model: claude-opus-5-5
+      effort: high
+";
+
+/// Writes `ORGANISATION` in a folder of its own, and gives `.watchbill/watchbill.yml` of the repository
+/// the level `public`, so that the breakdown is handed out to `claude-code`. The folder is kept by the caller.
+pub fn cleared(repository: &Path) -> (Folder, PathBuf) {
+    let place = folder_named("organisation");
+    let path = place.path.join("organisation.yml");
+    fs::write(&path, ORGANISATION).expect("the organisation's file could not be written");
+    let mut yml = read(&config(repository));
+    yml.push_str("confidentiality: public\n");
+    fs::write(config(repository), yml).expect("watchbill.yml could not be written");
+    (place, path)
+}

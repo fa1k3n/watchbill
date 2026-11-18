@@ -1132,3 +1132,30 @@ fn test_WB_RULE_46_a_model_table_with_something_under_local_models_is_refused() 
         assert!(message.contains("models.yml"), "{:?}: {}", bad, message);
     }
 }
+
+// The breakdown asks its questions on the issue (#95).
+
+#[test]
+fn test_WB_RULE_47_the_breakdown_may_post_its_questions_on_the_issue_and_nothing_else() {
+    let row = &first_revision().roles["breakdown"];
+    assert!(row.may.contains(&"Post its questions on the issue, one comment each.".to_string()), "{:?}", row.may);
+    let posts: Vec<&String> = row.may.iter().filter(|each| each.to_lowercase().contains("post")).collect();
+    assert_eq!(posts.len(), 1, "{:?}", row.may);
+    assert!(row.reads.contains(&"The issue with its comments, the answers of a person among them.".to_string()), "{:?}", row.reads);
+}
+
+// Work is pushed (#98).
+
+#[test]
+fn test_WB_RULE_48_the_breakdown_the_tester_the_build_and_the_fix_may_push_to_the_branch_of_the_issue() {
+    let revision = first_revision();
+    for name in ["breakdown", "tester", "build", "fix"] {
+        let row = &revision.roles[name];
+        let pushes: Vec<&String> = row.may.iter().filter(|each| each.starts_with("Push") && each.contains("to the branch of the issue")).collect();
+        assert_eq!(pushes.len(), 1, "{}: {:?}", name, row.may);
+    }
+    for name in ["review", "officer"] {
+        let row = &revision.roles[name];
+        assert!(!row.may.join(" ").to_lowercase().contains("push"), "{}: {:?}", name, row.may);
+    }
+}

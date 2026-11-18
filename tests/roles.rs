@@ -43,6 +43,9 @@ const PRODUCTS: [&str; 24] = [
     "merge request",
 ];
 
+// The line of a prompt that has not yet run on a project.
+const DRAFT: &str = "Draft: this prompt has not yet run on a project.";
+
 fn roles_folder() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("share/watchbill/revision/roles")
 }
@@ -317,11 +320,10 @@ fn test_WB_ROLE_7_every_prompt_is_utf8_with_lf_and_ends_with_one_line_break() {
 
 #[test]
 fn test_WB_ROLE_8_each_prompt_starts_with_a_line_saying_it_is_a_draft() {
-    for role in ROLES {
-        let text = prompt(role);
-        let first = text.split('\n').next().unwrap();
-        assert_eq!(first, "Draft: this prompt has not yet run on a project.", "{}", role);
-    }
+    // From revision 0.0.7 only the prompt that has not yet run on a project keeps the line (#98, WB-ROLE-66).
+    let text = prompt("fix");
+    let first = text.split('\n').next().unwrap();
+    assert_eq!(first, DRAFT, "fix");
 }
 
 // Where the work is (#43): the words a session needs to know where it works and where it reads.
@@ -764,9 +766,10 @@ fn test_WB_ROLE_55_the_breakdown_reads_the_settings_of_the_checks_so_that_what_a
 #[test]
 fn test_WB_ROLE_56_the_first_lines_of_the_breakdown_say_it_runs_on_a_local_model_unless_a_person_cleared_another() {
     let text = prompt("breakdown");
-    let first: Vec<&str> = text.split('\n').take(3).collect();
+    // The line stood third, after the draft line, until the draft line went from the breakdown (#98).
+    let first: Vec<&str> = text.split('\n').take(2).collect();
     assert_eq!(first.get(1).copied(), Some(""), "{:?}", first);
-    let line = first.get(2).copied().unwrap_or_default();
+    let line = first.first().copied().unwrap_or_default();
     assert!(line.starts_with("Run this session on a local model."), "{:?}", first);
     assert!(line.contains("Run it on another runner only where a person has cleared that runner for the breakdown."), "{:?}", first);
 }
@@ -774,11 +777,152 @@ fn test_WB_ROLE_56_the_first_lines_of_the_breakdown_say_it_runs_on_a_local_model
 #[test]
 fn test_WB_ROLE_57_the_last_message_of_the_breakdown_has_its_fields_in_order() {
     let found = fields(&part("breakdown", "## How you end"));
-    assert_eq!(found, ["model", "effort", "file", "requirements", "questions", "needs_person"], "{:?}", found);
+    assert_eq!(found, ["model", "effort", "file", "requirements", "questions", "asked", "needs_person"], "{:?}", found);
     let requirements = field_line("breakdown", "requirements");
     assert!(requirements.contains("how many requirements the file holds"), "{}", requirements);
     let questions = field_line("breakdown", "questions");
     assert!(questions.contains("how many questions the file holds"), "{}", questions);
     let file = field_line("breakdown", "file");
     assert!(file.contains("the commit that holds it"), "{}", file);
+}
+
+// The level of a finding stands where the program reads it (#82, for `wb handover` of #88).
+
+#[test]
+fn test_WB_ROLE_68_a_finding_of_the_review_starts_with_its_number_and_its_level() {
+    let body = part("review", "## What you produce");
+    let round_1 = body.split_once("In round 2,").expect("round 2").0;
+    assert!(round_1.contains("starts with its number and its level: `<n>. must` or `<n>. note`"), "{}", round_1);
+    assert!(!prompt("review").contains("F1"), "the review still numbers its findings F1");
+    let findings = field_line("review", "findings");
+    assert!(findings.contains("`<n>. must` or `<n>. note`"), "{}", findings);
+}
+
+#[test]
+fn test_WB_ROLE_68_the_fix_reads_a_finding_by_its_number_and_its_level() {
+    let body = part("fix", "## What you produce");
+    assert!(body.contains("A finding starts with its number and its level: `<n>. must` or `<n>. note`."), "{}", body);
+}
+
+// The breakdown asks its questions on the issue, and a second session folds the answers in (#95).
+
+#[test]
+fn test_WB_ROLE_60_each_question_is_posted_as_its_own_comment_and_never_twice() {
+    let point = breakdown_point("## What you produce", "- Each question is also posted as its own comment on the issue.");
+    assert!(point.contains("Its first line is `[question] {issue}.q<n>`"), "{}", point);
+    assert!(point.contains("with the place in the code or the issue it is about"), "{}", point);
+    assert!(point.contains("You post no question twice"), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_61_a_person_answers_in_a_comment_that_names_the_question_or_in_its_thread() {
+    let point = breakdown_point("## What you produce", "- A person answers in a comment whose first line is `[answer] {issue}.q<n>`,");
+    assert!(point.contains("or in the question's thread where the tracker has threads"), "{}", point);
+    assert!(point.contains("An answer counts only from a person"), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_62_a_second_fresh_session_folds_the_answers_into_the_file_and_commits_it_alone() {
+    let point = breakdown_point("## What you produce", "- A second session, a fresh one, folds the answers in.");
+    for what in [
+        "you read the issue with its comments",
+        "take each answer of a person as part of the issue",
+        "in the requirements, `changes`, `reads` or `existing_tests_changed`",
+        "remove the question answered",
+        "A question with no answer you keep",
+        "You commit the file alone again.",
+    ] {
+        assert!(point.contains(what), "{}: {}", what, point);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_63_the_last_message_of_the_breakdown_names_the_comments_it_posted() {
+    let found = fields(&part("breakdown", "## How you end"));
+    let at = found.iter().position(|name| name == "asked").expect("no field asked");
+    assert_eq!(found[at - 1], "questions", "{:?}", found);
+    let asked = field_line("breakdown", "asked");
+    assert!(asked.contains("the comments you posted"), "{}", asked);
+    let questions = field_line("breakdown", "questions");
+    assert!(questions.contains("open"), "{}", questions);
+}
+
+// The prompts after the second run (#98).
+
+// The roles that commit their work on the branch of the issue.
+const COMMITTERS: [&str; 4] = ["breakdown", "tester", "build", "fix"];
+
+#[test]
+fn test_WB_ROLE_64_the_breakdown_the_tester_the_build_and_the_fix_say_to_commit_and_then_push_to_the_branch() {
+    for role in COMMITTERS {
+        let body = part(role, "## What you produce");
+        let found = body.split('\n').any(|line| {
+            let lower = line.to_lowercase();
+            match (lower.find("commit"), lower.find("push")) {
+                (Some(commit), Some(push)) => commit < push && lower[push..].contains("to {branch}"),
+                _ => false,
+            }
+        });
+        assert!(found, "{}: no point says to commit and then push to {{branch}}: {}", role, body);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_64_the_breakdown_the_tester_the_build_and_the_fix_stop_when_the_work_is_pushed() {
+    for role in COMMITTERS {
+        let body = part(role, "## How you end");
+        let stop = body.split('\n').find(|line| line.starts_with("Stop when"));
+        let stop = stop.unwrap_or_else(|| panic!("{}: no line that starts with Stop when", role));
+        assert!(stop.contains("pushed to {branch}"), "{}: {}", role, stop);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_64_the_last_message_names_the_commit_that_was_pushed() {
+    let file = field_line("breakdown", "file");
+    assert!(file.contains("the commit that holds it, as pushed to {branch}"), "{}", file);
+    for role in ["tester", "build", "fix"] {
+        let pushed = field_line(role, "pushed");
+        assert!(pushed.contains("commit"), "{}: {}", role, pushed);
+        assert!(pushed.contains("pushed to {branch}"), "{}: {}", role, pushed);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_65_a_requirement_is_what_the_change_must_do_and_a_test_or_a_reading_of_the_code_can_show() {
+    let point = breakdown_point("## What you produce", "- A requirement is what the change must do,");
+    assert!(point.contains("and that a test or a reading of the code can show"), "{}", point);
+    assert!(point.contains("A clause that no test can show stays a requirement and says so in its text"), "{}", point);
+    assert!(point.contains("so that the review knows to read for it"), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_65_how_an_existing_test_changes_goes_under_existing_tests_changed_never_as_a_requirement() {
+    let point = breakdown_point("## What you produce", "- A requirement is what the change must do,");
+    assert!(point.contains("How an existing test changes goes under `existing_tests_changed`, with the reason, and never as a requirement."), "{}", point);
+    let list = breakdown_point("## What you produce", "- `existing_tests_changed`:");
+    assert!(list.contains("by name, and the reason"), "{}", list);
+}
+
+#[test]
+fn test_WB_ROLE_66_the_draft_line_stands_in_the_fix_and_in_no_other_role_file() {
+    let mut names: Vec<String> = fs::read_dir(roles_folder())
+        .expect("the roles folder could not be read")
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    assert!(names.contains(&"fix.md".to_string()), "{:?}", names);
+    for name in names {
+        let text = String::from_utf8(raw(&name)).unwrap();
+        assert_eq!(text.contains(DRAFT), name == "fix.md", "{}", name);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_67_where_the_address_shows_no_description_the_review_says_so_as_a_finding() {
+    let body = part("review", "## What you read");
+    let point = body.split('\n').find(|line| line.starts_with("- Then its description and its commit messages,"));
+    let point = point.unwrap_or_else(|| panic!("no point for the description: {}", body));
+    assert!(point.contains("Where {change_address} shows no description of the change, say so as a finding"), "{}", point);
+    assert!(point.contains("do not judge the change as if it had none"), "{}", point);
 }

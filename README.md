@@ -9,7 +9,7 @@
 
 A harness for AI agents in embedded software development, deployed at a fixed revision onto a project that already exists.
 
-**Status: an idea, written down 2026-11-16. Only `wb init` is built, and nothing reads the file it writes yet.**
+**Status: an idea, written down 2026-11-16. Built: `wb init`, `wb check`, `wb prompt`, `wb accept` and `wb revision`. Nothing hands work from one role to the next yet, and `wb` starts no session.**
 
 ## What it is to be
 
@@ -136,7 +136,8 @@ An address that ends in `--comments` alone shows the comments and hides both the
 - A value is taken as it is given, also when it starts with `-` (`--issue -x` or `--issue=-x`) or holds a line break.
 - A placeholder that the prompt uses and that got no value, given or derived, is refused by name. An option for one it does not use is ignored. An empty value (`--issue ""`, or a variable that is not set) is refused by name, as an option with no value is: a prompt is never handed over with a hole in it. Only an empty value is refused: a value of white space is taken as it is given.
 - `--parts` prints, in place of the text, the SHA-256 and the path of each part, one line each, in the form `sha256sum` prints. Run `sha256sum -c` on them at the root of the repository to see that the files are as they were.
-- `--stamp` prints, in place of the text, the stamp of the assignment: what was handed out ([docs/revision.md](docs/revision.md), point 12). It is lines of `name: value` in this order: `role`, `model`, `effort`, `runner`, `version`, `revision`, `issue`, `change`, `round`, `branch`, `checkout`, `time`, then one line `part: <sha256>  <path>` for each part. `model` and `effort` are those of the model table for the role. `runner` is empty until a runner is given. `version` and `revision` are those of the pinned revision. `time` is UTC, as `2026-11-17T18:04:05Z`. A value that is empty, or that the prompt of the role does not hold (`--change` for `build`), is written as its name and the colon alone: it was not handed out. A value of `--issue`, `--change`, `--round`, `--branch` or `--checkout` that holds a control character, a line or paragraph separator, or white space at its start or end is refused by name, as one field must stay one line that a comment can trim. `--stamp` with `--parts`, and either given twice, are used wrongly.
+- `--runner <name>` names the runner the prompt is handed to. The breakdown needs it: see [Confidentiality](#confidentiality). For the tester, the build, the review and the fix it is taken without a check in this revision, and the stamp names it. A value that is empty, given twice, or not one plain line is used wrongly.
+- `--stamp` prints, in place of the text, the stamp of the assignment: what was handed out ([docs/revision.md](docs/revision.md), point 12). It is lines of `name: value` in this order: `role`, `model`, `effort`, `runner`, `version`, `revision`, `issue`, `change`, `round`, `branch`, `checkout`, `time`, then one line `part: <sha256>  <path>` for each part. `model` and `effort` are those of the model table for the role, and for the breakdown those its runner is cleared with. `runner` is the value of `--runner`, and empty when none is given. `version` and `revision` are those of the pinned revision. `time` is UTC, as `2026-11-17T18:04:05Z`. A value that is empty, or that the prompt of the role does not hold (`--change` for `build`), is written as its name and the colon alone: it was not handed out. A value of `--issue`, `--change`, `--round`, `--branch` or `--checkout` that holds a control character, a line or paragraph separator, or white space at its start or end is refused by name, as one field must stay one line that a comment can trim. `--stamp` with `--parts`, and either given twice, are used wrongly.
 
 ### An issue with a file
 
@@ -154,8 +155,8 @@ The flow of an issue is: the breakdown reads the issue and writes `.watchbill/is
 The exit status:
 
 - **0**: the prompt, or with `--stamp` the stamp, is printed.
-- **1**: it was refused and nothing is printed: the check does not hold, the clock reads before 1970 (`--stamp`), the role is not one of the revision (the roles it has are named), a project file is not UTF-8, a placeholder is not known or got no value, the branch is not found or not one, the issue's file is there and is not accepted (or changed since), `watchbill.yml` holds `task_address` or `{task}` in a pattern, or a value derived for the stamp (the checkout, the branch) is not one plain line.
-- **2**: `wb prompt` was used wrongly (no role, a third word or an option that is not known, the issue given as a word and as `--issue`, an option given twice, with no value or with an empty one, `--stamp` with `--parts`, an option given twice, a stamped value that is not one plain line, an issue or change that fills a pattern and is not plain), the folder is not in a git repository, or Watchbill is not set up. The usage or the reason is on standard error.
+- **1**: it was refused and nothing is printed: the breakdown's runner is not cleared for it (see [Confidentiality](#confidentiality)), the check does not hold, the clock reads before 1970 (`--stamp`), the role is not one of the revision (the roles it has are named), a project file is not UTF-8, a placeholder is not known or got no value, the branch is not found or not one, the issue's file is there and is not accepted (or changed since), `watchbill.yml` holds `task_address` or `{task}` in a pattern, or a value derived for the stamp (the checkout, the branch) is not one plain line.
+- **2**: `wb prompt` was used wrongly (no role, a third word or an option that is not known, the issue given as a word and as `--issue`, an option given twice, with no value or with an empty one, `--stamp` with `--parts`, an option given twice, a stamped value that is not one plain line, an issue or change that fills a pattern and is not plain, the breakdown with no `--runner`), the folder is not in a git repository, or Watchbill is not set up. The usage or the reason is on standard error.
 
 The one who starts a session posts its stamp on the issue, one comment for each session, the first line `[stamp] <role> round <n>`, and the lines of the stamp after it. Where a session is started by hand, the stamp is posted as it was printed. A session with no stamp on its issue is not taken as the work of a role.
 
@@ -165,7 +166,7 @@ role: build
 model: claude-sonnet-5-5
 effort: medium
 runner:
-version: 0.0.6
+version: 0.0.7
 revision: 3f0c1d9e…
 issue: 12
 change:
@@ -185,6 +186,36 @@ set -- build --issue 12 --requirements WB-X-1 --checkout "$PWD" --branch issue-1
 wb prompt "$@" --parts > "$t/session.sha256" && wb prompt "$@" > "$t/session.md" || exit 1
 mv "$t/session.sha256" "$t/session.md" . && your-agent --prompt-file session.md
 ```
+
+### Confidentiality
+
+Where an assignment may run is the organisation's to say, not the project's ([docs/revision.md](docs/revision.md), point 11). In this revision it is checked for the breakdown, which reads more of the code than any other role.
+
+The organisation lays out one file on each machine, by its own means: `/etc/watchbill/organisation.yml`. `wb` reads it from there and from nowhere else: no option and no environment variable changes the path, so a team cannot clear a runner for itself. It is read through the same loader as every YAML file of `wb`.
+
+```yaml
+levels: [public, internal, confidential]   # from the least to the most restrictive
+runners:
+  claude-code:
+    tools: this machine
+    model: Anthropic, under the organisation's agreement
+    agreement: <region, retention, training>
+    up_to: internal                        # the highest level it may be given
+    breakdown:                             # only when the runner is cleared for the breakdown
+      up_to: public                        # the highest level of an assignment it may break down
+      model: claude-opus-5-5
+      effort: high
+```
+
+- `levels` is at least one name, each once, from the least to the most restrictive.
+- A runner has `tools`, `model`, `agreement` and `up_to`, which is one of the levels. `breakdown` is there only when the runner is cleared for the breakdown: its `up_to` is no higher than the runner's own, its `model` is an exact model ID and its `effort` is one of the model table's.
+- A key that is not known, at any depth, a level written twice, a field missing or a value of the wrong type is refused, with the file and the place named.
+
+The repository states its own level, as the line `confidentiality:` of `.watchbill/watchbill.yml`. Where the line is missing, the level is the most restrictive of the list. A level that is not on the list is refused by name, and so are `levels` and `runners` in `watchbill.yml`: they are the organisation's.
+
+`wb prompt breakdown <issue> --runner <name>` hands out the prompt only when the organisation's file is there, names the runner, the runner has `breakdown`, and the repository's level is no higher than the breakdown's `up_to`. Otherwise it prints nothing on standard output, names on standard error the file it looked for, the runner, or the level and the `up_to`, and ends with 1. With no `--runner` the breakdown ends with 2 and the usage. Its stamp has `runner: <name>` and the `model` and `effort` of the runner's `breakdown`, and `--parts` adds two lines after the parts: `level: <the repository's level>` and `runner: <name>`.
+
+What it does not do yet (#11): the tester, the build, the review and the fix are not refused on a runner or a missing file, and the level of an issue is not read. It cannot stop a person from pasting code into another tool, or running a session with a prompt that `wb` did not hand out. The stamp on the issue is what shows where the work was handed out.
 
 ## The issue's file and its acceptance
 
@@ -231,7 +262,7 @@ wb accept: commit the acceptance alone, so the history holds it before any work 
 
 An issue's file counts as accepted only while the SHA-256 in its acceptance is that of the file as it is. The function `watchbill::issue::is_accepted` answers that. One byte changed, and it is not accepted: it is accepted again by removing the `.accepted` and running `wb accept`.
 
-What acceptance cannot stop: the hash stops a change after the acceptance, not a false acceptance. Where a person and the agents share one account, an agent can run `wb accept` itself, or write the `sha256:` line by hand to match a file it changed ([docs/revision.md](docs/revision.md), point 13). Only accounts of their own for the agents stop that.
+What acceptance cannot stop: the hash stops a change after the acceptance, not a false acceptance. Where a person and the agents share one account, an agent can run `wb accept` itself, or write the `sha256:` line by hand to match a file it changed ([docs/revision.md](docs/revision.md), point 13). Only accounts of their own for the agents stop that, with the person's `[accepted]` comment on the issue (point 13 and point 14).
 
 `wb accept` never follows a link: `.watchbill` or `.watchbill/issues` that is a link, or is not a folder, is refused by name, and nothing is read or written through it. The acceptance is written whole or not at all, to a file of its own in the same folder and then linked to its name. An issue is named by at most 64 letters, digits, `.`, `_` and `-`. A path of the file that names the root (`.`, `./`) is refused. What `wb accept` prints of the file has its control characters escaped. A git name or email that holds `<` or `>` is refused.
 

@@ -31,8 +31,9 @@ In a checkout the same files are under `share/watchbill/`.
 
 ## 2. The roles of the first revision
 
-Tester, build, review and fix. The watch officer has rows in the rule table and no prompt yet (point 10). Architect and breakdown come in a later revision.
+Tester, build, review and fix. The watch officer has rows in the rule table and no prompt yet (point 10). The breakdown comes first in a later revision (#64, point 13). The architect comes later.
 
+- **Breakdown:** reads a person's issue and the code, and writes the task's file (point 13). It never changes the issue, the code or a test, and never answers what the issue leaves open. It is the one role that reads the code without a list.
 - **Tester:** writes the tests from the requirement and never reads the implementation.
 - **Build:** makes the tests pass and never changes them.
 - **Review:** a fresh session that reports findings, clause by clause, and never fixes.
@@ -77,7 +78,9 @@ One exact model ID and one effort for each role that has a prompt. Never "latest
 
 Where a task or the project names another model or effort than the table, the table wins. A task may ask for a stronger model or a higher effort, never for less, and the stamp of #31 records what ran (#51).
 
-Figures on the findings of the first runs correct it. A changed model is a new revision. The table is for a vendor's runner; a runner with a local model gets a table of its own when the first one exists (point 11).
+Figures on the findings of the first runs correct it. A changed model is a new revision. The table is for a vendor's runner. The models of local runners have a place of their own in the table, empty until the first one exists (point 11).
+
+The breakdown has no line for a vendor's runner. It reads the code without a list, so it sends a model more of the code than any other role. It runs on a local runner, or on another runner only where a person has cleared that runner for the breakdown in the organisation's file (point 11). There is no word per task for it. Until the check of #11 is built, nothing refuses another runner: the breakdown's prompt says where it should run, and the stamp says where it was handed out (#64).
 
 ## 6. The format of the tables
 
@@ -106,6 +109,7 @@ What follows from it:
 | `.watchbill/revision/` | The files of the revision, byte for byte as the package has them |
 | `.watchbill/revision.sha256` | The manifest |
 | `.watchbill/project/` | The project's own text for its agents. Not part of the revision |
+| `.watchbill/tasks/` | The task's file of each task and its acceptance (point 13). Not part of the revision |
 
 The team and an assessor then read exactly what the agents are told, and a clone carries its revision. The files under `.watchbill/revision/` are written by `wb` and never by hand.
 
@@ -165,6 +169,19 @@ What a session ran as is said by the one who started it, not by the session. Set
 - **The agent's own word:** `model` and `effort` stay in the last message, as what the session says of itself (#69). Where they differ from the stamp, that is a finding for a person, and the stamp is what counts. `unknown` is written down, not a finding: a session often cannot see its own effort.
 - **A session with no stamp:** its work is not taken as the work of a role, and nothing is handed on from it. Until a program hands work on (#66, the officer), a person keeps this rule: no stamp on the task, no next role.
 
+## 13. The task's file
+
+What a task is, read from a person's issue, in a form `wb` reads. Settled with the owner on 2026-11-18 (#64), after two runs in which every issue had to be made ready by hand before the tester could start.
+
+- **Why it is apart from the issue:** the issue is what the person asked for. The task's file is a reading of it, and a reading is a claim until a person accepts it. The breakdown never changes the issue.
+- **Where it lives:** `.watchbill/tasks/<task>.yml`, in the repository. The breakdown commits it first on the task's branch, alone. It is reviewed and merged with the change, so the history keeps what each task was read as.
+- **What it holds:** the task; the SHA-256 of the issue's text it was read from; the requirements, each with an ID, its text and where in the issue it comes from, and for a clause that already holds the existing test that guards it; the interface the tests call; the paths the change may change; what each role may read beside them; the existing tests the change changes; and the questions the issue leaves open. The form is in #74.
+- **What a requirement is without a table:** a point of the task's file. Its ID is the task's number and the point, `54.1`. A test is named after it, a finding points at it, and it can be followed both ways. A project with a table of requirements gives the row's ID instead.
+- **How a person accepts it:** `wb accept <task>` writes `.watchbill/tasks/<task>.accepted`, with the SHA-256 of the task's file, the person's git identity and the time. It refuses while the file holds a question. It never writes over an acceptance that is there: to accept again, the person removes the old one.
+- **An edit after acceptance** voids it: the hash no longer holds, and no prompt of the task is handed out until a person accepts again (#76).
+- **What acceptance cannot stop:** under one account shared by a person and the agents, an agent can run `wb accept` itself. The hash stops a change after acceptance, not a false acceptance. Only accounts of their own (#30), or later a signed commit, stop that.
+- **Without a task's file** a project works as before: the issue holds its numbered requirements, and `wb prompt` is given what it cannot know.
+
 ## The requirements
 
 The pieces that build this have their requirements reserved as Draft rows in `requirements/`:
@@ -176,7 +193,8 @@ The pieces that build this have their requirements reserved as Draft rows in `re
 | `WB-REV` | `requirements/rev.md` | #6 |
 | `WB-PIN` | `requirements/pin.md` | #7 |
 | `WB-CHECK` | `requirements/check.md` | #8 |
-| `WB-PROMPT` | `requirements/prompt.md` | #9, #10, #68 |
+| `WB-PROMPT` | `requirements/prompt.md` | #9, #10, #68, #76 |
 | `WB-CONF` | `requirements/conf.md` | #11 |
+| `WB-TASK` | `requirements/task.md` | #74 |
 
 The move to Rust builds no new area. #21 to #25 port what #2 and #4 to #6 built, row by row, and their new rows are reserved in `requirements/pkg.md`, `init.md`, `rule.md` and `rev.md`.

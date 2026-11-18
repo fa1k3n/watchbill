@@ -494,3 +494,77 @@ fn test_WB_ROLE_35_the_last_message_of_the_tester_gives_the_checks_after_the_gua
     let guards = found.iter().position(|name| name == "guards").expect("guards");
     assert_eq!(found.get(guards + 1).map(String::as_str), Some("checks"), "{:?}", found);
 }
+
+/// The line of a field of the last message, as the prompt writes it under how it ends.
+fn field_line(role: &str, name: &str) -> String {
+    let body = part(role, "## How you end");
+    let start = format!("- `{}`: ", name);
+    let line = body.split('\n').find(|line| line.starts_with(&start));
+    line.unwrap_or_else(|| panic!("{}: no field {}", role, name)).to_string()
+}
+
+// The red of a file of tests that does not load yet (#60).
+
+#[test]
+fn test_WB_ROLE_39_a_file_that_does_not_load_for_the_name_the_task_asks_for_is_red_for_every_test_in_it() {
+    let body = part("tester", "## What you produce");
+    assert!(body.contains("A file of tests that does not load, because a name it calls is missing,"), "{}", body);
+    assert!(body.contains("is red for every test in it"), "{}", body);
+    assert!(body.contains("when the missing name is the one the task asks for and nothing else is missing"), "{}", body);
+}
+
+#[test]
+fn test_WB_ROLE_39_the_tester_stops_when_each_test_was_seen_to_fail_on_its_own_or_with_its_file() {
+    let body = part("tester", "## How you end");
+    assert!(body.contains("you have seen each of them fail, on its own or with the file it is in (or pass, for a guard)"), "{}", body);
+}
+
+#[test]
+fn test_WB_ROLE_40_the_tester_names_the_missing_names_under_red() {
+    let body = part("tester", "## What you produce");
+    assert!(body.contains("Name the missing names under `red`."), "{}", body);
+    let red = field_line("tester", "red");
+    assert!(red.contains("the names it misses"), "{}", red);
+}
+
+#[test]
+fn test_WB_ROLE_41_the_tester_also_runs_each_test_against_a_stand_in_that_gives_a_wrong_answer() {
+    let body = part("tester", "## What you produce");
+    let point = body.split('\n').find(|line| line.starts_with("- Such a red rests on one reason for the whole file."));
+    let point = point.unwrap_or_else(|| panic!("no point for the stand-in: {}", body));
+    assert!(point.contains("Where the language allows it,"), "{}", point);
+    assert!(point.contains("against a stand-in that gives a wrong answer"), "{}", point);
+    assert!(point.contains("in a scratch copy of the checkout that you never commit"), "{}", point);
+    assert!(point.contains("say so under `red`"), "{}", point);
+    assert!(point.contains("Leave this out where the project's own text says not to"), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_41_the_stand_in_is_never_committed() {
+    // The tester still writes no stand-in for the code that it commits.
+    let body = part("tester", "## What you never do");
+    let point = body.split('\n').find(|line| line.starts_with("- You never write the code that makes your tests pass"));
+    let point = point.unwrap_or_else(|| panic!("no point for the code: {}", body));
+    assert!(point.contains("and no stand-in for it that you commit"), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_42_the_reviewer_sees_each_test_fail_on_its_own_where_the_red_was_for_a_whole_file() {
+    let body = part("review", "## What you produce");
+    let round_1 = body.split_once("In round 2,").expect("round 2").0;
+    let point = round_1.split('\n').find(|line| line.contains("red before the code was for the whole file"));
+    let point = point.unwrap_or_else(|| panic!("no point for a red of a whole file: {}", round_1));
+    assert!(point.contains("see each of those tests fail on its own"), "{}", point);
+    assert!(point.contains("Break the code"), "{}", point);
+    assert!(point.contains("in a scratch copy that you never commit"), "{}", point);
+    assert!(point.contains("A test that does not fail is a finding."), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_42_the_reviewer_breaks_code_only_in_a_scratch_copy() {
+    let body = part("review", "## What you never do");
+    let point = body.split('\n').find(|line| line.starts_with("- You never fix anything:"));
+    let point = point.unwrap_or_else(|| panic!("no point for fixing: {}", body));
+    assert!(point.contains("no edit to the change and no commit"), "{}", point);
+    assert!(point.contains("scratch copy"), "{}", point);
+}

@@ -63,3 +63,11 @@ The role prompts: breakdown, tester, build, review and fix. The first revision h
 | WB-ROLE-57 | The breakdown's last message shall have the fields `model`, `effort`, `file`, `requirements` (how many), `questions` and `needs_person`, in this order. Issue: #75. | T | Implemented |
 | WB-ROLE-58 | The list of placeholders shall hold `{issue}` and `{issue_address}`, and not `{task}` or `{task_address}`. Issue: #78. | T | Implemented |
 | WB-ROLE-59 | No file of the roles shall hold the placeholder `{task}` or `{task_address}`. Issue: #78. | T | Implemented |
+| WB-ROLE-60 | The breakdown's prompt shall say that each question is also posted as its own comment on the issue, whose first line is `[question] {issue}.q<n>`, and that a question is never posted twice. Issue: #95. | T | Draft |
+| WB-ROLE-61 | The breakdown's prompt shall say that a person answers in a comment whose first line is `[answer] {issue}.q<n>`, or in the question's thread. Issue: #95. | T | Draft |
+| WB-ROLE-62 | The breakdown's prompt shall say that a second, fresh session folds the answers of a person into the issue's file, removes the questions answered, keeps those with no answer, and commits the file alone. Issue: #95. | T | Draft |
+| WB-ROLE-63 | The breakdown's last message shall have the field `asked`, naming the comments it posted. Issue: #95. | T | Draft |
+| WB-ROLE-64 | The prompts of the breakdown, the tester, the build and the fix shall say to commit and then push to `{branch}`, and their last messages shall name the commit that was pushed. Issue: #98. | T | Draft |
+| WB-ROLE-65 | The breakdown's prompt shall say that a requirement is what the change must do and a test or a reading of the code can show, and that how an existing test changes goes under `existing_tests_changed`, never as a requirement. Issue: #98. | T | Draft |
+| WB-ROLE-66 | The line "Draft: this prompt has not yet run on a project." shall stand in `fix.md` and in no other role file. Issue: #98. | T | Draft |
+| WB-ROLE-67 | The review's prompt shall say that where its address shows no description of the change, the review says so as a finding. Issue: #98. | T | Draft |

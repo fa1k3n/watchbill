@@ -13,6 +13,7 @@ pub mod interrupt;
 pub mod manifest;
 pub mod prompt;
 pub mod rules;
+pub mod task;
 mod word;
 pub mod yamlfile;
 
@@ -28,6 +29,7 @@ pub const USAGE: &str = "usage:
             [--branch <text>] [--task_address <text>]
             [--change_address <text>] [--parts] [--stamp]
   wb revision
+  wb accept <task>
   wb --version
 
   init      set Watchbill up in the git repository of this folder: propose what
@@ -59,6 +61,13 @@ pub const USAGE: &str = "usage:
             wrongly or the repository is not set up. Writes nothing
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes nothing
+  accept    accept the task's file .watchbill/tasks/<task>.yml: read it, hold it
+            to its form, refuse it while it holds a question, say what will be
+            written, and write .watchbill/tasks/<task>.accepted with the
+            SHA-256 of the file, the git user.name and user.email, and the time
+            in UTC. An acceptance that is there is never written over. Ends
+            with 0 when it is accepted, 1 when it is refused, 2 when it was
+            used wrongly or the repository is not set up
 ";
 
 /// Runs a command so that a fault in `wb` itself is not shown as a panic: the hook prints nothing,
@@ -157,7 +166,7 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
             "version".to_string()
         }
         Ok(Some(Word::Value(value))) => match value.to_str() {
-            Some(name @ ("help" | "init" | "check" | "prompt" | "revision")) => name.to_string(),
+            Some(name @ ("help" | "init" | "check" | "prompt" | "revision" | "accept"))=> name.to_string(),
             _ => {
                 let _ = write!(err, "wb: no command '{}'\n\n{}", word(value.as_bytes()), USAGE);
                 return 2;
@@ -181,6 +190,7 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
         "init" => run_init(&mut parser, input, out, err),
         "check" => run_check(&mut parser, out, err),
         "prompt" => run_prompt(&mut parser, out, err),
+        "accept" => run_accept(&mut parser, out, err),
         _ => run_revision(&mut parser, Path::new(manifest::PACKAGE_FOLDER), out, err),
     }
 }
@@ -419,6 +429,46 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
             }
             0
         }
+    }
+}
+
+/// `wb accept <task>`: accepts the task's file (`task::accept`).
+fn run_accept(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let used = |err: &mut dyn Write, why: String| {
+        let _ = write!(err, "wb accept: {}\n\n{}", why, USAGE);
+        2
+    };
+    let mut task: Option<String> = None;
+    loop {
+        let found = match next(parser) {
+            Ok(None) => break,
+            Ok(Some(found)) => found,
+            Err(refused) => return used(err, format!("'{}' is not known", refused)),
+        };
+        match found {
+            Word::Value(value) if task.is_none() => task = Some(word(value.as_bytes())),
+            found => {
+                let refused = named(found, parser);
+                return used(err, format!("'{}' is not known", refused));
+            }
+        }
+    }
+    let Some(task) = task else {
+        return used(err, "a task is needed".to_string());
+    };
+    if !task::is_name(&task) {
+        return used(err, format!("'{}' is not a task: a task is letters, digits, '.', '_' and '-', and does not start with '.'", task));
+    }
+    match init::repository_root(None) {
+        Err(why) => {
+            let _ = writeln!(err, "wb accept: {}.", why);
+            2
+        }
+        Ok(None) => {
+            let _ = writeln!(err, "wb accept: this folder is not in a git repository. Watchbill is set up in one.");
+            2
+        }
+        Ok(Some(root)) => task::accept(&root, &task, out, err),
     }
 }
 

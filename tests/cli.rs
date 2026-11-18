@@ -18,6 +18,7 @@ const USAGE: &str = "usage:
             [--branch <text>] [--task_address <text>]
             [--change_address <text>] [--parts] [--stamp]
   wb revision
+  wb accept <task>
   wb --version
 
   init      set Watchbill up in the git repository of this folder: propose what
@@ -49,6 +50,13 @@ const USAGE: &str = "usage:
             wrongly or the repository is not set up. Writes nothing
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes nothing
+  accept    accept the task's file .watchbill/tasks/<task>.yml: read it, hold it
+            to its form, refuse it while it holds a question, say what will be
+            written, and write .watchbill/tasks/<task>.accepted with the
+            SHA-256 of the file, the git user.name and user.email, and the time
+            in UTC. An acceptance that is there is never written over. Ends
+            with 0 when it is accepted, 1 when it is refused, 2 when it was
+            used wrongly or the repository is not set up
 ";
 
 fn root() -> &'static Path {

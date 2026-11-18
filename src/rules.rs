@@ -9,8 +9,12 @@ use std::path::Path;
 use crate::word::is_word;
 use crate::yamlfile::{self, Document, Part, YamlError};
 
-/// The roles of the first revision. The officer has rows and no prompt yet.
-pub const ROLES: [&str; 5] = ["tester", "build", "review", "fix", "officer"];
+/// The roles of the revision. The officer has rows and no prompt yet. The breakdown has a prompt
+/// from 0.0.5 (#75).
+pub const ROLES: [&str; 6] = ["breakdown", "tester", "build", "review", "fix", "officer"];
+/// The roles with a prompt and no row for a vendor's runner in the model table: they run on a local
+/// runner, or where a person has cleared another for them (docs/revision.md, point 5).
+pub const LOCAL_ONLY: [&str; 1] = ["breakdown"];
 pub const ROLE_FIELDS: [&str; 6] = ["step", "produces", "reads", "may", "may_not_also_hold", "prompt"];
 pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
@@ -50,6 +54,8 @@ pub struct Rules {
     pub added_requirement_goes_to: Vec<String>,
     pub roles: BTreeMap<String, Role>,
     pub models: BTreeMap<String, Model>,
+    /// The models of local runners, by name. Empty until the first local runner exists (point 11).
+    pub local_models: Vec<String>,
 }
 
 fn at(parts: &[&str]) -> Vec<Part> {
@@ -215,6 +221,7 @@ fn read_rules(path: &Path) -> Result<Rules, YamlError> {
         added_requirement_goes_to: added,
         roles,
         models: BTreeMap::new(),
+        local_models: Vec::new(),
     })
 }
 
@@ -230,13 +237,38 @@ fn is_exact(model: &str) -> bool {
         && !parts.contains(&"latest")
 }
 
-fn read_models(path: &Path, roles: &BTreeMap<String, Role>) -> Result<BTreeMap<String, Model>, YamlError> {
+/// The model rows of the roles, and the names under `local_models`.
+type Models = (BTreeMap<String, Model>, Vec<String>);
+
+fn read_models(path: &Path, roles: &BTreeMap<String, Role>) -> Result<Models, YamlError> {
     let doc = yamlfile::load(path)?;
-    doc.only(&[], &["models"])?;
-    doc.need(&[], &["models"])?;
+    doc.only(&[], &["models", "local_models"])?;
+    doc.need(&[], &["models", "local_models"])?;
+    let local = doc.table(&at(&["local_models"]))?;
+    if !local.is_empty() {
+        return Err(doc.fail(
+            &at(&["local_models"]),
+            "the place for the models of local runners stays empty until the first local runner exists (docs/revision.md, points 5 and 11)",
+            false,
+        ));
+    }
     let given = doc.table(&at(&["models"]))?;
-    let with_prompt: Vec<&str> = ROLES.iter().copied().filter(|name| roles[*name].prompt != "none").collect();
+    let with_prompt: Vec<&str> = ROLES
+        .iter()
+        .copied()
+        .filter(|name| roles[*name].prompt != "none" && !LOCAL_ONLY.contains(name))
+        .collect();
     for name in &given {
+        if LOCAL_ONLY.contains(&name.as_str()) {
+            return Err(doc.fail(
+                &at(&["models", name]),
+                &format!(
+                    "{} has no row for a vendor's runner: it runs on a local runner, or on one a person has cleared for it (docs/revision.md, point 5)",
+                    name
+                ),
+                false,
+            ));
+        }
         if !ROLES.contains(&name.as_str()) {
             return Err(doc.fail(
                 &at(&["models", name]),
@@ -279,13 +311,13 @@ fn read_models(path: &Path, roles: &BTreeMap<String, Role>) -> Result<BTreeMap<S
         }
         models.insert(name.to_string(), Model { model, effort });
     }
-    Ok(models)
+    Ok((models, local))
 }
 
 /// Reads and checks both tables. A table that is wrong is refused, naming the file and the place.
 pub fn load(rules_file: impl AsRef<Path>, models_file: impl AsRef<Path>) -> Result<Rules, YamlError> {
     let mut table = read_rules(rules_file.as_ref())?;
-    table.models = read_models(models_file.as_ref(), &table.roles)?;
+    (table.models, table.local_models) = read_models(models_file.as_ref(), &table.roles)?;
     Ok(table)
 }
 

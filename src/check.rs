@@ -240,6 +240,12 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
                 if let Err(why) = &pinned_version {
                     found.push(format!("{}: {}", CONFIG_FILE, why));
                 }
+                // `breakdown: none` is refused where the rule table holds the breakdown, as `wb prompt` refuses it (#97).
+                if let Ok(rules) = crate::rules::load_revision() {
+                    if let Err(why) = crate::issue::file_needed(Path::new(root), rules.roles.contains_key("breakdown")) {
+                        found.push(format!("{}: {}", CONFIG_FILE, why));
+                    }
+                }
                 let installed = manifest::revision_hash(package);
                 match (&pinned_version, &line, &installed) {
                     (_, _, Err(why)) => found.push(format!("the installed wb cannot read its revision: {}", why)),

@@ -548,22 +548,26 @@ pub fn commit_command(issue: &str) -> String {
 /// tree (#97). The first that is not is named, with what to do.
 pub fn committed(root: &Path, issue: &str) -> Result<(), String> {
     for (path, what) in [(format!("{}/{}.yml", FOLDER, issue), "the issue's file"), (format!("{}/{}.accepted", FOLDER, issue), "its acceptance")] {
-        let spec = format!("HEAD:{}", path);
         let root_text = root.display().to_string();
-        let run = crate::detect::git_output(&["-C", &root_text, "show", &spec], None);
-        let Some(run) = run else {
-            return Err("git could not be run. No prompt is handed out.".to_string());
-        };
         let todo = if path.ends_with(".yml") {
             format!("Commit it alone on the branch of the issue: git add {} && git commit -m \"The issue's file ({})\" -- {}", path, issue, path)
         } else {
             format!("Commit it alone: {}", commit_command(issue))
         };
-        if !run.status.success() {
+        // Git itself says what is committed and what is changed, with its own line ends and filters.
+        let ask = |args: &[&str]| -> Result<bool, String> {
+            let mut all = vec!["-C", root_text.as_str()];
+            all.extend(args);
+            crate::detect::git_output(&all, None)
+                .map(|run| run.status.success())
+                .ok_or_else(|| "git could not be run. No prompt is handed out.".to_string())
+        };
+        let spec = format!("HEAD:{}", path);
+        if !ask(&["cat-file", "-e", &spec])? {
             return Err(format!("{} {} is not committed in HEAD. {}. No prompt is handed out.", what, path, todo));
         }
-        if fs::read(root.join(&path)).ok().as_deref() != Some(run.stdout.as_slice()) {
-            return Err(format!("{} {} differs from HEAD in the working tree. {}. No prompt is handed out.", what, path, todo));
+        if !ask(&["diff", "--quiet", "HEAD", "--", &path])? {
+            return Err(format!("{} {} differs from HEAD. {}. No prompt is handed out.", what, path, todo));
         }
     }
     Ok(())

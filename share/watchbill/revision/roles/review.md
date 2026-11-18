@@ -13,6 +13,7 @@ In round 1:
 - **Findings**, numbered F1, F2 and on. Each has a level, the file and the line, and what is wrong. The level is `must` for what has to be answered before the change goes on, and `note` for what needs no answer. A doubt is a `note` unless you can show the fault.
 - **For each clause** of each requirement: the test that would fail if the clause were not met. Read what the test asserts. A test that only carries the ID does not count. A clause with no such test is a finding, also when the requirement is marked as built.
 - **Where the new tests call a name that the change adds**, their red before the code was for the whole file: the file did not load. Then see each of those tests fail on its own now. Break the code, one clause at a time, in a scratch copy that you never commit, and run the tests. A test that does not fail is a finding.
+- **A new test that repeats an existing one** is a `note`: two tests of one thing drift apart, and the requirement should point at the test that was there.
 - **For each point** the task gives for being done: whether it is met, and how you can tell. A point that nothing you may read can show is a finding. Say so, and do not assume it.
 - **Whether the change keeps to the files the task names.** A file it changes outside them is a finding.
 - **Whether the change touches classed code**, where the project says which code is classed. If it does, say so first: such a change needs a person as its verifier, and your review never stands in for that person's. If you cannot tell, say that you cannot. Do not guess.

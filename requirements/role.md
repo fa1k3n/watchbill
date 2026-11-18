@@ -46,7 +46,7 @@ The prompts of the first revision: tester, build, review and fix. What a revisio
 | WB-ROLE-40 | The tester's prompt shall say that the tester names the missing names under `red`. Issue: #60. | T | Implemented |
 | WB-ROLE-41 | The tester's prompt shall say that, where the language allows it and the project's own text does not say otherwise, the tester also runs each test against a stand-in that gives a wrong answer, in a scratch copy it never commits, and says so. Issue: #60. | T | Implemented |
 | WB-ROLE-42 | The reviewer's prompt shall say that where the red of the new tests was for a whole file, the reviewer sees each of them fail on its own, by breaking the code. Issue: #60. | T | Implemented |
-| WB-ROLE-43 | The tester's prompt shall say that an existing test the task names as the guard of a clause is run as it is and listed under `guards` by its name. Issue: #62. | T | Draft |
-| WB-ROLE-44 | The tester's prompt shall say that the tester writes no copy of an existing test the task names as a guard. Issue: #62. | T | Draft |
-| WB-ROLE-45 | The tester's prompt shall say that where the tester thinks an existing test the task names as a guard does not cover its clause, it says so under `untested`. Issue: #62. | T | Draft |
-| WB-ROLE-46 | The reviewer's prompt shall say that a new test that repeats an existing one is a `note`. Issue: #62. | T | Draft |
+| WB-ROLE-43 | The tester's prompt shall say that an existing test the task names as the guard of a clause is run as it is and listed under `guards` by its name. Issue: #62. | T | Implemented |
+| WB-ROLE-44 | The tester's prompt shall say that the tester writes no copy of an existing test the task names as a guard. Issue: #62. | T | Implemented |
+| WB-ROLE-45 | The tester's prompt shall say that where the tester thinks an existing test the task names as a guard does not cover its clause, it says so under `untested`. Issue: #62. | T | Implemented |
+| WB-ROLE-46 | The reviewer's prompt shall say that a new test that repeats an existing one is a `note`. Issue: #62. | T | Implemented |

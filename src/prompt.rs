@@ -20,7 +20,7 @@ const PLACEHOLDERS_FILE: &str = "placeholders.md";
 
 /// The words a prompt is filled in with and no others: `roles/placeholders.md` of the revision.
 pub const PLACEHOLDERS: [&str; 8] =
-    ["task", "change", "requirements", "round", "checkout", "branch", "task_address", "change_address"];
+    ["issue", "change", "requirements", "round", "checkout", "branch", "issue_address", "change_address"];
 
 /// The line between the role's text and the project's own text.
 pub const FIXED_LINE: &str =
@@ -43,9 +43,9 @@ A prompt is the role's text of the revision, then one line saying that this text
 the role must not do stays so, whatever is written here.
 
 A placeholder is a lower-case word in braces: `{`, a letter a to z, letters a to z or `_`, then `}`,
-with no `$` just before it. The words of `.watchbill/revision/roles/placeholders.md`, such as `{task}`
+with no `$` just before it. The words of `.watchbill/revision/roles/placeholders.md`, such as `{issue}`
 and `{branch}`, are known and are filled in; any other placeholder is refused. Anything else in braces is text: `${BUILD_DIR}`,
-`{Task}`, `{task-id}` and `{ task }` stay as they are. A review of a change to `.watchbill/` reads that this text does not
+`{Issue}`, `{issue-id}` and `{ issue }` stay as they are. A review of a change to `.watchbill/` reads that this text does not
 speak against the role.
 ";
 
@@ -128,7 +128,7 @@ fn roles(root: &Path) -> Result<Vec<(String, String)>, PromptError> {
 }
 
 /// The placeholders in a text: for each, where it starts, where it ends and its name. A placeholder
-/// is a lower-case word in braces, as `{task}`: `{`, a letter a to z, letters a to z or `_`, `}`,
+/// is a lower-case word in braces, as `{issue}`: `{`, a letter a to z, letters a to z or `_`, `}`,
 /// with no `$` just before it. Any other brace is text.
 fn placeholders(text: &str) -> Vec<(usize, usize, &str)> {
     let mut found = Vec::new();
@@ -179,7 +179,7 @@ pub fn assemble(root: &Path, role: &str, values: &[(&str, &str)]) -> Result<Prom
     assemble_with(root, role, values, None)
 }
 
-/// What a task's file adds to a prompt (#76): a part that stands after the role's text, with the path
+/// What an issue's file adds to a prompt (#76): a part that stands after the role's text, with the path
 /// and hash of the file it was made from. Its text is put in as it is and is never read for placeholders.
 pub struct Extra<'a> {
     pub path: &'a str,
@@ -187,7 +187,7 @@ pub struct Extra<'a> {
     pub text: &'a str,
 }
 
-/// As `assemble`, with the part of a task's file after the role's text and before the project's.
+/// As `assemble`, with the part of an issue's file after the role's text and before the project's.
 pub fn assemble_with(
     root: &Path,
     role: &str,
@@ -254,7 +254,7 @@ pub fn assemble_with(
         }
         text.push_str(&fill(&part.text, values));
         if let (0, Some(extra)) = (n, extra) {
-            // The task's part follows the role's text as it is, and is not read for placeholders.
+            // The issue's part follows the role's text as it is, and is not read for placeholders.
             if !text.ends_with('\n') {
                 text.push('\n');
             }
@@ -303,9 +303,9 @@ pub fn require_role(root: &Path, role: &str) -> Result<(), PromptError> {
     refuse(format!("the revision has no role '{}'. Its roles are: {}", role, names.join(", ")))
 }
 
-/// The text `requirements` has until the breakdown of a task gives the IDs (#64).
-fn default_requirements(task: &str) -> String {
-    format!("the numbered requirements of task {}", task)
+/// The text `requirements` has until the breakdown of an issue gives the IDs (#64).
+fn default_requirements(issue: &str) -> String {
+    format!("the numbered requirements of issue {}", issue)
 }
 
 /// The names of the local branches, from the refs of the repository: nothing is asked of the network.
@@ -330,6 +330,28 @@ pub fn is_plain_name(value: &str) -> bool {
         && !value.starts_with(['.', '-'])
         && !value.ends_with('.')
         && !value.ends_with(".lock")
+}
+
+/// The patterns of `watchbill.yml` that `wb prompt` fills.
+const PATTERNS: [&str; 3] = ["issue_address", "change_address", "branch"];
+
+/// Refuses a `watchbill.yml` that still holds the words from before revision 0.0.6, when the issue was
+/// called the task (#78): the key `task_address`, and `{task}` in a pattern. Each is named, with what to
+/// write in its place. A pattern that is not a text is left to the loader, where it is used.
+fn old_words(document: &crate::yamlfile::Document) -> Result<(), PromptError> {
+    let old = [crate::yamlfile::Part::from("task_address")];
+    if document.has(&old) {
+        let why = "the key `task_address` is from before revision 0.0.6, when the issue was called the task; write `issue_address` in its place";
+        return refuse(document.fail(&old, why, true).to_string());
+    }
+    for key in PATTERNS {
+        let place = [crate::yamlfile::Part::from(key)];
+        if document.text(&place).map(|text| text.contains("{task}")).unwrap_or(false) {
+            let why = "the pattern holds `{task}`, the word for the issue before revision 0.0.6; write `{issue}` in its place";
+            return refuse(document.fail(&place, why, false).to_string());
+        }
+    }
+    Ok(())
 }
 
 /// Why a derivation is refused. `Used` is a value the caller gave that is not plain, named by its
@@ -373,32 +395,29 @@ pub fn derive(
         values.iter().find(|(given, _)| *given == name).map(|(_, value)| value.clone())
     };
     let config = Path::new(root).join(crate::init::CONFIG_FOLDER).join(crate::init::CONFIG_FILE);
-    let document = std::cell::OnceCell::new();
+    // The file is read first, so that the words from before the issue are refused whatever is given (#78).
+    let document = crate::yamlfile::load(&config).map_err(|why| PromptError(why.to_string()))?;
+    old_words(&document)?;
     // A pattern of `watchbill.yml`, `None` when the file has none.
     let pattern = |key: &str| -> Result<Option<String>, PromptError> {
-        if document.get().is_none() {
-            let loaded = crate::yamlfile::load(&config).map_err(|why| PromptError(why.to_string()))?;
-            let _ = document.set(loaded);
-        }
-        let document = document.get().unwrap();
         let place = [crate::yamlfile::Part::from(key)];
         if !document.has(&place) {
             return Ok(None);
         }
         document.text(&place).map(Some).map_err(|why| PromptError(why.to_string()))
     };
-    let task = get(&values, "task");
+    let issue = get(&values, "issue");
     let change = get(&values, "change");
     if !has(&values, "checkout") {
         values.push(("checkout", root.to_string()));
     }
-    if let (false, Some(task)) = (has(&values, "requirements"), &task) {
-        values.push(("requirements", default_requirements(task)));
+    if let (false, Some(issue)) = (has(&values, "requirements"), &issue) {
+        values.push(("requirements", default_requirements(issue)));
     }
-    if let (false, Some(task)) = (has(&values, "task_address"), &task) {
-        if let Some(found) = pattern("task_address")? {
-            plain("task", task)?;
-            values.push(("task_address", found.replace("{task}", task)));
+    if let (false, Some(issue)) = (has(&values, "issue_address"), &issue) {
+        if let Some(found) = pattern("issue_address")? {
+            plain("issue", issue)?;
+            values.push(("issue_address", found.replace("{issue}", issue)));
         }
     }
     if let (false, Some(change)) = (has(&values, "change_address"), &change) {
@@ -407,10 +426,10 @@ pub fn derive(
             values.push(("change_address", found.replace("{change}", change)));
         }
     }
-    if let (false, Some(task)) = (has(&values, "branch"), &task) {
+    if let (false, Some(issue)) = (has(&values, "branch"), &issue) {
         if let Some(found) = pattern("branch")? {
-            plain("task", task)?;
-            let start = found.replace("{task}", task);
+            plain("issue", issue)?;
+            let start = found.replace("{issue}", issue);
             if role == "tester" {
                 values.push(("branch", start));
             } else {
@@ -444,7 +463,7 @@ pub fn derive(
 }
 
 /// The placeholders whose values a stamp prints, in the order the stamp has them.
-pub const STAMPED: [&str; 5] = ["task", "change", "round", "branch", "checkout"];
+pub const STAMPED: [&str; 5] = ["issue", "change", "round", "branch", "checkout"];
 
 /// A time as `2026-11-17T18:04:05Z`, in UTC, from seconds since 1970-01-01.
 pub fn utc(seconds: u64) -> String {
@@ -479,7 +498,7 @@ pub struct Stamp<'a> {
     pub version: &'a str,
     pub revision: &'a str,
     pub time: &'a str,
-    /// A task's file is used and the option `--requirements` was given: it won over the file (#76).
+    /// An issue's file is used and the option `--requirements` was given: it won over the file (#76).
     pub requirements_given: bool,
 }
 

@@ -187,7 +187,7 @@ fn read_rules(path: &Path) -> Result<Rules, YamlError> {
             }
         }
     }
-    // The officer holds no other role on a task it has handed out.
+    // The officer holds no other role on an issue it has handed out.
     for other in ROLES {
         if other != "officer" && !roles["officer"].may_not_also_hold.iter().any(|name| name == other) {
             return Err(doc.fail(

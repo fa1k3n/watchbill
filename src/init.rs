@@ -109,10 +109,10 @@ pub fn render(revision: &str, hash: &str, setup: &Setup) -> String {
         && setup.repository.chars().all(|c| c.is_ascii_alphanumeric() || "._-/".contains(c));
     if setup.git_server == "github" && plain {
         let address = |command: &str, word: &str| format!("gh {} view {{{}}} --repo {} --comments", command, word, setup.repository);
-        text.push_str(&format!("task_address: {}\n", yaml_value(&address("issue", "task"))));
+        text.push_str(&format!("issue_address: {}\n", yaml_value(&address("issue", "issue"))));
         text.push_str(&format!("change_address: {}\n", yaml_value(&address("pr", "change"))));
     }
-    text.push_str(&format!("branch: {}\n", yaml_value("issue-{task}")));
+    text.push_str(&format!("branch: {}\n", yaml_value("issue-{issue}")));
     text
 }
 

@@ -25,7 +25,7 @@ always_to_a_person:
 classed_code:
   verifier: person
 
-# The queues the officer may take an unassigned task from. None in the first revision.
+# The queues the officer may take an unassigned issue from. None in the first revision.
 officer_queues: []
 
 # A requirement that a person adds to a change under review goes, on the same change, to these
@@ -38,16 +38,16 @@ added_requirement_goes_to: [tester, build]
 # the roles the same team member may not also hold on one change, and the prompt file.
 roles:
   breakdown:
-    step: Read the task and the code, and write the task's file. The breakdown comes before the tester. No other role of the task is started until a person has accepted the task's file.
-    produces: The task's file, committed alone on the branch of the task, with what the task leaves open under its questions and not answered.
+    step: Read the issue and the code, and write the issue's file. The breakdown comes before the tester. No other role of the issue is started until a person has accepted the issue's file.
+    produces: The issue's file, committed alone on the branch of the issue, with what the issue leaves open under its questions and not answered.
     reads:
-      - The task, as a person wrote it.
+      - The issue, as a person wrote it.
       - The code in the checkout, without a list. It is the one role that does, so that the others can have one.
       - The settings of the project's checks.
       - The project's instructions for how code is written and checked.
     may:
-      - Write the task's file of the task.
-      - Commit the task's file alone on the branch of the task.
+      - Write the issue's file.
+      - Commit the issue's file alone on the branch of the issue.
     may_not_also_hold: [tester, build, review, fix, officer]
     prompt: roles/breakdown.md
 
@@ -55,11 +55,11 @@ roles:
     step: Write the tests from the requirement, before the code exists.
     produces: Tests that each carry a requirement ID and fail for the right reason, in a commit that holds only tests.
     reads:
-      - The task and the rows of its requirements.
-      - The files the task names, and the tests among them with their helpers.
-      - The interface of what is tested that the task names, not its body.
+      - The issue and the rows of its requirements.
+      - The files the issue names, and the tests among them with their helpers.
+      - The interface of what is tested that the issue names, not its body.
     may:
-      - Add new tests on the branch of the task.
+      - Add new tests on the branch of the issue.
       - Commit the tests.
       - Run the tests against a stand-in that gives a wrong answer, in a scratch copy it never commits.
     may_not_also_hold: [breakdown, build, review, fix, officer]
@@ -69,12 +69,12 @@ roles:
     step: Make the tester's tests pass.
     produces: The smallest change that meets the requirements, opened for review with every check green.
     reads:
-      - The task and the rows of its requirements.
+      - The issue and the rows of its requirements.
       - The tester's tests and their helpers.
-      - The files the task names.
+      - The files the issue names.
       - The project's instructions for how code is written and checked.
     may:
-      - Change the files the task names.
+      - Change the files the issue names.
       - Run the checks of the project.
       - Open the change for review.
     may_not_also_hold: [breakdown, tester, review, fix, officer]
@@ -84,10 +84,10 @@ roles:
     step: Judge the change clause by clause, from outside, and report.
     produces: Numbered findings, each must or note, with for each clause the test that would fail if it were not met.
     reads:
-      - The task and the rows of its requirements.
+      - The issue and the rows of its requirements.
       - The diff of the change first, then its description and commit messages as claims to check.
       - The result of its checks.
-      - The files the task names, and the tests among them with their helpers, the tester's tests too.
+      - The files the issue names, and the tests among them with their helpers, the tester's tests too.
       - What the changed code calls.
       - In round 2, the findings, the answers and the commits since.
     may:
@@ -100,9 +100,9 @@ roles:
     step: Answer each must finding with a fix or a reason.
     produces: One answer for each must finding, and a commit for each fix that names the finding and the round.
     reads:
-      - The task and the rows of its requirements.
+      - The issue and the rows of its requirements.
       - The findings of the round and the diff of the change.
-      - The files the task names, and the files and tests the findings name, with the helpers of those tests.
+      - The files the issue names, and the files and tests the findings name, with the helpers of those tests.
     may:
       - Commit fixes on the branch of the change.
       - Add a test beside a weak one, written first.
@@ -111,13 +111,13 @@ roles:
     prompt: roles/fix.md
 
   officer:
-    step: Hand tasks on, and judge what takes judgement before and between the pieces.
+    step: Hand issues on, and judge what takes judgement before and between the pieces.
     produces: Proposals of handover and the brief for the one who gets the piece, which the program checks and performs.
     reads:
-      - The tasks and their state at the tracker.
+      - The issues and their state at the tracker.
       - The rule table and the model table.
     may:
       - Propose a handover to the program.
-      - Assign a task through its own account, once the program has checked the handover.
+      - Assign an issue through its own account, once the program has checked the handover.
     may_not_also_hold: [breakdown, tester, build, review, fix]
     prompt: none

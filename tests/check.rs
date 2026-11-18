@@ -603,8 +603,42 @@ fn test_WB_CHECK_13_only_the_project_text_differing_does_not_say_the_revision_is
     assert_eq!(code(&run), Some(1));
     let out = text(&run.stdout);
     let last = out.lines().last().unwrap();
-    assert!(last.contains("project's text does not fit the revision"), "{}", out);
+    assert!(last.contains("The project's text cannot be used with the revision it is pinned to."), "{}", out);
     assert!(!last.contains("not at the revision"), "{}", out);
+}
+
+#[test]
+fn test_WB_CHECK_16_breakdown_none_names_watchbill_yml_once_and_the_last_line_says_it_does_not_fit() {
+    let folder = set_up();
+    let mut yml = read(&config(&folder.path));
+    yml.push_str("breakdown: none\n");
+    put(&folder.path, ".watchbill/watchbill.yml", &yml);
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
+    let out = text(&run.stdout);
+    let line = out.lines().find(|line| line.contains("breakdown: none")).expect("the fault is named");
+    assert_eq!(line.matches("watchbill.yml").count(), 1, "{}", out);
+    let last = out.lines().last().unwrap();
+    assert!(last.contains("watchbill.yml does not fit the revision"), "{}", out);
+    assert!(!last.contains("not at the revision"), "{}", out);
+}
+
+#[test]
+fn test_WB_CHECK_16_only_a_project_file_that_is_a_link_ends_with_the_line_for_the_project_s_text() {
+    let folder = set_up();
+    put(&folder.path, "elsewhere.md", "Plain text.\n");
+    fs::create_dir_all(watchbill_dir(&folder).join("project")).unwrap();
+    std::os::unix::fs::symlink(folder.path.join("elsewhere.md"), watchbill_dir(&folder).join("project/all.md")).unwrap();
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
+    let out = text(&run.stdout);
+    let last = out.lines().last().unwrap();
+    assert!(last.ends_with("The project's text cannot be used with the revision it is pinned to."), "{}", out);
+    assert!(!last.contains("does not fit"), "{}", out);
 }
 
 #[test]

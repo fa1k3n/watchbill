@@ -872,7 +872,7 @@ fn filled_with(role: &str, values: &[(&str, String)]) -> String {
 }
 
 #[test]
-fn test_WB_PROMPT_31_the_issue_is_the_word_after_the_role_and_the_tester_needs_nothing_else() {
+fn test_WB_PROMPT_31_the_issue_is_the_word_after_the_role_and_the_tester_needs_no_other_option() {
     let folder = set_up_github();
     branches(&folder.path, &["issue-54"]);
 
@@ -1318,6 +1318,19 @@ fn test_WB_PROMPT_49_the_breakdown_with_no_branch_there_is_given_the_pattern_fil
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(text(&run.stdout).contains("on the branch issue-42."), "{}", text(&run.stdout));
+}
+
+#[test]
+fn test_WB_PROMPT_52_the_breakdown_is_handed_out_with_no_file_of_the_issue_to_a_cleared_runner() {
+    let folder = set_up_github();
+    let (_place, organisation) = cleared(&folder.path);
+    assert!(!folder.path.join(".watchbill/issues").join("42.yml").exists());
+
+    let run = prompt_with(&folder.path, &organisation, &["breakdown", "42", "--runner", "claude-code"]);
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("You are the breakdown of issue 42."), "{}", text(&run.stdout));
+    assert_eq!(text(&run.stderr), "");
 }
 
 #[test]

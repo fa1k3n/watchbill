@@ -500,3 +500,93 @@ fn test_WB_CHECK_10_a_hash_that_starts_with_a_digit_is_written_in_quotes_and_rea
     assert!(out.contains(&pinned) && out.contains(&installed_hash()), "{}", out);
     assert!(!out.contains("changed") && !out.contains("watchbill.yml:"), "{}", out);
 }
+
+#[test]
+fn test_WB_CHECK_13_project_text_with_a_known_placeholder_passes() {
+    let folder = set_up();
+    put(&folder.path, ".watchbill/project/all.md", "Work on {issue} in {branch}.\n");
+    put(&folder.path, ".watchbill/project/build.md", "Here {checkout} is the root.\n");
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
+}
+
+#[test]
+fn test_WB_CHECK_13_a_placeholder_the_revision_does_not_know_names_the_file_the_line_and_the_word() {
+    let folder = set_up();
+    put(&folder.path, ".watchbill/project/all.md", "First line.\nWork on {issue}.\nThen {task} too.\n");
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
+    let out = text(&run.stdout);
+    assert!(out.contains(".watchbill/project/all.md"), "{}", out);
+    assert!(out.contains("line 3"), "{}", out);
+    assert!(out.contains("{task}"), "{}", out);
+    assert!(out.contains("The known ones are {issue}"), "{}", out);
+}
+
+#[test]
+fn test_WB_CHECK_13_the_file_of_a_role_is_read_and_the_readme_of_the_project_is_not() {
+    let folder = set_up();
+    put(&folder.path, ".watchbill/project/tester.md", "Use {task}.\n");
+    put(&folder.path, ".watchbill/project/README.md", "Say {task} here.\n");
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
+    let out = text(&run.stdout);
+    assert!(out.contains(".watchbill/project/tester.md"), "{}", out);
+    assert!(!out.contains("project/README.md"), "{}", out);
+}
+
+#[test]
+fn test_WB_CHECK_13_no_project_text_is_unchanged() {
+    let folder = set_up();
+    fs::remove_dir_all(watchbill_dir(&folder).join("project")).ok();
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
+}
+
+#[test]
+fn test_WB_CHECK_13_a_run_with_such_text_still_writes_nothing() {
+    let folder = set_up();
+    put(&folder.path, ".watchbill/project/all.md", "Use {task}.\n");
+    let before = snapshot(&folder.path);
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1));
+    assert_eq!(snapshot(&folder.path), before);
+}
+
+#[test]
+fn test_WB_CHECK_14_wb_prompt_refuses_the_text_that_wb_check_refuses() {
+    let folder = set_up();
+    put(&folder.path, ".watchbill/project/all.md", "Use {task}.\n");
+
+    let check = wb(&folder.path, &["check"], "");
+    let prompt = wb(&folder.path, &["prompt", "build", "--issue", "1", "--requirements", "R", "--checkout", "/x", "--branch", "b", "--issue_address", "at 1"], "");
+
+    assert_eq!(code(&check), Some(1));
+    assert_eq!(code(&prompt), Some(1), "{}", text(&prompt.stderr));
+    assert_eq!(text(&prompt.stdout), "");
+    let said = text(&check.stdout);
+    let line = said.lines().find(|line| line.contains("{task}")).expect("check names the placeholder");
+    assert!(text(&prompt.stderr).contains(line), "{}\n---\n{}", said, text(&prompt.stderr));
+}
+
+#[test]
+fn test_WB_CHECK_14_the_same_text_with_a_known_placeholder_passes_both() {
+    let folder = set_up();
+    put(&folder.path, ".watchbill/project/all.md", "Use {issue}.\n");
+
+    let check = wb(&folder.path, &["check"], "");
+    let prompt = wb(&folder.path, &["prompt", "build", "--issue", "1", "--requirements", "R", "--checkout", "/x", "--branch", "b", "--issue_address", "at 1"], "");
+
+    assert_eq!(code(&check), Some(0));
+    assert_eq!(code(&prompt), Some(0), "{}", text(&prompt.stderr));
+}

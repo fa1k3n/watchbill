@@ -240,7 +240,7 @@ fn test_WB_ROLE_14_the_last_message_of_every_role_starts_with_model_and_effort()
 
 #[test]
 fn test_WB_ROLE_15_every_role_opens_no_file_outside_its_list_and_asks_first() {
-    let bound = "You do not open a file outside those listed here. The files of a task are a bound and not a hint: \
+    let bound = "You do not open a file outside those listed here. The files of an issue are a bound and not a hint: \
                  a file may be closed to you for a reason you cannot see, and to read it first and say so afterwards \
                  is already a leak. If you need another, stop before you open it and say which and why under `needs_person`.";
     for role in ROLES {
@@ -329,18 +329,45 @@ fn test_WB_ROLE_8_each_prompt_starts_with_a_line_saying_it_is_a_draft() {
 #[test]
 fn test_WB_ROLE_17_the_list_holds_the_checkout_the_branch_and_the_two_addresses() {
     let names = listed();
-    for name in ["{checkout}", "{branch}", "{task_address}", "{change_address}"] {
+    for name in ["{checkout}", "{branch}", "{issue_address}", "{change_address}"] {
         assert!(names.contains(&name.to_string()), "{} is not on the list: {:?}", name, names);
     }
 }
 
+// The thing at the tracker is an issue (#78).
+
 #[test]
-fn test_WB_ROLE_18_every_prompt_names_its_checkout_its_branch_and_where_its_task_is_read() {
+fn test_WB_ROLE_58_the_list_holds_the_issue_and_its_address_and_not_the_task() {
+    let names = listed();
+    for name in ["{issue}", "{issue_address}"] {
+        assert!(names.contains(&name.to_string()), "{} is not on the list: {:?}", name, names);
+    }
+    for name in ["{task}", "{task_address}"] {
+        assert!(!names.contains(&name.to_string()), "{} is on the list: {:?}", name, names);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_59_no_role_file_holds_the_placeholders_task_or_task_address() {
+    let mut seen = 0;
+    for entry in fs::read_dir(roles_folder()).unwrap() {
+        let path = entry.unwrap().path();
+        let text = fs::read_to_string(&path).unwrap();
+        for old in ["{task}", "{task_address}"] {
+            assert!(!text.contains(old), "{} holds {}", path.display(), old);
+        }
+        seen += 1;
+    }
+    assert_eq!(seen, ROLES.len() + 1, "every role and the list");
+}
+
+#[test]
+fn test_WB_ROLE_18_every_prompt_names_its_checkout_its_branch_and_where_its_issue_is_read() {
     for role in ROLES {
         // Said before the first part, where the role is named.
         let opening = split_parts(&prompt(role)).remove(0);
         assert!(opening.contains("You work in the checkout {checkout}, on the branch {branch}."), "{}", role);
-        assert!(part(role, "## What you read").contains("The task {task}, at {task_address},"), "{}", role);
+        assert!(part(role, "## What you read").contains("The issue {issue}, at {issue_address},"), "{}", role);
     }
 }
 
@@ -408,9 +435,9 @@ fn test_WB_ROLE_25_the_builder_keeps_the_guards_passing_before_and_after() {
 // What a role reads is cut where the work needs it (#47).
 
 #[test]
-fn test_WB_ROLE_26_the_tester_reads_the_interface_the_task_names_and_not_the_file() {
+fn test_WB_ROLE_26_the_tester_reads_the_interface_the_issue_names_and_not_the_file() {
     let body = part("tester", "## What you read");
-    assert!(body.contains("the interface of the thing under test that the task names"), "{}", body);
+    assert!(body.contains("the interface of the thing under test that the issue names"), "{}", body);
     assert!(body.contains("Where it shares a file with the body, read only the interface and not the file."), "{}", body);
 }
 
@@ -507,11 +534,11 @@ fn field_line(role: &str, name: &str) -> String {
 // The red of a file of tests that does not load yet (#60).
 
 #[test]
-fn test_WB_ROLE_39_a_file_that_does_not_load_for_the_name_the_task_asks_for_is_red_for_every_test_in_it() {
+fn test_WB_ROLE_39_a_file_that_does_not_load_for_the_name_the_issue_asks_for_is_red_for_every_test_in_it() {
     let body = part("tester", "## What you produce");
     assert!(body.contains("A file of tests that does not load, because a name it calls is missing,"), "{}", body);
     assert!(body.contains("is red for every test in it"), "{}", body);
-    assert!(body.contains("when the missing name is the one the task asks for and nothing else is missing"), "{}", body);
+    assert!(body.contains("when the missing name is the one the issue asks for and nothing else is missing"), "{}", body);
 }
 
 #[test]
@@ -570,26 +597,26 @@ fn test_WB_ROLE_42_the_reviewer_breaks_code_only_in_a_scratch_copy() {
     assert!(point.contains("scratch copy"), "{}", point);
 }
 
-// A guard the task names is the existing test, run as it is (#62).
+// A guard the issue names is the existing test, run as it is (#62).
 
-/// The point of the tester's part on what it produces that is about a guard the task names.
+/// The point of the tester's part on what it produces that is about a guard the issue names.
 fn named_guard_point() -> String {
     let body = part("tester", "## What you produce");
-    let point = body.split('\n').find(|line| line.starts_with("- Where the task names an existing test as the guard of a clause,"));
-    point.unwrap_or_else(|| panic!("no point for a guard the task names: {}", body)).to_string()
+    let point = body.split('\n').find(|line| line.starts_with("- Where the issue names an existing test as the guard of a clause,"));
+    point.unwrap_or_else(|| panic!("no point for a guard the issue names: {}", body)).to_string()
 }
 
 #[test]
-fn test_WB_ROLE_43_a_guard_the_task_names_is_run_as_it_is_and_listed_by_its_name() {
+fn test_WB_ROLE_43_a_guard_the_issue_names_is_run_as_it_is_and_listed_by_its_name() {
     let point = named_guard_point();
     assert!(point.contains("that test is the guard"), "{}", point);
     assert!(point.contains("Run it as it is and list it under `guards` by its name."), "{}", point);
     let guards = field_line("tester", "guards");
-    assert!(guards.contains("An existing test the task names is listed by its name."), "{}", guards);
+    assert!(guards.contains("An existing test the issue names is listed by its name."), "{}", guards);
 }
 
 #[test]
-fn test_WB_ROLE_44_the_tester_writes_no_copy_of_a_guard_the_task_names() {
+fn test_WB_ROLE_44_the_tester_writes_no_copy_of_a_guard_the_issue_names() {
     let point = named_guard_point();
     assert!(point.contains("Write no copy of it."), "{}", point);
 }
@@ -629,10 +656,10 @@ fn test_WB_ROLE_36_model_and_effort_are_what_the_session_says_of_itself() {
 }
 
 #[test]
-fn test_WB_ROLE_37_the_stamp_on_the_task_says_what_the_session_was_handed_out_as() {
+fn test_WB_ROLE_37_the_stamp_on_the_issue_says_what_the_session_was_handed_out_as() {
     for role in ROLES {
         let text = after_fields(role);
-        assert!(text.contains("The stamp on the task says what you were handed out as, and it is what counts."), "{}: {}", role, text);
+        assert!(text.contains("The stamp on the issue says what you were handed out as, and it is what counts."), "{}: {}", role, text);
     }
 }
 
@@ -640,12 +667,12 @@ fn test_WB_ROLE_37_the_stamp_on_the_task_says_what_the_session_was_handed_out_as
 fn test_WB_ROLE_38_the_session_reads_its_stamp_and_says_where_its_own_word_differs() {
     for role in ROLES {
         let text = after_fields(role);
-        assert!(text.contains("Read the stamp of your own session on the task, where it is given"), "{}: {}", role, text);
+        assert!(text.contains("Read the stamp of your own session on the issue, where it is given"), "{}: {}", role, text);
         assert!(text.contains("Where your own word differs from it, say so under `model` and `effort`."), "{}: {}", role, text);
     }
 }
 
-// The breakdown: it reads the task and the code, and writes the task's file (#75).
+// The breakdown: it reads the issue and the code, and writes the issue's file (#75).
 
 /// The point of a part of the breakdown's prompt that starts with `start`.
 fn breakdown_point(heading: &str, start: &str) -> String {
@@ -655,9 +682,9 @@ fn breakdown_point(heading: &str, start: &str) -> String {
 }
 
 #[test]
-fn test_WB_ROLE_48_the_breakdown_reads_the_task_at_its_address_and_the_code_in_the_checkout() {
-    let task = breakdown_point("## What you read", "- The task {task}, at {task_address},");
-    assert!(task.contains("as a person wrote it"), "{}", task);
+fn test_WB_ROLE_48_the_breakdown_reads_the_issue_at_its_address_and_the_code_in_the_checkout() {
+    let issue = breakdown_point("## What you read", "- The issue {issue}, at {issue_address},");
+    assert!(issue.contains("as a person wrote it"), "{}", issue);
     let code = breakdown_point("## What you read", "- The code in {checkout}:");
     for what in ["the source", "the tests and the helpers those tests use", "the settings of the project's checks"] {
         assert!(code.contains(what), "{}: {}", what, code);
@@ -666,9 +693,9 @@ fn test_WB_ROLE_48_the_breakdown_reads_the_task_at_its_address_and_the_code_in_t
 }
 
 #[test]
-fn test_WB_ROLE_49_the_breakdown_writes_the_task_s_file_in_its_form() {
+fn test_WB_ROLE_49_the_breakdown_writes_the_issue_s_file_in_its_form() {
     let body = part("breakdown", "## What you produce");
-    let point = breakdown_point("## What you produce", "- The task's file, `.watchbill/tasks/{task}.yml`,");
+    let point = breakdown_point("## What you produce", "- The issue's file, `.watchbill/issues/{issue}.yml`,");
     assert!(point.contains("every key there and in this order"), "{}", point);
     // The form, as a block of YAML, with each key at the start of a line in the order the program holds it to.
     let form = body.split_once("```yaml\n").expect("the form").1.split_once("```").expect("the end of the form").0;
@@ -679,11 +706,11 @@ fn test_WB_ROLE_49_the_breakdown_writes_the_task_s_file_in_its_form() {
         .collect();
     assert_eq!(
         keys,
-        ["task", "from", "requirements", "interface", "changes", "reads", "existing_tests_changed", "questions"],
+        ["issue", "from", "requirements", "interface", "changes", "reads", "existing_tests_changed", "questions"],
         "{}",
         form
     );
-    assert!(form.starts_with("task: '{task}'\n"), "{}", form);
+    assert!(form.starts_with("issue: '{issue}'\n"), "{}", form);
     for line in ["  - id:", "    text:", "    source:", "    guard:", "  tester:", "  build:", "  review:", "  fix:"] {
         assert!(form.split('\n').any(|each| each.starts_with(line)), "{}: {}", line, form);
     }
@@ -694,22 +721,22 @@ fn test_WB_ROLE_50_the_breakdown_commits_the_file_alone_on_the_branch() {
     let point = breakdown_point("## What you produce", "- Commit the file alone, on the branch {branch},");
     assert!(point.contains("The commit holds that file and nothing else."), "{}", point);
     let end = part("breakdown", "## How you end");
-    assert!(end.contains("Stop when the task's file is committed alone on {branch}"), "{}", end);
+    assert!(end.contains("Stop when the issue's file is committed alone on {branch}"), "{}", end);
 }
 
 #[test]
 fn test_WB_ROLE_51_the_breakdown_never_changes_the_issue_the_code_or_a_test() {
-    let point = breakdown_point("## What you never do", "- You never change the task, the code or a test.");
+    let point = breakdown_point("## What you never do", "- You never change the issue, the code or a test.");
     assert!(point.contains("not its text, its title or what is written under it"), "{}", point);
     assert!(point.contains("A helper a test uses is part of that test."), "{}", point);
 }
 
 #[test]
-fn test_WB_ROLE_52_the_breakdown_puts_what_the_task_leaves_open_under_questions_and_does_not_answer_it() {
-    let point = breakdown_point("## What you produce", "- What the task leaves open goes under `questions`");
+fn test_WB_ROLE_52_the_breakdown_puts_what_the_issue_leaves_open_under_questions_and_does_not_answer_it() {
+    let point = breakdown_point("## What you produce", "- What the issue leaves open goes under `questions`");
     assert!(point.contains("You do not answer it"), "{}", point);
     assert!(point.contains("A person answers"), "{}", point);
-    let never = breakdown_point("## What you never do", "- You never answer what the task leaves open.");
+    let never = breakdown_point("## What you never do", "- You never answer what the issue leaves open.");
     assert!(never.contains("`questions`"), "{}", never);
 }
 
@@ -728,10 +755,10 @@ fn test_WB_ROLE_54_the_breakdown_lists_for_each_role_what_it_may_read_as_narrow_
 }
 
 #[test]
-fn test_WB_ROLE_55_the_breakdown_reads_the_settings_of_the_checks_so_that_what_a_check_needs_is_in_the_task() {
+fn test_WB_ROLE_55_the_breakdown_reads_the_settings_of_the_checks_so_that_what_a_check_needs_is_in_the_issue() {
     let point = breakdown_point("## What you produce", "- Read the settings of the project's checks,");
     assert!(point.contains("such as a built page or a generated file"), "{}", point);
-    assert!(point.contains("is in the task"), "{}", point);
+    assert!(point.contains("is in the issue"), "{}", point);
 }
 
 #[test]

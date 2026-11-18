@@ -1085,10 +1085,10 @@ fn test_WB_RULE_42_the_breakdown_comes_before_the_tester() {
 }
 
 #[test]
-fn test_WB_RULE_43_no_other_role_of_a_task_is_started_until_its_file_is_accepted() {
+fn test_WB_RULE_43_no_other_role_of_an_issue_is_started_until_its_file_is_accepted() {
     let step = &first_revision().roles["breakdown"].step;
     assert!(
-        step.contains("No other role of the task is started until a person has accepted the task's file."),
+        step.contains("No other role of the issue is started until a person has accepted the issue's file."),
         "{}",
         step
     );

@@ -1,4 +1,4 @@
-//! `wb prompt` for a task that has a file (#76), run as a person runs it, in a repository made for the test.
+//! `wb prompt` for an issue that has a file (#76), run as a person runs it, in a repository made for the test.
 
 // A test is named after the requirement it covers, and the ID has capitals.
 #![allow(non_snake_case)]
@@ -12,7 +12,7 @@ use std::path::Path;
 use std::process::{Command, Output, Stdio};
 use watchbill::manifest::hash_bytes;
 
-const GOOD: &str = "task: '54'
+const GOOD: &str = "issue: '54'
 from: 3f0c1d9e
 requirements:
   - id: '54.1'
@@ -24,7 +24,7 @@ requirements:
     guard: test_WB_X_1_holds
 interface: |
   fn read(path: &str) -> String
-changes: [src/task.rs, tests/task.rs]
+changes: [src/issue.rs, tests/issue.rs]
 reads:
   tester: [docs/tester-only.md]
   build: [docs/build-only.md]
@@ -36,9 +36,9 @@ questions: []
 
 const ROLES: [&str; 4] = ["tester", "build", "review", "fix"];
 
-/// The options a role needs beside the task: where the work is, and for the review and the fix a change and a round.
+/// The options a role needs beside the issue: where the work is, and for the review and the fix a change and a round.
 const REST: [&str; 10] =
-    ["--branch", "task-54", "--task_address", "tracker 54", "--change", "34", "--round", "1", "--change_address", "server 34"];
+    ["--branch", "issue-54", "--issue_address", "tracker 54", "--change", "34", "--round", "1", "--change_address", "server 34"];
 
 /// A repository set up by `wb init --yes`, with a git identity of its own.
 fn set_up() -> Folder {
@@ -50,10 +50,10 @@ fn set_up() -> Folder {
     folder
 }
 
-/// A repository with the file of task 54, accepted.
+/// A repository with the file of issue 54, accepted.
 fn accepted_with(file: &str) -> Folder {
     let folder = set_up();
-    put(&folder.path, ".watchbill/tasks/54.yml", file);
+    put(&folder.path, ".watchbill/issues/54.yml", file);
     let run = wb(&folder.path, &["accept", "54"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     folder
@@ -114,7 +114,7 @@ fn test_WB_PROMPT_25_an_accepted_file_fills_the_requirements_with_ids_and_texts_
         assert!(said.contains("54.1: The tool reads the file."), "{}: {}", role, said);
         assert!(said.contains("54.2: The tool names a fault."), "{}: {}", role, said);
         assert!(!said.contains("{requirements}"), "{}", role);
-        assert!(!said.contains("the numbered requirements of task"), "{}", role);
+        assert!(!said.contains("the numbered requirements of issue"), "{}", role);
     }
 }
 
@@ -125,13 +125,13 @@ fn test_WB_PROMPT_26_the_interface_and_the_lists_come_after_the_role_and_before_
     for role in ROLES {
         let said = ok(&prompt(&folder.path, role, &[]));
         let interface = said.find("fn read(path: &str) -> String").unwrap_or_else(|| panic!("{}: no interface", role));
-        let changes = said.find("src/task.rs").unwrap_or_else(|| panic!("{}: no changes", role));
-        assert!(said.contains("tests/task.rs"), "{}", role);
+        let changes = said.find("src/issue.rs").unwrap_or_else(|| panic!("{}: no changes", role));
+        assert!(said.contains("tests/issue.rs"), "{}", role);
         let fixed = said.find(watchbill::prompt::FIXED_LINE).unwrap();
         let project = said.find("PROJECT-ALL").unwrap();
         assert!(interface < changes, "{}", role);
         assert!(changes < fixed && fixed < project, "{}: the project text comes last", role);
-        // The role's own text comes first: it says the task before the interface is given.
+        // The role's own text comes first: it says the issue before the interface is given.
         assert!(said.find("54").unwrap() < interface, "{}", role);
     }
 }
@@ -149,9 +149,9 @@ fn test_WB_PROMPT_26_each_role_is_given_its_own_list_of_what_it_may_read_and_no_
 }
 
 #[test]
-fn test_WB_PROMPT_30_parts_and_stamp_name_the_task_file_and_its_hash_after_the_role() {
+fn test_WB_PROMPT_30_parts_and_stamp_name_the_issue_file_and_its_hash_after_the_role() {
     let folder = accepted_with(GOOD);
-    let line = format!("{}  .watchbill/tasks/54.yml", hash_bytes(GOOD.as_bytes()));
+    let line = format!("{}  .watchbill/issues/54.yml", hash_bytes(GOOD.as_bytes()));
     let parts = ok(&prompt(&folder.path, "build", &["--parts"]));
     let lines: Vec<&str> = parts.lines().collect();
     assert_eq!(lines.len(), 2, "{}", parts);
@@ -179,7 +179,7 @@ fn test_WB_PROMPT_41_an_option_for_the_requirements_wins_and_the_stamp_says_so()
 #[test]
 fn test_WB_PROMPT_27_a_file_that_is_not_accepted_hands_out_nothing_and_ends_with_1() {
     let folder = set_up();
-    put(&folder.path, ".watchbill/tasks/54.yml", GOOD);
+    put(&folder.path, ".watchbill/issues/54.yml", GOOD);
     let before = snapshot(&folder.path);
     for role in ROLES {
         for extra in [&[][..], &["--parts"], &["--stamp"]] {
@@ -197,7 +197,7 @@ fn test_WB_PROMPT_27_a_file_that_is_not_accepted_hands_out_nothing_and_ends_with
 #[test]
 fn test_WB_PROMPT_27_a_file_changed_after_its_acceptance_hands_out_nothing_and_ends_with_1() {
     let folder = accepted_with(GOOD);
-    put(&folder.path, ".watchbill/tasks/54.yml", &GOOD.replace("reads the file", "reads a file"));
+    put(&folder.path, ".watchbill/issues/54.yml", &GOOD.replace("reads the file", "reads a file"));
     for role in ROLES {
         let run = prompt(&folder.path, role, &[]);
         assert_eq!(code(&run), Some(1), "{}", role);
@@ -211,9 +211,9 @@ fn test_WB_PROMPT_27_a_file_changed_after_its_acceptance_hands_out_nothing_and_e
 fn test_WB_PROMPT_27_a_file_with_a_fault_of_form_and_a_hand_written_acceptance_is_refused() {
     let folder = set_up();
     let broken = GOOD.replace("interface:", "intreface:");
-    put(&folder.path, ".watchbill/tasks/54.yml", &broken);
+    put(&folder.path, ".watchbill/issues/54.yml", &broken);
     let body = format!("sha256: {}\nby: x <y>\ntime: 2026-11-18T10:00:00Z\n", hash_bytes(broken.as_bytes()));
-    put(&folder.path, ".watchbill/tasks/54.accepted", &body);
+    put(&folder.path, ".watchbill/issues/54.accepted", &body);
     let run = prompt(&folder.path, "build", &[]);
     assert_eq!(code(&run), Some(1));
     assert_eq!(text(&run.stdout), "");
@@ -223,7 +223,7 @@ fn test_WB_PROMPT_27_a_file_with_a_fault_of_form_and_a_hand_written_acceptance_i
 #[test]
 fn test_WB_PROMPT_40_a_path_with_a_control_character_or_a_line_or_bidi_mark_is_refused_by_name() {
     for path in ["\\e[31m/abs", "a\\u2028b", "a\\u2029b", "a\\u202Eb"] {
-        let file = GOOD.replace("changes: [src/task.rs, tests/task.rs]", &format!("changes: [\"{}\"]", path));
+        let file = GOOD.replace("changes: [src/issue.rs, tests/issue.rs]", &format!("changes: [\"{}\"]", path));
         let folder = accepted_with(&file);
         let run = prompt(&folder.path, "build", &[]);
         assert_eq!(code(&run), Some(1), "{}: {}", path, text(&run.stderr));
@@ -238,19 +238,19 @@ fn test_WB_PROMPT_40_a_path_with_a_control_character_or_a_line_or_bidi_mark_is_r
 }
 
 #[test]
-fn test_WB_PROMPT_28_with_no_file_the_prompt_is_as_before_and_so_is_one_for_another_task() {
+fn test_WB_PROMPT_28_with_no_file_the_prompt_is_as_before_and_so_is_one_for_another_issue() {
     let folder = set_up();
     let none = ok(&prompt(&folder.path, "build", &[]));
-    assert!(none.contains("the numbered requirements of task 54"), "{}", none);
+    assert!(none.contains("the numbered requirements of issue 54"), "{}", none);
     assert!(!none.contains("fn read"), "{}", none);
     let parts = ok(&prompt(&folder.path, "build", &["--parts"]));
     assert_eq!(parts.lines().count(), 1);
-    // A file for task 54 does not touch the prompt of task 55.
-    put(&folder.path, ".watchbill/tasks/54.yml", GOOD);
+    // A file for issue 54 does not touch the prompt of issue 55.
+    put(&folder.path, ".watchbill/issues/54.yml", GOOD);
     let mut args = vec!["prompt", "build", "55"];
     args.extend(REST);
     let other = wb(&folder.path, &args, "");
-    assert!(ok(&other).contains("the numbered requirements of task 55"));
+    assert!(ok(&other).contains("the numbered requirements of issue 55"));
 }
 
 #[test]
@@ -260,7 +260,7 @@ fn test_WB_PROMPT_25_a_file_with_no_requirement_says_so_where_the_requirements_s
         "requirements: []\n",
     ));
     let said = ok(&prompt(&folder.path, "build", &[]));
-    assert!(said.contains("the task's file holds no requirement"), "{}", said);
+    assert!(said.contains("the issue's file holds no requirement"), "{}", said);
     assert!(!said.contains("{requirements}"));
 }
 
@@ -269,7 +269,7 @@ fn test_WB_PROMPT_42_the_fix_is_given_the_interface_and_the_lists_and_no_require
     let folder = accepted_with(GOOD);
     let said = ok(&prompt(&folder.path, "fix", &[]));
     assert!(said.contains("fn read(path: &str) -> String"), "{}", said);
-    assert!(said.contains("src/task.rs") && said.contains("docs/fix-only.md"), "{}", said);
+    assert!(said.contains("src/issue.rs") && said.contains("docs/fix-only.md"), "{}", said);
     assert!(!said.contains("The tool reads the file."), "{}", said);
 }
 
@@ -310,7 +310,7 @@ fn test_WB_PROMPT_43_a_line_break_in_a_requirement_is_refused_and_one_in_the_int
 
 #[test]
 fn test_WB_PROMPT_43_the_bidi_control_is_called_by_what_it_is() {
-    let file = GOOD.replace("changes: [src/task.rs, tests/task.rs]", "changes: [\"a\\u202Eb\"]");
+    let file = GOOD.replace("changes: [src/issue.rs, tests/issue.rs]", "changes: [\"a\\u202Eb\"]");
     let folder = accepted_with(&file);
     let run = prompt(&folder.path, "build", &[]);
     assert_eq!(code(&run), Some(1));
@@ -318,11 +318,11 @@ fn test_WB_PROMPT_43_the_bidi_control_is_called_by_what_it_is() {
 }
 
 #[test]
-fn test_WB_PROMPT_44_a_task_file_over_one_mebibyte_is_refused_with_a_message() {
+fn test_WB_PROMPT_44_an_issue_file_over_one_mebibyte_is_refused_with_a_message() {
     let folder = set_up();
     let mut big = GOOD.to_string();
     big.push_str(&format!("# {}\n", "x".repeat(1024 * 1024)));
-    put(&folder.path, ".watchbill/tasks/54.yml", &big);
+    put(&folder.path, ".watchbill/issues/54.yml", &big);
     let before = snapshot(&folder.path);
     for extra in [&[][..], &["--parts"]] {
         let run = prompt(&folder.path, "build", extra);

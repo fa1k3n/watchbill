@@ -1,4 +1,4 @@
-//! The task's file and `wb accept <task>`, run as a person runs it, in a repository made for the test.
+//! The issue's file and `wb accept <issue>`, run as a person runs it, in a repository made for the test.
 
 // A test is named after the requirement it covers, and the ID has capitals.
 #![allow(non_snake_case)]
@@ -10,9 +10,9 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 use watchbill::manifest;
-use watchbill::task::is_accepted;
+use watchbill::issue::is_accepted;
 
-const GOOD: &str = "task: '54'
+const GOOD: &str = "issue: '54'
 from: 3f0c1d9e
 requirements:
   - id: '54.1'
@@ -24,7 +24,7 @@ requirements:
     guard: test_WB_X_1_holds
 interface: |
   fn read(path: &str) -> String
-changes: [src/task.rs, tests/task.rs]
+changes: [src/issue.rs, tests/issue.rs]
 reads:
   tester: [src/lib.rs]
   build: []
@@ -45,11 +45,11 @@ fn set_up() -> Folder {
 }
 
 fn with_good(folder: &Folder) {
-    put(&folder.path, ".watchbill/tasks/54.yml", GOOD);
+    put(&folder.path, ".watchbill/issues/54.yml", GOOD);
 }
 
 fn accepted(folder: &Folder) -> std::path::PathBuf {
-    folder.path.join(".watchbill/tasks/54.accepted")
+    folder.path.join(".watchbill/issues/54.accepted")
 }
 
 /// Every plain file under a folder, with its bytes, sorted by path.
@@ -74,8 +74,8 @@ fn snapshot(folder: &Path) -> Vec<(String, Vec<u8>)> {
 }
 
 /// A file refused: status 1, the fault named on standard error, and nothing written.
-fn refused(folder: &Folder, task_file: &str) -> String {
-    put(&folder.path, ".watchbill/tasks/54.yml", task_file);
+fn refused(folder: &Folder, issue_file: &str) -> String {
+    put(&folder.path, ".watchbill/issues/54.yml", issue_file);
     let before = snapshot(&folder.path);
     let run = wb(&folder.path, &["accept", "54"], "");
     assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
@@ -114,7 +114,7 @@ fn test_WB_TASK_1_a_good_file_is_accepted_and_the_acceptance_is_written() {
 }
 
 #[test]
-fn test_WB_TASK_1_a_task_that_has_no_file_ends_with_1() {
+fn test_WB_TASK_1_an_issue_that_has_no_file_ends_with_1() {
     let folder = set_up();
 
     let run = wb(&folder.path, &["accept", "54"], "");
@@ -127,7 +127,7 @@ fn test_WB_TASK_1_a_task_that_has_no_file_ends_with_1() {
 fn test_WB_TASK_1_a_value_written_plain_that_is_not_a_text_is_refused_through_the_loader() {
     let folder = set_up();
 
-    let err = refused(&folder, &GOOD.replace("task: '54'", "task: 54"));
+    let err = refused(&folder, &GOOD.replace("issue: '54'", "issue: 54"));
 
     assert!(err.contains("54.yml"), "{}", err);
     assert!(err.contains("quotes"), "{}", err);
@@ -145,10 +145,10 @@ fn test_WB_TASK_1_a_key_written_twice_and_an_alias_are_refused_through_the_loade
 }
 
 #[test]
-fn test_WB_TASK_1_the_task_of_the_file_is_the_task_asked_for() {
+fn test_WB_TASK_1_the_issue_of_the_file_is_the_issue_asked_for() {
     let folder = set_up();
 
-    let err = refused(&folder, &GOOD.replace("task: '54'", "task: '55'"));
+    let err = refused(&folder, &GOOD.replace("issue: '54'", "issue: '55'"));
 
     assert!(err.contains("55") && err.contains("54"), "{}", err);
 }
@@ -157,7 +157,7 @@ fn test_WB_TASK_1_the_task_of_the_file_is_the_task_asked_for() {
 fn test_WB_TASK_1_the_usage_names_accept() {
     let run = wb(&folder().path, &["--help"], "");
 
-    assert!(text(&run.stdout).contains("  wb accept <task>\n"), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains("  wb accept <issue>\n"), "{}", text(&run.stdout));
 }
 
 #[test]
@@ -189,10 +189,10 @@ fn test_WB_TASK_1_outside_a_repository_and_where_watchbill_is_not_set_up_ends_wi
     assert_eq!(code(&run), Some(2), "{}", text(&run.stderr));
 
     let plain = repository(None);
-    put(&plain.path, ".watchbill/tasks/54.yml", GOOD);
+    put(&plain.path, ".watchbill/issues/54.yml", GOOD);
     let run = wb(&plain.path, &["accept", "54"], "");
     assert_eq!(code(&run), Some(2), "{}", text(&run.stderr));
-    assert!(!plain.path.join(".watchbill/tasks/54.accepted").exists());
+    assert!(!plain.path.join(".watchbill/issues/54.accepted").exists());
 }
 
 #[test]
@@ -208,8 +208,8 @@ fn test_WB_TASK_2_a_key_that_is_missing_is_named() {
 fn test_WB_TASK_2_a_key_out_of_order_is_named() {
     let folder = set_up();
     let swapped = GOOD
-        .replace("changes: [src/task.rs, tests/task.rs]\n", "")
-        .replace("existing_tests_changed: []\n", "existing_tests_changed: []\nchanges: [src/task.rs]\n");
+        .replace("changes: [src/issue.rs, tests/issue.rs]\n", "")
+        .replace("existing_tests_changed: []\n", "existing_tests_changed: []\nchanges: [src/issue.rs]\n");
 
     let err = refused(&folder, &swapped);
 
@@ -244,7 +244,7 @@ fn test_WB_TASK_2_a_key_of_a_requirement_or_of_reads_is_held_to_the_form() {
 fn test_WB_TASK_2_a_value_of_the_wrong_type_is_named() {
     let folder = set_up();
 
-    let list = refused(&folder, &GOOD.replace("changes: [src/task.rs, tests/task.rs]", "changes: src/task.rs"));
+    let list = refused(&folder, &GOOD.replace("changes: [src/issue.rs, tests/issue.rs]", "changes: src/issue.rs"));
     let empty = refused(&folder, &GOOD.replace("from: 3f0c1d9e", "from: ''"));
 
     assert!(list.contains("changes"), "{}", list);
@@ -267,11 +267,11 @@ fn test_WB_TASK_4_a_path_that_is_absolute_holds_dot_dot_or_lies_under_watchbill_
         ("/etc/passwd", "absolute"),
         ("src/../../x", ".."),
         ("..", ".."),
-        (".watchbill/tasks/54.yml", ".watchbill"),
+        (".watchbill/issues/54.yml", ".watchbill"),
         ("./.watchbill/revision/x", ".watchbill"),
         (".watchbill", ".watchbill"),
     ] {
-        let changes = refused(&folder, &GOOD.replace("[src/task.rs, tests/task.rs]", &format!("[src/task.rs, '{}']", bad)));
+        let changes = refused(&folder, &GOOD.replace("[src/issue.rs, tests/issue.rs]", &format!("[src/issue.rs, '{}']", bad)));
         let reads = refused(&folder, &GOOD.replace("build: []", &format!("build: ['{}']", bad)));
 
         for err in [changes, reads] {
@@ -297,7 +297,7 @@ fn test_WB_TASK_6_it_says_what_it_will_write_before_it_writes() {
     let run = wb(&folder.path, &["accept", "54"], "");
 
     let out = text(&run.stdout);
-    assert!(out.contains(".watchbill/tasks/54.accepted"), "{}", out);
+    assert!(out.contains(".watchbill/issues/54.accepted"), "{}", out);
     for line in read(&accepted(&folder)).lines() {
         assert!(out.contains(line), "{} is not said: {}", line, out);
     }
@@ -306,7 +306,7 @@ fn test_WB_TASK_6_it_says_what_it_will_write_before_it_writes() {
 #[test]
 fn test_WB_TASK_6_a_refusal_says_nothing_of_a_write() {
     let folder = set_up();
-    put(&folder.path, ".watchbill/tasks/54.yml", &GOOD.replace("questions: []", "questions: [x]"));
+    put(&folder.path, ".watchbill/issues/54.yml", &GOOD.replace("questions: []", "questions: [x]"));
 
     let run = wb(&folder.path, &["accept", "54"], "");
 
@@ -338,7 +338,7 @@ fn test_WB_TASK_7_the_acceptance_holds_the_hash_the_identity_and_the_time() {
 fn test_WB_TASK_8_an_acceptance_that_is_there_is_never_written_over() {
     let folder = set_up();
     with_good(&folder);
-    put(&folder.path, ".watchbill/tasks/54.accepted", "an old one\n");
+    put(&folder.path, ".watchbill/issues/54.accepted", "an old one\n");
 
     let run = wb(&folder.path, &["accept", "54"], "");
 
@@ -418,7 +418,7 @@ fn test_WB_TASK_10_one_byte_changed_and_the_file_is_not_accepted() {
     let folder = set_up();
     with_good(&folder);
     assert_eq!(code(&wb(&folder.path, &["accept", "54"], "")), Some(0));
-    let file = folder.path.join(".watchbill/tasks/54.yml");
+    let file = folder.path.join(".watchbill/issues/54.yml");
 
     fs::write(&file, GOOD.replace("reads the file", "reads the files")).unwrap();
     assert!(!is_accepted(&folder.path, "54"));
@@ -433,18 +433,18 @@ fn test_WB_TASK_10_an_acceptance_that_cannot_be_read_does_not_count() {
     let folder = set_up();
     with_good(&folder);
     for body in ["", "garbage\n", "sha256: \n", "by: x\n"] {
-        put(&folder.path, ".watchbill/tasks/54.accepted", body);
+        put(&folder.path, ".watchbill/issues/54.accepted", body);
 
         assert!(!is_accepted(&folder.path, "54"), "{:?}", body);
     }
-    assert!(!is_accepted(&folder.path, "99"), "a task with no file");
+    assert!(!is_accepted(&folder.path, "99"), "an issue with no file");
 }
 
 #[test]
-fn test_WB_TASK_11_wb_check_does_not_fail_on_the_files_under_tasks() {
+fn test_WB_TASK_11_wb_check_does_not_fail_on_the_files_under_issues() {
     let folder = set_up();
     with_good(&folder);
-    put(&folder.path, ".watchbill/tasks/other.txt", "x\n");
+    put(&folder.path, ".watchbill/issues/other.txt", "x\n");
     assert_eq!(code(&wb(&folder.path, &["accept", "54"], "")), Some(0));
 
     let run = wb(&folder.path, &["check"], "");
@@ -463,14 +463,14 @@ fn test_WB_TASK_12_nothing_but_the_acceptance_is_written() {
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let after = snapshot(&folder.path);
     let new: Vec<&str> = after.iter().filter(|file| !before.contains(file)).map(|file| file.0.as_str()).collect();
-    assert_eq!(new, vec![".watchbill/tasks/54.accepted"]);
+    assert_eq!(new, vec![".watchbill/issues/54.accepted"]);
     assert_eq!(after.len(), before.len() + 1);
 }
 
 #[test]
 fn test_WB_TASK_12_a_refusal_writes_nothing() {
     let folder = set_up();
-    put(&folder.path, ".watchbill/tasks/54.yml", "task: '54'\n");
+    put(&folder.path, ".watchbill/issues/54.yml", "issue: '54'\n");
     let before = snapshot(&folder.path);
 
     let run = wb(&folder.path, &["accept", "54"], "");
@@ -493,43 +493,43 @@ fn test_WB_TASK_1_a_watchbill_folder_that_is_a_link_is_refused_by_name_and_not_w
     assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
     let err = text(&run.stderr);
     assert!(err.contains(".watchbill") && err.contains("link"), "{}", err);
-    assert!(!folder.path.join("real/tasks/54.accepted").exists());
+    assert!(!folder.path.join("real/issues/54.accepted").exists());
     assert!(!is_accepted(&folder.path, "54"));
 }
 
 #[test]
-fn test_WB_TASK_1_a_tasks_folder_that_is_a_link_is_refused_by_name_and_not_written_through() {
+fn test_WB_TASK_1_the_issues_folder_that_is_a_link_is_refused_by_name_and_not_written_through() {
     let folder = set_up();
     with_good(&folder);
-    fs::rename(folder.path.join(".watchbill/tasks"), folder.path.join("elsewhere")).unwrap();
-    std::os::unix::fs::symlink("../elsewhere", folder.path.join(".watchbill/tasks")).unwrap();
+    fs::rename(folder.path.join(".watchbill/issues"), folder.path.join("elsewhere")).unwrap();
+    std::os::unix::fs::symlink("../elsewhere", folder.path.join(".watchbill/issues")).unwrap();
 
     let run = wb(&folder.path, &["accept", "54"], "");
 
     assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
     let err = text(&run.stderr);
-    assert!(err.contains(".watchbill/tasks") && err.contains("link"), "{}", err);
+    assert!(err.contains(".watchbill/issues") && err.contains("link"), "{}", err);
     assert!(!folder.path.join("elsewhere/54.accepted").exists());
     assert!(!is_accepted(&folder.path, "54"));
 }
 
 #[test]
-fn test_WB_TASK_1_a_tasks_that_is_not_a_folder_is_refused_by_name() {
+fn test_WB_TASK_1_an_issues_path_that_is_not_a_folder_is_refused_by_name() {
     let folder = set_up();
-    put(&folder.path, ".watchbill/tasks", "not a folder\n");
+    put(&folder.path, ".watchbill/issues", "not a folder\n");
 
     let run = wb(&folder.path, &["accept", "54"], "");
 
     assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
-    assert!(text(&run.stderr).contains(".watchbill/tasks"), "{}", text(&run.stderr));
-    assert_eq!(read(&folder.path.join(".watchbill/tasks")), "not a folder\n");
+    assert!(text(&run.stderr).contains(".watchbill/issues"), "{}", text(&run.stderr));
+    assert_eq!(read(&folder.path.join(".watchbill/issues")), "not a folder\n");
 }
 
 #[test]
 fn test_WB_TASK_4_a_path_that_names_the_root_is_refused() {
     let folder = set_up();
     for bad in [".", "./", "./.", ".//"] {
-        let changes = refused(&folder, &GOOD.replace("[src/task.rs, tests/task.rs]", &format!("[src/task.rs, '{}']", bad)));
+        let changes = refused(&folder, &GOOD.replace("[src/issue.rs, tests/issue.rs]", &format!("[src/issue.rs, '{}']", bad)));
         let reads = refused(&folder, &GOOD.replace("build: []", &format!("build: ['{}']", bad)));
 
         for err in [changes, reads] {
@@ -550,10 +550,10 @@ fn test_WB_TASK_5_what_is_printed_of_the_file_has_its_control_characters_escaped
 }
 
 #[test]
-fn test_WB_TASK_1_the_task_of_the_file_is_escaped_when_it_is_named() {
+fn test_WB_TASK_1_the_issue_of_the_file_is_escaped_when_it_is_named() {
     let folder = set_up();
 
-    let err = refused(&folder, &GOOD.replace("task: '54'", "task: \"5\\e5\""));
+    let err = refused(&folder, &GOOD.replace("issue: '54'", "issue: \"5\\e5\""));
 
     assert!(!err.contains('\x1b'), "{:?}", err);
     assert!(err.contains("5\\u{1b}5"), "{:?}", err);
@@ -577,7 +577,7 @@ fn test_WB_TASK_8_a_temporary_file_left_behind_does_not_block_a_later_accept() {
     let folder = set_up();
     with_good(&folder);
     for name in [".54.accepted.tmp", ".54.accepted.0", "54.accepted.tmp"] {
-        put(&folder.path, &format!(".watchbill/tasks/{}", name), "half");
+        put(&folder.path, &format!(".watchbill/issues/{}", name), "half");
     }
 
     let run = wb(&folder.path, &["accept", "54"], "");
@@ -585,7 +585,7 @@ fn test_WB_TASK_8_a_temporary_file_left_behind_does_not_block_a_later_accept() {
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(is_accepted(&folder.path, "54"));
     for name in [".54.accepted.tmp", ".54.accepted.0", "54.accepted.tmp"] {
-        assert_eq!(read(&folder.path.join(".watchbill/tasks").join(name)), "half");
+        assert_eq!(read(&folder.path.join(".watchbill/issues").join(name)), "half");
     }
 }
 
@@ -593,7 +593,7 @@ fn test_WB_TASK_8_a_temporary_file_left_behind_does_not_block_a_later_accept() {
 fn test_WB_TASK_8_a_part_file_under_the_name_is_not_taken_as_accepted_and_not_written_over() {
     let folder = set_up();
     with_good(&folder);
-    put(&folder.path, ".watchbill/tasks/54.accepted", "sha256: ");
+    put(&folder.path, ".watchbill/issues/54.accepted", "sha256: ");
 
     let run = wb(&folder.path, &["accept", "54"], "");
 
@@ -630,6 +630,6 @@ fn test_WB_TASK_1_a_fault_names_the_path_from_the_root_of_the_repository() {
 
     let err = refused(&folder, &GOOD.replace("from: 3f0c1d9e\n", ""));
 
-    assert!(err.contains(".watchbill/tasks/54.yml"), "{}", err);
+    assert!(err.contains(".watchbill/issues/54.yml"), "{}", err);
     assert!(!err.contains(folder.path.to_str().unwrap()), "{}", err);
 }

@@ -15,13 +15,13 @@ use std::process::Command;
 use watchbill::prompt::{assemble, FIXED_LINE};
 
 const VALUES: [(&str, &str); 8] = [
-    ("task", "T-1 brake light"),
+    ("issue", "T-1 brake light"),
     ("change", "42"),
     ("requirements", "WB-X-1, WB-X-2"),
     ("round", "1"),
     ("checkout", "/work/brakes"),
-    ("branch", "task-1"),
-    ("task_address", "tracker T-1"),
+    ("branch", "issue-1"),
+    ("issue_address", "tracker T-1"),
     ("change_address", "server 42"),
 ];
 
@@ -108,7 +108,7 @@ fn test_WB_PROMPT_14_a_placeholder_that_got_no_value_is_refused_by_name_in_the_l
         Err(why) => why.to_string(),
     };
 
-    assert!(why.contains("{task}"), "{}", why);
+    assert!(why.contains("{issue}"), "{}", why);
 }
 
 #[test]
@@ -149,24 +149,24 @@ fn test_WB_PROMPT_3_a_placeholder_not_on_the_list_is_refused_in_any_part_and_the
 #[test]
 fn test_WB_PROMPT_3_text_that_is_no_placeholder_is_left_as_it_is() {
     let folder = set_up();
-    put(&folder.path, ".watchbill/project/all.md", "Settings: {\"a\": 1}, {}, { task }, {1}.\n");
+    put(&folder.path, ".watchbill/project/all.md", "Settings: {\"a\": 1}, {}, { issue }, {1}.\n");
 
     let prompt = assemble(&folder.path, "build", &VALUES).unwrap();
 
-    assert!(prompt.text.ends_with("Settings: {\"a\": 1}, {}, { task }, {1}.\n"), "{}", prompt.text);
+    assert!(prompt.text.ends_with("Settings: {\"a\": 1}, {}, { issue }, {1}.\n"), "{}", prompt.text);
 }
 
 #[test]
 fn test_WB_PROMPT_4_a_value_that_is_filled_in_is_not_read_for_placeholders() {
     let folder = set_up();
     let mut values =
-        vec![("task", "fix {change} and {nothing}"), ("change", "42"), ("requirements", "R-{task}"), ("round", "2")];
+        vec![("issue", "fix {change} and {nothing}"), ("change", "42"), ("requirements", "R-{issue}"), ("round", "2")];
     values.extend(VALUES[4..].iter().copied());
 
     let prompt = assemble(&folder.path, "build", &values).unwrap();
 
-    assert!(prompt.text.contains("builder of task fix {change} and {nothing}."), "{}", prompt.text);
-    assert!(prompt.text.contains("R-{task}"));
+    assert!(prompt.text.contains("builder of issue fix {change} and {nothing}."), "{}", prompt.text);
+    assert!(prompt.text.contains("R-{issue}"));
     assert!(!prompt.text.contains("fix 42"));
 }
 
@@ -383,7 +383,7 @@ fn test_WB_PROMPT_7_a_role_file_that_is_not_the_one_of_the_manifest_is_refused_a
 #[test]
 fn test_WB_PROMPT_3_a_placeholder_is_a_lower_case_word_in_braces_with_no_dollar_before_it() {
     let folder = set_up();
-    let text = "Shell: ${BUILD_DIR} ${task} {Task} {task-id} { task } {round2} {} {a b} $ {x}\n";
+    let text = "Shell: ${BUILD_DIR} ${issue} {Issue} {issue-id} { issue } {round2} {} {a b} $ {x}\n";
     // Of these only `{x}` is a placeholder, and it is not on the list.
     put(&folder.path, ".watchbill/project/all.md", &text.replace(" {x}", ""));
 
@@ -394,7 +394,7 @@ fn test_WB_PROMPT_3_a_placeholder_is_a_lower_case_word_in_braces_with_no_dollar_
     put(&folder.path, ".watchbill/project/all.md", text);
     let why = refused(&folder.path, "build");
     assert!(why.contains("{x}") && why.contains(".watchbill/project/all.md"), "{}", why);
-    for word in ["a_b", "task_id", "b"] {
+    for word in ["a_b", "issue_id", "b"] {
         put(&folder.path, ".watchbill/project/all.md", &format!("{{{}}}\n", word));
         assert!(refused(&folder.path, "build").contains(&format!("{{{}}}", word)), "{}", word);
     }

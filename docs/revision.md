@@ -179,6 +179,7 @@ A person's issue, read into a form `wb` reads. It was called the task's file unt
 - **Where it lives:** `.watchbill/issues/<issue>.yml`, in the repository. The breakdown commits it first on the issue's branch, alone. It is reviewed and merged with the change, so the history keeps what each issue was read as.
 - **What it holds:** the name of the issue; the SHA-256 of the issue's text it was read from; the requirements, each with an ID, its text and where in the issue it comes from, and for a clause that already holds the existing test that guards it; the interface the tests call; the paths the change may change; what each role may read beside them; the existing tests the change changes; and the questions the issue leaves open. The form is in #74.
 - **What a requirement is without a table:** a point of the issue's file. Its ID is the issue's number and the point, `54.1`. A test is named after it, a finding points at it, and it can be followed both ways. A project with a table of requirements gives the row's ID instead.
+- **The questions are asked on the issue:** the breakdown posts each question as its own comment, whose first line is `[question] <issue>.q<n>`. A person answers there, in a comment whose first line is `[answer] <issue>.q<n>`, or in the question's thread. A second breakdown session, a fresh one, reads the answers, folds them into the file, and removes the questions answered: the file follows the answers. The comments are not part of the hash under `from`, so a change of the issue's text still means a new breakdown. Settled with the owner on 2026-11-18 (#95).
 - **How a person accepts it:** `wb accept <issue>` writes `.watchbill/issues/<issue>.accepted`, with the SHA-256 of the issue's file, the person's git identity and the time. It refuses while the file holds a question. It never writes over an acceptance that is there: to accept again, the person removes the old one.
 - **An edit after acceptance** voids it: the hash no longer holds, and no prompt of the issue is handed out until a person accepts again (#76).
 - **The acceptance at the tracker:** the person also posts one comment on the issue, from their own account, whose first line starts with `[accepted]`, with the SHA-256 of the issue's file. The tracker keeps who wrote it. What a listener trusts is a comment with `system: false` whose author's role at the project, read from the server, is at least the one the rule table names. The `.accepted` file stays.
@@ -211,8 +212,8 @@ The pieces that build this have their requirements reserved as Draft rows in `re
 
 | Area | File | Issue |
 |---|---|---|
-| `WB-ROLE` | `requirements/role.md` | #4, #69, #75, #78, #82 |
-| `WB-RULE` | `requirements/rule.md` | #5, #75 |
+| `WB-ROLE` | `requirements/role.md` | #4, #69, #75, #78, #82, #95 |
+| `WB-RULE` | `requirements/rule.md` | #5, #75, #95 |
 | `WB-REV` | `requirements/rev.md` | #6 |
 | `WB-PIN` | `requirements/pin.md` | #7 |
 | `WB-CHECK` | `requirements/check.md` | #8 |

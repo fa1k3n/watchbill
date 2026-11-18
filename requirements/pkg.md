@@ -18,3 +18,5 @@ How `wb` is installed and what it needs. What the package carries of the revisio
 | WB-PKG-12 | The package shall install the files `LICENSE` and `NOTICE` as licence files. Issue: #39. | T | Implemented |
 | WB-PKG-13 | The crates `wb` is built from shall be those that the list in `CLAUDE.md` names, no more and no fewer. Issue: #34. | T | Implemented |
 | WB-PKG-14 | `packaging/rpm.sh` shall date the package by the commit it builds: two builds of one commit give packages whose files have the same dates, and the build warns of no date. Issue: #63. | T | Implemented |
+| WB-PKG-15 | `packaging/rpm.sh` shall pack only files: a folder that git lists, such as an untracked folder holding a repository of its own, shall be left out and named on standard error. Issue: #99. | T | Draft |
+| WB-PKG-16 | `packaging/rpm.sh` shall say on standard error how many files it packs from which checkout before it packs, and that the build starts before `rpmbuild`. Issue: #99. | T | Draft |

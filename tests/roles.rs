@@ -774,7 +774,7 @@ fn test_WB_ROLE_56_the_first_lines_of_the_breakdown_say_it_runs_on_a_local_model
 #[test]
 fn test_WB_ROLE_57_the_last_message_of_the_breakdown_has_its_fields_in_order() {
     let found = fields(&part("breakdown", "## How you end"));
-    assert_eq!(found, ["model", "effort", "file", "requirements", "questions", "needs_person"], "{:?}", found);
+    assert_eq!(found, ["model", "effort", "file", "requirements", "questions", "asked", "needs_person"], "{:?}", found);
     let requirements = field_line("breakdown", "requirements");
     assert!(requirements.contains("how many requirements the file holds"), "{}", requirements);
     let questions = field_line("breakdown", "questions");
@@ -799,4 +799,47 @@ fn test_WB_ROLE_68_a_finding_of_the_review_starts_with_its_number_and_its_level(
 fn test_WB_ROLE_68_the_fix_reads_a_finding_by_its_number_and_its_level() {
     let body = part("fix", "## What you produce");
     assert!(body.contains("A finding starts with its number and its level: `<n>. must` or `<n>. note`."), "{}", body);
+}
+
+// The breakdown asks its questions on the issue, and a second session folds the answers in (#95).
+
+#[test]
+fn test_WB_ROLE_60_each_question_is_posted_as_its_own_comment_and_never_twice() {
+    let point = breakdown_point("## What you produce", "- Each question is also posted as its own comment on the issue.");
+    assert!(point.contains("Its first line is `[question] {issue}.q<n>`"), "{}", point);
+    assert!(point.contains("with the place in the code or the issue it is about"), "{}", point);
+    assert!(point.contains("You post no question twice"), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_61_a_person_answers_in_a_comment_that_names_the_question_or_in_its_thread() {
+    let point = breakdown_point("## What you produce", "- A person answers in a comment whose first line is `[answer] {issue}.q<n>`,");
+    assert!(point.contains("or in the question's thread where the tracker has threads"), "{}", point);
+    assert!(point.contains("An answer counts only from a person"), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_62_a_second_fresh_session_folds_the_answers_into_the_file_and_commits_it_alone() {
+    let point = breakdown_point("## What you produce", "- A second session, a fresh one, folds the answers in.");
+    for what in [
+        "you read the issue with its comments",
+        "take each answer of a person as part of the issue",
+        "in the requirements, `changes`, `reads` or `existing_tests_changed`",
+        "remove the question answered",
+        "A question with no answer you keep",
+        "You commit the file alone again.",
+    ] {
+        assert!(point.contains(what), "{}: {}", what, point);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_63_the_last_message_of_the_breakdown_names_the_comments_it_posted() {
+    let found = fields(&part("breakdown", "## How you end"));
+    let at = found.iter().position(|name| name == "asked").expect("no field asked");
+    assert_eq!(found[at - 1], "questions", "{:?}", found);
+    let asked = field_line("breakdown", "asked");
+    assert!(asked.contains("the comments you posted"), "{}", asked);
+    let questions = field_line("breakdown", "questions");
+    assert!(questions.contains("open"), "{}", questions);
 }

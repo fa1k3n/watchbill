@@ -56,6 +56,9 @@ fn accepted_with(file: &str) -> Folder {
     put(&folder.path, ".watchbill/issues/54.yml", file);
     let run = wb(&folder.path, &["accept", "54"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    // The file and its acceptance are committed, as no role is handed out without (#97).
+    git(&folder.path, &["add", "--", ".watchbill/issues/54.yml", ".watchbill/issues/54.accepted"]);
+    git(&folder.path, &["-c", "commit.gpgsign=false", "commit", "-q", "-m", "x"]);
     folder
 }
 
@@ -238,19 +241,21 @@ fn test_WB_PROMPT_40_a_path_with_a_control_character_or_a_line_or_bidi_mark_is_r
 }
 
 #[test]
-fn test_WB_PROMPT_28_with_no_file_the_prompt_is_as_before_and_so_is_one_for_another_issue() {
+fn test_WB_TASK_14_with_no_file_nothing_is_handed_out_and_a_file_of_another_issue_does_not_help() {
+    // Was test_WB_PROMPT_28: with no file the prompt was as before. Since #97 an issue with no file is refused.
     let folder = set_up();
-    let none = ok(&prompt(&folder.path, "build", &[]));
-    assert!(none.contains("the numbered requirements of issue 54"), "{}", none);
-    assert!(!none.contains("fn read"), "{}", none);
-    let parts = ok(&prompt(&folder.path, "build", &["--parts"]));
-    assert_eq!(parts.lines().count(), 1);
-    // A file for issue 54 does not touch the prompt of issue 55.
-    put(&folder.path, ".watchbill/issues/54.yml", GOOD);
+    let run = prompt(&folder.path, "build", &[]);
+    assert_eq!(code(&run), Some(1));
+    assert_eq!(text(&run.stdout), "");
+    assert!(text(&run.stderr).contains(".watchbill/issues/54.yml"), "{}", text(&run.stderr));
+    // A file for issue 54 does not give issue 55 a prompt.
+    let other = accepted_with(GOOD);
     let mut args = vec!["prompt", "build", "55"];
     args.extend(REST);
-    let other = wb(&folder.path, &args, "");
-    assert!(ok(&other).contains("the numbered requirements of issue 55"));
+    let run = wb(&other.path, &args, "");
+    assert_eq!(code(&run), Some(1));
+    assert_eq!(text(&run.stdout), "");
+    assert!(text(&run.stderr).contains(".watchbill/issues/55.yml"), "{}", text(&run.stderr));
 }
 
 #[test]

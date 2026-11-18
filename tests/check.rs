@@ -18,6 +18,8 @@ fn set_up() -> Folder {
     let folder = repository(None);
     let run = wb(&folder.path, &["init", "--yes"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    // Issue 1 has its file accepted and committed, as no role is handed out without (#97).
+    issues_ready(&folder.path, &["1"]);
     folder
 }
 

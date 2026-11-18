@@ -478,3 +478,158 @@ fn test_WB_TASK_12_a_refusal_writes_nothing() {
     assert_eq!(code(&run), Some(1));
     assert_eq!(snapshot(&folder.path), before);
 }
+
+// Round 1 of the review of #80.
+
+#[test]
+fn test_WB_TASK_1_a_watchbill_folder_that_is_a_link_is_refused_by_name_and_not_written_through() {
+    let folder = set_up();
+    with_good(&folder);
+    fs::rename(folder.path.join(".watchbill"), folder.path.join("real")).unwrap();
+    std::os::unix::fs::symlink("real", folder.path.join(".watchbill")).unwrap();
+
+    let run = wb(&folder.path, &["accept", "54"], "");
+
+    assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
+    let err = text(&run.stderr);
+    assert!(err.contains(".watchbill") && err.contains("link"), "{}", err);
+    assert!(!folder.path.join("real/tasks/54.accepted").exists());
+    assert!(!is_accepted(&folder.path, "54"));
+}
+
+#[test]
+fn test_WB_TASK_1_a_tasks_folder_that_is_a_link_is_refused_by_name_and_not_written_through() {
+    let folder = set_up();
+    with_good(&folder);
+    fs::rename(folder.path.join(".watchbill/tasks"), folder.path.join("elsewhere")).unwrap();
+    std::os::unix::fs::symlink("../elsewhere", folder.path.join(".watchbill/tasks")).unwrap();
+
+    let run = wb(&folder.path, &["accept", "54"], "");
+
+    assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
+    let err = text(&run.stderr);
+    assert!(err.contains(".watchbill/tasks") && err.contains("link"), "{}", err);
+    assert!(!folder.path.join("elsewhere/54.accepted").exists());
+    assert!(!is_accepted(&folder.path, "54"));
+}
+
+#[test]
+fn test_WB_TASK_1_a_tasks_that_is_not_a_folder_is_refused_by_name() {
+    let folder = set_up();
+    put(&folder.path, ".watchbill/tasks", "not a folder\n");
+
+    let run = wb(&folder.path, &["accept", "54"], "");
+
+    assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
+    assert!(text(&run.stderr).contains(".watchbill/tasks"), "{}", text(&run.stderr));
+    assert_eq!(read(&folder.path.join(".watchbill/tasks")), "not a folder\n");
+}
+
+#[test]
+fn test_WB_TASK_4_a_path_that_names_the_root_is_refused() {
+    let folder = set_up();
+    for bad in [".", "./", "./.", ".//"] {
+        let changes = refused(&folder, &GOOD.replace("[src/task.rs, tests/task.rs]", &format!("[src/task.rs, '{}']", bad)));
+        let reads = refused(&folder, &GOOD.replace("build: []", &format!("build: ['{}']", bad)));
+
+        for err in [changes, reads] {
+            assert!(err.contains(&format!("'{}'", bad)) && err.contains("root"), "{}: {}", bad, err);
+        }
+    }
+}
+
+#[test]
+fn test_WB_TASK_5_what_is_printed_of_the_file_has_its_control_characters_escaped() {
+    let folder = set_up();
+
+    let err = refused(&folder, &GOOD.replace("questions: []", "questions: [\"a\\e[31mred\", \"two\\nlines\"]"));
+
+    assert!(!err.contains('\x1b'), "{:?}", err);
+    assert!(err.contains("a\\u{1b}[31mred") && err.contains("two\\nlines"), "{:?}", err);
+    assert_eq!(err.lines().filter(|line| line.starts_with("  - ")).count(), 2, "{:?}", err);
+}
+
+#[test]
+fn test_WB_TASK_1_the_task_of_the_file_is_escaped_when_it_is_named() {
+    let folder = set_up();
+
+    let err = refused(&folder, &GOOD.replace("task: '54'", "task: \"5\\e5\""));
+
+    assert!(!err.contains('\x1b'), "{:?}", err);
+    assert!(err.contains("5\\u{1b}5"), "{:?}", err);
+}
+
+#[test]
+fn test_WB_TASK_1_a_name_of_more_than_64_characters_is_used_wrongly() {
+    let folder = set_up();
+    let long = "a".repeat(65);
+    let run = wb(&folder.path, &["accept", &long], "");
+    assert_eq!(code(&run), Some(2), "{}", text(&run.stderr));
+    assert!(text(&run.stderr).contains("usage:"));
+
+    // 64 is a name: it has no file, which is a refusal of the file, not a wrong use.
+    let run = wb(&folder.path, &["accept", &"a".repeat(64)], "");
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_TASK_8_a_temporary_file_left_behind_does_not_block_a_later_accept() {
+    let folder = set_up();
+    with_good(&folder);
+    for name in [".54.accepted.tmp", ".54.accepted.0", "54.accepted.tmp"] {
+        put(&folder.path, &format!(".watchbill/tasks/{}", name), "half");
+    }
+
+    let run = wb(&folder.path, &["accept", "54"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(is_accepted(&folder.path, "54"));
+    for name in [".54.accepted.tmp", ".54.accepted.0", "54.accepted.tmp"] {
+        assert_eq!(read(&folder.path.join(".watchbill/tasks").join(name)), "half");
+    }
+}
+
+#[test]
+fn test_WB_TASK_8_a_part_file_under_the_name_is_not_taken_as_accepted_and_not_written_over() {
+    let folder = set_up();
+    with_good(&folder);
+    put(&folder.path, ".watchbill/tasks/54.accepted", "sha256: ");
+
+    let run = wb(&folder.path, &["accept", "54"], "");
+
+    assert_eq!(code(&run), Some(1));
+    assert!(!is_accepted(&folder.path, "54"));
+    assert_eq!(read(&accepted(&folder)), "sha256: ");
+}
+
+#[test]
+fn test_WB_TASK_9_a_git_name_or_email_with_angle_brackets_is_refused() {
+    for (key, value) in [
+        ("user.name", "Ada <evil>"),
+        ("user.name", "Ada >"),
+        ("user.name", "<Ada"),
+        ("user.email", "a@b.c>"),
+        ("user.email", "<a@b.c"),
+    ] {
+        let folder = set_up();
+        with_good(&folder);
+        git(&folder.path, &["config", key, value]);
+        let before = snapshot(&folder.path);
+
+        let run = wb(&folder.path, &["accept", "54"], "");
+
+        assert_eq!(code(&run), Some(1), "{} {}: {}", key, value, text(&run.stderr));
+        assert!(text(&run.stderr).contains(key), "{}", text(&run.stderr));
+        assert_eq!(snapshot(&folder.path), before);
+    }
+}
+
+#[test]
+fn test_WB_TASK_1_a_fault_names_the_path_from_the_root_of_the_repository() {
+    let folder = set_up();
+
+    let err = refused(&folder, &GOOD.replace("from: 3f0c1d9e\n", ""));
+
+    assert!(err.contains(".watchbill/tasks/54.yml"), "{}", err);
+    assert!(!err.contains(folder.path.to_str().unwrap()), "{}", err);
+}

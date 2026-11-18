@@ -133,9 +133,9 @@ The flow of a task is: the breakdown reads the issue and writes `.watchbill/task
 - **No file:** the prompt is as described above. A project can go on without the breakdown.
 - **A file that is accepted:** `{requirements}` is its IDs and texts, one to a line (`- 54.1: <text>`). Two parts follow the role's text, before the fixed line and the project's own text: the interface, and what the role may change (`changes`) and read (its own list of `reads`). The file is a part of the prompt: `--parts` and `--stamp` give its SHA-256 and path (`.watchbill/tasks/<task>.yml`) as the second part, after the role. Text of the file is put in as it is and is never read for placeholders.
 - **A file that is there and not accepted, or changed since its acceptance:** nothing is printed on standard output, the reason is on standard error, and the status is 1. No prompt of the task is handed out until a person accepts the file again. The same holds for a file that does not hold to its form, or holds a question.
-- A path in the file that holds a control character, a line or paragraph separator (U+2028, U+2029) or the direction mark U+202E is refused by the name of its list, with status 1, before a prompt is handed out.
+- A value of the file that reaches a prompt is refused, by the name of its field and with status 1, before a prompt is handed out, when it holds a control character, a line or paragraph separator (U+2028, U+2029) or a bidirectional control (U+202A to U+202E, among them the right-to-left override, and U+2066 to U+2069). The values are the interface, each requirement ID and text, and the paths. A line break and a tab are allowed in the interface only. The file is read once and is refused when it is over 1 MiB.
 - An option `--requirements` given still wins over the file. The interface and the lists are still handed out, and the stamp says so with the line `requirements: given`, before its part lines.
-- The text of the fix does not hold `{requirements}`, so for it there is nothing to fill. It gets the two parts.
+- The text of the fix does not hold `{requirements}`, because the fix answers findings, not requirements. It gets the two parts and no requirement.
 
 `wb prompt` runs the check of `wb check` first. When the repository is not at its revision, it prints nothing on standard output and says why on standard error.
 

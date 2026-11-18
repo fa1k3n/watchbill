@@ -644,9 +644,16 @@ fn system_words(error: &std::io::Error) -> String {
 /// Reads a YAML file into a `Document`, or refuses it with the file named.
 pub fn load(path: impl AsRef<Path>) -> Result<Document, YamlError> {
     let path = path.as_ref();
-    let shown = path.display();
     let bytes = std::fs::read(path)
-        .map_err(|error| YamlError::new(format!("{}: cannot be read ({})", shown, system_words(&error))))?;
+        .map_err(|error| YamlError::new(format!("{}: cannot be read ({})", path.display(), system_words(&error))))?;
+    load_bytes(path, bytes)
+}
+
+/// As `load`, for bytes that were read already (named by `path` in the faults): the file is read once,
+/// and what is held to its form is what was hashed.
+pub fn load_bytes(path: impl AsRef<Path>, bytes: Vec<u8>) -> Result<Document, YamlError> {
+    let path = path.as_ref();
+    let shown = path.display();
     let text = String::from_utf8(bytes).map_err(|_| YamlError::new(format!("{}: is not text in UTF-8", shown)))?;
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
     let mut before_document = true;

@@ -23,10 +23,10 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const USAGE: &str = "usage:
   wb init [--yes]
   wb check
-  wb prompt <role> [--task <text>] [--change <text>] [--requirements <text>]
-            [--round <text>] [--checkout <text>] [--branch <text>]
-            [--task_address <text>] [--change_address <text>] [--parts]
-            [--stamp]
+  wb prompt <role> [<task>] [--task <text>] [--change <text>]
+            [--requirements <text>] [--round <text>] [--checkout <text>]
+            [--branch <text>] [--task_address <text>]
+            [--change_address <text>] [--parts] [--stamp]
   wb revision
   wb --version
 
@@ -44,8 +44,11 @@ pub const USAGE: &str = "usage:
   prompt    print the prompt of a role on standard output and nothing else: the
             role's text of the pinned revision with each placeholder filled
             from the option of its name, such as --task for {task}, then the
-            project's own text. It runs the check of wb check first and prints
-            nothing when that fails. --parts prints the path and the SHA-256 of
+            project's own text. The task is the word after the role, or
+            --task. What no option gives is taken from the repository and
+            watchbill.yml: the checkout, the branch, the two addresses and
+            the requirements; an option always wins. It runs the check of wb
+            check first and prints nothing when that fails. --parts prints the path and the SHA-256 of
             each part, in the form sha256sum prints, in place of the text.
             --stamp prints, in place of the text, what the assignment is: the
             role, its model and effort, the version and revision, the task, the
@@ -249,6 +252,7 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
         2
     };
     let mut role: Option<String> = None;
+    let mut task_word: Option<String> = None;
     let mut values: Vec<(&'static str, String)> = Vec::new();
     let mut parts = false;
     let mut stamp = false;
@@ -285,6 +289,7 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
                 values.push((name, value));
             }
             Word::Value(value) if role.is_none() => role = Some(word(value.as_bytes())),
+            Word::Value(value) if task_word.is_none() => task_word = Some(word(value.as_bytes())),
             found => {
                 let refused = named(found, parser);
                 return used(err, format!("'{}' is not known", refused));
@@ -297,20 +302,18 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     if stamp && parts {
         return used(err, "'--stamp' and '--parts' are not used together".to_string());
     }
-    // One field of a stamp stays one line, and one that a comment may trim: no control character, no
-    // line or paragraph separator, and no white space at its start or end.
+    if let Some(word) = task_word {
+        if values.iter().any(|(name, _)| *name == "task") {
+            return used(err, "the task is given as a word and as '--task'".to_string());
+        }
+        if word.is_empty() {
+            return used(err, "the task word is empty".to_string());
+        }
+        values.push(("task", word));
+    }
     if stamp {
-        for (name, value) in &values {
-            let broken = value.chars().any(|c| c.is_control() || c == '\u{2028}' || c == '\u{2029}');
-            if prompt::STAMPED.contains(name) && (broken || value.trim() != value) {
-                return used(
-                    err,
-                    format!(
-                        "the value of '--{}' holds a control character or a line break, or white space at its start or end, and a stamp holds it as one line",
-                        name
-                    ),
-                );
-            }
+        if let Some(why) = stamp_fault(&values) {
+            return used(err, why);
         }
     }
     let root = match init::repository_root(None) {
@@ -332,6 +335,23 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
         let _ = err.write_all(&said);
         let _ = err.write_all(&why);
         return status;
+    }
+    // A role the revision does not have is refused before anything is derived for it.
+    if let Err(why) = prompt::require_role(Path::new(&root), &role) {
+        let _ = writeln!(err, "wb prompt: {}", why);
+        return 1;
+    }
+    let values = match prompt::derive(&root, &role, &values) {
+        Ok(values) => values,
+        Err(why) => {
+            let _ = writeln!(err, "wb prompt: {}", why);
+            return 1;
+        }
+    };
+    if stamp {
+        if let Some(why) = stamp_fault(&values) {
+            return used(err, why);
+        }
     }
     let given: Vec<(&str, &str)> = values.iter().map(|(name, value)| (*name, value.as_str())).collect();
     match prompt::assemble(Path::new(&root), &role, &given) {
@@ -386,6 +406,21 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
             0
         }
     }
+}
+
+/// One field of a stamp stays one line, and one that a comment may trim: no control character, no
+/// line or paragraph separator, and no white space at its start or end. The fault is said by name.
+fn stamp_fault(values: &[(&'static str, String)]) -> Option<String> {
+    for (name, value) in values {
+        let broken = value.chars().any(|c| c.is_control() || c == '\u{2028}' || c == '\u{2029}');
+        if prompt::STAMPED.contains(name) && (broken || value.trim() != value) {
+            return Some(format!(
+                "the value of '--{}' holds a control character or a line break, or white space at its start or end, and a stamp holds it as one line",
+                name
+            ));
+        }
+    }
+    None
 }
 
 /// `wb revision`: the version of the package, the hash of the revision and the manifest. It writes

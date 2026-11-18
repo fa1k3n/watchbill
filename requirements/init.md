@@ -46,6 +46,6 @@ What `wb init` does today: it sets Watchbill up in a git repository. What it wri
 | WB-INIT-40 | `wb init` shall take short options written together, so that `-yy` does as `-y`. Issue: #34. | T | Implemented |
 | WB-INIT-41 | `wb` shall refuse an option given a value it does not take, such as `--yes=x`, `-y=x` or `--version=1`, as an option it does not know, and name it with the value; an option it does not know is named with its value too, `--force=1` and `-x=1`. Issue: #34. | T | Implemented |
 | WB-INIT-42 | `wb init` and `wb revision` shall name an option they do not know alone, also when it is written with others (`-yx` names `-x`), and write a byte of its name that is not UTF-8 as `�`. Issue: #34. | T | Implemented |
-| WB-INIT-43 | `wb init` shall write `task_address` and `change_address` patterns for a GitHub `origin`, from the repository it found, when that is plain text, read through the loader. Issue: #72. | T | Draft |
-| WB-INIT-44 | `wb init` shall write no address pattern for another server, for none, or for a repository that is not plain text. Issue: #72. | T | Draft |
-| WB-INIT-45 | `wb init` shall write the pattern `branch: 'issue-{task}'` for every server. Issue: #72. | T | Draft |
+| WB-INIT-43 | `wb init` shall write `task_address` and `change_address` patterns for a GitHub `origin`, from the repository it found, when that is plain text, read through the loader. Issue: #72. | T | Implemented |
+| WB-INIT-44 | `wb init` shall write no address pattern for another server, for none, or for a repository that is not plain text. Issue: #72. | T | Implemented |
+| WB-INIT-45 | `wb init` shall write the pattern `branch: 'issue-{task}'` for every server. Issue: #72. | T | Implemented |

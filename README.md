@@ -103,11 +103,25 @@ The exit status:
 
 `wb prompt <role>` prints the prompt of a role on standard output, and nothing else. Whatever starts an agent's session, in any language, calls it as a process. Run it anywhere inside the repository. It writes nothing and asks nothing of the network.
 
-The prompt is the role's text of the pinned revision, then the project's own text (`.watchbill/project/all.md` and `.watchbill/project/<role>.md`, where they are). The placeholders are filled from the options, one for each:
+The prompt is the role's text of the pinned revision, then the project's own text (`.watchbill/project/all.md` and `.watchbill/project/<role>.md`, where they are). A call asks only for what `wb` cannot know on the machine: the task, and for the review and the fix the change and the round. The change and the round live at the git server, and `wb` asks nothing of the network.
+
+```sh
+wb prompt tester 54
+wb prompt build 54
+wb prompt review 54 --change 168 --round 1
+wb prompt fix 54 --change 168 --round 1
+```
+
+The task is the word after the role, or `--task`; both together end with 2. The placeholders are filled from the options, one for each, and what no option gives is derived. An option given always wins over the derived value, and the stamp holds each value as it was handed out:
 
 - `--task <text>`, `--change <text>`, `--requirements <text>`, `--round <text>`, `--checkout <text>`, `--branch <text>`, `--task_address <text>`, `--change_address <text>`. What each is, is in `.watchbill/revision/roles/placeholders.md`.
+- `checkout` is the root of the repository `wb` runs in.
+- `task_address` and `change_address` are the patterns of those names in `.watchbill/watchbill.yml`, with `{task}` and `{change}` filled in. `wb init` proposes them for a GitHub `origin` only (`gh issue view {task} --repo <repository> --comments`, `gh pr view {change} --repo <repository> --comments`). For another server, or none, there is no pattern and the option must be given.
+- `branch` is the pattern of that name in `watchbill.yml`, proposed as `issue-{task}`, with `{task}` filled in. The tester makes the branch, so it gets the pattern as it is. For the build, the review and the fix it is the one local branch (from the refs of the repository) whose name is the pattern, or starts with it and a `-`. None, or more than one, is refused with 1, the names found are said on standard error, and `--branch` must be given.
+- `requirements` is the text "the numbered requirements of task {task}", until the breakdown of a task gives the IDs.
+- A repository set up before these patterns have no lines for them in `watchbill.yml`. It works as it did: the options are needed, and `wb check` does not fail on it. A pattern that is not a text is refused by the loader.
 - A value is taken as it is given, also when it starts with `-` (`--task -x` or `--task=-x`) or holds a line break.
-- A placeholder that the prompt uses and that got no value is refused by name. An option for one it does not use is ignored. An empty value (`--task ""`, or a variable that is not set) is refused by name, as an option with no value is: a prompt is never handed over with a hole in it. Only an empty value is refused: a value of white space is taken as it is given.
+- A placeholder that the prompt uses and that got no value, given or derived, is refused by name. An option for one it does not use is ignored. An empty value (`--task ""`, or a variable that is not set) is refused by name, as an option with no value is: a prompt is never handed over with a hole in it. Only an empty value is refused: a value of white space is taken as it is given.
 - `--parts` prints, in place of the text, the SHA-256 and the path of each part, one line each, in the form `sha256sum` prints. Run `sha256sum -c` on them at the root of the repository to see that the files are as they were.
 - `--stamp` prints, in place of the text, the stamp of the assignment: what was handed out ([docs/revision.md](docs/revision.md), point 12). It is lines of `name: value` in this order: `role`, `model`, `effort`, `runner`, `version`, `revision`, `task`, `change`, `round`, `branch`, `checkout`, `time`, then one line `part: <sha256>  <path>` for each part. `model` and `effort` are those of the model table for the role. `runner` is empty until a runner is given. `version` and `revision` are those of the pinned revision. `time` is UTC, as `2026-11-17T18:04:05Z`. A value that is empty, or that the prompt of the role does not hold (`--change` for `build`), is written as its name and the colon alone: it was not handed out. A value of `--task`, `--change`, `--round`, `--branch` or `--checkout` that holds a control character, a line or paragraph separator, or white space at its start or end is refused by name, as one field must stay one line that a comment can trim. `--stamp` with `--parts`, and either given twice, are used wrongly.
 
@@ -116,8 +130,8 @@ The prompt is the role's text of the pinned revision, then the project's own tex
 The exit status:
 
 - **0**: the prompt, or with `--stamp` the stamp, is printed.
-- **1**: it was refused and nothing is printed: the check does not hold, the clock reads before 1970 (`--stamp`), the role is not one of the revision (the roles it has are named), a project file is not UTF-8, or a placeholder is not known or got no value.
-- **2**: `wb prompt` was used wrongly (no role, a word or an option that is not known, an option given twice, with no value or with an empty one, `--stamp` with `--parts`, an option given twice, a stamped value that is not one plain line), the folder is not in a git repository, or Watchbill is not set up. The usage or the reason is on standard error.
+- **1**: it was refused and nothing is printed: the check does not hold, the clock reads before 1970 (`--stamp`), the role is not one of the revision (the roles it has are named), a project file is not UTF-8, a placeholder is not known or got no value, or the branch is not found or not one.
+- **2**: `wb prompt` was used wrongly (no role, a third word or an option that is not known, the task given as a word and as `--task`, an option given twice, with no value or with an empty one, `--stamp` with `--parts`, an option given twice, a stamped value that is not one plain line), the folder is not in a git repository, or Watchbill is not set up. The usage or the reason is on standard error.
 
 The one who starts a session posts its stamp on the task, one comment for each session, the first line `[stamp] <role> round <n>`, and the lines of the stamp after it. Where a session is started by hand, the stamp is posted as it was printed. A session with no stamp on its task is not taken as the work of a role.
 

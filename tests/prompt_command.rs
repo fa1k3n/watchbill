@@ -265,11 +265,12 @@ fn test_WB_PROMPT_13_a_folder_that_is_not_in_a_git_repository_ends_with_2() {
 fn test_WB_PROMPT_14_a_placeholder_the_prompt_uses_with_no_option_is_refused_by_name() {
     let folder = set_up();
 
-    let run = wb(&folder.path, &["prompt", "build", "--task", "12"], "");
+    // `requirements` has its default text (#72), and this repository has no pattern for the address.
+    let run = wb(&folder.path, &["prompt", "build", "--task", "12", "--branch", "task-12"], "");
 
     assert_eq!(code(&run), Some(1));
     assert_eq!(text(&run.stdout), "");
-    assert!(text(&run.stderr).contains("{requirements}"), "{}", text(&run.stderr));
+    assert!(text(&run.stderr).contains("{task_address}"), "{}", text(&run.stderr));
 }
 
 #[test]

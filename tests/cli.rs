@@ -13,10 +13,10 @@ use std::process::{Command, Output};
 const USAGE: &str = "usage:
   wb init [--yes]
   wb check
-  wb prompt <role> [--task <text>] [--change <text>] [--requirements <text>]
-            [--round <text>] [--checkout <text>] [--branch <text>]
-            [--task_address <text>] [--change_address <text>] [--parts]
-            [--stamp]
+  wb prompt <role> [<task>] [--task <text>] [--change <text>]
+            [--requirements <text>] [--round <text>] [--checkout <text>]
+            [--branch <text>] [--task_address <text>]
+            [--change_address <text>] [--parts] [--stamp]
   wb revision
   wb --version
 
@@ -34,8 +34,11 @@ const USAGE: &str = "usage:
   prompt    print the prompt of a role on standard output and nothing else: the
             role's text of the pinned revision with each placeholder filled
             from the option of its name, such as --task for {task}, then the
-            project's own text. It runs the check of wb check first and prints
-            nothing when that fails. --parts prints the path and the SHA-256 of
+            project's own text. The task is the word after the role, or
+            --task. What no option gives is taken from the repository and
+            watchbill.yml: the checkout, the branch, the two addresses and
+            the requirements; an option always wins. It runs the check of wb
+            check first and prints nothing when that fails. --parts prints the path and the SHA-256 of
             each part, in the form sha256sum prints, in place of the text.
             --stamp prints, in place of the text, what the assignment is: the
             role, its model and effort, the version and revision, the task, the

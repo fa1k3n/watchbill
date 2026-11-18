@@ -30,7 +30,8 @@ const USAGE: &str = "usage:
   check     say whether the repository still is at the revision it is pinned to:
             each file under .watchbill/revision/ against the manifest, the
             manifest against the revision line of watchbill.yml, and that
-            revision against the installed wb. Ends with 0 when all of it
+            revision against the installed wb, and the project text for a
+            placeholder the revision does not know. Ends with 0 when all of it
             holds, 1 when something differs. Writes nothing
   prompt    print the prompt of a role on standard output and nothing else: the
             role's text of the pinned revision with each placeholder filled

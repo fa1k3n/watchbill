@@ -221,10 +221,8 @@ pub fn assemble_with(
     }
     // What is not on the list is refused in every part before anything is said of a missing value.
     for part in &parts {
-        for (_, _, name) in placeholders(&part.text) {
-            if !PLACEHOLDERS.contains(&name) {
-                return refuse(format!("{}: the placeholder {{{}}} is not known. The known ones are {}", part.path, name, known()));
-            }
+        if let Some(why) = unknown_in(&part.path, &part.text).into_iter().next() {
+            return refuse(why);
         }
     }
     for part in &parts {
@@ -272,6 +270,45 @@ pub fn assemble_with(
         parts.insert(1, Part { path: extra.path.to_string(), hash: extra.hash.to_string() });
     }
     Ok(Prompt { text, parts, used })
+}
+
+/// The placeholders of a text that the revision does not know, each as the words that refuse it, with
+/// the file and the line. `wb prompt` and `wb check` both judge a text with this and no other.
+pub fn unknown_in(path: &str, text: &str) -> Vec<String> {
+    placeholders(text)
+        .into_iter()
+        .filter(|(_, _, name)| !PLACEHOLDERS.contains(name))
+        .map(|(start, _, name)| {
+            let line = text[..start].matches('\n').count() + 1;
+            format!("{}: line {}: the placeholder {{{}}} is not known. The known ones are {}", path, line, name, known())
+        })
+        .collect()
+}
+
+/// What the project's own text holds that the revision does not know: `project/all.md` and
+/// `project/<role>.md` for each role of the manifest, as `wb prompt` takes them, read the way it
+/// reads them. A file that is not there is no difference; one that `wb prompt` would refuse (a link,
+/// not a plain file, not UTF-8) is named as it names it. A link is never followed.
+pub fn unknown_in_project(root: &Path) -> Vec<String> {
+    let mut names = vec!["all".to_string()];
+    if let Ok(found) = roles(root) {
+        names.extend(found.into_iter().map(|(role, _)| role));
+    }
+    let mut found = Vec::new();
+    for name in names {
+        match read_part(root, format!("{}/{}.md", PROJECT_FOLDER, name)) {
+            Ok(Some(part)) => found.extend(unknown_in(&part.path, &part.text)),
+            Ok(None) => {}
+            Err(why) => {
+                // A link for the folder is the same line for each file: said once.
+                let why = why.to_string();
+                if !found.contains(&why) {
+                    found.push(why);
+                }
+            }
+        }
+    }
+    found
 }
 
 fn known() -> String {

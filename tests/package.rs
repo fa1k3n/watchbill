@@ -379,8 +379,8 @@ fn test_WB_PKG_15_rpm_sh_packs_a_file_whose_name_holds_a_newline() {
     assert_eq!(code, Some(0), "{}", err);
     assert!(!err.contains("Cannot stat"), "{}", err);
     assert!(names.contains(&"watchbill-1.2.3/committed.txt".to_string()), "{:?}", names);
-    // tar -t shows the newline as it is, so the name comes back as two lines.
-    assert!(names.contains(&"watchbill-1.2.3/two".to_string()) && names.contains(&"lines.txt".to_string()), "{:?}", names);
+    // tar -t shows the newline escaped.
+    assert!(names.contains(&"watchbill-1.2.3/two\\nlines.txt".to_string()), "{:?}", names);
     let line = err.lines().find(|l| l.contains("packing")).expect("no packing line");
     assert!(line.contains("packing 6 files"), "{}", line);
 }

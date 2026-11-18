@@ -108,7 +108,11 @@ pub fn render(revision: &str, hash: &str, setup: &Setup) -> String {
         && setup.repository != NONE
         && setup.repository.chars().all(|c| c.is_ascii_alphanumeric() || "._-/".contains(c));
     if setup.git_server == "github" && plain {
-        let address = |command: &str, word: &str| format!("gh {} view {{{}}} --repo {} --comments", command, word, setup.repository);
+        let address = |command: &str, word: &str| {
+            // One command shows the text or the description, the other the comments: `--comments` alone hides the first (#96).
+            let show = format!("gh {} view {{{}}} --repo {}", command, word, setup.repository);
+            format!("{}; {} --comments", show, show)
+        };
         text.push_str(&format!("issue_address: {}\n", yaml_value(&address("issue", "issue"))));
         text.push_str(&format!("change_address: {}\n", yaml_value(&address("pr", "change"))));
     }

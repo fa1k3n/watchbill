@@ -148,6 +148,55 @@ wb prompt "$@" --parts > "$t/session.sha256" && wb prompt "$@" > "$t/session.md"
 mv "$t/session.sha256" "$t/session.md" . && your-agent --prompt-file session.md
 ```
 
+## The task's file and its acceptance
+
+A task has one file, `.watchbill/tasks/<task>.yml`, which the breakdown writes or a person does ([docs/revision.md](docs/revision.md), point 13). It is the project's file, not the revision's: `wb check` does not fail on it. `wb` reads it through the one loader, so values are plain text, and holds it to this form:
+
+```yaml
+task: '54'
+from: <SHA-256 of the issue's text the breakdown read>
+requirements:
+  - id: '54.1'
+    text: <one requirement>
+    source: <where in the issue it comes from>
+    guard: <name of an existing test, run as it is>   # only for a clause that already holds
+interface: |
+  <the names, types and signatures the tests call>
+changes: [<paths the change may change>]
+reads:
+  tester: [<paths>]
+  build: [<paths>]
+  review: [<paths>]
+  fix: [<paths>]
+existing_tests_changed: [<test names>]
+questions: [<what the issue leaves open>]
+```
+
+- Every key is there, in this order. A list may be empty. A key that is not on the list is refused. A requirement holds `id`, `text`, `source` and, if it has one, `guard`, in that order.
+- `task` is the name given to `wb accept`. An ID is unique in the file. A path is relative to the root of the repository, has no `..`, and names nothing under `.watchbill/`.
+
+`wb accept <task>` accepts the file. It reads it, names the first fault of form, and refuses while `questions` holds anything, naming them. Then it says what it will write, and writes `.watchbill/tasks/<task>.accepted`:
+
+```
+$ wb accept 54
+wb accept: will write .watchbill/tasks/54.accepted:
+sha256: 5d41402abc4b2a76b9719d911017c592ae0a1b3c1e2f8d3b0a7c9e4f6d2b8a11
+by: Ada Lovelace <ada@example.org>
+time: 2026-11-18T09:30:00Z
+
+wb accept: .watchbill/tasks/54.yml is accepted.
+```
+
+`by` is the `user.name` and `user.email` of git, and `time` is UTC. Without both, `wb accept` refuses. An acceptance that is there is never written over: remove it first. Nothing else is written, and the network is not asked.
+
+A task's file counts as accepted only while the SHA-256 in its acceptance is that of the file as it is. The function `watchbill::task::is_accepted` answers that. One byte changed, and it is not accepted: it is accepted again by removing the `.accepted` and running `wb accept`.
+
+The exit status:
+
+- **0**: the file is accepted.
+- **1**: it is refused: no file, a fault of form, a question, an acceptance that is there, no git identity.
+- **2**: `wb accept` was used wrongly (no task, a word that is not known, a name that is not a task), the folder is not in a git repository, or Watchbill is not set up.
+
 ## Installing it
 
 `wb` is one program, built from Rust and a few crates that the distribution packages ([docs/revision.md](docs/revision.md), point 6). The owner decided this on 2026-11-17 (#20, #34). Building it on Enterprise Linux 9 needs EPEL, where the crates are. Installed, it needs `git` and no library of its own.

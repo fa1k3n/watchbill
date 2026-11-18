@@ -42,7 +42,7 @@ The prompts of the first revision: tester, build, review and fix. What a revisio
 | WB-ROLE-36 | Each role's prompt shall name `model` and `effort` of the last message as what the session says of itself. Issue: #69. | T | Draft |
 | WB-ROLE-37 | Each role's prompt shall say that the stamp on the task is what the session was handed out as. Issue: #69. | T | Draft |
 | WB-ROLE-38 | Each role's prompt shall ask the session to say under `model` and `effort` when its own word differs from the stamp. Issue: #69. | T | Draft |
-| WB-ROLE-39 | The tester's prompt shall say that a file of tests that does not load, because the one name it misses is the one the task asks for, is red for every test in it. Issue: #60. | T | Draft |
-| WB-ROLE-40 | The tester's prompt shall say that the tester names the missing names under `red`. Issue: #60. | T | Draft |
-| WB-ROLE-41 | The tester's prompt shall say that, where the language allows it and the project's own text does not say otherwise, the tester also runs each test against a stand-in that gives a wrong answer, in a scratch copy it never commits, and says so. Issue: #60. | T | Draft |
-| WB-ROLE-42 | The reviewer's prompt shall say that where the red of the new tests was for a whole file, the reviewer sees each of them fail on its own, by breaking the code. Issue: #60. | T | Draft |
+| WB-ROLE-39 | The tester's prompt shall say that a file of tests that does not load, because the one name it misses is the one the task asks for, is red for every test in it. Issue: #60. | T | Implemented |
+| WB-ROLE-40 | The tester's prompt shall say that the tester names the missing names under `red`. Issue: #60. | T | Implemented |
+| WB-ROLE-41 | The tester's prompt shall say that, where the language allows it and the project's own text does not say otherwise, the tester also runs each test against a stand-in that gives a wrong answer, in a scratch copy it never commits, and says so. Issue: #60. | T | Implemented |
+| WB-ROLE-42 | The reviewer's prompt shall say that where the red of the new tests was for a whole file, the reviewer sees each of them fail on its own, by breaking the code. Issue: #60. | T | Implemented |

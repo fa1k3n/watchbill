@@ -8,7 +8,7 @@ Watchbill: a harness for AI agents in embedded software development, deployed at
 - It stands alone: no code, field names or plans from any other project. Another tool may watch a team that runs Watchbill; Watchbill never needs it.
 - Say "supports certification" or "can be assessed", never "certified".
 - Documents are short, plain sentences, British spelling (organisation, licence).
-- The captain is the person who decides what is built. The agent role that is given tasks and hands them on is the watch officer, "officer" for short. An agent is never called the captain.
+- The captain is the person who decides what is built. The agent role that is given issues and hands them on is the watch officer, "officer" for short. An agent is never called the captain.
 
 ## The work
 

@@ -4,7 +4,7 @@ What `wb build` checks before it starts a session. One path for a person and for
 
 | ID | Requirement | Ver | Status |
 |---|---|---|---|
-| WB-BUILD-1 | `wb build --issue <n>` shall refuse an issue whose task's file is not accepted, name the fault, and end with 1. Issue: #84. | T | Draft |
+| WB-BUILD-1 | `wb build --issue <n>` shall refuse an issue whose file is not accepted, name the fault, and end with 1. Issue: #84. | T | Draft |
 | WB-BUILD-2 | `wb build` shall refuse when the rule table does not let the role start on this change now, name the rule, and end with 1. Issue: #84. | T | Draft |
 | WB-BUILD-3 | `wb build` shall refuse a change whose paths hold classed code, name #65, and end with 1. Issue: #84. | T | Draft |
 | WB-BUILD-4 | `wb build` shall make the checks in the order: the acceptance, the rule table, the class; the first fault ends it. Issue: #84. | T | Draft |

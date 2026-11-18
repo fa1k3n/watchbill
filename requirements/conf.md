@@ -10,7 +10,7 @@ Where an assignment may run. The levels and the runners are the organisation's; 
 | WB-CONF-4 | The level of a repository shall be the line `confidentiality:` of `.watchbill/watchbill.yml`, and the most restrictive level where the line is missing. Issue: #11. | T | Draft |
 | WB-CONF-5 | A repository whose level is not on the organisation's list shall be refused by name. Issue: #11. | T | Draft |
 | WB-CONF-6 | Levels or runners written in a repository's settings shall be refused. Issue: #11. | T | Draft |
-| WB-CONF-7 | The level of an assignment shall be the higher of the level of its task and the level of the repository. Issue: #11. | T | Draft |
+| WB-CONF-7 | The level of an assignment shall be the higher of the level of its issue and the level of the repository. Issue: #11. | T | Draft |
 | WB-CONF-8 | `wb prompt` shall take the runner as `--runner <name>` and refuse when none is named. Issue: #11. | T | Draft |
 | WB-CONF-9 | `wb prompt` shall print nothing on standard output, name the level and the runner on standard error and end with 1 when the runner is not cleared for the level of the assignment. Issue: #11. | T | Draft |
 | WB-CONF-10 | A runner or a level that the organisation's file does not name shall be refused, with the names it has. Issue: #11. | T | Draft |

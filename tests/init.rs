@@ -659,7 +659,9 @@ fn test_WB_INIT_46_a_github_address_runs_one_command_for_the_text_and_one_for_th
         "{}",
         file
     );
-    // Both commands of a line have the placeholder, and a pattern is filled in both.
-    assert_eq!(file.matches("{issue}").count(), 3, "{}", file);
-    assert_eq!(file.matches("{change}").count(), 2, "{}", file);
+    // Both commands of a line have the placeholder. That `wb prompt` fills it in both is shown by the
+    // tests of `wb prompt`, which read these lines back.
+    let line = |key: &str| file.lines().find(|l| l.starts_with(key)).unwrap().to_string();
+    assert_eq!(line("issue_address").matches("{issue}").count(), 2, "{}", file);
+    assert_eq!(line("change_address").matches("{change}").count(), 2, "{}", file);
 }

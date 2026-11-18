@@ -51,3 +51,4 @@ What `wb init` does today: it sets Watchbill up in a git repository. What it wri
 | WB-INIT-45 | `wb init` shall write the pattern `branch: 'issue-{issue}'` for every server. Issue: #72. | T | Implemented |
 | WB-INIT-46 | The `issue_address` and `change_address` patterns `wb init` writes for a GitHub `origin` shall each run two commands: one that shows the issue's text or the change's description, and one that shows the comments. Issue: #96. | T | Implemented |
 | WB-INIT-47 | `wb init` shall write the pattern `issue_comment: 'gh issue comment {issue} --repo <repo> --body-file -'` for a GitHub `origin`, and none for another server. Issue: #84. | T | Draft |
+| WB-INIT-48 | `wb init` shall write the patterns `issue_comments` and `change_of_branch` for a GitHub `origin`, and none for another server. Issue: #84. | T | Draft |

@@ -31,14 +31,14 @@ How a prompt is put together from the revision and the project's own text, and t
 | WB-PROMPT-25 | When an issue's file is accepted, `wb prompt` shall fill `{requirements}` of the tester, build and review with its IDs and texts. Issue: #76. | T | Implemented |
 | WB-PROMPT-26 | When an issue's file is accepted, `wb prompt` shall add the interface and what the role may change and read as parts after the role's text. Issue: #76. | T | Implemented |
 | WB-PROMPT-27 | When an issue's file is there and not accepted, or changed since its acceptance, `wb prompt` shall print nothing on standard output and end with 1, with the reason on standard error. Issue: #76. | T | Implemented |
-| WB-PROMPT-28 | When an issue has no file, `wb prompt` shall hand out its prompts as before. Issue: #76. | T | Implemented |
+| WB-PROMPT-28 | When an issue has no file, `wb prompt` shall hand out its prompts as before. Replaced by WB-TASK-14: since #97 an issue with no file is refused. Issue: #76. | T | Deprecated |
 | WB-PROMPT-29 | `wb prompt breakdown <issue>` shall hand out the breakdown's prompt without an issue's file. Issue: #76. | T | Draft |
 | WB-PROMPT-30 | The stamp and `--parts` shall name the issue's file and its SHA-256 as a part, when one is used. Issue: #76. | T | Implemented |
 | WB-PROMPT-31 | `wb prompt <role> <issue>` shall take the first word after the role as the issue, as `--issue` does; both together, a third word, or an empty issue shall end with 2. Issue: #72. | T | Implemented |
 | WB-PROMPT-32 | `wb prompt` shall fill `checkout` with the root of the repository it runs in, unless `--checkout` is given. Issue: #72. | T | Implemented |
 | WB-PROMPT-33 | `wb prompt` shall fill `issue_address` and `change_address` from the patterns of `watchbill.yml` with the issue and the change, unless the option is given. Issue: #72. | T | Implemented |
 | WB-PROMPT-34 | For the build, the review and the fix, `wb prompt` shall fill `branch` with the one local branch whose name is the pattern or starts with it and a `-`, unless `--branch` is given; none or several shall be refused with 1, naming the branches found, with nothing on standard output; the tester takes the pattern filled. Replaced by WB-PROMPT-49. Issue: #72. | T | Deprecated |
-| WB-PROMPT-35 | `wb prompt` shall fill `requirements` with "the numbered requirements of issue {issue}", unless `--requirements` is given. Issue: #72. | T | Implemented |
+| WB-PROMPT-35 | `wb prompt` shall fill `requirements` with "the numbered requirements of issue {issue}", unless `--requirements` is given. Replaced by WB-PROMPT-25: since #97 the four roles are handed out with an issue's file, so `requirements` has no default of its own. Issue: #72. | T | Deprecated |
 | WB-PROMPT-36 | An option given to `wb prompt` shall win over the value derived for it. Issue: #72. | T | Implemented |
 | WB-PROMPT-37 | A `watchbill.yml` with no patterns shall leave the options needed as before, and `wb check` shall not fail on it; a pattern that is not a text shall be refused by the loader. Issue: #72. | T | Implemented |
 | WB-PROMPT-38 | The stamp shall hold the values as handed out, derived or given; a derived value that is not one plain line shall be refused with 1, naming where it came from. Issue: #72. | T | Implemented |

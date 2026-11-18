@@ -383,6 +383,30 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
             return 1;
         }
     };
+    // No role after the breakdown until the issue's file and its acceptance are committed (#97). Without
+    // a file, unless `watchbill.yml` says `breakdown: none`, none is handed out. A name that is not one
+    // of an issue has no file, so it is refused here too.
+    if issue::ROLES.contains(&role.as_str()) {
+        if let Some((_, issue)) = values.iter().find(|(name, _)| *name == "issue") {
+            // `breakdown: none` is judged whether there is a file or not.
+            let holds = rules::load_revision().map(|rules| rules.roles.contains_key("breakdown"));
+            let needed = holds.map_err(|why| why.to_string()).and_then(|holds| issue::file_needed(Path::new(&root), holds));
+            let gate = match (&file, needed) {
+                (_, Err(why)) => Err(why),
+                (Some(_), Ok(_)) => issue::committed(Path::new(&root), issue),
+                (None, Ok(true)) => Err(format!(
+                    "the issue has no file {}/{}.yml. Run the breakdown first; a project with no breakdown writes `breakdown: none` in watchbill.yml. No prompt is handed out.",
+                    issue::FOLDER,
+                    issue.escape_debug()
+                )),
+                (None, Ok(false)) => Ok(()),
+            };
+            if let Err(why) = gate {
+                let _ = writeln!(err, "wb prompt: {}", why);
+                return 1;
+            }
+        }
+    }
     // A value derived that is not one plain line is not the caller's fault: refused, with where it came from.
     if stamp {
         let derived = &values[before..];

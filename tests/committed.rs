@@ -82,7 +82,9 @@ fn test_WB_TASK_13_a_file_and_an_acceptance_that_are_committed_hand_out_the_prom
     for role in ROLES {
         let run = prompt(&folder.path, role, &[]);
         assert_eq!(code(&run), Some(0), "{}: {}", role, text(&run.stderr));
-        assert!(text(&run.stdout).contains("54.1: The tool reads the file."), "{}", role);
+        // The text of the fix holds no requirements, so only the others show them.
+        assert!(role == "fix" || text(&run.stdout).contains("54.1: The tool reads the file."), "{}", role);
+        assert!(text(&run.stdout).contains("fn read(path: &str) -> String"), "{}", role);
     }
 }
 
@@ -142,10 +144,10 @@ fn test_WB_TASK_13_an_acceptance_changed_in_the_working_tree_after_its_commit_is
 #[test]
 fn test_WB_TASK_13_the_breakdown_is_never_asked_for_an_acceptance() {
     let folder = set_up();
-    let run = wb(&folder.path, &["prompt", "breakdown", "54"], "");
+    let run = prompt(&folder.path, "breakdown", &[]);
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     put(&folder.path, YML, GOOD);
-    let run = wb(&folder.path, &["prompt", "breakdown", "54"], "");
+    let run = prompt(&folder.path, "breakdown", &[]);
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
 }
 

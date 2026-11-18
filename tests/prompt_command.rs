@@ -942,7 +942,7 @@ fn test_WB_PROMPT_32_the_checkout_is_the_root_when_run_in_a_folder_inside() {
 }
 
 #[test]
-fn test_WB_PROMPT_34_a_branch_that_is_the_pattern_alone_is_found_and_issue_540_is_not_issue_54() {
+fn test_WB_PROMPT_49_a_branch_that_is_the_pattern_alone_is_found_and_issue_540_is_not_issue_54() {
     let folder = set_up_github();
     branches(&folder.path, &["issue-54", "issue-540", "issue-5"]);
 
@@ -953,7 +953,7 @@ fn test_WB_PROMPT_34_a_branch_that_is_the_pattern_alone_is_found_and_issue_540_i
 }
 
 #[test]
-fn test_WB_PROMPT_34_two_local_branches_are_refused_with_both_named_and_nothing_on_standard_output() {
+fn test_WB_PROMPT_49_two_local_branches_are_refused_with_both_named_and_nothing_on_standard_output() {
     let folder = set_up_github();
     branches(&folder.path, &["issue-54-a", "issue-54-b"]);
 
@@ -968,7 +968,7 @@ fn test_WB_PROMPT_34_two_local_branches_are_refused_with_both_named_and_nothing_
 }
 
 #[test]
-fn test_WB_PROMPT_34_no_local_branch_is_refused_the_same_way() {
+fn test_WB_PROMPT_49_no_local_branch_is_refused_the_same_way() {
     let folder = set_up_github();
     branches(&folder.path, &["issue-6-other"]);
 
@@ -1331,7 +1331,7 @@ fn test_WB_PROMPT_49_the_tester_with_two_branches_is_refused_with_both_named() {
     assert_eq!(code(&run), Some(1));
     assert_eq!(text(&run.stdout), "");
     let err = text(&run.stderr);
-    assert!(err.contains("issue-42-a") && err.contains("issue-42-b"), "{}", err);
+    assert!(err.contains("issue-42-a") && err.contains("issue-42-b") && err.contains("--branch"), "{}", err);
 }
 
 #[test]

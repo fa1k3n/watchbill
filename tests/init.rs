@@ -55,8 +55,8 @@ fn test_WB_INIT_14_yes_writes_what_the_repository_says_and_asks_nothing() {
             "tracker: github",
             "requirements: requirements/*.md",
             "ci: github-actions",
-            "issue_address: 'gh issue view {issue} --repo example/brake-controller --comments'",
-            "change_address: 'gh pr view {change} --repo example/brake-controller --comments'",
+            "issue_address: 'gh issue view {issue} --repo example/brake-controller; gh issue view {issue} --repo example/brake-controller --comments'",
+            "change_address: 'gh pr view {change} --repo example/brake-controller; gh pr view {change} --repo example/brake-controller --comments'",
         ])
     );
     assert!(!text(&run.stdout).contains("(brake-controller)"), "no question is put");
@@ -593,8 +593,8 @@ fn test_WB_INIT_43_a_github_origin_gets_the_patterns_of_the_two_addresses_and_th
     let file = read(&config(&folder.path));
     assert!(
         file.ends_with(
-            "issue_address: 'gh issue view {issue} --repo example/brake-controller --comments'\n\
-             change_address: 'gh pr view {change} --repo example/brake-controller --comments'\n\
+            "issue_address: 'gh issue view {issue} --repo example/brake-controller; gh issue view {issue} --repo example/brake-controller --comments'\n\
+             change_address: 'gh pr view {change} --repo example/brake-controller; gh pr view {change} --repo example/brake-controller --comments'\n\
              branch: 'issue-{issue}'\n"
         ),
         "{}",
@@ -633,4 +633,33 @@ fn test_WB_INIT_45_the_branch_pattern_is_proposed_for_every_server() {
         assert_eq!(code(&run), Some(0), "{:?}: {}", origin, text(&run.stderr));
         assert!(read(&config(&folder.path)).ends_with("ci: none\nbranch: 'issue-{issue}'\n"), "{:?}", origin);
     }
+}
+
+// ---- the addresses show the text and the comments (#96) ----
+
+#[test]
+fn test_WB_INIT_46_a_github_address_runs_one_command_for_the_text_and_one_for_the_comments() {
+    let folder = repository(Some("https://github.com/example/brake-controller.git"));
+
+    let run = wb(&folder.path, &["init", "--yes"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let file = read(&config(&folder.path));
+    assert!(
+        file.contains(
+            "issue_address: 'gh issue view {issue} --repo example/brake-controller; gh issue view {issue} --repo example/brake-controller --comments'\n"
+        ),
+        "{}",
+        file
+    );
+    assert!(
+        file.contains(
+            "change_address: 'gh pr view {change} --repo example/brake-controller; gh pr view {change} --repo example/brake-controller --comments'\n"
+        ),
+        "{}",
+        file
+    );
+    // Both commands of a line have the placeholder, and a pattern is filled in both.
+    assert_eq!(file.matches("{issue}").count(), 3, "{}", file);
+    assert_eq!(file.matches("{change}").count(), 2, "{}", file);
 }

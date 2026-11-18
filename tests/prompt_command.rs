@@ -825,8 +825,8 @@ fn root_of(folder: &Path) -> String {
     fs::canonicalize(folder).unwrap().to_str().unwrap().to_string()
 }
 
-const ISSUE_ADDRESS: &str = "gh issue view 54 --repo example/brake-controller --comments";
-const CHANGE_ADDRESS: &str = "gh pr view 168 --repo example/brake-controller --comments";
+const ISSUE_ADDRESS: &str = "gh issue view 54 --repo example/brake-controller; gh issue view 54 --repo example/brake-controller --comments";
+const CHANGE_ADDRESS: &str = "gh pr view 168 --repo example/brake-controller; gh pr view 168 --repo example/brake-controller --comments";
 const REQUIREMENTS: &str = "the numbered requirements of issue 54";
 
 /// The values of `wb prompt review 54 --change 168 --round 1` with one local branch `issue-54-serve`.
@@ -1026,7 +1026,7 @@ fn test_WB_PROMPT_36_an_issue_option_in_place_of_the_word_and_a_given_change_are
     let run = wb(&folder.path, &["prompt", "review", "--issue", "54", "--change", "9", "--round", "2"], "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert!(text(&run.stdout).contains("gh pr view 9 --repo example/brake-controller --comments"), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains("gh pr view 9 --repo example/brake-controller; gh pr view 9 --repo example/brake-controller --comments"), "{}", text(&run.stdout));
 }
 
 /// A repository set up before #72: the lines of the patterns are not in `watchbill.yml`.

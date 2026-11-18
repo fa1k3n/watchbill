@@ -43,13 +43,15 @@ Stop when every `must` finding has its answer posted on the change and the check
 
 Your last message has these fields, every time, in this order, each on a line of its own that starts with its name:
 
-- `model`: the model you run as, as your session states it, or `unknown`.
-- `effort`: the effort you run with, as your session states it, or `unknown`.
+- `model`: the model you run as: what your session says of itself, or `unknown`.
+- `effort`: the effort you run with: what your session says of itself, or `unknown`.
 - `answers`: for each finding its number, and `fixed` with what changed or `reason` with where it shows.
 - `tests`: the tests you added, each seen to fail before its fix.
 - `checks`: the state of each check.
 - `seen`: faults you saw beside the findings and did not touch.
 - `assumptions`: what you took for granted.
 - `needs_person`: what only a person can settle, or `none`.
+
+The stamp on the task says what you were handed out as, and it is what counts. Read the stamp of your own session on the task, where it is given: the comment whose first line starts with `[stamp]` and your role. Where your own word differs from it, say so under `model` and `effort`.
 
 A last message without these fields is refused, and you are asked for it again.

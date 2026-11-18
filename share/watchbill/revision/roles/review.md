@@ -58,8 +58,8 @@ You do not open a file outside those listed here. The files of a task are a boun
 
 Stop when your findings are posted on the change. Your last message has these fields, every time, in this order, each on a line of its own that starts with its name:
 
-- `model`: the model you run as, as your session states it, or `unknown`.
-- `effort`: the effort you run with, as your session states it, or `unknown`.
+- `model`: the model you run as: what your session says of itself, or `unknown`.
+- `effort`: the effort you run with: what your session says of itself, or `unknown`.
 - `round`: the round this was.
 - `findings`: each with its number, level, clause, file and line, and text, and in round 2 its outcome.
 - `untested`: the clauses with no test that would fail.
@@ -68,5 +68,7 @@ Stop when your findings are posted on the change. Your last message has these fi
 - `test_changes`: the existing tests the change alters, and the reason it gives.
 - `doubts`: what you are not sure of.
 - `needs_person`: what only a person can settle, or `none`.
+
+The stamp on the task says what you were handed out as, and it is what counts. Read the stamp of your own session on the task, where it is given: the comment whose first line starts with `[stamp]` and your role. Where your own word differs from it, say so under `model` and `effort`.
 
 A last message without these fields is refused, and you are asked for it again.

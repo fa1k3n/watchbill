@@ -221,10 +221,8 @@ pub fn assemble_with(
     }
     // What is not on the list is refused in every part before anything is said of a missing value.
     for part in &parts {
-        for (_, _, name) in placeholders(&part.text) {
-            if !PLACEHOLDERS.contains(&name) {
-                return refuse(format!("{}: the placeholder {{{}}} is not known. The known ones are {}", part.path, name, known()));
-            }
+        if let Some(why) = unknown_in(&part.path, &part.text).into_iter().next() {
+            return refuse(why);
         }
     }
     for part in &parts {
@@ -272,6 +270,36 @@ pub fn assemble_with(
         parts.insert(1, Part { path: extra.path.to_string(), hash: extra.hash.to_string() });
     }
     Ok(Prompt { text, parts, used })
+}
+
+/// The placeholders of a text that the revision does not know, each as the words that refuse it, with
+/// the file and the line. `wb prompt` and `wb check` both judge a text with this and no other.
+pub fn unknown_in(path: &str, text: &str) -> Vec<String> {
+    placeholders(text)
+        .into_iter()
+        .filter(|(_, _, name)| !PLACEHOLDERS.contains(name))
+        .map(|(start, _, name)| {
+            let line = text[..start].matches('\n').count() + 1;
+            format!("{}: line {}: the placeholder {{{}}} is not known. The known ones are {}", path, line, name, known())
+        })
+        .collect()
+}
+
+/// What the project's own text holds that the revision does not know: `project/all.md` and
+/// `project/<role>.md` for each role of the manifest, as `wb prompt` takes them. A file that is not
+/// there, a link, or not text is not looked at here: `wb prompt` refuses those by itself.
+pub fn unknown_in_project(root: &Path) -> Vec<String> {
+    let mut names = vec!["all".to_string()];
+    if let Ok(found) = roles(root) {
+        names.extend(found.into_iter().map(|(role, _)| role));
+    }
+    let mut found = Vec::new();
+    for name in names {
+        if let Ok(Some(part)) = read_part(root, format!("{}/{}.md", PROJECT_FOLDER, name)) {
+            found.extend(unknown_in(&part.path, &part.text));
+        }
+    }
+    found
 }
 
 fn known() -> String {

@@ -254,5 +254,7 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
         },
         _ => found.push(format!("changed: {} (it is not a plain file)", name(CONFIG_FILE))),
     }
+    // The project's own text, with the placeholders judged as `wb prompt` judges them.
+    found.extend(crate::prompt::unknown_in_project(Path::new(root)));
     finish(&found, out)
 }

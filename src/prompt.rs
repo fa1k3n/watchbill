@@ -371,7 +371,7 @@ impl From<PromptError> for Derive {
 /// The values a prompt gets without being given them (#72), added to those given after them: a value
 /// given is never replaced. From the repository root come `checkout` and, with the patterns of
 /// `watchbill.yml` (read through the loader), the addresses and the branch. `requirements` has its
-/// default text. The tester takes the branch from the pattern, as it makes the branch; any other
+/// default text. The breakdown takes the branch from the pattern, as it makes the branch; any other
 /// role takes the one local branch that starts with it and a `-`, or is the pattern. None, or more
 /// than one, is refused with the names found.
 pub fn derive(
@@ -430,7 +430,7 @@ pub fn derive(
         if let Some(found) = pattern("branch")? {
             plain("issue", issue)?;
             let start = found.replace("{issue}", issue);
-            if role == "tester" {
+            if role == "breakdown" {
                 values.push(("branch", start));
             } else {
                 let names: Vec<String> = local_branches(root)?

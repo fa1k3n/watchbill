@@ -1,17 +1,17 @@
-//! The task's file and its acceptance (`docs/revision.md`, point 13): `.watchbill/tasks/<task>.yml`
-//! read through the one loader and held to its form, and `wb accept <task>`.
+//! The issue's file and its acceptance (`docs/revision.md`, point 13): `.watchbill/issues/<issue>.yml`
+//! read through the one loader and held to its form, and `wb accept <issue>`.
 
 use crate::yamlfile::{load, Document, Part, Value, YamlError};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
 
-/// Where the task files are, below the root of the repository.
-pub const FOLDER: &str = ".watchbill/tasks";
+/// Where the issue files are, below the root of the repository.
+pub const FOLDER: &str = ".watchbill/issues";
 
 /// The keys of the file, in the order they stand.
 const KEYS: [&str; 8] = [
-    "task",
+    "issue",
     "from",
     "requirements",
     "interface",
@@ -27,7 +27,7 @@ const READS: [&str; 4] = ["tester", "build", "review", "fix"];
 /// The keys of a requirement, in the order they stand. The last, `guard`, may be left out.
 const REQUIREMENT: [&str; 4] = ["id", "text", "source", "guard"];
 
-/// One requirement of a task.
+/// One requirement of an issue.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Requirement {
     pub id: String,
@@ -36,10 +36,10 @@ pub struct Requirement {
     pub guard: Option<String>,
 }
 
-/// A task's file, held to its form.
+/// An issue's file, held to its form.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Task {
-    pub task: String,
+pub struct Issue {
+    pub issue: String,
     pub from: String,
     pub requirements: Vec<Requirement>,
     pub interface: String,
@@ -50,12 +50,12 @@ pub struct Task {
     pub questions: Vec<String>,
 }
 
-/// A task is named by letters, digits, `.`, `_` and `-`, at most 64 of them, and not by a name that starts with `.`.
-pub fn is_name(task: &str) -> bool {
-    !task.is_empty()
-        && task.len() <= 64
-        && !task.starts_with('.')
-        && task.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
+/// An issue is named by letters, digits, `.`, `_` and `-`, at most 64 of them, and not by a name that starts with `.`.
+pub fn is_name(issue: &str) -> bool {
+    !issue.is_empty()
+        && issue.len() <= 64
+        && !issue.starts_with('.')
+        && issue.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
 }
 
 /// Text of the file as `wb` shows what it did not make: a control character is written escaped, so
@@ -110,7 +110,7 @@ fn path_fault(path: &str) -> Option<&'static str> {
     }
     match path.split('/').find(|part| !part.is_empty() && *part != ".") {
         None => Some("names the root of the repository, not a file of the change"),
-        Some(".watchbill") => Some("lies under .watchbill/, which a task does not name"),
+        Some(".watchbill") => Some("lies under .watchbill/, which an issue does not name"),
         _ => None,
     }
 }
@@ -132,23 +132,23 @@ fn text(document: &Document, place: &[&str]) -> Result<String, String> {
     document.text(&place).map_err(fault)
 }
 
-/// Reads a task's file through the one loader and holds it to its form. The error names the first
+/// Reads an issue's file through the one loader and holds it to its form. The error names the first
 /// fault, with the file and the line.
-pub fn read(path: impl AsRef<Path>) -> Result<Task, String> {
+pub fn read(path: impl AsRef<Path>) -> Result<Issue, String> {
     let document = load(path).map_err(fault)?;
-    task_of(&document)
+    issue_of(&document)
 }
 
 /// As `read`, for the bytes of the file that were read already.
-fn read_bytes(path: &Path, bytes: Vec<u8>) -> Result<Task, String> {
+fn read_bytes(path: &Path, bytes: Vec<u8>) -> Result<Issue, String> {
     let document = crate::yamlfile::load_bytes(path, bytes).map_err(fault)?;
-    task_of(&document)
+    issue_of(&document)
 }
 
-fn task_of(document: &Document) -> Result<Task, String> {
+fn issue_of(document: &Document) -> Result<Issue, String> {
     keys_of(&document, &[], &KEYS, KEYS.len())?;
 
-    let task = text(&document, &["task"])?;
+    let issue = text(&document, &["issue"])?;
     let from = text(&document, &["from"])?;
 
     let items = match &document.root().value {
@@ -194,18 +194,18 @@ fn task_of(document: &Document) -> Result<Task, String> {
 
     let existing_tests_changed = document.texts(&[Part::from("existing_tests_changed")], true).map_err(fault)?;
     let questions = document.texts(&[Part::from("questions")], true).map_err(fault)?;
-    Ok(Task { task, from, requirements, interface, changes, reads, existing_tests_changed, questions })
+    Ok(Issue { issue, from, requirements, interface, changes, reads, existing_tests_changed, questions })
 }
 
-fn file_of(root: &Path, task: &str) -> std::path::PathBuf {
-    root.join(FOLDER).join(format!("{}.yml", task))
+fn file_of(root: &Path, issue: &str) -> std::path::PathBuf {
+    root.join(FOLDER).join(format!("{}.yml", issue))
 }
 
-fn accepted_of(root: &Path, task: &str) -> std::path::PathBuf {
-    root.join(FOLDER).join(format!("{}.accepted", task))
+fn accepted_of(root: &Path, issue: &str) -> std::path::PathBuf {
+    root.join(FOLDER).join(format!("{}.accepted", issue))
 }
 
-/// A folder on the way to the task files that is a link, or is there and is not a folder: it is named,
+/// A folder on the way to the issue files that is a link, or is there and is not a folder: it is named,
 /// and nothing is read or written through it.
 fn way_fault(root: &Path) -> Option<String> {
     for name in [".watchbill", FOLDER] {
@@ -220,14 +220,14 @@ fn way_fault(root: &Path) -> Option<String> {
     None
 }
 
-/// Whether a task's file is accepted: its `.accepted` is there, and the SHA-256 in it is that of
+/// Whether an issue's file is accepted: its `.accepted` is there, and the SHA-256 in it is that of
 /// the file as it is now. Nothing else is looked at.
-pub fn is_accepted(root: &Path, task: &str) -> bool {
-    if !is_name(task) || way_fault(root).is_some() {
+pub fn is_accepted(root: &Path, issue: &str) -> bool {
+    if !is_name(issue) || way_fault(root).is_some() {
         return false;
     }
     let plain = |path: &Path| fs::symlink_metadata(path).map(|found| found.is_file()).unwrap_or(false);
-    let (file, accepted) = (file_of(root, task), accepted_of(root, task));
+    let (file, accepted) = (file_of(root, issue), accepted_of(root, issue));
     if !plain(&file) || !plain(&accepted) {
         return false;
     }
@@ -238,20 +238,20 @@ pub fn is_accepted(root: &Path, task: &str) -> bool {
     text.lines().find_map(|line| line.strip_prefix("sha256: ")) == Some(hash.as_str())
 }
 
-/// The roles that are given the task's file in their prompts.
+/// The roles that are given the issue's file in their prompts.
 pub const ROLES: [&str; 4] = ["tester", "build", "review", "fix"];
 
-/// A task's file that a prompt is made from: read, held to its form, and accepted as it is.
+/// An issue's file that a prompt is made from: read, held to its form, and accepted as it is.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Used {
-    pub task: Task,
+    pub issue: Issue,
     /// The path from the root of the repository.
     pub path: String,
     /// The SHA-256 of the file as it was read.
     pub hash: String,
 }
 
-/// The most a task's file may be: it is read whole, and a file larger than a task needs is refused.
+/// The most an issue's file may be: it is read whole, and a file larger than an issue needs is refused.
 pub const MAX_BYTES: u64 = 1024 * 1024;
 
 /// A character that a value in a prompt never holds: a control character (a line break and a tab
@@ -264,21 +264,21 @@ fn is_unsafe(c: char, block: bool) -> bool {
     c.is_control() || matches!(c, '\u{2028}' | '\u{2029}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
 }
 
-/// The task's file for a prompt of a role (`wb prompt`, #76). `Ok(None)` when the task has no file, so
+/// The issue's file for a prompt of a role (`wb prompt`, #76). `Ok(None)` when the issue has no file, so
 /// a project goes on without one. When there is one it is used only if it is accepted as it is and
 /// holds to its form; else the reason is the error, and no prompt is handed out.
-pub fn for_prompt(root: &Path, task: &str) -> Result<Option<Used>, String> {
-    // A name that is not a task's name (`a/b`, `..`) cannot be the name of an accepted file: `wb accept`
+pub fn for_prompt(root: &Path, issue: &str) -> Result<Option<Used>, String> {
+    // A name that is not an issue's name (`a/b`, `..`) cannot be the name of an accepted file: `wb accept`
     // refuses it, and the files are looked for by name only. So there is no file to look for, and the
-    // prompt goes on as for a task with none. A task that fills a pattern is refused by #72 on its own.
-    if !is_name(task) {
+    // prompt goes on as for an issue with none. An issue that fills a pattern is refused by #72 on its own.
+    if !is_name(issue) {
         return Ok(None);
     }
     if let Some(why) = way_fault(root) {
         return Err(format!("{}. No prompt is handed out.", why));
     }
-    let shown = format!("{}/{}.yml", FOLDER, task);
-    let file = file_of(root, task);
+    let shown = format!("{}/{}.yml", FOLDER, issue);
+    let file = file_of(root, issue);
     match fs::symlink_metadata(&file) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(format!("{} cannot be read ({}). No prompt is handed out.", shown, error)),
@@ -287,7 +287,7 @@ pub fn for_prompt(root: &Path, task: &str) -> Result<Option<Used>, String> {
     }
     // The file is read once, up to the limit and one byte more: these bytes give the hash, the form
     // and the prompt, so what was checked is what is handed out.
-    let too_big = || format!("{} is larger than 1 MiB, and a task's file is not. No prompt is handed out.", shown);
+    let too_big = || format!("{} is larger than 1 MiB, and an issue's file is not. No prompt is handed out.", shown);
     let mut bytes = Vec::new();
     let opened = fs::File::open(&file).and_then(|opened| std::io::Read::read_to_end(&mut std::io::Read::take(opened, MAX_BYTES + 1), &mut bytes));
     opened.map_err(|error| format!("{} cannot be read ({}). No prompt is handed out.", shown, error))?;
@@ -295,27 +295,27 @@ pub fn for_prompt(root: &Path, task: &str) -> Result<Option<Used>, String> {
         return Err(too_big());
     }
     let hash = crate::manifest::hash_bytes(&bytes);
-    let accepted = accepted_of(root, task);
+    let accepted = accepted_of(root, issue);
     let body = match fs::symlink_metadata(&accepted) {
         Ok(found) if found.is_file() => fs::read_to_string(&accepted).ok(),
         _ => None,
     };
     let Some(body) = body else {
         return Err(format!(
-            "the task's file {} is not accepted. To accept it, run `wb accept {}`. No prompt is handed out.",
-            shown, task
+            "the issue's file {} is not accepted. To accept it, run `wb accept {}`. No prompt is handed out.",
+            shown, issue
         ));
     };
     if body.lines().find_map(|line| line.strip_prefix("sha256: ")) != Some(hash.as_str()) {
         return Err(format!(
-            "the task's file {} is not accepted: it changed since its acceptance. Remove {}/{}.accepted and run `wb accept {}` again. No prompt is handed out.",
-            shown, FOLDER, task, task
+            "the issue's file {} is not accepted: it changed since its acceptance. Remove {}/{}.accepted and run `wb accept {}` again. No prompt is handed out.",
+            shown, FOLDER, issue, issue
         ));
     }
     let prefix = format!("{}/", root.display().to_string().trim_end_matches('/'));
     let read = read_bytes(&file, bytes).map_err(|why| format!("{}. No prompt is handed out.", why.replace(&prefix, "")))?;
-    if read.task != task {
-        return Err(format!("{} says the task is {}, not {}. No prompt is handed out.", shown, self::shown(&read.task), task));
+    if read.issue != issue {
+        return Err(format!("{} says the issue is {}, not {}. No prompt is handed out.", shown, self::shown(&read.issue), issue));
     }
     if !read.questions.is_empty() {
         return Err(format!("{} holds a question, and a file with one is not used. No prompt is handed out.", shown));
@@ -344,20 +344,20 @@ pub fn for_prompt(root: &Path, task: &str) -> Result<Option<Used>, String> {
             return Err(unsafe_in(&name));
         }
     }
-    Ok(Some(Used { task: read, path: shown, hash }))
+    Ok(Some(Used { issue: read, path: shown, hash }))
 }
 
 impl Used {
     /// What `{requirements}` is filled with: each ID and its text, one to a line.
     pub fn requirements(&self) -> String {
-        if self.task.requirements.is_empty() {
-            return "none: the task's file holds no requirement".to_string();
+        if self.issue.requirements.is_empty() {
+            return "none: the issue's file holds no requirement".to_string();
         }
-        let lines: Vec<String> = self.task.requirements.iter().map(|r| format!("- {}: {}", r.id, r.text)).collect();
+        let lines: Vec<String> = self.issue.requirements.iter().map(|r| format!("- {}: {}", r.id, r.text)).collect();
         format!("\n{}", lines.join("\n"))
     }
 
-    /// The two parts of a prompt the task's file adds for a role: the interface, and what the role may
+    /// The two parts of a prompt the issue's file adds for a role: the interface, and what the role may
     /// change and read. It is put in as it is, and is never read for placeholders.
     pub fn text(&self, role: &str) -> String {
         let list = |paths: &[String]| -> String {
@@ -366,12 +366,12 @@ impl Used {
             }
             paths.iter().map(|path| format!("- {}\n", path)).collect()
         };
-        let reads = self.task.reads.iter().find(|(name, _)| name == role).map(|(_, paths)| paths.as_slice()).unwrap_or(&[]);
-        let interface = if self.task.interface.ends_with('\n') { self.task.interface.clone() } else { format!("{}\n", self.task.interface) };
+        let reads = self.issue.reads.iter().find(|(name, _)| name == role).map(|(_, paths)| paths.as_slice()).unwrap_or(&[]);
+        let interface = if self.issue.interface.ends_with('\n') { self.issue.interface.clone() } else { format!("{}\n", self.issue.interface) };
         format!(
             "## The interface\n\n{}\n## What you may change and read\n\nYou may change:\n\n{}\nYou may read, besides those:\n\n{}",
             interface,
-            list(&self.task.changes),
+            list(&self.issue.changes),
             list(reads)
         )
     }
@@ -398,9 +398,9 @@ fn git_value(root: &str, key: &str) -> Result<String, String> {
     Ok(value.to_string())
 }
 
-/// `wb accept <task>` in the repository at `root`: 0 it is accepted, 1 it is refused, 2 Watchbill is
+/// `wb accept <issue>` in the repository at `root`: 0 it is accepted, 1 it is refused, 2 Watchbill is
 /// not set up here. It says what it will write before it writes, and never writes over an acceptance.
-pub fn accept(root: &str, task: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+pub fn accept(root: &str, issue: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let base = Path::new(root);
     if let Some(why) = way_fault(base) {
         let _ = writeln!(err, "wb accept: {}. Nothing read, nothing written.", why);
@@ -410,8 +410,8 @@ pub fn accept(root: &str, task: &str, out: &mut dyn Write, err: &mut dyn Write) 
         let _ = writeln!(err, "wb accept: .watchbill/watchbill.yml is not there. Watchbill is not set up in this repository.");
         return 2;
     }
-    let file = file_of(base, task);
-    let shown = format!("{}/{}.yml", FOLDER, task);
+    let file = file_of(base, issue);
+    let shown = format!("{}/{}.yml", FOLDER, issue);
     match fs::symlink_metadata(&file) {
         Ok(found) if found.is_file() => {}
         Ok(_) => {
@@ -440,8 +440,8 @@ pub fn accept(root: &str, task: &str, out: &mut dyn Write, err: &mut dyn Write) 
             return 1;
         }
     };
-    if read.task != task {
-        let _ = writeln!(err, "wb accept: {} says the task is {}, not {}. Nothing written.", shown, self::shown(&read.task), task);
+    if read.issue != issue {
+        let _ = writeln!(err, "wb accept: {} says the issue is {}, not {}. Nothing written.", shown, self::shown(&read.issue), issue);
         return 1;
     }
     if !read.questions.is_empty() {
@@ -451,8 +451,8 @@ pub fn accept(root: &str, task: &str, out: &mut dyn Write, err: &mut dyn Write) 
         }
         return 1;
     }
-    let accepted = accepted_of(base, task);
-    let shown_accepted = format!("{}/{}.accepted", FOLDER, task);
+    let accepted = accepted_of(base, issue);
+    let shown_accepted = format!("{}/{}.accepted", FOLDER, issue);
     if fs::symlink_metadata(&accepted).is_ok() {
         let _ = writeln!(err, "wb accept: {} is there already, and is never written over. To accept the file again, remove it first. Nothing written.", shown_accepted);
         return 1;
@@ -482,11 +482,11 @@ pub fn accept(root: &str, task: &str, out: &mut dyn Write, err: &mut dyn Write) 
     let _ = writeln!(out, "wb accept: will write {}:\n{}", shown_accepted, body);
     // Whole or not at all: the acceptance is written to a file of its own in the same folder, then
     // linked to its name, which fails when the name is there. A file left by a crash is another name.
-    let tasks = base.join(FOLDER);
+    let issues = base.join(FOLDER);
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|since| since.subsec_nanos()).unwrap_or(0);
     let mut written = None;
     for attempt in 0..100u32 {
-        let part = tasks.join(format!(".{}.accepted.{}-{}-{}", task, std::process::id(), nanos, attempt));
+        let part = issues.join(format!(".{}.accepted.{}-{}-{}", issue, std::process::id(), nanos, attempt));
         match fs::OpenOptions::new().write(true).create_new(true).open(&part) {
             Ok(opened) => {
                 written = Some((part, opened));

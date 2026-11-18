@@ -13,7 +13,7 @@ pub mod interrupt;
 pub mod manifest;
 pub mod prompt;
 pub mod rules;
-pub mod task;
+pub mod issue;
 mod word;
 pub mod yamlfile;
 
@@ -24,12 +24,12 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const USAGE: &str = "usage:
   wb init [--yes]
   wb check
-  wb prompt <role> [<task>] [--task <text>] [--change <text>]
+  wb prompt <role> [<issue>] [--issue <text>] [--change <text>]
             [--requirements <text>] [--round <text>] [--checkout <text>]
-            [--branch <text>] [--task_address <text>]
+            [--branch <text>] [--issue_address <text>]
             [--change_address <text>] [--parts] [--stamp]
   wb revision
-  wb accept <task>
+  wb accept <issue>
   wb --version
 
   init      set Watchbill up in the git repository of this folder: propose what
@@ -45,29 +45,29 @@ pub const USAGE: &str = "usage:
             holds, 1 when something differs. Writes nothing
   prompt    print the prompt of a role on standard output and nothing else: the
             role's text of the pinned revision with each placeholder filled
-            from the option of its name, such as --task for {task}, then the
-            project's own text. The task is the word after the role, or
-            --task. What no option gives is taken from the repository and
+            from the option of its name, such as --issue for {issue}, then the
+            project's own text. The issue is the word after the role, or
+            --issue. What no option gives is taken from the repository and
             watchbill.yml: the checkout, the branch, the two addresses and
             the requirements; an option always wins. It runs the check of wb
             check first and prints nothing when that fails. --parts prints
             the path and the SHA-256 of each part, in the form sha256sum
             prints, in place of the text.
             --stamp prints, in place of the text, what the assignment is: the
-            role, its model and effort, the version and revision, the task, the
-            change, the round, the branch, the checkout, the time, and each
-            part as --parts gives it. Not with --parts. Ends with 0 when the
-            prompt is printed, 1 when it is refused, 2 when it was used
+            role, its model and effort, the version and revision, the issue,
+            the change, the round, the branch, the checkout, the time, and
+            each part as --parts gives it. Not with --parts. Ends with 0 when
+            the prompt is printed, 1 when it is refused, 2 when it was used
             wrongly or the repository is not set up. Writes nothing
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes nothing
-  accept    accept the task's file .watchbill/tasks/<task>.yml: read it, hold it
-            to its form, refuse it while it holds a question, say what will be
-            written, and write .watchbill/tasks/<task>.accepted with the
-            SHA-256 of the file, the git user.name and user.email, and the time
-            in UTC. An acceptance that is there is never written over. Ends
-            with 0 when it is accepted, 1 when it is refused, 2 when it was
-            used wrongly or the repository is not set up
+  accept    accept the issue's file .watchbill/issues/<issue>.yml: read it,
+            hold it to its form, refuse it while it holds a question, say what
+            will be written, and write .watchbill/issues/<issue>.accepted with
+            the SHA-256 of the file, the git user.name and user.email, and the
+            time in UTC. An acceptance that is there is never written over.
+            Ends with 0 when it is accepted, 1 when it is refused, 2 when it
+            was used wrongly or the repository is not set up
 ";
 
 /// Runs a command so that a fault in `wb` itself is not shown as a panic: the hook prints nothing,
@@ -263,7 +263,7 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
         2
     };
     let mut role: Option<String> = None;
-    let mut task_word: Option<String> = None;
+    let mut issue_word: Option<String> = None;
     let mut values: Vec<(&'static str, String)> = Vec::new();
     let mut parts = false;
     let mut stamp = false;
@@ -300,7 +300,7 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
                 values.push((name, value));
             }
             Word::Value(value) if role.is_none() => role = Some(word(value.as_bytes())),
-            Word::Value(value) if task_word.is_none() => task_word = Some(word(value.as_bytes())),
+            Word::Value(value) if issue_word.is_none() => issue_word = Some(word(value.as_bytes())),
             found => {
                 let refused = named(found, parser);
                 return used(err, format!("'{}' is not known", refused));
@@ -313,14 +313,14 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     if stamp && parts {
         return used(err, "'--stamp' and '--parts' are not used together".to_string());
     }
-    if let Some(word) = task_word {
-        if values.iter().any(|(name, _)| *name == "task") {
-            return used(err, "the task is given as a word and as '--task'".to_string());
+    if let Some(word) = issue_word {
+        if values.iter().any(|(name, _)| *name == "issue") {
+            return used(err, "the issue is given as a word and as '--issue'".to_string());
         }
         if word.is_empty() {
-            return used(err, "the task word is empty".to_string());
+            return used(err, "the issue word is empty".to_string());
         }
-        values.push(("task", word));
+        values.push(("issue", word));
     }
     if stamp {
         if let Some(why) = stamp_fault(&values) {
@@ -352,13 +352,13 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
         let _ = writeln!(err, "wb prompt: {}", why);
         return 1;
     }
-    // The file of the task (#76): used when it is accepted as it is, refused when it is there and is
+    // The file of the issue (#76): used when it is accepted as it is, refused when it is there and is
     // not, and left out when there is none. An option for the requirements wins over the file.
     let mut file = None;
     let mut requirements_given = false;
-    if task::ROLES.contains(&role.as_str()) {
-        if let Some((_, task)) = values.iter().find(|(name, _)| *name == "task") {
-            match task::for_prompt(Path::new(&root), task) {
+    if issue::ROLES.contains(&role.as_str()) {
+        if let Some((_, issue)) = values.iter().find(|(name, _)| *name == "issue") {
+            match issue::for_prompt(Path::new(&root), issue) {
                 Ok(found) => file = found,
                 Err(why) => {
                     let _ = writeln!(err, "wb prompt: {}", why);
@@ -456,13 +456,13 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     }
 }
 
-/// `wb accept <task>`: accepts the task's file (`task::accept`).
+/// `wb accept <issue>`: accepts the issue's file (`issue::accept`).
 fn run_accept(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let used = |err: &mut dyn Write, why: String| {
         let _ = write!(err, "wb accept: {}\n\n{}", why, USAGE);
         2
     };
-    let mut task: Option<String> = None;
+    let mut issue: Option<String> = None;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
@@ -470,18 +470,18 @@ fn run_accept(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
             Err(refused) => return used(err, format!("'{}' is not known", refused)),
         };
         match found {
-            Word::Value(value) if task.is_none() => task = Some(word(value.as_bytes())),
+            Word::Value(value) if issue.is_none() => issue = Some(word(value.as_bytes())),
             found => {
                 let refused = named(found, parser);
                 return used(err, format!("'{}' is not known", refused));
             }
         }
     }
-    let Some(task) = task else {
-        return used(err, "a task is needed".to_string());
+    let Some(issue) = issue else {
+        return used(err, "an issue is needed".to_string());
     };
-    if !task::is_name(&task) {
-        return used(err, format!("'{}' is not a task: a task is letters, digits, '.', '_' and '-', and does not start with '.'", task));
+    if !issue::is_name(&issue) {
+        return used(err, format!("'{}' is not an issue: an issue is letters, digits, '.', '_' and '-', and does not start with '.'", issue));
     }
     match init::repository_root(None) {
         Err(why) => {
@@ -492,7 +492,7 @@ fn run_accept(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
             let _ = writeln!(err, "wb accept: this folder is not in a git repository. Watchbill is set up in one.");
             2
         }
-        Ok(Some(root)) => task::accept(&root, &task, out, err),
+        Ok(Some(root)) => issue::accept(&root, &issue, out, err),
     }
 }
 

@@ -31,9 +31,9 @@ In a checkout the same files are under `share/watchbill/`.
 
 ## 2. The roles
 
-Breakdown, tester, build, review and fix. The first revision had the last four. The breakdown has its prompt and its rows from revision 0.0.5 (#75). It comes before the tester, and no other role of a task is started until a person has accepted its file (point 13). The watch officer has rows in the rule table and no prompt yet (point 10). The architect comes later.
+Breakdown, tester, build, review and fix. The first revision had the last four. The breakdown has its prompt and its rows from revision 0.0.5 (#75). It comes before the tester, and no other role of an issue is started until a person has accepted its file (point 13). The watch officer has rows in the rule table and no prompt yet (point 10). The architect comes later.
 
-- **Breakdown:** reads a person's issue and the code, and writes the task's file (point 13). It never changes the issue, the code or a test, and never answers what the issue leaves open. It is the one role that reads the code without a list. It holds no other role on the task.
+- **Breakdown:** reads a person's issue and the code, and writes the issue's file (point 13). It never changes the issue, the code or a test, and never answers what the issue leaves open. It is the one role that reads the code without a list. It holds no other role on the issue.
 - **Tester:** writes the tests from the requirement and never reads the implementation.
 - **Build:** makes the tests pass and never changes them.
 - **Review:** a fresh session that reports findings, clause by clause, and never fixes.
@@ -76,11 +76,11 @@ One exact model ID and one effort for each role that has a prompt, but the break
 | Fix | `claude-sonnet-5-5` | medium |
 | Review | `claude-opus-5-5` | high |
 
-Where a task or the project names another model or effort than the table, the table wins. A task may ask for a stronger model or a higher effort, never for less, and the stamp of #31 records what ran (#51).
+Where an issue or the project names another model or effort than the table, the table wins. An issue may ask for a stronger model or a higher effort, never for less, and the stamp of #31 records what ran (#51).
 
 Figures on the findings of the first runs correct it. A changed model is a new revision. The table is for a vendor's runner. The models of local runners have a place of their own in the table, `local_models`, empty until the first one exists (point 11). A table with anything there is refused until then.
 
-The breakdown has no line for a vendor's runner, and a table that gives it one is refused. It reads the code without a list, so it sends a model more of the code than any other role. It runs on a local runner, or on another runner only where a person has cleared that runner for the breakdown in the organisation's file (point 11). There is no word per task for it. Until the check of #11 is built, nothing refuses another runner: the breakdown's prompt says where it should run, and the stamp says where it was handed out (#64).
+The breakdown has no line for a vendor's runner, and a table that gives it one is refused. It reads the code without a list, so it sends a model more of the code than any other role. It runs on a local runner, or on another runner only where a person has cleared that runner for the breakdown in the organisation's file (point 11). There is no word per issue for it. Until the check of #11 is built, nothing refuses another runner: the breakdown's prompt says where it should run, and the stamp says where it was handed out (#64).
 
 ## 6. The format of the tables
 
@@ -109,7 +109,7 @@ What follows from it:
 | `.watchbill/revision/` | The files of the revision, byte for byte as the package has them |
 | `.watchbill/revision.sha256` | The manifest |
 | `.watchbill/project/` | The project's own text for its agents. Not part of the revision |
-| `.watchbill/tasks/` | The task's file of each task and its acceptance (point 13). Not part of the revision |
+| `.watchbill/issues/` | The file of each issue and its acceptance (point 13). Not part of the revision |
 
 The team and an assessor then read exactly what the agents are told, and a clone carries its revision. The files under `.watchbill/revision/` are written by `wb` and never by hand.
 
@@ -135,13 +135,13 @@ Any change to a file of the revision is a new version of the package.
 
 ## 10. The watch officer
 
-The role that is given tasks and hands them on. The captain is the person, who decides what is built.
+The role that is given issues and hands them on. The captain is the person, who decides what is built.
 
 - **The program** decides all that the rule table can decide (who is free, who may hold which role on this change, the order, the rounds, what goes to a person) and performs every handover.
-- **The officer** is a model's role for what takes judgement: whether a task is clear enough to start, how it is broken into pieces, which paths and which class it touches, the brief for the one who gets it, and what to do with a piece that is stuck.
+- **The officer** is a model's role for what takes judgement: whether an issue is clear enough to start, how it is broken into pieces, which paths and which class it touches, the brief for the one who gets it, and what to do with a piece that is stuck.
 - The officer proposes and the program checks. A handover that breaks a rule is refused, whoever proposed it.
-- The officer holds no other role on a task it has handed out, and never merges. It has an account of its own, so every handover shows at the tracker as an assignment from it.
-- Taking a task that nobody assigned is off, unless a rule the captain approved names the queue it may take from, with a cap on the work in progress, and never for classed code. The first table names no queue.
+- The officer holds no other role on an issue it has handed out, and never merges. It has an account of its own, so every handover shows at the tracker as an assignment from it.
+- Taking an issue that nobody assigned is off, unless a rule the captain approved names the queue it may take from, with a cap on the work in progress, and never for classed code. The first table names no queue.
 - In the first revision the officer has its rows in the rule table. Its prompt is written after the first run of the other four roles.
 
 ## 11. Confidentiality
@@ -153,7 +153,7 @@ A level that decides where an assignment may run. It is a second axis beside the
 - **The organisation names the runners** and, for each, the highest level it may be given. Levels and runners are in one file outside every repository: `/etc/watchbill/organisation.yml`. It is laid out by the organisation's own means and is not part of the revision.
 - **A project states only its own level.** It can be stricter than the organisation, never freer, and a team cannot clear a runner for itself.
 - **With no organisation's file, no AI is allowed.** `wb` hands out no prompt on that machine and names the file it looked for. Nothing is assumed about where work may run, not even this machine with a local model.
-- **The level of an assignment** is the higher of the level of its task and the level of everything the session can read. A session reads the whole checkout, so until a runner can limit that, the second is the level of the repository.
+- **The level of an assignment** is the higher of the level of its issue and the level of everything the session can read. A session reads the whole checkout, so until a runner can limit that, the second is the level of the repository.
 - **The program refuses, never a model.** No level given means the most restrictive. A person sets or lowers a level; an agent may only raise one.
 - **What it does not do:** stop a person from pasting code into another tool. The network rules of a runner do that. Watchbill refuses the handover and leaves a record.
 
@@ -161,26 +161,26 @@ A level that decides where an assignment may run. It is a second axis beside the
 
 What a session ran as is said by the one who started it, not by the session. Settled with the owner on 2026-11-17 (#31), after two runs in which every session gave its effort as `unknown`.
 
-- **What is stamped:** the role; the model ID and the effort of the model table; the runner; the version of the package and the hash of the revision; the task, the change and the round; the branch and the checkout; the time; and the hash of each part of the prompt.
+- **What is stamped:** the role; the model ID and the effort of the model table; the runner; the version of the package and the hash of the revision; the issue, the change and the round; the branch and the checkout; the time; and the hash of each part of the prompt.
 - **What it means:** what was handed out. `wb prompt` knows what the table asks for and what the prompt holds. It cannot see what the session truly runs as. The one who starts the session starts it so; a starter that does both in one step closes the gap (#66).
 - **Who stamps:** the program that hands out the prompt: `wb prompt --stamp` (#68). A person who starts a session by hand posts the stamp as it was printed.
 - **Its form:** lines of `name: value` in a fixed order, the same on every machine, with one line for each part of the prompt in the form `sha256sum` prints. A program can read it and `sha256sum` can check its parts.
-- **Where it is kept:** on the task, one comment per session, whose first line starts with `[stamp] <role> round <n>`. The tester and the build run before there is a change, so the task is the one place that holds every session. #30 may move it later.
+- **Where it is kept:** on the issue, one comment per session, whose first line starts with `[stamp] <role> round <n>`. The tester and the build run before there is a change, so the issue is the one place that holds every session. #30 may move it later.
 - **The agent's own word:** `model` and `effort` stay in the last message, as what the session says of itself (#69). Where they differ from the stamp, that is a finding for a person, and the stamp is what counts. `unknown` is written down, not a finding: a session often cannot see its own effort.
-- **A session with no stamp:** its work is not taken as the work of a role, and nothing is handed on from it. Until a program hands work on (#66, the officer), a person keeps this rule: no stamp on the task, no next role.
+- **A session with no stamp:** its work is not taken as the work of a role, and nothing is handed on from it. Until a program hands work on (#66, the officer), a person keeps this rule: no stamp on the issue, no next role.
 
-## 13. The task's file
+## 13. The issue's file
 
-What a task is, read from a person's issue, in a form `wb` reads. Settled with the owner on 2026-11-18 (#64), after two runs in which every issue had to be made ready by hand before the tester could start.
+A person's issue, read into a form `wb` reads. It was called the task's file until revision 0.0.6 (#78). Settled with the owner on 2026-11-18 (#64), after two runs in which every issue had to be made ready by hand before the tester could start.
 
-- **Why it is apart from the issue:** the issue is what the person asked for. The task's file is a reading of it, and a reading is a claim until a person accepts it. The breakdown never changes the issue.
-- **Where it lives:** `.watchbill/tasks/<task>.yml`, in the repository. The breakdown commits it first on the task's branch, alone. It is reviewed and merged with the change, so the history keeps what each task was read as.
-- **What it holds:** the task; the SHA-256 of the issue's text it was read from; the requirements, each with an ID, its text and where in the issue it comes from, and for a clause that already holds the existing test that guards it; the interface the tests call; the paths the change may change; what each role may read beside them; the existing tests the change changes; and the questions the issue leaves open. The form is in #74.
-- **What a requirement is without a table:** a point of the task's file. Its ID is the task's number and the point, `54.1`. A test is named after it, a finding points at it, and it can be followed both ways. A project with a table of requirements gives the row's ID instead.
-- **How a person accepts it:** `wb accept <task>` writes `.watchbill/tasks/<task>.accepted`, with the SHA-256 of the task's file, the person's git identity and the time. It refuses while the file holds a question. It never writes over an acceptance that is there: to accept again, the person removes the old one.
-- **An edit after acceptance** voids it: the hash no longer holds, and no prompt of the task is handed out until a person accepts again (#76).
+- **Why it is apart from the issue:** the issue is what the person asked for. The issue's file is a reading of it, and a reading is a claim until a person accepts it. The breakdown never changes the issue.
+- **Where it lives:** `.watchbill/issues/<issue>.yml`, in the repository. The breakdown commits it first on the issue's branch, alone. It is reviewed and merged with the change, so the history keeps what each issue was read as.
+- **What it holds:** the name of the issue; the SHA-256 of the issue's text it was read from; the requirements, each with an ID, its text and where in the issue it comes from, and for a clause that already holds the existing test that guards it; the interface the tests call; the paths the change may change; what each role may read beside them; the existing tests the change changes; and the questions the issue leaves open. The form is in #74.
+- **What a requirement is without a table:** a point of the issue's file. Its ID is the issue's number and the point, `54.1`. A test is named after it, a finding points at it, and it can be followed both ways. A project with a table of requirements gives the row's ID instead.
+- **How a person accepts it:** `wb accept <issue>` writes `.watchbill/issues/<issue>.accepted`, with the SHA-256 of the issue's file, the person's git identity and the time. It refuses while the file holds a question. It never writes over an acceptance that is there: to accept again, the person removes the old one.
+- **An edit after acceptance** voids it: the hash no longer holds, and no prompt of the issue is handed out until a person accepts again (#76).
 - **What acceptance cannot stop:** under one account shared by a person and the agents, an agent can run `wb accept` itself. The hash stops a change after acceptance, not a false acceptance. Only accounts of their own (#30), or later a signed commit, stop that.
-- **Without a task's file** a project works as before: the issue holds its numbered requirements, and `wb prompt` is given what it cannot know.
+- **Without an issue's file** a project works as before: the issue holds its numbered requirements, and `wb prompt` is given what it cannot know.
 
 ## The requirements
 
@@ -188,14 +188,14 @@ The pieces that build this have their requirements reserved as Draft rows in `re
 
 | Area | File | Issue |
 |---|---|---|
-| `WB-ROLE` | `requirements/role.md` | #4, #69, #75 |
+| `WB-ROLE` | `requirements/role.md` | #4, #69, #75, #78 |
 | `WB-RULE` | `requirements/rule.md` | #5, #75 |
 | `WB-REV` | `requirements/rev.md` | #6 |
 | `WB-PIN` | `requirements/pin.md` | #7 |
 | `WB-CHECK` | `requirements/check.md` | #8 |
-| `WB-PROMPT` | `requirements/prompt.md` | #9, #10, #68, #76 |
+| `WB-PROMPT` | `requirements/prompt.md` | #9, #10, #68, #76, #78 |
 | `WB-CONF` | `requirements/conf.md` | #11 |
-| `WB-TASK` | `requirements/task.md` | #74 |
+| `WB-TASK` | `requirements/task.md` | #74, #78: the area keeps its name, and its rows say issue |
 | `WB-ACCT` | `requirements/acct.md` | #83 |
 | `WB-BUILD` | `requirements/build.md` | #84 |
 | `WB-LISTEN` | `requirements/listen.md` | #85 |

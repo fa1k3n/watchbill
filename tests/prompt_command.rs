@@ -35,7 +35,7 @@ fn filled(role: &str, values: &[(&str, &str)]) -> String {
 }
 
 const ALL: [&str; 16] = [
-    "--task",
+    "--issue",
     "T-1",
     "--change",
     "34",
@@ -46,26 +46,26 @@ const ALL: [&str; 16] = [
     "--checkout",
     "/work/brakes",
     "--branch",
-    "task-1",
-    "--task_address",
+    "issue-1",
+    "--issue_address",
     "tracker T-1",
     "--change_address",
     "server 34",
 ];
 const ALL_VALUES: [(&str, &str); 8] = [
-    ("task", "T-1"),
+    ("issue", "T-1"),
     ("change", "34"),
     ("requirements", "WB-X-1"),
     ("round", "1"),
     ("checkout", "/work/brakes"),
-    ("branch", "task-1"),
-    ("task_address", "tracker T-1"),
+    ("branch", "issue-1"),
+    ("issue_address", "tracker T-1"),
     ("change_address", "server 34"),
 ];
 
-/// Where the work is (#43): every role prompt names the checkout, the branch and the task's address.
-const WHERE: [&str; 6] = ["--checkout", "/work/brakes", "--branch", "task-1", "--task_address", "tracker T-1"];
-const WHERE_VALUES: [(&str, &str); 3] = [("checkout", "/work/brakes"), ("branch", "task-1"), ("task_address", "tracker T-1")];
+/// Where the work is (#43): every role prompt names the checkout, the branch and the issue's address.
+const WHERE: [&str; 6] = ["--checkout", "/work/brakes", "--branch", "issue-1", "--issue_address", "tracker T-1"];
+const WHERE_VALUES: [(&str, &str); 3] = [("checkout", "/work/brakes"), ("branch", "issue-1"), ("issue_address", "tracker T-1")];
 
 /// The words of a run with the options of where the work is added at the end.
 fn with_where<'a>(args: &[&'a str]) -> Vec<&'a str> {
@@ -97,13 +97,13 @@ fn snapshot(folder: &Path) -> Vec<(String, Vec<u8>)> {
 }
 
 #[test]
-fn test_WB_PROMPT_10_a_fresh_repository_prints_the_build_prompt_with_the_task_filled_in() {
+fn test_WB_PROMPT_10_a_fresh_repository_prints_the_build_prompt_with_the_issue_filled_in() {
     let folder = set_up();
 
-    let run = wb(&folder.path, &with_where(&["prompt", "build", "--task", "12", "--requirements", "WB-X-1"]), "");
+    let run = wb(&folder.path, &with_where(&["prompt", "build", "--issue", "12", "--requirements", "WB-X-1"]), "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert_eq!(text(&run.stdout), filled_where("build", &[("task", "12"), ("requirements", "WB-X-1")]));
+    assert_eq!(text(&run.stdout), filled_where("build", &[("issue", "12"), ("requirements", "WB-X-1")]));
     assert_eq!(text(&run.stderr), "");
 }
 
@@ -113,10 +113,10 @@ fn test_WB_PROMPT_10_with_project_text_the_output_is_the_three_parts_in_order() 
     put(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
     put(&folder.path, ".watchbill/project/build.md", "Builders: run make test.\n");
 
-    let run = wb(&folder.path, &with_where(&["prompt", "build", "--task", "T-1", "--requirements", "WB-X-1"]), "");
+    let run = wb(&folder.path, &with_where(&["prompt", "build", "--issue", "T-1", "--requirements", "WB-X-1"]), "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    let role = filled_where("build", &[("task", "T-1"), ("requirements", "WB-X-1")]);
+    let role = filled_where("build", &[("issue", "T-1"), ("requirements", "WB-X-1")]);
     assert_eq!(
         text(&run.stdout),
         format!("{}\n{}\n\nEveryone: use make.\n\nBuilders: run make test.\n", role, FIXED_LINE)
@@ -127,10 +127,10 @@ fn test_WB_PROMPT_10_with_project_text_the_output_is_the_three_parts_in_order() 
 fn test_WB_PROMPT_10_an_option_may_come_before_the_role() {
     let folder = set_up();
 
-    let run = wb(&folder.path, &with_where(&["prompt", "--task", "7", "tester", "--requirements", "R"]), "");
+    let run = wb(&folder.path, &with_where(&["prompt", "--issue", "7", "tester", "--requirements", "R"]), "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert_eq!(text(&run.stdout), filled_where("tester", &[("task", "7"), ("requirements", "R")]));
+    assert_eq!(text(&run.stdout), filled_where("tester", &[("issue", "7"), ("requirements", "R")]));
 }
 
 #[test]
@@ -170,7 +170,7 @@ fn test_WB_PROMPT_12_one_changed_byte_of_a_prompt_ends_with_1_prints_nothing_and
     bytes.insert(0, b'x');
     fs::write(&file, bytes).unwrap();
 
-    let run = wb(&folder.path, &["prompt", "build", "--task", "1", "--requirements", "R"], "");
+    let run = wb(&folder.path, &["prompt", "build", "--issue", "1", "--requirements", "R"], "");
 
     assert_eq!(code(&run), Some(1));
     assert_eq!(text(&run.stdout), "");
@@ -187,7 +187,7 @@ fn test_WB_PROMPT_12_a_changed_file_of_another_role_fails_the_check_too() {
     bytes.insert(0, b'x');
     fs::write(&file, bytes).unwrap();
 
-    let run = wb(&folder.path, &["prompt", "build", "--task", "1", "--requirements", "R"], "");
+    let run = wb(&folder.path, &["prompt", "build", "--issue", "1", "--requirements", "R"], "");
 
     assert_eq!(code(&run), Some(1));
     assert_eq!(text(&run.stdout), "");
@@ -231,7 +231,7 @@ fn test_WB_PROMPT_12_a_repository_pinned_to_another_revision_than_the_installed_
         .collect();
     fs::write(&file, changed).unwrap();
 
-    let run = wb(&folder.path, &["prompt", "build", "--task", "1", "--requirements", "R"], "");
+    let run = wb(&folder.path, &["prompt", "build", "--issue", "1", "--requirements", "R"], "");
 
     assert_eq!(code(&run), Some(1));
     assert_eq!(text(&run.stdout), "");
@@ -242,7 +242,7 @@ fn test_WB_PROMPT_12_a_repository_pinned_to_another_revision_than_the_installed_
 fn test_WB_PROMPT_13_no_watchbill_folder_ends_with_2_and_prints_nothing() {
     let folder = repository(None);
 
-    let run = wb(&folder.path, &["prompt", "build", "--task", "1"], "");
+    let run = wb(&folder.path, &["prompt", "build", "--issue", "1"], "");
 
     assert_eq!(code(&run), Some(2));
     assert_eq!(text(&run.stdout), "");
@@ -253,7 +253,7 @@ fn test_WB_PROMPT_13_no_watchbill_folder_ends_with_2_and_prints_nothing() {
 fn test_WB_PROMPT_13_a_folder_that_is_not_in_a_git_repository_ends_with_2() {
     let folder = folder();
 
-    let run = wb(&folder.path, &["prompt", "build", "--task", "1"], "");
+    let run = wb(&folder.path, &["prompt", "build", "--issue", "1"], "");
 
     assert_eq!(code(&run), Some(2));
     assert_eq!(text(&run.stdout), "");
@@ -266,11 +266,11 @@ fn test_WB_PROMPT_14_a_placeholder_the_prompt_uses_with_no_option_is_refused_by_
     let folder = set_up();
 
     // `requirements` has its default text (#72), and this repository has no pattern for the address.
-    let run = wb(&folder.path, &["prompt", "build", "--task", "12", "--branch", "task-12"], "");
+    let run = wb(&folder.path, &["prompt", "build", "--issue", "12", "--branch", "issue-12"], "");
 
     assert_eq!(code(&run), Some(1));
     assert_eq!(text(&run.stdout), "");
-    assert!(text(&run.stderr).contains("{task_address}"), "{}", text(&run.stderr));
+    assert!(text(&run.stderr).contains("{issue_address}"), "{}", text(&run.stderr));
 }
 
 #[test]
@@ -288,7 +288,7 @@ fn test_WB_PROMPT_14_no_option_at_all_is_refused_for_a_placeholder_that_is_used(
 fn test_WB_PROMPT_6_a_role_the_revision_does_not_have_is_refused_with_the_roles_it_has() {
     let folder = set_up();
 
-    let run = wb(&folder.path, &["prompt", "captain", "--task", "1"], "");
+    let run = wb(&folder.path, &["prompt", "captain", "--issue", "1"], "");
 
     assert_eq!(code(&run), Some(1));
     assert_eq!(text(&run.stdout), "");
@@ -323,10 +323,10 @@ fn test_WB_PROMPT_15_a_missing_role_a_third_word_and_a_repeated_option_end_with_
 
     for args in [
         vec!["prompt"],
-        vec!["prompt", "--task", "1"],
+        vec!["prompt", "--issue", "1"],
         vec!["prompt", "build", "1", "2"],
-        vec!["prompt", "build", "--task", "1", "--task", "2"],
-        vec!["prompt", "build", "--task"],
+        vec!["prompt", "build", "--issue", "1", "--issue", "2"],
+        vec!["prompt", "build", "--issue"],
         vec!["prompt", "build", "--parts=yes"],
     ] {
         let run = wb(&folder.path, &args, "");
@@ -343,9 +343,9 @@ fn test_WB_PROMPT_15_an_empty_value_is_refused_by_name_and_ends_with_2() {
     let folder = set_up();
 
     for (args, name) in [
-        (vec!["prompt", "build", "--task=", "--requirements", "R"], "--task"),
-        (vec!["prompt", "build", "--task", "", "--requirements", "R"], "--task"),
-        (vec!["prompt", "build", "--task", "1", "--requirements", ""], "--requirements"),
+        (vec!["prompt", "build", "--issue=", "--requirements", "R"], "--issue"),
+        (vec!["prompt", "build", "--issue", "", "--requirements", "R"], "--issue"),
+        (vec!["prompt", "build", "--issue", "1", "--requirements", ""], "--requirements"),
     ] {
         let run = wb(&folder.path, &args, "");
 
@@ -409,17 +409,17 @@ fn test_WB_PROMPT_11_with_no_project_text_parts_prints_the_one_line_of_the_role(
 fn test_WB_PROMPT_16_a_value_that_starts_with_a_dash_or_holds_a_line_break_arrives_as_given() {
     let folder = set_up();
 
-    for (args, task, requirements) in [
-        (vec!["prompt", "build", "--task", "-x", "--requirements", "R"], "-x", "R"),
-        (vec!["prompt", "build", "--task=-x", "--requirements=-y"], "-x", "-y"),
-        (vec!["prompt", "build", "--task", "--", "--requirements", "a\nb\n\nc"], "--", "a\nb\n\nc"),
-        (vec!["prompt", "build", "--task", "{change}", "--requirements", "{round}{task}"], "{change}", "{round}{task}"),
-        (vec!["prompt", "build", "--task", "one\ntwo", "--requirements", "R"], "one\ntwo", "R"),
+    for (args, issue, requirements) in [
+        (vec!["prompt", "build", "--issue", "-x", "--requirements", "R"], "-x", "R"),
+        (vec!["prompt", "build", "--issue=-x", "--requirements=-y"], "-x", "-y"),
+        (vec!["prompt", "build", "--issue", "--", "--requirements", "a\nb\n\nc"], "--", "a\nb\n\nc"),
+        (vec!["prompt", "build", "--issue", "{change}", "--requirements", "{round}{issue}"], "{change}", "{round}{issue}"),
+        (vec!["prompt", "build", "--issue", "one\ntwo", "--requirements", "R"], "one\ntwo", "R"),
     ] {
         let run = wb(&folder.path, &with_where(&args), "");
 
         assert_eq!(code(&run), Some(0), "{:?}: {}", args, text(&run.stderr));
-        assert_eq!(text(&run.stdout), filled_where("build", &[("task", task), ("requirements", requirements)]), "{:?}", args);
+        assert_eq!(text(&run.stdout), filled_where("build", &[("issue", issue), ("requirements", requirements)]), "{:?}", args);
     }
 }
 
@@ -430,8 +430,8 @@ fn test_WB_PROMPT_17_a_run_changes_nothing_under_the_repository() {
     let before = snapshot(&folder.path);
 
     for (args, status) in [
-        (with_where(&["prompt", "build", "--task", "1", "--requirements", "R"]), 0),
-        (with_where(&["prompt", "build", "--parts", "--task", "1", "--requirements", "R"]), 0),
+        (with_where(&["prompt", "build", "--issue", "1", "--requirements", "R"]), 0),
+        (with_where(&["prompt", "build", "--parts", "--issue", "1", "--requirements", "R"]), 0),
         (vec!["prompt", "build"], 1),
         (vec!["prompt", "nobody"], 1),
     ] {
@@ -463,7 +463,7 @@ fn test_WB_PROMPT_18_the_options_are_the_placeholders_of_the_list() {
 fn test_WB_PROMPT_18_an_option_of_where_the_work_is_is_taken_and_filled_in() {
     let folder = set_up();
 
-    for name in ["checkout", "branch", "task_address", "change_address"] {
+    for name in ["checkout", "branch", "issue_address", "change_address"] {
         // Every option of ALL, with a value of its own for the one under test.
         let option = format!("--{}", name);
         let value = format!("the value of {}", name);
@@ -483,7 +483,7 @@ fn test_WB_PROMPT_18_an_option_of_where_the_work_is_is_taken_and_filled_in() {
 // ---- `wb prompt <role> --stamp` (#68) ----
 
 const STAMP_NAMES: [&str; 12] =
-    ["role", "model", "effort", "runner", "version", "revision", "task", "change", "round", "branch", "checkout", "time"];
+    ["role", "model", "effort", "runner", "version", "revision", "issue", "change", "round", "branch", "checkout", "time"];
 
 const ROLES: [&str; 4] = ["build", "fix", "review", "tester"];
 
@@ -551,7 +551,7 @@ fn test_WB_PROMPT_19_a_stamp_is_the_twelve_lines_in_order_and_the_parts_for_each
         assert_eq!(value(&found, "role"), role);
         // A value the prompt does not hold is written empty: it was not handed out.
         let role_text = fs::read_to_string(package().join("revision/roles").join(format!("{}.md", role))).unwrap();
-        for name in ["task", "change", "round", "branch", "checkout"] {
+        for name in ["issue", "change", "round", "branch", "checkout"] {
             let given = ALL_VALUES.iter().find(|(n, _)| *n == name).unwrap().1;
             let expected = if role_text.contains(&format!("{{{}}}", name)) { given } else { "" };
             assert_eq!(value(&found, name), expected, "{} {}", role, name);
@@ -593,9 +593,9 @@ fn test_WB_PROMPT_19_time_is_utc_in_its_form_and_between_before_and_after_the_ru
 fn test_WB_PROMPT_19_a_stamped_value_that_got_no_option_is_written_empty_with_no_trailing_space() {
     let folder = set_up();
 
-    // The build prompt uses {task}, {requirements} and the places of the work; nothing else is given.
+    // The build prompt uses {issue}, {requirements} and the places of the work; nothing else is given.
     let mut args = vec!["prompt", "build", "--stamp"];
-    args.extend(with_where(&["--task", "12", "--requirements", "R"]));
+    args.extend(with_where(&["--issue", "12", "--requirements", "R"]));
     let run = wb(&folder.path, &args, "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
@@ -662,7 +662,7 @@ fn test_WB_PROMPT_21_the_part_lines_are_the_lines_of_parts_in_order() {
 fn test_WB_PROMPT_22_a_stamped_value_with_a_line_break_is_refused_by_name_with_2() {
     let folder = set_up();
 
-    for name in ["task", "change", "round", "branch", "checkout"] {
+    for name in ["issue", "change", "round", "branch", "checkout"] {
         for bad in [
             "a\nb", "a\rb", "a\x0bb", "a\x0cb", "a\u{85}b", "a\u{2028}b", "a\u{2029}b", "a\x1bb", "a\tb", " a",
             "a ", "   ", "\u{a0}a", "a\u{3000}",
@@ -687,7 +687,7 @@ fn test_WB_PROMPT_22_a_stamped_value_with_a_line_break_is_refused_by_name_with_2
 fn test_WB_PROMPT_22_a_value_the_stamp_does_not_print_may_still_hold_a_line_break() {
     let folder = set_up();
     let mut args = vec!["prompt", "build", "--stamp"];
-    args.extend(with_where(&["--task", "1", "--requirements", "a\nb"]));
+    args.extend(with_where(&["--issue", "1", "--requirements", "a\nb"]));
 
     let run = wb(&folder.path, &args, "");
 
@@ -763,7 +763,7 @@ fn test_WB_PROMPT_19_the_usage_names_stamp() {
 fn test_WB_PROMPT_19_a_value_the_prompt_does_not_use_is_written_empty() {
     let folder = set_up();
     let mut args = vec!["prompt", "build", "--stamp", "--change", "5", "--round", "2"];
-    args.extend(with_where(&["--task", "1", "--requirements", "R"]));
+    args.extend(with_where(&["--issue", "1", "--requirements", "R"]));
 
     let run = wb(&folder.path, &args, "");
 
@@ -777,12 +777,12 @@ fn test_WB_PROMPT_19_a_value_the_prompt_does_not_use_is_written_empty() {
 fn test_WB_PROMPT_22_a_stamped_value_may_hold_white_space_inside() {
     let folder = set_up();
     let mut args = vec!["prompt", "build", "--stamp", "--requirements", "R", "--checkout", "/work/my brakes"];
-    args.extend(["--task", "T 1", "--branch", "task-1", "--task_address", "x"]);
+    args.extend(["--issue", "T 1", "--branch", "issue-1", "--issue_address", "x"]);
 
     let run = wb(&folder.path, &args, "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert!(text(&run.stdout).contains("\ntask: T 1\n"), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains("\nissue: T 1\n"), "{}", text(&run.stdout));
 }
 
 #[test]
@@ -825,20 +825,20 @@ fn root_of(folder: &Path) -> String {
     fs::canonicalize(folder).unwrap().to_str().unwrap().to_string()
 }
 
-const TASK_ADDRESS: &str = "gh issue view 54 --repo example/brake-controller --comments";
+const ISSUE_ADDRESS: &str = "gh issue view 54 --repo example/brake-controller --comments";
 const CHANGE_ADDRESS: &str = "gh pr view 168 --repo example/brake-controller --comments";
-const REQUIREMENTS: &str = "the numbered requirements of task 54";
+const REQUIREMENTS: &str = "the numbered requirements of issue 54";
 
 /// The values of `wb prompt review 54 --change 168 --round 1` with one local branch `issue-54-serve`.
 fn derived(folder: &Path) -> Vec<(&'static str, String)> {
     vec![
-        ("task", "54".to_string()),
+        ("issue", "54".to_string()),
         ("change", "168".to_string()),
         ("round", "1".to_string()),
         ("requirements", REQUIREMENTS.to_string()),
         ("checkout", root_of(folder)),
         ("branch", "issue-54-serve".to_string()),
-        ("task_address", TASK_ADDRESS.to_string()),
+        ("issue_address", ISSUE_ADDRESS.to_string()),
         ("change_address", CHANGE_ADDRESS.to_string()),
     ]
 }
@@ -849,25 +849,25 @@ fn filled_with(role: &str, values: &[(&str, String)]) -> String {
 }
 
 #[test]
-fn test_WB_PROMPT_31_the_task_is_the_word_after_the_role_and_the_tester_needs_nothing_else() {
+fn test_WB_PROMPT_31_the_issue_is_the_word_after_the_role_and_the_tester_needs_nothing_else() {
     let folder = set_up_github();
 
     let run = wb(&folder.path, &["prompt", "tester", "54"], "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let values = vec![
-        ("task", "54".to_string()),
+        ("issue", "54".to_string()),
         ("requirements", REQUIREMENTS.to_string()),
         ("checkout", root_of(&folder.path)),
         ("branch", "issue-54".to_string()),
-        ("task_address", TASK_ADDRESS.to_string()),
+        ("issue_address", ISSUE_ADDRESS.to_string()),
     ];
     assert_eq!(text(&run.stdout), filled_with("tester", &values));
     assert_eq!(text(&run.stderr), "");
 }
 
 #[test]
-fn test_WB_PROMPT_31_the_task_word_may_stand_after_an_option() {
+fn test_WB_PROMPT_31_the_issue_word_may_stand_after_an_option() {
     let folder = set_up_github();
     branches(&folder.path, &["issue-54-serve"]);
 
@@ -878,37 +878,37 @@ fn test_WB_PROMPT_31_the_task_word_may_stand_after_an_option() {
 }
 
 #[test]
-fn test_WB_PROMPT_31_the_option_task_still_works_and_is_the_same_as_the_word() {
+fn test_WB_PROMPT_31_the_option_issue_still_works_and_is_the_same_as_the_word() {
     let folder = set_up_github();
     branches(&folder.path, &["issue-54-serve"]);
 
     let by_word = wb(&folder.path, &["prompt", "review", "54", "--change", "168", "--round", "1"], "");
-    let by_option = wb(&folder.path, &["prompt", "review", "--task", "54", "--change", "168", "--round", "1"], "");
+    let by_option = wb(&folder.path, &["prompt", "review", "--issue", "54", "--change", "168", "--round", "1"], "");
 
     assert_eq!(code(&by_option), Some(0), "{}", text(&by_option.stderr));
     assert_eq!(text(&by_option.stdout), text(&by_word.stdout));
 }
 
 #[test]
-fn test_WB_PROMPT_31_a_task_word_with_the_option_task_ends_with_2_and_prints_nothing() {
+fn test_WB_PROMPT_31_an_issue_word_with_the_option_issue_ends_with_2_and_prints_nothing() {
     let folder = set_up_github();
 
     for args in [
-        vec!["prompt", "tester", "54", "--task", "54"],
-        vec!["prompt", "tester", "54", "--task", "55"],
-        vec!["prompt", "tester", "--task", "54", "54"],
+        vec!["prompt", "tester", "54", "--issue", "54"],
+        vec!["prompt", "tester", "54", "--issue", "55"],
+        vec!["prompt", "tester", "--issue", "54", "54"],
     ] {
         let run = wb(&folder.path, &args, "");
 
         assert_eq!(code(&run), Some(2), "{:?}", args);
         assert_eq!(text(&run.stdout), "", "{:?}", args);
-        assert!(text(&run.stderr).contains("--task"), "{:?}: {}", args, text(&run.stderr));
+        assert!(text(&run.stderr).contains("--issue"), "{:?}: {}", args, text(&run.stderr));
         assert!(text(&run.stderr).ends_with(&format!("\n\n{}", USAGE)), "{:?}", args);
     }
 }
 
 #[test]
-fn test_WB_PROMPT_31_an_empty_task_word_ends_with_2() {
+fn test_WB_PROMPT_31_an_empty_issue_word_ends_with_2() {
     let folder = set_up_github();
 
     let run = wb(&folder.path, &["prompt", "tester", ""], "");
@@ -979,14 +979,14 @@ fn test_WB_PROMPT_34_no_local_branch_is_refused_the_same_way() {
 }
 
 #[test]
-fn test_WB_PROMPT_35_requirements_with_no_option_is_the_numbered_requirements_of_the_task() {
+fn test_WB_PROMPT_35_requirements_with_no_option_is_the_numbered_requirements_of_the_issue() {
     let folder = set_up_github();
     branches(&folder.path, &["issue-54-x"]);
 
     let run = wb(&folder.path, &["prompt", "build", "54"], "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert!(text(&run.stdout).contains("the requirements the numbered requirements of task 54"), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains("the requirements the numbered requirements of issue 54"), "{}", text(&run.stdout));
 }
 
 #[test]
@@ -995,7 +995,7 @@ fn test_WB_PROMPT_36_an_option_given_wins_over_each_derived_value() {
     // Two branches match, so the branch is only found when it is given.
     branches(&folder.path, &["issue-54-serve", "issue-54-other"]);
 
-    for name in ["requirements", "checkout", "branch", "task_address", "change_address"] {
+    for name in ["requirements", "checkout", "branch", "issue_address", "change_address"] {
         let value = format!("the value of {}", name);
         let option = format!("--{}", name);
         let mut values = derived(&folder.path);
@@ -1019,11 +1019,11 @@ fn test_WB_PROMPT_36_an_option_given_wins_over_each_derived_value() {
 }
 
 #[test]
-fn test_WB_PROMPT_36_a_task_option_in_place_of_the_word_and_a_given_change_are_used_as_given() {
+fn test_WB_PROMPT_36_an_issue_option_in_place_of_the_word_and_a_given_change_are_used_as_given() {
     let folder = set_up_github();
     branches(&folder.path, &["issue-54-serve"]);
 
-    let run = wb(&folder.path, &["prompt", "review", "--task", "54", "--change", "9", "--round", "2"], "");
+    let run = wb(&folder.path, &["prompt", "review", "--issue", "54", "--change", "9", "--round", "2"], "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(text(&run.stdout).contains("gh pr view 9 --repo example/brake-controller --comments"), "{}", text(&run.stdout));
@@ -1035,7 +1035,7 @@ fn without_patterns() -> Folder {
     let file = config(&folder.path);
     let kept: String = read(&file)
         .lines()
-        .filter(|line| !["task_address:", "change_address:", "branch:"].iter().any(|key| line.starts_with(key)))
+        .filter(|line| !["issue_address:", "change_address:", "branch:"].iter().any(|key| line.starts_with(key)))
         .map(|line| format!("{}\n", line))
         .collect();
     fs::write(&file, kept).unwrap();
@@ -1053,15 +1053,15 @@ fn test_WB_PROMPT_37_a_watchbill_yml_with_no_patterns_needs_the_options_as_befor
     assert_eq!(text(&refused.stdout), "");
     assert!(text(&refused.stderr).contains("got no value"), "{}", text(&refused.stderr));
 
-    let run = wb(&folder.path, &["prompt", "tester", "54", "--branch", "b-1", "--task_address", "at 54"], "");
+    let run = wb(&folder.path, &["prompt", "tester", "54", "--branch", "b-1", "--issue_address", "at 54"], "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let values = vec![
-        ("task", "54".to_string()),
+        ("issue", "54".to_string()),
         ("requirements", REQUIREMENTS.to_string()),
         ("checkout", root_of(&folder.path)),
         ("branch", "b-1".to_string()),
-        ("task_address", "at 54".to_string()),
+        ("issue_address", "at 54".to_string()),
     ];
     assert_eq!(text(&run.stdout), filled_with("tester", &values));
 }
@@ -1070,7 +1070,7 @@ fn test_WB_PROMPT_37_a_watchbill_yml_with_no_patterns_needs_the_options_as_befor
 fn test_WB_PROMPT_37_a_pattern_that_is_not_a_text_is_refused_by_the_loader() {
     let folder = set_up_github();
     let file = config(&folder.path);
-    let changed = read(&file).replace("branch: 'issue-{task}'", "branch:\n  - a");
+    let changed = read(&file).replace("branch: 'issue-{issue}'", "branch:\n  - a");
     fs::write(&file, changed).unwrap();
 
     let run = wb(&folder.path, &["prompt", "tester", "54"], "");
@@ -1089,7 +1089,7 @@ fn test_WB_PROMPT_38_the_stamp_holds_the_derived_values() {
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let found = fields(&text(&run.stdout));
-    assert_eq!(value(&found, "task"), "54");
+    assert_eq!(value(&found, "issue"), "54");
     assert_eq!(value(&found, "change"), "168");
     assert_eq!(value(&found, "round"), "1");
     assert_eq!(value(&found, "branch"), "issue-54-serve");
@@ -1116,22 +1116,22 @@ const NOT_PLAIN: [&str; 12] =
     ["54; rm -rf ~", "$(x)", "`x`", "5 && x", "..", "5/6", "5*", "a..b", ".hidden", "5.", "-x", "a.lock"];
 
 #[test]
-fn test_WB_PROMPT_39_a_task_that_fills_a_pattern_must_be_plain_or_it_is_refused_by_name_with_2() {
+fn test_WB_PROMPT_39_an_issue_that_fills_a_pattern_must_be_plain_or_it_is_refused_by_name_with_2() {
     let folder = set_up_github();
     branches(&folder.path, &["issue-54-serve"]);
 
     for bad in NOT_PLAIN {
-        let as_option = format!("--task={}", bad);
+        let as_option = format!("--issue={}", bad);
         for args in [vec!["prompt", "tester", bad], vec!["prompt", "tester", as_option.as_str()]] {
             if bad.starts_with('-') && args[2] == bad {
-                continue; // a word that starts with `-` is an option, not the task word
+                continue; // a word that starts with `-` is an option, not the issue word
             }
             let run = wb(&folder.path, &args, "");
 
             assert_eq!(code(&run), Some(2), "{:?}", args);
             assert_eq!(text(&run.stdout), "", "{:?}", args);
             let err = text(&run.stderr);
-            assert!(err.starts_with("wb prompt: ") && err.contains("'--task'"), "{:?}: {}", args, err);
+            assert!(err.starts_with("wb prompt: ") && err.contains("'--issue'"), "{:?}: {}", args, err);
         }
     }
 }
@@ -1159,10 +1159,10 @@ fn test_WB_PROMPT_39_plain_values_are_filled_and_a_value_that_fills_no_pattern_i
     assert_eq!(code(&plain), Some(0), "{}", text(&plain.stderr));
     assert!(text(&plain.stdout).contains("issue-T-1.a_b"), "{}", text(&plain.stdout));
 
-    // Given the branch and the address, the task fills no pattern: it is not held to the rule.
-    let run = wb(&folder.path, &["prompt", "tester", "5 6", "--branch", "b", "--task_address", "a"], "");
+    // Given the branch and the address, the issue fills no pattern: it is not held to the rule.
+    let run = wb(&folder.path, &["prompt", "tester", "5 6", "--branch", "b", "--issue_address", "a"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert!(text(&run.stdout).contains("task 5 6"), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains("issue 5 6"), "{}", text(&run.stdout));
 }
 
 #[test]
@@ -1178,8 +1178,103 @@ fn test_WB_PROMPT_17_a_run_that_derives_writes_nothing_under_the_repository() {
 }
 
 #[test]
-fn test_WB_PROMPT_31_the_usage_names_the_task_word() {
+fn test_WB_PROMPT_31_the_usage_names_the_issue_word() {
     let run = wb(&folder().path, &["--help"], "");
 
-    assert!(text(&run.stdout).contains("wb prompt <role> [<task>]"), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains("wb prompt <role> [<issue>]"), "{}", text(&run.stdout));
+}
+
+// ---- the thing at the tracker is an issue (#78) ----
+
+#[test]
+fn test_WB_PROMPT_45_the_options_task_and_task_address_are_not_known_and_end_with_2_and_the_usage() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-54-serve"]);
+
+    for args in [
+        vec!["prompt", "tester", "--task", "54"],
+        vec!["prompt", "tester", "--task=54"],
+        vec!["prompt", "tester", "54", "--task_address", "at 54"],
+        vec!["prompt", "tester", "54", "--task_address=at 54"],
+    ] {
+        let run = wb(&folder.path, &args, "");
+
+        assert_eq!(code(&run), Some(2), "{:?}", args);
+        assert_eq!(text(&run.stdout), "", "{:?}", args);
+        let err = text(&run.stderr);
+        assert!(err.starts_with("wb prompt: '--task"), "{:?}: {}", args, err);
+        assert!(err.contains("is not known"), "{:?}: {}", args, err);
+        assert!(err.ends_with(&format!("\n\n{}", USAGE)), "{:?}: {}", args, err);
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_45_the_usage_names_no_task_option() {
+    assert!(!USAGE.contains("--task"), "{}", USAGE);
+    assert!(USAGE.contains("[--issue <text>]") && USAGE.contains("[--issue_address <text>]"), "{}", USAGE);
+}
+
+/// `wb prompt tester 54` in a repository whose `watchbill.yml` has `old` in the place of `new`.
+fn with_old_config(old: &str, new: &str) -> std::process::Output {
+    let folder = set_up_github();
+    let file = config(&folder.path);
+    let before = read(&file);
+    assert!(before.contains(new), "{}", before);
+    fs::write(&file, before.replace(new, old)).unwrap();
+    wb(&folder.path, &["prompt", "tester", "54"], "")
+}
+
+#[test]
+fn test_WB_PROMPT_46_a_watchbill_yml_with_the_key_task_address_is_refused_by_name_with_what_to_write() {
+    let run = with_old_config("task_address: 'gh issue view {issue}", "issue_address: 'gh issue view {issue}");
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    assert_eq!(text(&run.stdout), "");
+    let err = text(&run.stderr);
+    assert!(err.starts_with("wb prompt: "), "{}", err);
+    assert!(err.contains("watchbill.yml") && err.contains("`task_address`"), "{}", err);
+    assert!(err.contains("write `issue_address` in its place"), "{}", err);
+}
+
+#[test]
+fn test_WB_PROMPT_46_the_key_task_address_is_refused_also_when_the_address_is_given() {
+    let folder = set_up_github();
+    let file = config(&folder.path);
+    fs::write(&file, format!("{}task_address: 'x {{issue}}'\n", read(&file))).unwrap();
+
+    let run = wb(&folder.path, &["prompt", "tester", "54", "--issue_address", "at 54"], "");
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    assert_eq!(text(&run.stdout), "");
+    assert!(text(&run.stderr).contains("`task_address`"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_PROMPT_47_a_pattern_with_task_in_braces_is_refused_by_name_with_what_to_write() {
+    for (old, new, key) in [
+        ("branch: 'issue-{task}'", "branch: 'issue-{issue}'", "branch"),
+        ("issue_address: 'gh issue view {task}", "issue_address: 'gh issue view {issue}", "issue_address"),
+        ("change_address: 'gh pr view {change} {task}", "change_address: 'gh pr view {change}", "change_address"),
+    ] {
+        let run = with_old_config(old, new);
+
+        assert_eq!(code(&run), Some(1), "{}: {}", key, text(&run.stderr));
+        assert_eq!(text(&run.stdout), "", "{}", key);
+        let err = text(&run.stderr);
+        assert!(err.starts_with("wb prompt: "), "{}: {}", key, err);
+        assert!(err.contains("watchbill.yml") && err.contains(&format!("({})", key)), "{}: {}", key, err);
+        assert!(err.contains("`{task}`") && err.contains("write `{issue}` in its place"), "{}: {}", key, err);
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_48_the_stamp_names_the_issue_on_the_line_issue_and_has_no_line_task() {
+    let folder = set_up_github();
+
+    let run = wb(&folder.path, &["prompt", "tester", "54", "--stamp"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let out = text(&run.stdout);
+    assert!(out.lines().any(|line| line == "issue: 54"), "{}", out);
+    assert!(!out.lines().any(|line| line.starts_with("task:")), "{}", out);
 }

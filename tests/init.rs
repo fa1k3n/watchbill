@@ -28,7 +28,7 @@ fn expected(rows: &[&str]) -> String {
     all.push(format!("revision: {}", watchbill::init::yaml_value(&package_hash())));
     all.extend(rows.iter().map(|row| row.to_string()));
     // The pattern of the branch is proposed for every server (#72), after the rows given.
-    all.push("branch: 'issue-{task}'".to_string());
+    all.push("branch: 'issue-{issue}'".to_string());
     all.push(String::new());
     all.join("\n")
 }
@@ -55,7 +55,7 @@ fn test_WB_INIT_14_yes_writes_what_the_repository_says_and_asks_nothing() {
             "tracker: github",
             "requirements: requirements/*.md",
             "ci: github-actions",
-            "task_address: 'gh issue view {task} --repo example/brake-controller --comments'",
+            "issue_address: 'gh issue view {issue} --repo example/brake-controller --comments'",
             "change_address: 'gh pr view {change} --repo example/brake-controller --comments'",
         ])
     );
@@ -593,14 +593,14 @@ fn test_WB_INIT_43_a_github_origin_gets_the_patterns_of_the_two_addresses_and_th
     let file = read(&config(&folder.path));
     assert!(
         file.ends_with(
-            "task_address: 'gh issue view {task} --repo example/brake-controller --comments'\n\
+            "issue_address: 'gh issue view {issue} --repo example/brake-controller --comments'\n\
              change_address: 'gh pr view {change} --repo example/brake-controller --comments'\n\
-             branch: 'issue-{task}'\n"
+             branch: 'issue-{issue}'\n"
         ),
         "{}",
         file
     );
-    assert!(text(&run.stdout).contains("task_address: 'gh issue view {task}"), "the file is shown first");
+    assert!(text(&run.stdout).contains("issue_address: 'gh issue view {issue}"), "the file is shown first");
     // The file is read through the loader, and wb check holds with the new lines.
     assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
 }
@@ -619,7 +619,7 @@ fn test_WB_INIT_44_another_server_none_or_a_repository_that_is_not_plain_gets_no
 
         assert_eq!(code(&run), Some(0), "{:?}: {}", origin, text(&run.stderr));
         let file = read(&config(&folder.path));
-        assert!(!file.contains("task_address") && !file.contains("change_address"), "{:?}: {}", origin, file);
+        assert!(!file.contains("issue_address") && !file.contains("change_address"), "{:?}: {}", origin, file);
     }
 }
 
@@ -631,6 +631,6 @@ fn test_WB_INIT_45_the_branch_pattern_is_proposed_for_every_server() {
         let run = wb(&folder.path, &["init", "--yes"], "");
 
         assert_eq!(code(&run), Some(0), "{:?}: {}", origin, text(&run.stderr));
-        assert!(read(&config(&folder.path)).ends_with("ci: none\nbranch: 'issue-{task}'\n"), "{:?}", origin);
+        assert!(read(&config(&folder.path)).ends_with("ci: none\nbranch: 'issue-{issue}'\n"), "{:?}", origin);
     }
 }

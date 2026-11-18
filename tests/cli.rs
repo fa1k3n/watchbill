@@ -13,12 +13,12 @@ use std::process::{Command, Output};
 const USAGE: &str = "usage:
   wb init [--yes]
   wb check
-  wb prompt <role> [<task>] [--task <text>] [--change <text>]
+  wb prompt <role> [<issue>] [--issue <text>] [--change <text>]
             [--requirements <text>] [--round <text>] [--checkout <text>]
-            [--branch <text>] [--task_address <text>]
+            [--branch <text>] [--issue_address <text>]
             [--change_address <text>] [--parts] [--stamp]
   wb revision
-  wb accept <task>
+  wb accept <issue>
   wb --version
 
   init      set Watchbill up in the git repository of this folder: propose what
@@ -34,29 +34,29 @@ const USAGE: &str = "usage:
             holds, 1 when something differs. Writes nothing
   prompt    print the prompt of a role on standard output and nothing else: the
             role's text of the pinned revision with each placeholder filled
-            from the option of its name, such as --task for {task}, then the
-            project's own text. The task is the word after the role, or
-            --task. What no option gives is taken from the repository and
+            from the option of its name, such as --issue for {issue}, then the
+            project's own text. The issue is the word after the role, or
+            --issue. What no option gives is taken from the repository and
             watchbill.yml: the checkout, the branch, the two addresses and
             the requirements; an option always wins. It runs the check of wb
             check first and prints nothing when that fails. --parts prints
             the path and the SHA-256 of each part, in the form sha256sum
             prints, in place of the text.
             --stamp prints, in place of the text, what the assignment is: the
-            role, its model and effort, the version and revision, the task, the
-            change, the round, the branch, the checkout, the time, and each
-            part as --parts gives it. Not with --parts. Ends with 0 when the
-            prompt is printed, 1 when it is refused, 2 when it was used
+            role, its model and effort, the version and revision, the issue,
+            the change, the round, the branch, the checkout, the time, and
+            each part as --parts gives it. Not with --parts. Ends with 0 when
+            the prompt is printed, 1 when it is refused, 2 when it was used
             wrongly or the repository is not set up. Writes nothing
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes nothing
-  accept    accept the task's file .watchbill/tasks/<task>.yml: read it, hold it
-            to its form, refuse it while it holds a question, say what will be
-            written, and write .watchbill/tasks/<task>.accepted with the
-            SHA-256 of the file, the git user.name and user.email, and the time
-            in UTC. An acceptance that is there is never written over. Ends
-            with 0 when it is accepted, 1 when it is refused, 2 when it was
-            used wrongly or the repository is not set up
+  accept    accept the issue's file .watchbill/issues/<issue>.yml: read it,
+            hold it to its form, refuse it while it holds a question, say what
+            will be written, and write .watchbill/issues/<issue>.accepted with
+            the SHA-256 of the file, the git user.name and user.email, and the
+            time in UTC. An acceptance that is there is never written over.
+            Ends with 0 when it is accepted, 1 when it is refused, 2 when it
+            was used wrongly or the repository is not set up
 ";
 
 fn root() -> &'static Path {

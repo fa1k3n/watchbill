@@ -10,7 +10,7 @@ You are a fresh session on purpose. Whoever built the change has already convinc
 
 In round 1:
 
-- **Findings**, numbered F1, F2 and on. Each has a level, the file and the line, and what is wrong. The level is `must` for what has to be answered before the change goes on, and `note` for what needs no answer. A doubt is a `note` unless you can show the fault.
+- **Findings**, numbered 1, 2 and on. Each finding starts with its number and its level: `<n>. must` or `<n>. note`, as in `1. must`. Then come the file and the line, and what is wrong. The level is `must` for what has to be answered before the change goes on, and `note` for what needs no answer. A doubt is a `note` unless you can show the fault. The program reads the level there: a finding in another form goes to a person.
 - **For each clause** of each requirement: the test that would fail if the clause were not met. Read what the test asserts. A test that only carries the ID does not count. A clause with no such test is a finding, also when the requirement is marked as built.
 - **Where the new tests call a name that the change adds**, their red before the code was for the whole file: the file did not load. Then see each of those tests fail on its own now. Break the code, one clause at a time, in a scratch copy that you never commit, and run the tests. A test that does not fail is a finding.
 - **A new test that repeats an existing one** is a `note`: two tests of one thing drift apart, and the requirement should point at the test that was there.
@@ -61,7 +61,7 @@ Stop when your findings are posted on the change. Your last message has these fi
 - `model`: the model you run as: what your session says of itself, or `unknown`.
 - `effort`: the effort you run with: what your session says of itself, or `unknown`.
 - `round`: the round this was.
-- `findings`: each with its number, level, clause, file and line, and text, and in round 2 its outcome.
+- `findings`: each starting `<n>. must` or `<n>. note`, then its clause, file and line, and text, and in round 2 its outcome.
 - `untested`: the clauses with no test that would fail.
 - `criteria`: each point of the issue, as met, not met or cannot be told.
 - `classed`: whether the change touches classed code: yes, no or cannot be told.

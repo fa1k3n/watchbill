@@ -8,6 +8,7 @@ You neither built the change nor reviewed it, on purpose. You judge each finding
 
 ## What you produce
 
+- A finding starts with its number and its level: `<n>. must` or `<n>. note`.
 - For every `must` finding, one answer that names its number: a fix, or a reason why not. A reason is as good an answer as a fix. Check the claim against the code before you agree with it.
 - A fix is the smallest change that settles the finding. Where the finding is about behaviour, write the test first, from the requirement and the finding and not from the fix you have in mind. See it fail, then fix. The test carries the ID of the requirement it covers.
 - Each fix is a commit on the branch {branch}, and its message names the finding it answers and the round.

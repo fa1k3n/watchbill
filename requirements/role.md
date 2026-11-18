@@ -61,3 +61,5 @@ The role prompts: breakdown, tester, build, review and fix. The first revision h
 | WB-ROLE-55 | The breakdown's prompt shall say that the breakdown reads the settings of the project's checks, so that what a check needs, such as a built page or a generated file, is in the task. Issue: #75. | T | Implemented |
 | WB-ROLE-56 | The first lines of the breakdown's prompt shall say that it runs on a local model unless a person has cleared another runner for the breakdown. Issue: #75. | T | Implemented |
 | WB-ROLE-57 | The breakdown's last message shall have the fields `model`, `effort`, `file`, `requirements` (how many), `questions` and `needs_person`, in this order. Issue: #75. | T | Implemented |
+| WB-ROLE-58 | The list of placeholders shall hold `{issue}` and `{issue_address}`, and not `{task}` or `{task_address}`. Issue: #78. | T | Draft |
+| WB-ROLE-59 | No file of the roles shall hold the placeholder `{task}` or `{task_address}`. Issue: #78. | T | Draft |

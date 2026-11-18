@@ -48,3 +48,7 @@ How a prompt is put together from the revision and the project's own text, and t
 | WB-PROMPT-42 | When a task's file is accepted, `wb prompt` shall give the fix the interface and what it may change and read, and no requirement, as its text holds no `{requirements}`. Issue: #76. | T | Implemented |
 | WB-PROMPT-43 | `wb prompt` shall refuse, by the name of the field and with status 1, a task's file whose interface, requirement ID or text, or path holds a control character (a line break and a tab are allowed in the interface only), U+2028, U+2029, U+202A to U+202E or U+2066 to U+2069. Issue: #76. | T | Implemented |
 | WB-PROMPT-44 | `wb prompt` shall read a task's file once, use those bytes for its hash, its form and the prompt, and refuse a file over 1 MiB with a message and status 1. Issue: #76. | T | Implemented |
+| WB-PROMPT-45 | `wb prompt` shall refuse the options `--task` and `--task_address` as options that are not known, with status 2 and the usage. Issue: #78. | T | Draft |
+| WB-PROMPT-46 | `wb prompt` shall refuse, with status 1, a `watchbill.yml` that holds the key `task_address`, naming the key and saying to write `issue_address` in its place. Issue: #78. | T | Draft |
+| WB-PROMPT-47 | `wb prompt` shall refuse, with status 1, a `watchbill.yml` whose pattern `issue_address`, `change_address` or `branch` holds `{task}`, naming the key and saying to write `{issue}` in its place. Issue: #78. | T | Draft |
+| WB-PROMPT-48 | The stamp shall name the issue on the line `issue:` and hold no line `task:`. Issue: #78. | T | Draft |

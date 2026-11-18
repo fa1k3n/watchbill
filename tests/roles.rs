@@ -607,3 +607,39 @@ fn test_WB_ROLE_46_a_new_test_that_repeats_an_existing_one_is_a_note() {
     let point = point.unwrap_or_else(|| panic!("no point for a repeated test: {}", round_1));
     assert!(point.contains("is a `note`"), "{}", point);
 }
+
+// The session's own word on its model and effort, and the stamp (#69).
+
+/// The text of how a role ends after the list of its fields.
+fn after_fields(role: &str) -> String {
+    let body = part(role, "## How you end");
+    let start = body.find("- `needs_person`: ").unwrap_or_else(|| panic!("{}: no field needs_person", role));
+    body[start..].split_once('\n').map(|(_, rest)| rest.to_string()).unwrap_or_default()
+}
+
+#[test]
+fn test_WB_ROLE_36_model_and_effort_are_what_the_session_says_of_itself() {
+    for role in ROLES {
+        for name in ["model", "effort"] {
+            let line = field_line(role, name);
+            assert!(line.contains(": what your session says of itself, or `unknown`."), "{}: {}", role, line);
+        }
+    }
+}
+
+#[test]
+fn test_WB_ROLE_37_the_stamp_on_the_task_says_what_the_session_was_handed_out_as() {
+    for role in ROLES {
+        let text = after_fields(role);
+        assert!(text.contains("The stamp on the task says what you were handed out as, and it is what counts."), "{}: {}", role, text);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_38_the_session_reads_its_stamp_and_says_where_its_own_word_differs() {
+    for role in ROLES {
+        let text = after_fields(role);
+        assert!(text.contains("Read the stamp of your own session on the task, where it is given"), "{}: {}", role, text);
+        assert!(text.contains("Where your own word differs from it, say so under `model` and `effort`."), "{}: {}", role, text);
+    }
+}

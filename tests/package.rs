@@ -269,3 +269,118 @@ fn test_WB_PKG_14_rpm_sh_tells_rpmbuild_to_use_that_date_and_to_clamp_the_files_
         assert!(build.contains(define), "rpmbuild is not given {}", define);
     }
 }
+
+/// A small checkout with rpm.sh, a committed file, an untracked file, an ignored file and an
+/// untracked folder that holds a repository of its own. Returns (base folder, checkout, output).
+fn small_checkout(tag: &str) -> (PathBuf, PathBuf, PathBuf) {
+    let base = std::env::temp_dir().join(format!("wb-pkg-{}-{}", tag, std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    let tree = base.join("tree");
+    fs::create_dir_all(tree.join("packaging")).unwrap();
+    fs::copy(root().join("packaging/rpm.sh"), tree.join("packaging/rpm.sh")).unwrap();
+    fs::write(tree.join("Cargo.toml"), "[package]\nname = \"w\"\nversion = \"1.2.3\"\n").unwrap();
+    fs::write(tree.join(".gitignore"), "ignored.txt\n").unwrap();
+    fs::write(tree.join("committed.txt"), "c\n").unwrap();
+    let git = |dir: &Path, args: &[&str]| {
+        let ok = std::process::Command::new("git")
+            .current_dir(dir)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.org", "-c", "commit.gpgsign=false"])
+            .args(args)
+            .env("GIT_CEILING_DIRECTORIES", &base)
+            .output()
+            .unwrap()
+            .status
+            .success();
+        assert!(ok, "git {:?} failed", args);
+    };
+    git(&tree, &["init", "-q"]);
+    git(&tree, &["add", "Cargo.toml", ".gitignore", "committed.txt", "packaging/rpm.sh"]);
+    git(&tree, &["commit", "-q", "-m", "first"]);
+    fs::write(tree.join("untracked.txt"), "u\n").unwrap();
+    fs::write(tree.join("ignored.txt"), "i\n").unwrap();
+    let inner = tree.join("worktrees/issue-8");
+    fs::create_dir_all(inner.join("target")).unwrap();
+    fs::write(inner.join("target/big.bin"), "b\n").unwrap();
+    fs::write(inner.join("inner.txt"), "x\n").unwrap();
+    git(&inner, &["init", "-q"]);
+    (base.clone(), tree, base.join("out"))
+}
+
+/// Runs rpm.sh in the checkout with a stand-in for rpmbuild that only says it was called.
+fn run_rpm_sh(base: &Path, tree: &Path, out: &Path) -> (Option<i32>, String, Vec<String>) {
+    let bin = base.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    fs::create_dir_all(out.join("RPMS")).unwrap();
+    fs::write(out.join("RPMS/stand-in.rpm"), "").unwrap();
+    fs::write(bin.join("rpmbuild"), "#!/bin/sh\necho rpmbuild-was-run >&2\n").unwrap();
+    let mut mode = fs::metadata(bin.join("rpmbuild")).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
+    fs::set_permissions(bin.join("rpmbuild"), mode).unwrap();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+    let run = std::process::Command::new("sh")
+        .arg(tree.join("packaging/rpm.sh"))
+        .arg(out)
+        .env("PATH", path)
+        .env("GIT_CEILING_DIRECTORIES", base)
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&run.stderr).to_string();
+    let tarball = out.join("SOURCES/watchbill-1.2.3.tar.gz");
+    let listing = std::process::Command::new("tar").arg("-tzf").arg(&tarball).output().unwrap();
+    let names = String::from_utf8_lossy(&listing.stdout).lines().map(|l| l.to_string()).collect();
+    (run.status.code(), err, names)
+}
+
+#[test]
+fn test_WB_PKG_15_rpm_sh_leaves_a_folder_that_git_lists_out_of_the_tarball_and_names_it() {
+    let (base, tree, out) = small_checkout("15a");
+    let (code, err, names) = run_rpm_sh(&base, &tree, &out);
+    let _ = fs::remove_dir_all(&base);
+    assert_eq!(code, Some(0), "{}", err);
+    assert!(!names.iter().any(|n| n.contains("worktrees")), "the folder was packed: {:?}", names);
+    assert!(names.contains(&"watchbill-1.2.3/committed.txt".to_string()), "{:?}", names);
+    let line = err.lines().find(|l| l.contains("worktrees/issue-8/")).expect("the folder is not named");
+    assert!(line.contains("1 folder"), "no count: {}", line);
+}
+
+#[test]
+fn test_WB_PKG_15_rpm_sh_still_packs_an_untracked_file_that_is_not_ignored() {
+    let (base, tree, out) = small_checkout("15b");
+    let (code, err, names) = run_rpm_sh(&base, &tree, &out);
+    let _ = fs::remove_dir_all(&base);
+    assert_eq!(code, Some(0), "{}", err);
+    assert!(names.contains(&"watchbill-1.2.3/untracked.txt".to_string()), "{:?}", names);
+    assert!(!names.iter().any(|n| n.contains("ignored.txt")), "{:?}", names);
+}
+
+#[test]
+fn test_WB_PKG_16_rpm_sh_says_what_it_packs_before_it_packs_and_that_the_build_starts_before_rpmbuild() {
+    let (base, tree, out) = small_checkout("16");
+    let (code, err, names) = run_rpm_sh(&base, &tree, &out);
+    let _ = fs::remove_dir_all(&base);
+    assert_eq!(code, Some(0), "{}", err);
+    let lines: Vec<&str> = err.lines().collect();
+    let packing = lines.iter().position(|l| l.contains("packing")).expect("no packing line");
+    let count = names.len().to_string();
+    assert!(lines[packing].contains(&format!("packing {} files", count)), "{}", lines[packing]);
+    assert!(lines[packing].contains(tree.to_str().unwrap()), "no checkout: {}", lines[packing]);
+    assert!(lines[packing].contains("watchbill-1.2.3.tar.gz"), "no tarball: {}", lines[packing]);
+    let starts = lines.iter().position(|l| l.contains("build starts")).expect("no build line");
+    let rpmbuild = lines.iter().position(|l| l.contains("rpmbuild-was-run")).expect("rpmbuild not run");
+    assert!(packing < starts && starts < rpmbuild, "{:?}", lines);
+}
+
+#[test]
+fn test_WB_PKG_15_rpm_sh_packs_a_file_whose_name_holds_a_newline() {
+    let (base, tree, out) = small_checkout("15c");
+    fs::write(tree.join("two\nlines.txt"), "n\n").unwrap();
+    let (code, err, names) = run_rpm_sh(&base, &tree, &out);
+    let _ = fs::remove_dir_all(&base);
+    assert_eq!(code, Some(0), "{}", err);
+    assert!(!err.contains("Cannot stat"), "{}", err);
+    assert!(names.contains(&"watchbill-1.2.3/committed.txt".to_string()), "{:?}", names);
+    // tar -t shows the newline escaped.
+    assert!(names.contains(&"watchbill-1.2.3/two\\nlines.txt".to_string()), "{:?}", names);
+    let line = err.lines().find(|l| l.contains("packing")).expect("no packing line");
+    assert!(line.contains("packing 6 files"), "{}", line);
+}

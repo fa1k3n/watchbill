@@ -42,3 +42,11 @@ The two tables of the first revision and the one loader that reads YAML. What a 
 | WB-RULE-36 | The first rule table shall send to a person a requirement added to a change. Issue: #49. | T | Implemented |
 | WB-RULE-37 | The first rule table shall send to a person the check of a fix made after the last round. Issue: #49. | T | Implemented |
 | WB-RULE-38 | Where a task or a project names another model or effort than the model table, the table shall win: a task may ask for a stronger model or a higher effort, never less, and what ran is recorded by the stamp of #31. `docs/revision.md`, point 5, and the model table shall say so. Issue: #51. | I | Implemented |
+| WB-RULE-39 | The rule table `revision/rules.yml` shall have a row for each of the roles breakdown, tester, build, review, fix and officer, and for no other role. Issue: #75. | T | Draft |
+| WB-RULE-40 | The model table `revision/models.yml` shall give one model ID and one effort under `models` for each role that has a prompt but the breakdown, and for no other role. Issue: #75. | T | Draft |
+| WB-RULE-41 | A role named in a role's list of roles it may not also hold that is not one of the six, or is the role itself, shall be refused. Issue: #75. | T | Draft |
+| WB-RULE-42 | The breakdown's row of the rule table shall say that the breakdown comes before the tester. Issue: #75. | T | Draft |
+| WB-RULE-43 | The breakdown's row of the rule table shall say that no other role of a task is started until a person has accepted the task's file. Issue: #75. | T | Draft |
+| WB-RULE-44 | The rule table shall say that the breakdown may not also hold any other role, and that no other role may also hold the breakdown. Issue: #75. | T | Draft |
+| WB-RULE-45 | The model table shall have the key `local_models`, the place for the models of local runners, and the first table that has it shall leave it empty. Issue: #75. | T | Draft |
+| WB-RULE-46 | A model table with anything under `local_models` shall be refused, and the message shall name the field. Issue: #75. | T | Draft |

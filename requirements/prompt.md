@@ -41,5 +41,5 @@ How a prompt is put together from the revision and the project's own text, and t
 | WB-PROMPT-35 | `wb prompt` shall fill `requirements` with "the numbered requirements of task {task}", unless `--requirements` is given. Issue: #72. | T | Implemented |
 | WB-PROMPT-36 | An option given to `wb prompt` shall win over the value derived for it. Issue: #72. | T | Implemented |
 | WB-PROMPT-37 | A `watchbill.yml` with no patterns shall leave the options needed as before, and `wb check` shall not fail on it; a pattern that is not a text shall be refused by the loader. Issue: #72. | T | Implemented |
-| WB-PROMPT-38 | The stamp shall hold the values as handed out, derived or given; a derived value that is not one plain line shall be refused with 2. Issue: #72. | T | Implemented |
-
+| WB-PROMPT-38 | The stamp shall hold the values as handed out, derived or given; a derived value that is not one plain line shall be refused with 1, naming where it came from. Issue: #72. | T | Implemented |
+| WB-PROMPT-39 | A task or change that fills a pattern of `wb prompt` shall be plain (letters, digits, `.`, `_`, `-`; no `..`, not starting with `.` or `-`, not ending with `.` or `.lock`), or be refused by its option name with 2 and nothing on standard output. Issue: #72. | T | Draft |

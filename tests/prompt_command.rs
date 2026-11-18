@@ -1097,15 +1097,72 @@ fn test_WB_PROMPT_38_the_stamp_holds_the_derived_values() {
 }
 
 #[test]
-fn test_WB_PROMPT_38_the_stamp_is_refused_for_a_derived_checkout_that_is_not_one_plain_line() {
+fn test_WB_PROMPT_38_the_stamp_is_refused_with_1_for_a_derived_checkout_that_is_not_one_plain_line() {
     let folder = repository_named("brakes\nx", Some(GH));
     assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
 
     let run = wb(&folder.path, &["prompt", "tester", "54", "--stamp"], "");
 
-    assert_eq!(code(&run), Some(2));
+    // Nothing was used wrongly, and the caller gave no option for it: refused, with where it came from.
+    assert_eq!(code(&run), Some(1));
     assert_eq!(text(&run.stdout), "");
-    assert!(text(&run.stderr).contains("--checkout"), "{}", text(&run.stderr));
+    let err = text(&run.stderr);
+    assert!(err.contains("checkout") && err.contains("root of the repository"), "{}", err);
+    assert!(!err.contains("'--checkout'"), "{}", err);
+}
+
+/// Values that carry shell, a path or a pattern of a glob, or that git or `gh` would take as more than a name.
+const NOT_PLAIN: [&str; 12] =
+    ["54; rm -rf ~", "$(x)", "`x`", "5 && x", "..", "5/6", "5*", "a..b", ".hidden", "5.", "-x", "a.lock"];
+
+#[test]
+fn test_WB_PROMPT_39_a_task_that_fills_a_pattern_must_be_plain_or_it_is_refused_by_name_with_2() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-54-serve"]);
+
+    for bad in NOT_PLAIN {
+        let as_option = format!("--task={}", bad);
+        for args in [vec!["prompt", "tester", bad], vec!["prompt", "tester", as_option.as_str()]] {
+            if bad.starts_with('-') && args[2] == bad {
+                continue; // a word that starts with `-` is an option, not the task word
+            }
+            let run = wb(&folder.path, &args, "");
+
+            assert_eq!(code(&run), Some(2), "{:?}", args);
+            assert_eq!(text(&run.stdout), "", "{:?}", args);
+            let err = text(&run.stderr);
+            assert!(err.starts_with("wb prompt: ") && err.contains("'--task'"), "{:?}: {}", args, err);
+        }
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_39_a_change_that_fills_a_pattern_must_be_plain_or_it_is_refused_by_name_with_2() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-54-serve"]);
+
+    for bad in NOT_PLAIN {
+        let change = format!("--change={}", bad);
+        let run = wb(&folder.path, &["prompt", "review", "54", change.as_str(), "--round", "1"], "");
+
+        assert_eq!(code(&run), Some(2), "{}", bad);
+        assert_eq!(text(&run.stdout), "", "{}", bad);
+        assert!(text(&run.stderr).contains("'--change'"), "{}: {}", bad, text(&run.stderr));
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_39_plain_values_are_filled_and_a_value_that_fills_no_pattern_is_taken_as_given() {
+    let folder = set_up_github();
+
+    let plain = wb(&folder.path, &["prompt", "tester", "T-1.a_b"], "");
+    assert_eq!(code(&plain), Some(0), "{}", text(&plain.stderr));
+    assert!(text(&plain.stdout).contains("issue-T-1.a_b"), "{}", text(&plain.stdout));
+
+    // Given the branch and the address, the task fills no pattern: it is not held to the rule.
+    let run = wb(&folder.path, &["prompt", "tester", "5 6", "--branch", "b", "--task_address", "a"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("task 5 6"), "{}", text(&run.stdout));
 }
 
 #[test]

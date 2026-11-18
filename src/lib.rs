@@ -7,6 +7,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
 pub mod check;
+pub mod confidentiality;
 pub mod detect;
 pub mod init;
 pub mod interrupt;
@@ -27,7 +28,7 @@ pub const USAGE: &str = "usage:
   wb prompt <role> [<issue>] [--issue <text>] [--change <text>]
             [--requirements <text>] [--round <text>] [--checkout <text>]
             [--branch <text>] [--issue_address <text>]
-            [--change_address <text>] [--parts] [--stamp]
+            [--change_address <text>] [--runner <name>] [--parts] [--stamp]
   wb revision
   wb accept <issue>
   wb --version
@@ -55,9 +56,15 @@ pub const USAGE: &str = "usage:
             the path and the SHA-256 of each part, in the form sha256sum
             prints, in place of the text.
             --stamp prints, in place of the text, what the assignment is: the
-            role, its model and effort, the version and revision, the issue,
-            the change, the round, the branch, the checkout, the time, and
-            each part as --parts gives it. Not with --parts. Ends with 0 when
+            role, its model and effort, the runner, the version and revision,
+            the issue, the change, the round, the branch, the checkout, the
+            time, and each part as --parts gives it. Not with --parts.
+            --runner names the runner the prompt is handed to. The breakdown
+            needs it, and is handed out only to a runner that
+            /etc/watchbill/organisation.yml clears for the breakdown up to the
+            level of the repository, the line confidentiality: of
+            watchbill.yml. Its stamp then has the model and effort of that
+            file, and --parts adds the level and the runner. Ends with 0 when
             the prompt is printed, 1 when it is refused, 2 when it was used
             wrongly or the repository is not set up. Writes nothing
   revision  print the version of the package, the hash of its revision and the
@@ -190,7 +197,7 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
         }
         "init" => run_init(&mut parser, input, out, err),
         "check" => run_check(&mut parser, out, err),
-        "prompt" => run_prompt(&mut parser, out, err),
+        "prompt" => run_prompt(&mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), out, err),
         "accept" => run_accept(&mut parser, out, err),
         _ => run_revision(&mut parser, Path::new(manifest::PACKAGE_FOLDER), out, err),
     }
@@ -255,10 +262,20 @@ fn run_check(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i
     }
 }
 
-/// `wb prompt <role> [--<placeholder> X]... [--parts]`: the prompt of a role, filled from one option for
-/// each placeholder of the list (`prompt::PLACEHOLDERS`), or with `--parts` the path and hash of each of
-/// its parts. Nothing is printed unless the check of `wb check` holds and the prompt can be put together. It writes nothing.
-fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+/// `wb prompt`, with the words after `prompt`, in the repository of `folder`, and the organisation's file at
+/// `organisation`. `run` gives the folder it runs in and the path fixed in `wb`
+/// (`confidentiality::ORGANISATION_FILE`); this is so that a test can give its own, as `revision` does (#93).
+/// The variables `GIT_*` of this process are not handed to git here: `folder` alone says the repository.
+pub fn prompt(args: &[OsString], folder: &Path, organisation: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    run_prompt(&mut Parser::from_args(args.iter().cloned()), Some(folder), organisation, out, err)
+}
+
+/// `wb prompt <role> [--<placeholder> X]... [--runner <name>] [--parts]`: the prompt of a role, filled from
+/// one option for each placeholder of the list (`prompt::PLACEHOLDERS`), or with `--parts` the path and hash
+/// of each of its parts. Nothing is printed unless the check of `wb check` holds and the prompt can be put
+/// together. The breakdown is handed out only to a runner the organisation's file clears for it (#93). It
+/// writes nothing.
+fn run_prompt(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let used = |err: &mut dyn Write, why: String| {
         let _ = write!(err, "wb prompt: {}\n\n{}", why, USAGE);
         2
@@ -268,6 +285,7 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     let mut values: Vec<(&'static str, String)> = Vec::new();
     let mut parts = false;
     let mut stamp = false;
+    let mut runner: Option<String> = None;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
@@ -281,6 +299,27 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
                     return used(err, format!("'--{}' is given twice", option));
                 }
                 *flag = true;
+            }
+            Word::Long(option) if option == "runner" => {
+                let Ok(value) = parser.value() else {
+                    return used(err, "'--runner' needs a value".to_string());
+                };
+                let Ok(value) = value.into_string() else {
+                    return used(err, "the value of '--runner' is not UTF-8 text".to_string());
+                };
+                if value.is_empty() {
+                    return used(err, "the value of '--runner' is empty".to_string());
+                }
+                if runner.is_some() {
+                    return used(err, "'--runner' is given twice".to_string());
+                }
+                if !one_line(&value) {
+                    return used(
+                        err,
+                        "the value of '--runner' holds a control character or a line break, or white space at its start or end, and a stamp holds it as one line".to_string(),
+                    );
+                }
+                runner = Some(value);
             }
             Word::Long(option) if prompt::PLACEHOLDERS.contains(&option.as_str()) => {
                 let name = prompt::PLACEHOLDERS.iter().find(|name| **name == option).unwrap();
@@ -314,6 +353,12 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     if stamp && parts {
         return used(err, "'--stamp' and '--parts' are not used together".to_string());
     }
+    if role == "breakdown" && runner.is_none() {
+        return used(
+            err,
+            "the breakdown is handed out only to a runner that the organisation's file clears for it: give '--runner <name>'".to_string(),
+        );
+    }
     if let Some(word) = issue_word {
         if values.iter().any(|(name, _)| *name == "issue") {
             return used(err, "the issue is given as a word and as '--issue'".to_string());
@@ -328,7 +373,11 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
             return used(err, why);
         }
     }
-    let root = match init::repository_root(None) {
+    let found_root = match folder {
+        None => init::repository_root(None),
+        Some(folder) => init::repository_root_of(folder),
+    };
+    let root = match found_root {
         Err(why) => {
             let _ = writeln!(err, "wb prompt: {}.", why);
             return 2;
@@ -352,6 +401,17 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     if let Err(why) = prompt::require_role(Path::new(&root), &role) {
         let _ = writeln!(err, "wb prompt: {}", why);
         return 1;
+    }
+    // The breakdown goes only to a runner the organisation cleared for it, up to the repository's level (#93).
+    let mut cleared = None;
+    if role == "breakdown" {
+        match confidentiality::clear_breakdown(organisation, Path::new(&root), runner.as_deref().unwrap_or_default()) {
+            Ok(found) => cleared = Some(found),
+            Err(why) => {
+                let _ = writeln!(err, "wb prompt: {}", why);
+                return 1;
+            }
+        }
     }
     // The file of the issue (#76): used when it is accepted as it is, refused when it is there and is
     // not, and left out when there is none. An option for the requirements wins over the file.
@@ -440,9 +500,16 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
                         return 1;
                     }
                 };
-                let Some(model) = rules.models.get(&role) else {
-                    let _ = writeln!(err, "wb prompt: the model table has no row for '{}'", role);
-                    return 1;
+                // The breakdown runs with the model and effort its runner is cleared with; the others with the table's.
+                let model = match &cleared {
+                    Some(cleared) => rules::Model { model: cleared.model.clone(), effort: cleared.effort.clone() },
+                    None => match rules.models.get(&role) {
+                        Some(model) => model.clone(),
+                        None => {
+                            let _ = writeln!(err, "wb prompt: the model table has no row for '{}'", role);
+                            return 1;
+                        }
+                    },
                 };
                 let revision = match manifest::revision_hash(manifest::PACKAGE_FOLDER) {
                     Ok(hash) => hash,
@@ -464,6 +531,7 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
                     role: &role,
                     model: &model.model,
                     effort: &model.effort,
+                    runner: runner.as_deref().unwrap_or_default(),
                     version: VERSION,
                     revision: &revision,
                     time: &time,
@@ -471,7 +539,10 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
                 };
                 let _ = out.write_all(prompt::stamp(&said, &given, &found).as_bytes());
             } else if parts {
-                let lines: String = found.parts.iter().map(|part| format!("{}  {}\n", part.hash, part.path)).collect();
+                let mut lines: String = found.parts.iter().map(|part| format!("{}  {}\n", part.hash, part.path)).collect();
+                if let (Some(cleared), Some(runner)) = (&cleared, &runner) {
+                    lines.push_str(&format!("level: {}\nrunner: {}\n", cleared.level, runner));
+                }
                 let _ = out.write_all(lines.as_bytes());
             } else {
                 let _ = out.write_all(found.text.as_bytes());
@@ -521,13 +592,16 @@ fn run_accept(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     }
 }
 
-/// The name of the first value that a stamp cannot hold as one plain line, or `None`: it holds a control
-/// character, a line or paragraph separator, or white space at its start or end.
+/// Whether a stamp can hold a value as one plain line: it holds no control character, no line or
+/// paragraph separator, and no white space at its start or end.
+fn one_line(value: &str) -> bool {
+    let broken = value.chars().any(|c| c.is_control() || c == '\u{2028}' || c == '\u{2029}');
+    !broken && value.trim() == value
+}
+
+/// The name of the first value that a stamp cannot hold as one plain line, or `None`.
 fn stamp_fault_in(values: &[(&'static str, String)]) -> Option<&'static str> {
-    values.iter().find_map(|(name, value)| {
-        let broken = value.chars().any(|c| c.is_control() || c == '\u{2028}' || c == '\u{2029}');
-        (prompt::STAMPED.contains(name) && (broken || value.trim() != value)).then_some(*name)
-    })
+    values.iter().find_map(|(name, value)| (prompt::STAMPED.contains(name) && !one_line(value)).then_some(*name))
 }
 
 /// One field of a stamp stays one line, and one that a comment may trim. The fault is said by name.

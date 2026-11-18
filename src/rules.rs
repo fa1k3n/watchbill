@@ -227,7 +227,7 @@ fn read_rules(path: &Path) -> Result<Rules, YamlError> {
 
 /// A name and a version: lower-case letters and digits in parts joined by `-`, the first part
 /// starting with a letter, the last a number, and no part `latest`.
-fn is_exact(model: &str) -> bool {
+pub(crate) fn is_exact(model: &str) -> bool {
     let parts: Vec<&str> = model.split('-').collect();
     let alnum = |part: &&str| !part.is_empty() && part.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
     parts.len() >= 2

@@ -431,6 +431,25 @@ pub fn repository_root(env: Option<&[(String, String)]>) -> Result<Option<String
     }
 }
 
+/// The root of the git repository that holds `folder`, as `repository_root` gives it. The variables `GIT_*`
+/// of this process are not handed to git, so that `folder` alone says which repository it is.
+pub fn repository_root_of(folder: &Path) -> Result<Option<String>, String> {
+    let Some(shown) = folder.to_str() else {
+        return Err("the path of the folder is not UTF-8 text".to_string());
+    };
+    let env: Vec<(String, String)> = std::env::vars().filter(|(name, _)| !name.starts_with("GIT_")).collect();
+    match crate::detect::git_output(&["-C", shown, "rev-parse", "--show-toplevel"], Some(&env)) {
+        Some(run) if run.status.success() => match String::from_utf8(run.stdout) {
+            Ok(text) => {
+                let root = strip(&universal_newlines(&text)).to_string();
+                Ok(if root.is_empty() { None } else { Some(root) })
+            }
+            Err(_) => Err("the path of the repository is not UTF-8 text".to_string()),
+        },
+        _ => Ok(None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

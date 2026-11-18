@@ -532,6 +532,8 @@ pub struct Stamp<'a> {
     pub role: &'a str,
     pub model: &'a str,
     pub effort: &'a str,
+    /// The runner named with `--runner`, or empty.
+    pub runner: &'a str,
     pub version: &'a str,
     pub revision: &'a str,
     pub time: &'a str,
@@ -541,7 +543,7 @@ pub struct Stamp<'a> {
 
 /// The stamp of an assignment (`docs/revision.md`, point 12): lines of `name: value` in a fixed order,
 /// then one line `part: <sha256>  <path>` for each part, as `--parts` gives it. A value that is empty, or that the prompt does not hold, is
-/// written as the name and the colon alone. `runner` is empty until a runner is given (#11).
+/// written as the name and the colon alone. `runner` is empty when no runner is given (#93).
 pub fn stamp(said: &Stamp, values: &[(&str, &str)], prompt: &Prompt) -> String {
     // A value the prompt does not hold was not handed out, and is written empty.
     let given = |name: &str| {
@@ -554,7 +556,7 @@ pub fn stamp(said: &Stamp, values: &[(&str, &str)], prompt: &Prompt) -> String {
         ("role", said.role),
         ("model", said.model),
         ("effort", said.effort),
-        ("runner", ""),
+        ("runner", said.runner),
         ("version", said.version),
         ("revision", said.revision),
     ];

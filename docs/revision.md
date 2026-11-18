@@ -81,7 +81,7 @@ Where an issue or the project names another model or effort than the table, the 
 
 Figures on the findings of the first runs correct it. A changed model is a new revision. The table is for a vendor's runner. The models of local runners have a place of their own in the table, `local_models`, empty until the first one exists (point 11). A table with anything there is refused until then.
 
-The breakdown has no line for a vendor's runner, and a table that gives it one is refused. It reads the code without a list, so it sends a model more of the code than any other role. It runs on a local runner, or on another runner only where a person has cleared that runner for the breakdown in the organisation's file (point 11). There is no word per issue for it. Until the check of #11 is built, nothing refuses another runner: the breakdown's prompt says where it should run, and the stamp says where it was handed out (#64).
+The breakdown has no line for a vendor's runner, and a table that gives it one is refused. It reads the code without a list, so it sends a model more of the code than any other role. It runs on a local runner, or on another runner only where a person has cleared that runner for the breakdown in the organisation's file (point 11). There is no word per issue for it. The organisation clears a runner once, in its file, up to a level, with the model and the effort it runs with; `wb prompt breakdown --runner <name>` refuses a runner that is not cleared for the level of the repository, and its stamp names the runner, the model and the effort (#93).
 
 ## 6. The format of the tables
 
@@ -150,9 +150,10 @@ The role that is given issues and hands them on. The captain is the person, who 
 
 A level that decides where an assignment may run. It is a second axis beside the code class: the class decides who must verify, the level decides where the work may run.
 
-- **The levels are the organisation's:** one ordered list of names for every project (for example internal, confidential, strictly confidential). Watchbill ships no list of its own and gives the names no meaning beyond their order.
+- **The levels are the organisation's:** one ordered list of names for every project, from the least to the most restrictive (for example internal, confidential, strictly confidential). Watchbill ships no list of its own and gives the names no meaning beyond their order.
 - **A place to run is a runner**, and a runner is three things: where the agent's tools run, which model answers, and under which agreement (region, retention, use for training). Code leaves the premises through the model call also when the tools run on this machine, so the model and its agreement are part of the place.
-- **The organisation names the runners** and, for each, the highest level it may be given. Levels and runners are in one file outside every repository: `/etc/watchbill/organisation.yml`. It is laid out by the organisation's own means and is not part of the revision.
+- **The organisation names the runners** and, for each, the highest level it may be given. Levels and runners are in one file outside every repository: `/etc/watchbill/organisation.yml`. It is laid out by the organisation's own means and is not part of the revision. The path is fixed in `wb`: no option and no environment variable changes it, so that a team cannot point `wb` at a file of its own (#93).
+- **The breakdown is cleared once,** in the organisation's file, up to a level: a runner may have `breakdown`, with the highest level of an assignment it may break down, no higher than the runner's own, and the exact model and the effort it runs with. Nobody clears the breakdown by hand on each run. The other roles are checked with #11.
 - **A project states only its own level.** It can be stricter than the organisation, never freer, and a team cannot clear a runner for itself.
 - **With no organisation's file, no AI is allowed.** `wb` hands out no prompt on that machine and names the file it looked for. Nothing is assumed about where work may run, not even this machine with a local model.
 - **The level of an assignment** is the higher of the level of its issue and the level of everything the session can read. A session reads the whole checkout, so until a runner can limit that, the second is the level of the repository.

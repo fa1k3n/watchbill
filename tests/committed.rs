@@ -122,9 +122,38 @@ fn test_WB_TASK_13_nothing_is_committed_when_the_repository_has_no_commit_yet() 
 fn test_WB_TASK_13_a_file_changed_in_the_working_tree_after_its_commit_is_refused() {
     let folder = accepted_apart();
     commit(&folder.path, &[YML, ACCEPTED]);
+    // Accepted again, so that only the commit can tell that the file is not as it was.
     put(&folder.path, YML, &GOOD.replace("reads the file", "reads a file"));
+    std::fs::remove_file(folder.path.join(ACCEPTED)).unwrap();
+    let run = wb(&folder.path, &["accept", "54"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     for role in ROLES {
         refused(&prompt(&folder.path, role, &[]), YML);
+    }
+}
+
+#[test]
+fn test_WB_TASK_13_a_checkout_that_git_calls_clean_is_not_refused_for_its_line_ends() {
+    let folder = set_up();
+    commit(&folder.path, &[".watchbill"]);
+    put(&folder.path, ".gitattributes", ".watchbill/issues/* text eol=crlf\n");
+    commit(&folder.path, &[".gitattributes"]);
+    put(&folder.path, YML, GOOD);
+    commit(&folder.path, &[YML]);
+    // The checkout writes the file with CRLF; the acceptance is made of it as it is, then checked out the same way.
+    std::fs::remove_file(folder.path.join(YML)).unwrap();
+    git(&folder.path, &["checkout", "--", YML]);
+    assert!(read(&folder.path.join(YML)).contains("\r\n"));
+    let run = wb(&folder.path, &["accept", "54"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    commit(&folder.path, &[ACCEPTED]);
+    std::fs::remove_file(folder.path.join(ACCEPTED)).unwrap();
+    git(&folder.path, &["checkout", "--", ACCEPTED]);
+    let status = std::process::Command::new("git").args(["status", "--porcelain"]).current_dir(&folder.path).output().unwrap();
+    assert_eq!(text(&status.stdout), "", "git calls the checkout clean");
+    for role in ROLES {
+        let run = prompt(&folder.path, role, &[]);
+        assert_eq!(code(&run), Some(0), "{}: {}", role, text(&run.stderr));
     }
 }
 
@@ -222,4 +251,21 @@ fn test_WB_TASK_16_wb_accept_says_that_the_acceptance_is_committed_alone_with_th
     assert!(said.contains(&format!("git add {} && git commit", ACCEPTED)), "{}", said);
     assert!(said.contains(&format!("-- {}", ACCEPTED)), "{}", said);
     assert!(said.find("is accepted").unwrap() < said.find("alone").unwrap(), "{}", said);
+}
+
+#[test]
+fn test_WB_TASK_15_wb_check_refuses_breakdown_none_when_the_rule_table_holds_the_breakdown() {
+    let folder = set_up();
+    assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
+    let mut yml = read(&config(&folder.path));
+    yml.push_str("breakdown: none\n");
+    put(&folder.path, ".watchbill/watchbill.yml", &yml);
+    let run = wb(&folder.path, &["check"], "");
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
+    let said = text(&run.stdout) + &text(&run.stderr);
+    assert!(said.contains("breakdown: none") && said.contains("rule table"), "{}", said);
+    let mut other = read(&config(&folder.path)).replace("breakdown: none", "breakdown: sometimes");
+    other.push('\n');
+    put(&folder.path, ".watchbill/watchbill.yml", &other);
+    assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(1));
 }

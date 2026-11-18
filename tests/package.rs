@@ -340,7 +340,7 @@ fn test_WB_PKG_15_rpm_sh_leaves_a_folder_that_git_lists_out_of_the_tarball_and_n
     assert!(!names.iter().any(|n| n.contains("worktrees")), "the folder was packed: {:?}", names);
     assert!(names.contains(&"watchbill-1.2.3/committed.txt".to_string()), "{:?}", names);
     let line = err.lines().find(|l| l.contains("worktrees/issue-8/")).expect("the folder is not named");
-    assert!(line.contains('1'), "no count: {}", line);
+    assert!(line.contains("1 folder"), "no count: {}", line);
 }
 
 #[test]
@@ -368,4 +368,19 @@ fn test_WB_PKG_16_rpm_sh_says_what_it_packs_before_it_packs_and_that_the_build_s
     let starts = lines.iter().position(|l| l.contains("build starts")).expect("no build line");
     let rpmbuild = lines.iter().position(|l| l.contains("rpmbuild-was-run")).expect("rpmbuild not run");
     assert!(packing < starts && starts < rpmbuild, "{:?}", lines);
+}
+
+#[test]
+fn test_WB_PKG_15_rpm_sh_packs_a_file_whose_name_holds_a_newline() {
+    let (base, tree, out) = small_checkout("15c");
+    fs::write(tree.join("two\nlines.txt"), "n\n").unwrap();
+    let (code, err, names) = run_rpm_sh(&base, &tree, &out);
+    let _ = fs::remove_dir_all(&base);
+    assert_eq!(code, Some(0), "{}", err);
+    assert!(!err.contains("Cannot stat"), "{}", err);
+    assert!(names.contains(&"watchbill-1.2.3/committed.txt".to_string()), "{:?}", names);
+    // tar -t shows the newline as it is, so the name comes back as two lines.
+    assert!(names.contains(&"watchbill-1.2.3/two".to_string()) && names.contains(&"lines.txt".to_string()), "{:?}", names);
+    let line = err.lines().find(|l| l.contains("packing")).expect("no packing line");
+    assert!(line.contains("packing 6 files"), "{}", line);
 }

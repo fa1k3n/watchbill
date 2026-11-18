@@ -29,11 +29,11 @@ In a checkout the same files are under `share/watchbill/`.
 - The folder is fixed when `wb` is built. No option and no environment variable changes it when `wb` runs, so nobody points `wb` at another revision.
 - The code that reads them is `src/manifest.rs` (files, hashes, manifest) and `src/rules.rs` (the two tables).
 
-## 2. The roles of the first revision
+## 2. The roles
 
-Tester, build, review and fix. The watch officer has rows in the rule table and no prompt yet (point 10). The breakdown comes first in a later revision (#64, point 13). The architect comes later.
+Breakdown, tester, build, review and fix. The first revision had the last four. The breakdown has its prompt and its rows from revision 0.0.5 (#75). It comes before the tester, and no other role of a task is started until a person has accepted its file (point 13). The watch officer has rows in the rule table and no prompt yet (point 10). The architect comes later.
 
-- **Breakdown:** reads a person's issue and the code, and writes the task's file (point 13). It never changes the issue, the code or a test, and never answers what the issue leaves open. It is the one role that reads the code without a list.
+- **Breakdown:** reads a person's issue and the code, and writes the task's file (point 13). It never changes the issue, the code or a test, and never answers what the issue leaves open. It is the one role that reads the code without a list. It holds no other role on the task.
 - **Tester:** writes the tests from the requirement and never reads the implementation.
 - **Build:** makes the tests pass and never changes them.
 - **Review:** a fresh session that reports findings, clause by clause, and never fixes.
@@ -67,7 +67,7 @@ One rule in the first revision: a change that touches classed code needs a perso
 
 ## 5. The model table
 
-One exact model ID and one effort for each role that has a prompt. Never "latest", and never a name without a version.
+One exact model ID and one effort for each role that has a prompt, but the breakdown. Never "latest", and never a name without a version.
 
 | Role | Model | Effort |
 |---|---|---|
@@ -78,9 +78,9 @@ One exact model ID and one effort for each role that has a prompt. Never "latest
 
 Where a task or the project names another model or effort than the table, the table wins. A task may ask for a stronger model or a higher effort, never for less, and the stamp of #31 records what ran (#51).
 
-Figures on the findings of the first runs correct it. A changed model is a new revision. The table is for a vendor's runner. The models of local runners have a place of their own in the table, empty until the first one exists (point 11).
+Figures on the findings of the first runs correct it. A changed model is a new revision. The table is for a vendor's runner. The models of local runners have a place of their own in the table, `local_models`, empty until the first one exists (point 11). A table with anything there is refused until then.
 
-The breakdown has no line for a vendor's runner. It reads the code without a list, so it sends a model more of the code than any other role. It runs on a local runner, or on another runner only where a person has cleared that runner for the breakdown in the organisation's file (point 11). There is no word per task for it. Until the check of #11 is built, nothing refuses another runner: the breakdown's prompt says where it should run, and the stamp says where it was handed out (#64).
+The breakdown has no line for a vendor's runner, and a table that gives it one is refused. It reads the code without a list, so it sends a model more of the code than any other role. It runs on a local runner, or on another runner only where a person has cleared that runner for the breakdown in the organisation's file (point 11). There is no word per task for it. Until the check of #11 is built, nothing refuses another runner: the breakdown's prompt says where it should run, and the stamp says where it was handed out (#64).
 
 ## 6. The format of the tables
 
@@ -188,8 +188,8 @@ The pieces that build this have their requirements reserved as Draft rows in `re
 
 | Area | File | Issue |
 |---|---|---|
-| `WB-ROLE` | `requirements/role.md` | #4, #69 |
-| `WB-RULE` | `requirements/rule.md` | #5 |
+| `WB-ROLE` | `requirements/role.md` | #4, #69, #75 |
+| `WB-RULE` | `requirements/rule.md` | #5, #75 |
 | `WB-REV` | `requirements/rev.md` | #6 |
 | `WB-PIN` | `requirements/pin.md` | #7 |
 | `WB-CHECK` | `requirements/check.md` | #8 |

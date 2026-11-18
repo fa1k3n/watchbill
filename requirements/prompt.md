@@ -28,12 +28,12 @@ How a prompt is put together from the revision and the project's own text, and t
 | WB-PROMPT-22 | A value with a line break shall be refused by name in a stamp, with status 2. Issue: #68. | T | Implemented |
 | WB-PROMPT-23 | `wb prompt` given both `--stamp` and `--parts` shall end with 2. Issue: #68. | T | Implemented |
 | WB-PROMPT-24 | `wb prompt --stamp` shall print nothing on standard output and end with 1 when the check of `wb check` does not hold. Issue: #68. | T | Implemented |
-| WB-PROMPT-25 | When a task's file is accepted, `wb prompt` shall fill `{requirements}` of the tester, build, review and fix with its IDs and texts. Issue: #76. | T | Draft |
-| WB-PROMPT-26 | When a task's file is accepted, `wb prompt` shall add the interface and what the role may change and read as parts after the role's text. Issue: #76. | T | Draft |
-| WB-PROMPT-27 | When a task's file is there and not accepted, or changed since its acceptance, `wb prompt` shall print nothing on standard output and end with 1, with the reason on standard error. Issue: #76. | T | Draft |
-| WB-PROMPT-28 | When a task has no task's file, `wb prompt` shall hand out its prompts as before. Issue: #76. | T | Draft |
+| WB-PROMPT-25 | When a task's file is accepted, `wb prompt` shall fill `{requirements}` of the tester, build, review and fix with its IDs and texts. Issue: #76. | T | Implemented |
+| WB-PROMPT-26 | When a task's file is accepted, `wb prompt` shall add the interface and what the role may change and read as parts after the role's text. Issue: #76. | T | Implemented |
+| WB-PROMPT-27 | When a task's file is there and not accepted, or changed since its acceptance, `wb prompt` shall print nothing on standard output and end with 1, with the reason on standard error. Issue: #76. | T | Implemented |
+| WB-PROMPT-28 | When a task has no task's file, `wb prompt` shall hand out its prompts as before. Issue: #76. | T | Implemented |
 | WB-PROMPT-29 | `wb prompt breakdown <task>` shall hand out the breakdown's prompt without a task's file. Issue: #76. | T | Draft |
-| WB-PROMPT-30 | The stamp and `--parts` shall name the task's file and its SHA-256 as a part, when one is used. Issue: #76. | T | Draft |
+| WB-PROMPT-30 | The stamp and `--parts` shall name the task's file and its SHA-256 as a part, when one is used. Issue: #76. | T | Implemented |
 | WB-PROMPT-31 | `wb prompt <role> <task>` shall take the first word after the role as the task, as `--task` does; both together, a third word, or an empty task shall end with 2. Issue: #72. | T | Implemented |
 | WB-PROMPT-32 | `wb prompt` shall fill `checkout` with the root of the repository it runs in, unless `--checkout` is given. Issue: #72. | T | Implemented |
 | WB-PROMPT-33 | `wb prompt` shall fill `task_address` and `change_address` from the patterns of `watchbill.yml` with the task and the change, unless the option is given. Issue: #72. | T | Implemented |
@@ -43,3 +43,5 @@ How a prompt is put together from the revision and the project's own text, and t
 | WB-PROMPT-37 | A `watchbill.yml` with no patterns shall leave the options needed as before, and `wb check` shall not fail on it; a pattern that is not a text shall be refused by the loader. Issue: #72. | T | Implemented |
 | WB-PROMPT-38 | The stamp shall hold the values as handed out, derived or given; a derived value that is not one plain line shall be refused with 1, naming where it came from. Issue: #72. | T | Implemented |
 | WB-PROMPT-39 | A task or change that fills a pattern of `wb prompt` shall be plain (letters, digits, `.`, `_`, `-`; no `..`, not starting with `.` or `-`, not ending with `.` or `.lock`), or be refused by its option name with 2 and nothing on standard output. Issue: #72. | T | Implemented |
+| WB-PROMPT-40 | `wb prompt` shall refuse, by the name of its list and with status 1, a task's file whose path holds a control character, U+2028, U+2029 or U+202E, and print nothing on standard output. Issue: #76. | T | Implemented |
+| WB-PROMPT-41 | An option `--requirements` given to `wb prompt` for a task with a file shall win over the file, and the stamp shall say so with the line `requirements: given` before its part lines. Issue: #76. | T | Implemented |

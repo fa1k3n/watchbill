@@ -106,7 +106,7 @@ fn sha256sum_passes(folder: &Path, lines: &str) -> bool {
 }
 
 #[test]
-fn test_WB_PROMPT_25_an_accepted_file_fills_the_requirements_with_ids_and_texts_in_every_role() {
+fn test_WB_PROMPT_25_an_accepted_file_fills_the_requirements_with_ids_and_texts_in_the_tester_build_and_review() {
     let folder = accepted_with(GOOD);
     // The text of the fix does not hold `{requirements}`, so there is nothing in it to fill.
     for role in ["tester", "build", "review"] {
@@ -251,4 +251,84 @@ fn test_WB_PROMPT_28_with_no_file_the_prompt_is_as_before_and_so_is_one_for_anot
     args.extend(REST);
     let other = wb(&folder.path, &args, "");
     assert!(ok(&other).contains("the numbered requirements of task 55"));
+}
+
+#[test]
+fn test_WB_PROMPT_25_a_file_with_no_requirement_says_so_where_the_requirements_stand() {
+    let folder = accepted_with(&GOOD.replace(
+        "requirements:\n  - id: '54.1'\n    text: The tool reads the file.\n    source: the goal\n  - id: '54.2'\n    text: The tool names a fault.\n    source: the tests\n    guard: test_WB_X_1_holds\n",
+        "requirements: []\n",
+    ));
+    let said = ok(&prompt(&folder.path, "build", &[]));
+    assert!(said.contains("the task's file holds no requirement"), "{}", said);
+    assert!(!said.contains("{requirements}"));
+}
+
+#[test]
+fn test_WB_PROMPT_42_the_fix_is_given_the_interface_and_the_lists_and_no_requirement() {
+    let folder = accepted_with(GOOD);
+    let said = ok(&prompt(&folder.path, "fix", &[]));
+    assert!(said.contains("fn read(path: &str) -> String"), "{}", said);
+    assert!(said.contains("src/task.rs") && said.contains("docs/fix-only.md"), "{}", said);
+    assert!(!said.contains("The tool reads the file."), "{}", said);
+}
+
+/// A file with one place of GOOD replaced, accepted, and the prompt of the build refused: the name of the
+/// place is on standard error, the character is not, and nothing is on standard output.
+fn refused_at(from: &str, to: &str, field: &str) {
+    assert!(GOOD.contains(from), "{}", from);
+    let folder = accepted_with(&GOOD.replace(from, to));
+    let run = prompt(&folder.path, "build", &[]);
+    assert_eq!(code(&run), Some(1), "{}: {}", field, text(&run.stderr));
+    assert_eq!(text(&run.stdout), "", "{}", field);
+    let why = text(&run.stderr);
+    assert!(why.contains(field), "{}: {}", field, why);
+    assert!(why.contains("control"), "{}", why);
+    assert!(!why.chars().any(|c| c.is_control() && c != '\n'), "{:?}", why);
+    for bad in ['\u{2028}', '\u{2029}', '\u{202a}', '\u{202e}', '\u{2066}', '\u{2069}'] {
+        assert!(!why.contains(bad), "{:?}", why);
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_43_a_control_or_bidi_character_in_any_value_that_reaches_a_prompt_is_refused_by_name() {
+    for bad in ["\\e[31m", "\\u2028", "\\u2029", "\\u202A", "\\u202D", "\\u202E", "\\u2066", "\\u2069", "\\r"] {
+        refused_at("interface: |\n  fn read(path: &str) -> String\n", &format!("interface: \"fn x(){}\"\n", bad), "interface");
+        refused_at("text: The tool reads the file.", &format!("text: \"reads{}\"", bad), "requirements");
+        refused_at("id: '54.1'", &format!("id: \"54.{}1\"", bad), "requirements");
+        refused_at("tester: [docs/tester-only.md]", &format!("tester: [\"a{}b\"]", bad), "reads.tester");
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_43_a_line_break_in_a_requirement_is_refused_and_one_in_the_interface_is_not() {
+    refused_at("text: The tool reads the file.", "text: \"reads\\nthe file\"", "requirements");
+    let folder = accepted_with(&GOOD.replace("interface: |\n  fn read(path: &str) -> String\n", "interface: \"fn a()\\tb\\nfn c()\\n\"\n"));
+    let said = ok(&prompt(&folder.path, "build", &[]));
+    assert!(said.contains("fn a()\tb\nfn c()"), "{}", said);
+}
+
+#[test]
+fn test_WB_PROMPT_43_the_bidi_control_is_called_by_what_it_is() {
+    let file = GOOD.replace("changes: [src/task.rs, tests/task.rs]", "changes: [\"a\\u202Eb\"]");
+    let folder = accepted_with(&file);
+    let run = prompt(&folder.path, "build", &[]);
+    assert_eq!(code(&run), Some(1));
+    assert!(text(&run.stderr).contains("bidirectional"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_PROMPT_44_a_task_file_over_one_mebibyte_is_refused_with_a_message() {
+    let folder = set_up();
+    let mut big = GOOD.to_string();
+    big.push_str(&format!("# {}\n", "x".repeat(1024 * 1024)));
+    put(&folder.path, ".watchbill/tasks/54.yml", &big);
+    let before = snapshot(&folder.path);
+    for extra in [&[][..], &["--parts"]] {
+        let run = prompt(&folder.path, "build", extra);
+        assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+        assert_eq!(text(&run.stdout), "");
+        assert!(text(&run.stderr).contains("1 MiB"), "{}", text(&run.stderr));
+    }
+    assert_eq!(snapshot(&folder.path), before);
 }

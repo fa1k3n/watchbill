@@ -40,12 +40,14 @@ Stop when the change is open and its checks are green. If you cannot get there w
 
 Your last message has these fields, every time, in this order, each on a line of its own that starts with its name:
 
-- `model`: the model you run as, as your session states it, or `unknown`.
-- `effort`: the effort you run with, as your session states it, or `unknown`.
+- `model`: the model you run as: what your session says of itself, or `unknown`.
+- `effort`: the effort you run with: what your session says of itself, or `unknown`.
 - `change`: the change you opened.
 - `checks`: the state of each check.
 - `untested`: behaviour you built that no test covers.
 - `assumptions`: what you took for granted.
 - `needs_person`: what only a person can settle, or `none`.
+
+The stamp on the task says what you were handed out as, and it is what counts. Read the stamp of your own session on the task, where it is given: the comment whose first line starts with `[stamp]` and your role. Where your own word differs from it, say so under `model` and `effort`.
 
 A last message without these fields is refused, and you are asked for it again.

@@ -494,3 +494,152 @@ fn test_WB_ROLE_35_the_last_message_of_the_tester_gives_the_checks_after_the_gua
     let guards = found.iter().position(|name| name == "guards").expect("guards");
     assert_eq!(found.get(guards + 1).map(String::as_str), Some("checks"), "{:?}", found);
 }
+
+/// The line of a field of the last message, as the prompt writes it under how it ends.
+fn field_line(role: &str, name: &str) -> String {
+    let body = part(role, "## How you end");
+    let start = format!("- `{}`: ", name);
+    let line = body.split('\n').find(|line| line.starts_with(&start));
+    line.unwrap_or_else(|| panic!("{}: no field {}", role, name)).to_string()
+}
+
+// The red of a file of tests that does not load yet (#60).
+
+#[test]
+fn test_WB_ROLE_39_a_file_that_does_not_load_for_the_name_the_task_asks_for_is_red_for_every_test_in_it() {
+    let body = part("tester", "## What you produce");
+    assert!(body.contains("A file of tests that does not load, because a name it calls is missing,"), "{}", body);
+    assert!(body.contains("is red for every test in it"), "{}", body);
+    assert!(body.contains("when the missing name is the one the task asks for and nothing else is missing"), "{}", body);
+}
+
+#[test]
+fn test_WB_ROLE_39_the_tester_stops_when_each_test_was_seen_to_fail_on_its_own_or_with_its_file() {
+    let body = part("tester", "## How you end");
+    assert!(body.contains("you have seen each of them fail, on its own or with the file it is in (or pass, for a guard)"), "{}", body);
+}
+
+#[test]
+fn test_WB_ROLE_40_the_tester_names_the_missing_names_under_red() {
+    let body = part("tester", "## What you produce");
+    assert!(body.contains("Name the missing names under `red`."), "{}", body);
+    let red = field_line("tester", "red");
+    assert!(red.contains("the names it misses"), "{}", red);
+}
+
+#[test]
+fn test_WB_ROLE_41_the_tester_also_runs_each_test_against_a_stand_in_that_gives_a_wrong_answer() {
+    let body = part("tester", "## What you produce");
+    let point = body.split('\n').find(|line| line.starts_with("- Such a red rests on one reason for the whole file."));
+    let point = point.unwrap_or_else(|| panic!("no point for the stand-in: {}", body));
+    assert!(point.contains("Where the language allows it,"), "{}", point);
+    assert!(point.contains("against a stand-in that gives a wrong answer"), "{}", point);
+    assert!(point.contains("in a scratch copy of the checkout that you never commit"), "{}", point);
+    assert!(point.contains("say so under `red`"), "{}", point);
+    assert!(point.contains("Leave this out where the project's own text says not to"), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_41_the_stand_in_is_never_committed() {
+    // The tester still writes no stand-in for the code that it commits.
+    let body = part("tester", "## What you never do");
+    let point = body.split('\n').find(|line| line.starts_with("- You never write the code that makes your tests pass"));
+    let point = point.unwrap_or_else(|| panic!("no point for the code: {}", body));
+    assert!(point.contains("and no stand-in for it that you commit"), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_42_the_reviewer_sees_each_test_fail_on_its_own_where_the_red_was_for_a_whole_file() {
+    let body = part("review", "## What you produce");
+    let round_1 = body.split_once("In round 2,").expect("round 2").0;
+    let point = round_1.split('\n').find(|line| line.contains("red before the code was for the whole file"));
+    let point = point.unwrap_or_else(|| panic!("no point for a red of a whole file: {}", round_1));
+    assert!(point.contains("see each of those tests fail on its own"), "{}", point);
+    assert!(point.contains("Break the code"), "{}", point);
+    assert!(point.contains("in a scratch copy that you never commit"), "{}", point);
+    assert!(point.contains("A test that does not fail is a finding."), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_42_the_reviewer_breaks_code_only_in_a_scratch_copy() {
+    let body = part("review", "## What you never do");
+    let point = body.split('\n').find(|line| line.starts_with("- You never fix anything:"));
+    let point = point.unwrap_or_else(|| panic!("no point for fixing: {}", body));
+    assert!(point.contains("no edit to the change and no commit"), "{}", point);
+    assert!(point.contains("scratch copy"), "{}", point);
+}
+
+// A guard the task names is the existing test, run as it is (#62).
+
+/// The point of the tester's part on what it produces that is about a guard the task names.
+fn named_guard_point() -> String {
+    let body = part("tester", "## What you produce");
+    let point = body.split('\n').find(|line| line.starts_with("- Where the task names an existing test as the guard of a clause,"));
+    point.unwrap_or_else(|| panic!("no point for a guard the task names: {}", body)).to_string()
+}
+
+#[test]
+fn test_WB_ROLE_43_a_guard_the_task_names_is_run_as_it_is_and_listed_by_its_name() {
+    let point = named_guard_point();
+    assert!(point.contains("that test is the guard"), "{}", point);
+    assert!(point.contains("Run it as it is and list it under `guards` by its name."), "{}", point);
+    let guards = field_line("tester", "guards");
+    assert!(guards.contains("An existing test the task names is listed by its name."), "{}", guards);
+}
+
+#[test]
+fn test_WB_ROLE_44_the_tester_writes_no_copy_of_a_guard_the_task_names() {
+    let point = named_guard_point();
+    assert!(point.contains("Write no copy of it."), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_45_where_a_named_guard_does_not_cover_the_clause_the_tester_says_so_under_untested() {
+    let point = named_guard_point();
+    assert!(point.contains("Where you think it does not cover the clause, say so under `untested`."), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_46_a_new_test_that_repeats_an_existing_one_is_a_note() {
+    let body = part("review", "## What you produce");
+    let round_1 = body.split_once("In round 2,").expect("round 2").0;
+    let point = round_1.split('\n').find(|line| line.contains("new test that repeats an existing one"));
+    let point = point.unwrap_or_else(|| panic!("no point for a repeated test: {}", round_1));
+    assert!(point.contains("is a `note`"), "{}", point);
+}
+
+// The session's own word on its model and effort, and the stamp (#69).
+
+/// The text of how a role ends after the list of its fields.
+fn after_fields(role: &str) -> String {
+    let body = part(role, "## How you end");
+    let start = body.find("- `needs_person`: ").unwrap_or_else(|| panic!("{}: no field needs_person", role));
+    body[start..].split_once('\n').map(|(_, rest)| rest.to_string()).unwrap_or_default()
+}
+
+#[test]
+fn test_WB_ROLE_36_model_and_effort_are_what_the_session_says_of_itself() {
+    for role in ROLES {
+        for name in ["model", "effort"] {
+            let line = field_line(role, name);
+            assert!(line.contains(": what your session says of itself, or `unknown`."), "{}: {}", role, line);
+        }
+    }
+}
+
+#[test]
+fn test_WB_ROLE_37_the_stamp_on_the_task_says_what_the_session_was_handed_out_as() {
+    for role in ROLES {
+        let text = after_fields(role);
+        assert!(text.contains("The stamp on the task says what you were handed out as, and it is what counts."), "{}: {}", role, text);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_38_the_session_reads_its_stamp_and_says_where_its_own_word_differs() {
+    for role in ROLES {
+        let text = after_fields(role);
+        assert!(text.contains("Read the stamp of your own session on the task, where it is given"), "{}: {}", role, text);
+        assert!(text.contains("Where your own word differs from it, say so under `model` and `effort`."), "{}: {}", role, text);
+    }
+}

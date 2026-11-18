@@ -782,3 +782,21 @@ fn test_WB_ROLE_57_the_last_message_of_the_breakdown_has_its_fields_in_order() {
     let file = field_line("breakdown", "file");
     assert!(file.contains("the commit that holds it"), "{}", file);
 }
+
+// The level of a finding stands where the program reads it (#82, for `wb handover` of #88).
+
+#[test]
+fn test_WB_ROLE_68_a_finding_of_the_review_starts_with_its_number_and_its_level() {
+    let body = part("review", "## What you produce");
+    let round_1 = body.split_once("In round 2,").expect("round 2").0;
+    assert!(round_1.contains("starts with its number and its level: `<n>. must` or `<n>. note`"), "{}", round_1);
+    assert!(!prompt("review").contains("F1"), "the review still numbers its findings F1");
+    let findings = field_line("review", "findings");
+    assert!(findings.contains("`<n>. must` or `<n>. note`"), "{}", findings);
+}
+
+#[test]
+fn test_WB_ROLE_68_the_fix_reads_a_finding_by_its_number_and_its_level() {
+    let body = part("fix", "## What you produce");
+    assert!(body.contains("A finding starts with its number and its level: `<n>. must` or `<n>. note`."), "{}", body);
+}

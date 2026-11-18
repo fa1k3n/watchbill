@@ -71,3 +71,4 @@ The role prompts: breakdown, tester, build, review and fix. The first revision h
 | WB-ROLE-65 | The breakdown's prompt shall say that a requirement is what the change must do and a test or a reading of the code can show, and that how an existing test changes goes under `existing_tests_changed`, never as a requirement. Issue: #98. | T | Draft |
 | WB-ROLE-66 | The line "Draft: this prompt has not yet run on a project." shall stand in `fix.md` and in no other role file. Issue: #98. | T | Draft |
 | WB-ROLE-67 | The review's prompt shall say that where its address shows no description of the change, the review says so as a finding. Issue: #98. | T | Draft |
+| WB-ROLE-68 | The review's prompt shall say that each finding starts with its number and its level, `<n>. must` or `<n>. note`, where it is posted and in the last message, and the fix's prompt shall read a finding in that form. Issue: #82. | T | Draft |

@@ -606,7 +606,7 @@ fn test_WB_CHECK_13_only_the_project_text_differing_does_not_say_the_revision_is
 }
 
 #[test]
-fn test_WB_CHECK_14_a_project_file_that_is_a_link_is_named_by_check_and_refused_by_prompt() {
+fn test_WB_CHECK_15_a_project_file_that_is_a_link_is_named_by_check_and_refused_by_prompt() {
     let folder = set_up();
     put(&folder.path, "elsewhere.md", "Plain text.\n");
     fs::create_dir_all(watchbill_dir(&folder).join("project")).unwrap();
@@ -620,7 +620,7 @@ fn test_WB_CHECK_14_a_project_file_that_is_a_link_is_named_by_check_and_refused_
 }
 
 #[test]
-fn test_WB_CHECK_14_the_folder_project_as_a_link_is_named_by_check() {
+fn test_WB_CHECK_15_the_folder_project_as_a_link_is_named_by_check() {
     let folder = set_up();
     put(&folder.path, "elsewhere/all.md", "Plain text.\n");
     let project = watchbill_dir(&folder).join("project");
@@ -634,7 +634,7 @@ fn test_WB_CHECK_14_the_folder_project_as_a_link_is_named_by_check() {
 }
 
 #[test]
-fn test_WB_CHECK_14_a_folder_where_a_project_file_goes_is_named_by_check() {
+fn test_WB_CHECK_15_a_folder_where_a_project_file_goes_is_named_by_check() {
     let folder = set_up();
     fs::create_dir_all(watchbill_dir(&folder).join("project/all.md")).unwrap();
 
@@ -645,7 +645,7 @@ fn test_WB_CHECK_14_a_folder_where_a_project_file_goes_is_named_by_check() {
 }
 
 #[test]
-fn test_WB_CHECK_14_a_project_file_that_is_not_utf8_is_named_by_check() {
+fn test_WB_CHECK_15_a_project_file_that_is_not_utf8_is_named_by_check() {
     let folder = set_up();
     fs::write(watchbill_dir(&folder).join("project/all.md"), [0xff, 0xfe, b'x']).unwrap();
 

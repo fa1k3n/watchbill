@@ -18,3 +18,4 @@ Whether a repository still is at the revision it is pinned to, and whether the i
 | WB-CHECK-12 | `wb check` shall end with 1 and name the manifest when it is missing, and name `watchbill.yml` when the YAML loader refuses it. Issue: #8. | T | Implemented |
 | WB-CHECK-13 | `wb check` shall end with 1 and name the file, the line and the placeholder when the project's own text holds a placeholder that the pinned revision does not know. Issue: #100. | T | Implemented |
 | WB-CHECK-14 | `wb check` and `wb prompt` shall refuse the same placeholders in the project's own text. Issue: #100. | T | Implemented |
+| WB-CHECK-15 | `wb check` shall end with 1 and name a file of the project's text that `wb prompt` would refuse: a link, a folder, a file it cannot read or one that is not UTF-8, or `project` as a link; it shall follow no link. Issue: #100. | T | Implemented |

@@ -512,5 +512,63 @@ pub fn accept(root: &str, issue: &str, out: &mut dyn Write, err: &mut dyn Write)
         return 1;
     }
     let _ = writeln!(out, "wb accept: {} is accepted.", shown);
+    let _ = writeln!(out, "wb accept: commit the acceptance alone, so the history holds it before any work it allows:\n  {}", commit_command(issue));
     0
+}
+
+/// Whether the issue's file is needed before a role is handed out (#97). It is, unless `watchbill.yml`
+/// says `breakdown: none`. Where the key is not written the file is needed. `none` is refused when the
+/// rule table of the revision holds the breakdown, and any other value is refused by its name.
+pub fn file_needed(root: &Path, rules_hold_breakdown: bool) -> Result<bool, String> {
+    let config = root.join(crate::init::CONFIG_FOLDER).join(crate::init::CONFIG_FILE);
+    let document = crate::yamlfile::load(&config).map_err(|why| why.to_string())?;
+    let place = [crate::yamlfile::Part::from("breakdown")];
+    if !document.has(&place) {
+        return Ok(true);
+    }
+    let value = document.text(&place).map_err(|why| why.to_string())?;
+    if value != "none" {
+        return Err(document.fail(&place, "the only value of `breakdown` is `none`: write it, or leave the key out", false).to_string());
+    }
+    if rules_hold_breakdown {
+        return Err(
+            "watchbill.yml says `breakdown: none`, and the rule table of the revision holds the breakdown. Take the line out and run the breakdown".to_string(),
+        );
+    }
+    Ok(false)
+}
+
+/// What the commit command for the acceptance of an issue is, as `wb accept` says it and as a refusal says it.
+pub fn commit_command(issue: &str) -> String {
+    let path = format!("{}/{}.accepted", FOLDER, issue);
+    format!("git add {} && git commit -m \"Accept the issue's file ({})\" -- {}", path, issue, path)
+}
+
+/// Whether the issue's file and its acceptance are committed in `HEAD` and are the same in the working
+/// tree (#97). The first that is not is named, with what to do.
+pub fn committed(root: &Path, issue: &str) -> Result<(), String> {
+    for (path, what) in [(format!("{}/{}.yml", FOLDER, issue), "the issue's file"), (format!("{}/{}.accepted", FOLDER, issue), "its acceptance")] {
+        let root_text = root.display().to_string();
+        let todo = if path.ends_with(".yml") {
+            format!("Commit it alone on the branch of the issue: git add {} && git commit -m \"The issue's file ({})\" -- {}", path, issue, path)
+        } else {
+            format!("Commit it alone: {}", commit_command(issue))
+        };
+        // Git itself says what is committed and what is changed, with its own line ends and filters.
+        let ask = |args: &[&str]| -> Result<bool, String> {
+            let mut all = vec!["-C", root_text.as_str()];
+            all.extend(args);
+            crate::detect::git_output(&all, None)
+                .map(|run| run.status.success())
+                .ok_or_else(|| "git could not be run. No prompt is handed out.".to_string())
+        };
+        let spec = format!("HEAD:{}", path);
+        if !ask(&["cat-file", "-e", &spec])? {
+            return Err(format!("{} {} is not committed in HEAD. {}. No prompt is handed out.", what, path, todo));
+        }
+        if !ask(&["diff", "--quiet", "HEAD", "--", &path])? {
+            return Err(format!("{} {} differs from HEAD. {}. No prompt is handed out.", what, path, todo));
+        }
+    }
+    Ok(())
 }

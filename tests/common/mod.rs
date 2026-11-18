@@ -129,3 +129,39 @@ pub fn wb(folder: &Path, args: &[&str], typed: &str) -> Output {
 pub fn code(run: &Output) -> Option<i32> {
     run.status.code()
 }
+
+/// An issue's file with no requirement, as a breakdown might leave it.
+pub const BARE_ISSUE: &str = "issue: '{issue}'
+from: 3f0c1d9e
+requirements: []
+interface: |
+  none
+changes: []
+reads:
+  tester: []
+  build: []
+  review: []
+  fix: []
+existing_tests_changed: []
+questions: []
+";
+
+/// Gives each of the issues a file with no requirement, accepted, and commits the files and the acceptances
+/// alone in one commit, so that a role may be handed out for the issue (#97). Gives git an identity.
+pub fn issues_ready(folder: &Path, issues: &[&str]) {
+    git(folder, &["config", "user.name", "Ada Lovelace"]);
+    git(folder, &["config", "user.email", "ada@example.org"]);
+    git(folder, &["config", "commit.gpgsign", "false"]);
+    let mut added = Vec::new();
+    for issue in issues {
+        put(folder, &format!(".watchbill/issues/{}.yml", issue), &BARE_ISSUE.replace("{issue}", issue));
+        let run = wb(folder, &["accept", "--", issue], "");
+        assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+        added.push(format!(".watchbill/issues/{}.yml", issue));
+        added.push(format!(".watchbill/issues/{}.accepted", issue));
+    }
+    let mut add = vec!["add", "--"];
+    add.extend(added.iter().map(|path| path.as_str()));
+    git(folder, &add);
+    git(folder, &["commit", "-q", "-m", "The issues' files and their acceptances"]);
+}

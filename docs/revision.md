@@ -184,7 +184,8 @@ A person's issue, read into a form `wb` reads. It was called the task's file unt
 - **An edit after acceptance** voids it: the hash no longer holds, and no prompt of the issue is handed out until a person accepts again (#76).
 - **The acceptance at the tracker:** the person also posts one comment on the issue, from their own account, whose first line starts with `[accepted]`, with the SHA-256 of the issue's file. The tracker keeps who wrote it. What a listener trusts is a comment with `system: false` whose author's role at the project, read from the server, is at least the one the rule table names. The `.accepted` file stays.
 - **What acceptance cannot stop:** under one account shared by a person and the agents, an agent can run `wb accept` itself, or post the comment. The hash stops a change after acceptance, not a false acceptance. Accounts of their own for the agents (point 14) stop that: an agent's account is never a person's, so its comment counts for nothing. A signed commit may later do the same for the `.accepted` file.
-- **Without an issue's file** a project works as before: the issue holds its numbered requirements, and `wb prompt` is given what it cannot know.
+- **Without an issue's file** no role after the breakdown is handed out (decided by the owner, 2026-11-18, #97). A project that has no breakdown yet writes `breakdown: none` in `watchbill.yml`; then it works as before: the issue holds its numbered requirements, and `wb prompt` is given what it cannot know. `breakdown: none` is refused when the revision's rule table holds the breakdown, by `wb prompt` and by `wb check`. Where `breakdown:` is not written, the file is needed.
+- **Committed first:** the tester, the build, the review and the fix are handed out only when the issue's file and its acceptance are both committed in `HEAD` and are as git has them in the working tree, so the history holds what the issue was read as before the work it allows (#97).
 
 ## 14. Accounts
 

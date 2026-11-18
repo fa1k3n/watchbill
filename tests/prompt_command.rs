@@ -1278,3 +1278,79 @@ fn test_WB_PROMPT_48_the_stamp_names_the_issue_on_the_line_issue_and_has_no_line
     assert!(out.lines().any(|line| line == "issue: 54"), "{}", out);
     assert!(!out.lines().any(|line| line.starts_with("task:")), "{}", out);
 }
+
+#[test]
+fn test_WB_PROMPT_49_the_breakdown_with_no_branch_there_is_given_the_pattern_filled() {
+    let folder = set_up_github();
+
+    let run = wb(&folder.path, &["prompt", "breakdown", "42"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("on the branch issue-42."), "{}", text(&run.stdout));
+}
+
+#[test]
+fn test_WB_PROMPT_49_the_tester_on_a_longer_branch_names_it_in_the_prompt_and_the_stamp() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-42-one-round-count"]);
+
+    let run = wb(&folder.path, &["prompt", "tester", "42"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("on the branch issue-42-one-round-count."), "{}", text(&run.stdout));
+
+    let stamp = wb(&folder.path, &["prompt", "tester", "42", "--stamp"], "");
+    assert_eq!(code(&stamp), Some(0), "{}", text(&stamp.stderr));
+    assert!(text(&stamp.stdout).contains("branch: issue-42-one-round-count\n"), "{}", text(&stamp.stdout));
+}
+
+#[test]
+fn test_WB_PROMPT_49_the_tester_with_no_branch_there_is_refused_with_1_and_nothing_on_standard_output() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-6-other"]);
+
+    let run = wb(&folder.path, &["prompt", "tester", "42"], "");
+
+    assert_eq!(code(&run), Some(1));
+    assert_eq!(text(&run.stdout), "");
+    let err = text(&run.stderr);
+    assert!(err.contains("issue-42") && err.contains("--branch"), "{}", err);
+}
+
+#[test]
+fn test_WB_PROMPT_49_the_tester_with_two_branches_is_refused_with_both_named() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-42-a", "issue-42-b"]);
+
+    let run = wb(&folder.path, &["prompt", "tester", "42"], "");
+
+    assert_eq!(code(&run), Some(1));
+    assert_eq!(text(&run.stdout), "");
+    let err = text(&run.stderr);
+    assert!(err.contains("issue-42-a") && err.contains("issue-42-b"), "{}", err);
+}
+
+#[test]
+fn test_WB_PROMPT_49_branch_given_to_the_tester_and_the_breakdown_wins() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-42-a", "issue-42-b"]);
+
+    for role in ["tester", "breakdown"] {
+        let run = wb(&folder.path, &["prompt", role, "42", "--branch", "mine"], "");
+
+        assert_eq!(code(&run), Some(0), "{}: {}", role, text(&run.stderr));
+        assert!(text(&run.stdout).contains("on the branch mine."), "{}: {}", role, text(&run.stdout));
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_49_the_build_the_review_and_the_fix_take_the_one_branch_as_before() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-42-x"]);
+
+    for role in ["build", "review", "fix"] {
+        let run = wb(&folder.path, &["prompt", role, "42", "--change", "7", "--round", "1"], "");
+
+        assert_eq!(code(&run), Some(0), "{}: {}", role, text(&run.stderr));
+        assert!(text(&run.stdout).contains("on the branch issue-42-x."), "{}: {}", role, text(&run.stdout));
+    }
+}

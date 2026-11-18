@@ -568,3 +568,42 @@ fn test_WB_ROLE_42_the_reviewer_breaks_code_only_in_a_scratch_copy() {
     assert!(point.contains("no edit to the change and no commit"), "{}", point);
     assert!(point.contains("scratch copy"), "{}", point);
 }
+
+// A guard the task names is the existing test, run as it is (#62).
+
+/// The point of the tester's part on what it produces that is about a guard the task names.
+fn named_guard_point() -> String {
+    let body = part("tester", "## What you produce");
+    let point = body.split('\n').find(|line| line.starts_with("- Where the task names an existing test as the guard of a clause,"));
+    point.unwrap_or_else(|| panic!("no point for a guard the task names: {}", body)).to_string()
+}
+
+#[test]
+fn test_WB_ROLE_43_a_guard_the_task_names_is_run_as_it_is_and_listed_by_its_name() {
+    let point = named_guard_point();
+    assert!(point.contains("that test is the guard"), "{}", point);
+    assert!(point.contains("Run it as it is and list it under `guards` by its name."), "{}", point);
+    let guards = field_line("tester", "guards");
+    assert!(guards.contains("An existing test the task names is listed by its name."), "{}", guards);
+}
+
+#[test]
+fn test_WB_ROLE_44_the_tester_writes_no_copy_of_a_guard_the_task_names() {
+    let point = named_guard_point();
+    assert!(point.contains("Write no copy of it."), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_45_where_a_named_guard_does_not_cover_the_clause_the_tester_says_so_under_untested() {
+    let point = named_guard_point();
+    assert!(point.contains("Where you think it does not cover the clause, say so under `untested`."), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_46_a_new_test_that_repeats_an_existing_one_is_a_note() {
+    let body = part("review", "## What you produce");
+    let round_1 = body.split_once("In round 2,").expect("round 2").0;
+    let point = round_1.split('\n').find(|line| line.contains("new test that repeats an existing one"));
+    let point = point.unwrap_or_else(|| panic!("no point for a repeated test: {}", round_1));
+    assert!(point.contains("is a `note`"), "{}", point);
+}

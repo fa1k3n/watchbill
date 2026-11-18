@@ -50,11 +50,18 @@ pub struct Task {
     pub questions: Vec<String>,
 }
 
-/// A task is named by letters, digits, `.`, `_` and `-`, and not by a name that starts with `.`.
+/// A task is named by letters, digits, `.`, `_` and `-`, at most 64 of them, and not by a name that starts with `.`.
 pub fn is_name(task: &str) -> bool {
     !task.is_empty()
+        && task.len() <= 64
         && !task.starts_with('.')
         && task.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
+}
+
+/// Text of the file as `wb` shows what it did not make: a control character is written escaped, so
+/// that one line stays one line.
+fn shown(text: &str) -> String {
+    text.chars().map(|c| if c.is_control() { c.escape_default().to_string() } else { c.to_string() }).collect()
 }
 
 fn fault(error: YamlError) -> String {
@@ -102,6 +109,7 @@ fn path_fault(path: &str) -> Option<&'static str> {
         return Some("holds `..`");
     }
     match path.split('/').find(|part| !part.is_empty() && *part != ".") {
+        None => Some("names the root of the repository, not a file of the change"),
         Some(".watchbill") => Some("lies under .watchbill/, which a task does not name"),
         _ => None,
     }
@@ -187,10 +195,25 @@ fn accepted_of(root: &Path, task: &str) -> std::path::PathBuf {
     root.join(FOLDER).join(format!("{}.accepted", task))
 }
 
+/// A folder on the way to the task files that is a link, or is there and is not a folder: it is named,
+/// and nothing is read or written through it.
+fn way_fault(root: &Path) -> Option<String> {
+    for name in [".watchbill", FOLDER] {
+        match fs::symlink_metadata(root.join(name)) {
+            Ok(found) if found.file_type().is_symlink() => {
+                return Some(format!("{} is a link, and a link is never followed", name))
+            }
+            Ok(found) if !found.is_dir() => return Some(format!("{} is not a folder", name)),
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Whether a task's file is accepted: its `.accepted` is there, and the SHA-256 in it is that of
 /// the file as it is now. Nothing else is looked at.
 pub fn is_accepted(root: &Path, task: &str) -> bool {
-    if !is_name(task) {
+    if !is_name(task) || way_fault(root).is_some() {
         return false;
     }
     let plain = |path: &Path| fs::symlink_metadata(path).map(|found| found.is_file()).unwrap_or(false);
@@ -220,6 +243,9 @@ fn git_value(root: &str, key: &str) -> Result<String, String> {
     if value.chars().any(|c| c.is_control()) {
         return Err(format!("the {} of git holds a control character.", key));
     }
+    if value.contains(['<', '>']) {
+        return Err(format!("the {} of git holds '<' or '>', and the line `by:` could not be read back one way.", key));
+    }
     Ok(value.to_string())
 }
 
@@ -227,6 +253,10 @@ fn git_value(root: &str, key: &str) -> Result<String, String> {
 /// not set up here. It says what it will write before it writes, and never writes over an acceptance.
 pub fn accept(root: &str, task: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let base = Path::new(root);
+    if let Some(why) = way_fault(base) {
+        let _ = writeln!(err, "wb accept: {}. Nothing read, nothing written.", why);
+        return 1;
+    }
     if !base.join(".watchbill").join("watchbill.yml").is_file() {
         let _ = writeln!(err, "wb accept: .watchbill/watchbill.yml is not there. Watchbill is not set up in this repository.");
         return 2;
@@ -255,18 +285,20 @@ pub fn accept(root: &str, task: &str, out: &mut dyn Write, err: &mut dyn Write) 
     let read = match read(&file) {
         Ok(read) => read,
         Err(why) => {
+            // The file is named from the root of the repository, as every other message is.
+            let why = why.replace(&format!("{}/", root.trim_end_matches('/')), "");
             let _ = writeln!(err, "wb accept: {}. Nothing written.", why);
             return 1;
         }
     };
     if read.task != task {
-        let _ = writeln!(err, "wb accept: {} says the task is {}, not {}. Nothing written.", shown, read.task, task);
+        let _ = writeln!(err, "wb accept: {} says the task is {}, not {}. Nothing written.", shown, self::shown(&read.task), task);
         return 1;
     }
     if !read.questions.is_empty() {
         let _ = writeln!(err, "wb accept: {} holds {} question{}. Nothing written. Answer them in the file first:", shown, read.questions.len(), if read.questions.len() == 1 { "" } else { "s" });
         for question in &read.questions {
-            let _ = writeln!(err, "  - {}", question);
+            let _ = writeln!(err, "  - {}", self::shown(question));
         }
         return 1;
     }
@@ -299,17 +331,34 @@ pub fn accept(root: &str, task: &str, out: &mut dyn Write, err: &mut dyn Write) 
         return 1;
     }
     let _ = writeln!(out, "wb accept: will write {}:\n{}", shown_accepted, body);
-    let opened = fs::OpenOptions::new().write(true).create_new(true).open(&accepted);
-    let mut opened = match opened {
-        Ok(opened) => opened,
-        Err(error) => {
-            let _ = writeln!(err, "wb accept: {} cannot be written ({}). Nothing written.", shown_accepted, error);
-            return 1;
+    // Whole or not at all: the acceptance is written to a file of its own in the same folder, then
+    // linked to its name, which fails when the name is there. A file left by a crash is another name.
+    let tasks = base.join(FOLDER);
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|since| since.subsec_nanos()).unwrap_or(0);
+    let mut written = None;
+    for attempt in 0..100u32 {
+        let part = tasks.join(format!(".{}.accepted.{}-{}-{}", task, std::process::id(), nanos, attempt));
+        match fs::OpenOptions::new().write(true).create_new(true).open(&part) {
+            Ok(opened) => {
+                written = Some((part, opened));
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                let _ = writeln!(err, "wb accept: {} cannot be written ({}). Nothing written.", shown_accepted, error);
+                return 1;
+            }
         }
+    }
+    let Some((part, mut opened)) = written else {
+        let _ = writeln!(err, "wb accept: {} cannot be written. Nothing written.", shown_accepted);
+        return 1;
     };
-    if let Err(error) = opened.write_all(body.as_bytes()).and_then(|_| opened.sync_all()) {
-        drop(opened);
-        let _ = fs::remove_file(&accepted);
+    let result = opened.write_all(body.as_bytes()).and_then(|_| opened.sync_all());
+    drop(opened);
+    let result = result.and_then(|_| fs::hard_link(&part, &accepted));
+    let _ = fs::remove_file(&part);
+    if let Err(error) = result {
         let _ = writeln!(err, "wb accept: {} could not be written ({}). Nothing written.", shown_accepted, error);
         return 1;
     }

@@ -191,6 +191,10 @@ wb accept: .watchbill/tasks/54.yml is accepted.
 
 A task's file counts as accepted only while the SHA-256 in its acceptance is that of the file as it is. The function `watchbill::task::is_accepted` answers that. One byte changed, and it is not accepted: it is accepted again by removing the `.accepted` and running `wb accept`.
 
+What acceptance cannot stop: the hash stops a change after the acceptance, not a false acceptance. Where a person and the agents share one account, an agent can run `wb accept` itself, or write the `sha256:` line by hand to match a file it changed ([docs/revision.md](docs/revision.md), point 13). Only accounts of their own for the agents stop that.
+
+`wb accept` never follows a link: `.watchbill` or `.watchbill/tasks` that is a link, or is not a folder, is refused by name, and nothing is read or written through it. The acceptance is written whole or not at all, to a file of its own in the same folder and then linked to its name. A task is named by at most 64 letters, digits, `.`, `_` and `-`. A path of the file that names the root (`.`, `./`) is refused. What `wb accept` prints of the file has its control characters escaped. A git name or email that holds `<` or `>` is refused.
+
 The exit status:
 
 - **0**: the file is accepted.

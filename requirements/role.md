@@ -39,6 +39,14 @@ The prompts of the first revision: tester, build, review and fix. What a revisio
 | WB-ROLE-33 | The fixer's prompt shall say that after the last round a fix is made only where a person has allowed it, that this person checks it with the test that shows it, and that it is not a round of review. Issue: #49. | T | Implemented |
 | WB-ROLE-34 | The tester's prompt shall say that after its commit the tester runs what the project runs before a change is handed over, and reports what fails for a reason other than the missing code. Issue: #50. | T | Implemented |
 | WB-ROLE-35 | The tester's last message shall have the field `checks`, after `guards`. Issue: #50. | T | Implemented |
-| WB-ROLE-36 | Each role's prompt shall name `model` and `effort` of the last message as what the session says of itself. Issue: #69. | T | Draft |
-| WB-ROLE-37 | Each role's prompt shall say that the stamp on the task is what the session was handed out as. Issue: #69. | T | Draft |
-| WB-ROLE-38 | Each role's prompt shall ask the session to say under `model` and `effort` when its own word differs from the stamp. Issue: #69. | T | Draft |
+| WB-ROLE-36 | Each role's prompt shall name `model` and `effort` of the last message as what the session says of itself. Issue: #69. | T | Implemented |
+| WB-ROLE-37 | Each role's prompt shall say that the stamp on the task is what the session was handed out as. Issue: #69. | T | Implemented |
+| WB-ROLE-38 | Each role's prompt shall ask the session to say under `model` and `effort` when its own word differs from the stamp. Issue: #69. | T | Implemented |
+| WB-ROLE-39 | The tester's prompt shall say that a file of tests that does not load, because the one name it misses is the one the task asks for, is red for every test in it. Issue: #60. | T | Implemented |
+| WB-ROLE-40 | The tester's prompt shall say that the tester names the missing names under `red`. Issue: #60. | T | Implemented |
+| WB-ROLE-41 | The tester's prompt shall say that, where the language allows it and the project's own text does not say otherwise, the tester also runs each test against a stand-in that gives a wrong answer, in a scratch copy it never commits, and says so. Issue: #60. | T | Implemented |
+| WB-ROLE-42 | The reviewer's prompt shall say that where the red of the new tests was for a whole file, the reviewer sees each of them fail on its own, by breaking the code. Issue: #60. | T | Implemented |
+| WB-ROLE-43 | The tester's prompt shall say that an existing test the task names as the guard of a clause is run as it is and listed under `guards` by its name. Issue: #62. | T | Implemented |
+| WB-ROLE-44 | The tester's prompt shall say that the tester writes no copy of an existing test the task names as a guard. Issue: #62. | T | Implemented |
+| WB-ROLE-45 | The tester's prompt shall say that where the tester thinks an existing test the task names as a guard does not cover its clause, it says so under `untested`. Issue: #62. | T | Implemented |
+| WB-ROLE-46 | The reviewer's prompt shall say that a new test that repeats an existing one is a `note`. Issue: #62. | T | Implemented |

@@ -68,6 +68,16 @@ requirements: requirements/*.md
 ci: gitlab-ci
 ```
 
+For a GitHub `origin`, `wb init` also writes the patterns of `wb prompt`, here for `example/brake-controller`:
+
+```yaml
+issue_address: 'gh issue view {issue} --repo example/brake-controller; gh issue view {issue} --repo example/brake-controller --comments'
+change_address: 'gh pr view {change} --repo example/brake-controller; gh pr view {change} --repo example/brake-controller --comments'
+branch: 'issue-{issue}'
+```
+
+A repository set up before #96 has the earlier addresses, which end in `--comments` alone and hide the issue's text. `wb` never writes over its `watchbill.yml`: change the two lines by hand.
+
 - **`watchbill` is the version of the package** the repository is set up for: the version of the `wb` that wrote the file. A revision is the version and the hash of its files together ([docs/revision.md](docs/revision.md)); the hash is the line `revision`, and is the one `wb revision` prints.
 - **What it finds, it finds in the repository:** the name of the folder, the address of `origin` (only its host and path; a user name or a token in it is dropped), a folder of requirements, and the file a CI driver is known by. It asks nothing of the network.
 - **The revision is copied, never edited.** The files under `.watchbill/revision/` are written by `wb` and never by hand. `cd .watchbill && sha256sum -c revision.sha256` checks them without `wb`.
@@ -116,7 +126,7 @@ The issue is the word after the role, or `--issue`; both together end with 2. Th
 
 - `--issue <text>`, `--change <text>`, `--requirements <text>`, `--round <text>`, `--checkout <text>`, `--branch <text>`, `--issue_address <text>`, `--change_address <text>`. What each is, is in `.watchbill/revision/roles/placeholders.md`.
 - `checkout` is the root of the repository `wb` runs in.
-- `issue_address` and `change_address` are the patterns of those names in `.watchbill/watchbill.yml`, with `{issue}` and `{change}` filled in. `wb init` proposes them for a GitHub `origin` only (`gh issue view {issue} --repo <repository> --comments`, `gh pr view {change} --repo <repository> --comments`). For another server, or none, there is no pattern and the option must be given.
+- `issue_address` and `change_address` are the patterns of those names in `.watchbill/watchbill.yml`, with `{issue}` and `{change}` filled in. `wb init` proposes them for a GitHub `origin` only (`gh issue view {issue} --repo <repository>; gh issue view {issue} --repo <repository> --comments`, `gh pr view {change} --repo <repository>; gh pr view {change} --repo <repository> --comments`: each shows the text or the description first, then the comments, as `--comments` alone hides the first). For another server, or none, there is no pattern and the option must be given.
 - `branch` is the pattern of that name in `watchbill.yml`, proposed as `issue-{issue}`, with `{issue}` filled in. The tester makes the branch, so it gets the pattern as it is. For the build, the review and the fix it is the one local branch (from the refs of the repository) whose name is the pattern, or starts with it and a `-`. None, or more than one, is refused with 1, the names found are said on standard error, and `--branch` must be given.
 - `requirements` is the text "the numbered requirements of issue {issue}" when the issue has no file. When it has one, see "An issue with a file" below.
 - A repository set up before these patterns have no lines for them in `watchbill.yml`. It works as it did: the options are needed, and `wb check` does not fail on it. A pattern that is not a text is refused by the loader, and that shows at `wb prompt` when it needs the pattern, not at `wb check`, which does not read the patterns.

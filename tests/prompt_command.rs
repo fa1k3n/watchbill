@@ -17,11 +17,16 @@ fn package() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("share/watchbill")
 }
 
-/// A repository set up by `wb init --yes`.
+/// The issues the tests of this file hand a role out for. Each has a file with no requirement, accepted
+/// and committed (#97), as no role is handed out without.
+const ISSUES: [&str; 9] = ["1", "7", "12", "42", "54", "T-1", "T-1.a_b", "-x", "a..b"];
+
+/// A repository set up by `wb init --yes`, with the files of `ISSUES` accepted and committed.
 fn set_up() -> Folder {
     let folder = repository(None);
     let run = wb(&folder.path, &["init", "--yes"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    issues_ready(&folder.path, &ISSUES);
     folder
 }
 
@@ -31,8 +36,15 @@ fn filled(role: &str, values: &[(&str, &str)]) -> String {
     for (name, value) in values {
         text = text.replace(&format!("{{{}}}", name), value);
     }
+    // The four roles after the breakdown get the part of the issue's file after their text (#97).
+    if ["tester", "build", "review", "fix"].contains(&role) {
+        text = format!("{}\n{}", text, BARE_PART);
+    }
     text
 }
+
+/// What the file of `BARE_ISSUE` adds to a prompt: the interface, and what the role may change and read.
+const BARE_PART: &str = "## The interface\n\nnone\n\n## What you may change and read\n\nYou may change:\n\n- none\n\nYou may read, besides those:\n\n- none\n";
 
 const ALL: [&str; 16] = [
     "--issue",
@@ -380,7 +392,7 @@ fn test_WB_PROMPT_11_parts_prints_one_line_per_part_and_sha256sum_passes_at_the_
     let paths: Vec<&str> = out.lines().map(|line| line.split_once("  ").unwrap().1).collect();
     assert_eq!(
         paths,
-        [".watchbill/revision/roles/build.md", ".watchbill/project/all.md", ".watchbill/project/build.md"]
+        [".watchbill/revision/roles/build.md", ".watchbill/issues/T-1.yml", ".watchbill/project/all.md", ".watchbill/project/build.md"]
     );
     assert!(!out.contains("Everyone"), "{}", out);
     let sums = folder.path.join("sums.txt");
@@ -390,7 +402,7 @@ fn test_WB_PROMPT_11_parts_prints_one_line_per_part_and_sha256sum_passes_at_the_
 }
 
 #[test]
-fn test_WB_PROMPT_11_with_no_project_text_parts_prints_the_one_line_of_the_role() {
+fn test_WB_PROMPT_11_with_no_project_text_parts_prints_the_line_of_the_role_and_of_the_issues_file() {
     let folder = set_up();
 
     // The tester's text has placeholders with no value: refused, nothing printed.
@@ -402,7 +414,8 @@ fn test_WB_PROMPT_11_with_no_project_text_parts_prints_the_one_line_of_the_role(
     args.extend(ALL);
     let run = wb(&folder.path, &args, "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert_eq!(text(&run.stdout).lines().count(), 1);
+    // The role's text, then the issue's file (#97): no role is handed out without one.
+    assert_eq!(text(&run.stdout).lines().count(), 2);
 }
 
 #[test]
@@ -412,14 +425,21 @@ fn test_WB_PROMPT_16_a_value_that_starts_with_a_dash_or_holds_a_line_break_arriv
     for (args, issue, requirements) in [
         (vec!["prompt", "build", "--issue", "-x", "--requirements", "R"], "-x", "R"),
         (vec!["prompt", "build", "--issue=-x", "--requirements=-y"], "-x", "-y"),
-        (vec!["prompt", "build", "--issue", "--", "--requirements", "a\nb\n\nc"], "--", "a\nb\n\nc"),
-        (vec!["prompt", "build", "--issue", "{change}", "--requirements", "{round}{issue}"], "{change}", "{round}{issue}"),
-        (vec!["prompt", "build", "--issue", "one\ntwo", "--requirements", "R"], "one\ntwo", "R"),
+        (vec!["prompt", "build", "--issue", "1", "--requirements", "a\nb\n\nc"], "1", "a\nb\n\nc"),
+        (vec!["prompt", "build", "--issue", "1", "--requirements", "{round}{issue}"], "1", "{round}{issue}"),
     ] {
         let run = wb(&folder.path, &with_where(&args), "");
 
         assert_eq!(code(&run), Some(0), "{:?}: {}", args, text(&run.stderr));
         assert_eq!(text(&run.stdout), filled_where("build", &[("issue", issue), ("requirements", requirements)]), "{:?}", args);
+    }
+    // A value that is no name of an issue has no file, and since #97 no role is handed out for it.
+    for issue in ["--", "{change}", "one\ntwo"] {
+        let args = with_where(&["prompt", "build", "--issue", issue, "--requirements", "R"]);
+        let run = wb(&folder.path, &args, "");
+
+        assert_eq!(code(&run), Some(1), "{:?}: {}", args, text(&run.stderr));
+        assert_eq!(text(&run.stdout), "", "{:?}", args);
     }
 }
 
@@ -546,7 +566,9 @@ fn test_WB_PROMPT_19_a_stamp_is_the_twelve_lines_in_order_and_the_parts_for_each
         let names: Vec<&str> = found.iter().take(12).map(|(name, _)| name.as_str()).collect();
         assert_eq!(names, STAMP_NAMES, "{}", role);
         assert!(found.len() > 12, "{}: {}", role, out);
-        assert!(found.iter().skip(12).all(|(name, _)| name == "part"), "{}: {}", role, out);
+        // The line `requirements: given` stands before the parts, as the file of the issue is used (#97).
+        assert_eq!(found[12], ("requirements".to_string(), "given".to_string()), "{}: {}", role, out);
+        assert!(found.iter().skip(13).all(|(name, _)| name == "part"), "{}: {}", role, out);
         assert!(out.ends_with('\n'), "{}", role);
         assert_eq!(value(&found, "role"), role);
         // A value the prompt does not hold is written empty: it was not handed out.
@@ -647,9 +669,9 @@ fn test_WB_PROMPT_21_the_part_lines_are_the_lines_of_parts_in_order() {
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let out = text(&run.stdout);
-    let lines: Vec<String> = out.lines().skip(12).map(|line| line.strip_prefix("part: ").unwrap().to_string()).collect();
+    let lines: Vec<String> = out.lines().skip(13).map(|line| line.strip_prefix("part: ").unwrap().to_string()).collect();
     let expected: Vec<String> = parts.lines().map(|line| line.to_string()).collect();
-    assert_eq!(lines.len(), 3);
+    assert_eq!(lines.len(), 4);
     assert_eq!(lines, expected);
     // `sha256sum` takes them with `part: ` taken off.
     let sums = folder.path.join("sums.txt");
@@ -777,12 +799,12 @@ fn test_WB_PROMPT_19_a_value_the_prompt_does_not_use_is_written_empty() {
 fn test_WB_PROMPT_22_a_stamped_value_may_hold_white_space_inside() {
     let folder = set_up();
     let mut args = vec!["prompt", "build", "--stamp", "--requirements", "R", "--checkout", "/work/my brakes"];
-    args.extend(["--issue", "T 1", "--branch", "issue-1", "--issue_address", "x"]);
+    args.extend(["--issue", "T-1", "--branch", "issue 1", "--issue_address", "x"]);
 
     let run = wb(&folder.path, &args, "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert!(text(&run.stdout).contains("\nissue: T 1\n"), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains("\nbranch: issue 1\n"), "{}", text(&run.stdout));
 }
 
 #[test]
@@ -810,6 +832,7 @@ fn set_up_github() -> Folder {
     let folder = repository(Some(GH));
     let run = wb(&folder.path, &["init", "--yes"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    issues_ready(&folder.path, &ISSUES);
     folder
 }
 
@@ -827,7 +850,7 @@ fn root_of(folder: &Path) -> String {
 
 const ISSUE_ADDRESS: &str = "gh issue view 54 --repo example/brake-controller; gh issue view 54 --repo example/brake-controller --comments";
 const CHANGE_ADDRESS: &str = "gh pr view 168 --repo example/brake-controller; gh pr view 168 --repo example/brake-controller --comments";
-const REQUIREMENTS: &str = "the numbered requirements of issue 54";
+const REQUIREMENTS: &str = "none: the issue's file holds no requirement";
 
 /// The values of `wb prompt review 54 --change 168 --round 1` with one local branch `issue-54-serve`.
 fn derived(folder: &Path) -> Vec<(&'static str, String)> {
@@ -981,14 +1004,14 @@ fn test_WB_PROMPT_49_no_local_branch_is_refused_the_same_way() {
 }
 
 #[test]
-fn test_WB_PROMPT_35_requirements_with_no_option_is_the_numbered_requirements_of_the_issue() {
+fn test_WB_PROMPT_25_requirements_with_no_option_are_those_of_the_issues_file() {
     let folder = set_up_github();
     branches(&folder.path, &["issue-54-x"]);
 
     let run = wb(&folder.path, &["prompt", "build", "54"], "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert!(text(&run.stdout).contains("the requirements the numbered requirements of issue 54"), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains("the requirements none: the issue's file holds no requirement"), "{}", text(&run.stdout));
 }
 
 #[test]
@@ -1102,6 +1125,7 @@ fn test_WB_PROMPT_38_the_stamp_holds_the_derived_values() {
 fn test_WB_PROMPT_38_the_stamp_is_refused_with_1_for_a_derived_checkout_that_is_not_one_plain_line() {
     let folder = repository_named("brakes\nx", Some(GH));
     assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+    issues_ready(&folder.path, &["54"]);
     branches(&folder.path, &["issue-54"]);
 
     let run = wb(&folder.path, &["prompt", "tester", "54", "--stamp"], "");
@@ -1164,9 +1188,9 @@ fn test_WB_PROMPT_39_plain_values_are_filled_and_a_value_that_fills_no_pattern_i
     assert!(text(&plain.stdout).contains("issue-T-1.a_b"), "{}", text(&plain.stdout));
 
     // Given the branch and the address, the issue fills no pattern: it is not held to the rule.
-    let run = wb(&folder.path, &["prompt", "tester", "5 6", "--branch", "b", "--issue_address", "a"], "");
+    let run = wb(&folder.path, &["prompt", "tester", "a..b", "--branch", "b", "--issue_address", "a"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert!(text(&run.stdout).contains("issue 5 6"), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains("issue a..b"), "{}", text(&run.stdout));
 }
 
 #[test]

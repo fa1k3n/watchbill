@@ -100,7 +100,7 @@ fn parse(manifest: &str, found: &mut Vec<String>) -> Vec<(String, String)> {
 
 const LINK: &str = "(a link is never followed)";
 
-fn finish(found: &[String], project: &[String], out: &mut dyn Write) -> i32 {
+fn finish(found: &[String], settings: usize, project: &[String], out: &mut dyn Write) -> i32 {
     if found.is_empty() && project.is_empty() {
         let _ = writeln!(out, "The repository is at the revision it is pinned to, and the installed wb is that revision.");
         return 0;
@@ -111,7 +111,9 @@ fn finish(found: &[String], project: &[String], out: &mut dyn Write) -> i32 {
     let count = found.len() + project.len();
     let plural = if count == 1 { "" } else { "s" };
     if found.is_empty() {
-        let _ = writeln!(out, "{} difference{}. The project's text does not fit the revision it is pinned to.", count, plural);
+        let _ = writeln!(out, "{} difference{}. The project's text cannot be used with the revision it is pinned to.", count, plural);
+    } else if found.len() == settings && project.is_empty() {
+        let _ = writeln!(out, "{} difference{}. {} does not fit the revision it is pinned to.", count, plural, CONFIG_FILE);
     } else {
         let _ = writeln!(out, "{} difference{}. The repository is not at the revision it is pinned to.", count, plural);
     }
@@ -126,10 +128,12 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
     let config = folder.join(CONFIG_FILE);
     let name = |path: &str| format!("{}/{}", CONFIG_FOLDER, path);
     let mut found: Vec<String> = Vec::new();
+    // How many of `found` are faults in the settings of `watchbill.yml`.
+    let mut settings = 0;
     match look(&folder) {
         Some(Kind::Link) => {
             found.push(format!("link: {} {}", CONFIG_FOLDER, LINK));
-            return finish(&found, &[], out);
+            return finish(&found, 0, &[], out);
         }
         Some(Kind::Folder) => {}
         _ => {
@@ -225,12 +229,18 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
     match config_kind {
         Some(Kind::Link) => found.push(format!("link: {} {}", name(CONFIG_FILE), LINK)),
         Some(Kind::File) => match load(&config) {
-            Err(why) => found.push(format!("{}: {}", CONFIG_FILE, why)),
+            Err(why) => {
+                found.push(format!("{}: {}", CONFIG_FILE, why));
+                settings += 1;
+            }
             Ok(document) => {
                 let line = document.text(&[Part::from("revision")]);
                 let pinned_version = document.text(&[Part::from("watchbill")]);
                 match (&line, &pinned_hash) {
-                    (Err(why), _) => found.push(format!("{}: {}", CONFIG_FILE, why)),
+                    (Err(why), _) => {
+                        found.push(format!("{}: {}", CONFIG_FILE, why));
+                        settings += 1;
+                    }
                     (Ok(line), Some(hash)) if line != hash => found.push(format!(
                         "the manifest {} has the hash {}, and the line revision of {} says {}",
                         MANIFEST_FILE, hash, CONFIG_FILE, line
@@ -239,11 +249,14 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
                 }
                 if let Err(why) = &pinned_version {
                     found.push(format!("{}: {}", CONFIG_FILE, why));
+                    settings += 1;
                 }
                 // `breakdown: none` is refused where the rule table holds the breakdown, as `wb prompt` refuses it (#97).
                 if let Ok(rules) = crate::rules::load_revision() {
                     if let Err(why) = crate::issue::file_needed(Path::new(root), rules.roles.contains_key("breakdown")) {
-                        found.push(format!("{}: {}", CONFIG_FILE, why));
+                        // The message names the file already, or the loader's does with its path: once.
+                        found.push(if why.starts_with(CONFIG_FILE) { why } else { format!("{}: {}", CONFIG_FILE, why) });
+                        settings += 1;
                     }
                 }
                 let installed = manifest::revision_hash(package);
@@ -263,5 +276,5 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
     }
     // The project's own text, with the placeholders judged as `wb prompt` judges them.
     let project = crate::prompt::unknown_in_project(Path::new(root));
-    finish(&found, &project, out)
+    finish(&found, settings, &project, out)
 }

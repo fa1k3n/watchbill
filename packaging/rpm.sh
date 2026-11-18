@@ -28,7 +28,7 @@ export SOURCE_DATE_EPOCH
 # would pack it whole, so only files are kept and the folders are named. A submodule is listed
 # as a file (no trailing /), so it is not left out here: a checkout with one is not built for.
 # The list is NUL-separated from git to tar, so any file name is kept; this relies on the
-# -z of GNU grep and the -0 of GNU tr, which Fedora and Enterprise Linux 9 have.
+# -z of GNU grep, which Fedora and Enterprise Linux 9 have. The tr -cd '\0' is POSIX.
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 (cd "$here" && git ls-files -co --exclude-standard -z) >"$tmp/all"

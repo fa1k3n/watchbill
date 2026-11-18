@@ -202,7 +202,7 @@ fn test_WB_TASK_14_where_breakdown_is_not_written_the_file_is_needed() {
 }
 
 #[test]
-fn test_WB_TASK_14_breakdown_none_means_no_file_is_needed_where_the_rule_table_lacks_the_breakdown() {
+fn test_WB_PROMPT_50_breakdown_none_means_no_file_is_needed_where_the_rule_table_lacks_the_breakdown() {
     let folder = set_up();
     let mut yml = read(&config(&folder.path));
     yml.push_str("breakdown: none\n");
@@ -268,4 +268,23 @@ fn test_WB_TASK_15_wb_check_refuses_breakdown_none_when_the_rule_table_holds_the
     other.push('\n');
     put(&folder.path, ".watchbill/watchbill.yml", &other);
     assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(1));
+}
+
+#[test]
+fn test_WB_PROMPT_51_with_breakdown_none_and_no_file_requirements_is_the_numbered_requirements_of_the_issue() {
+    let folder = set_up();
+    let mut yml = read(&config(&folder.path));
+    yml.push_str("breakdown: none\n");
+    put(&folder.path, ".watchbill/watchbill.yml", &yml);
+    // No revision without the breakdown can be built into the tests, so the values `wb prompt` gives an
+    // issue that needs no file are had from `derive`, which no file stands in the way of.
+    let root = folder.path.to_str().unwrap();
+    let given = [("issue", "54".to_string()), ("branch", "issue-54".to_string())];
+    let values = watchbill::prompt::derive(root, "build", &given).ok().expect("derive");
+    let found = values.iter().find(|(name, _)| *name == "requirements").map(|(_, value)| value.as_str());
+    assert_eq!(found, Some("the numbered requirements of issue 54"));
+    let given = [("issue", "54".to_string()), ("branch", "issue-54".to_string()), ("requirements", "R".to_string())];
+    let values = watchbill::prompt::derive(root, "build", &given).ok().expect("derive");
+    assert_eq!(values.iter().filter(|(name, _)| *name == "requirements").count(), 1);
+    assert!(values.contains(&("requirements", "R".to_string())));
 }

@@ -851,6 +851,7 @@ fn filled_with(role: &str, values: &[(&str, String)]) -> String {
 #[test]
 fn test_WB_PROMPT_31_the_issue_is_the_word_after_the_role_and_the_tester_needs_nothing_else() {
     let folder = set_up_github();
+    branches(&folder.path, &["issue-54"]);
 
     let run = wb(&folder.path, &["prompt", "tester", "54"], "");
 
@@ -931,6 +932,7 @@ fn test_WB_PROMPT_32_to_35_review_with_one_local_branch_fills_the_branch_the_add
 #[test]
 fn test_WB_PROMPT_32_the_checkout_is_the_root_when_run_in_a_folder_inside() {
     let folder = set_up_github();
+    branches(&folder.path, &["issue-54"]);
     fs::create_dir_all(folder.path.join("src/deep")).unwrap();
 
     let run = wb(&folder.path.join("src/deep"), &["prompt", "tester", "54"], "");
@@ -1100,6 +1102,7 @@ fn test_WB_PROMPT_38_the_stamp_holds_the_derived_values() {
 fn test_WB_PROMPT_38_the_stamp_is_refused_with_1_for_a_derived_checkout_that_is_not_one_plain_line() {
     let folder = repository_named("brakes\nx", Some(GH));
     assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+    branches(&folder.path, &["issue-54"]);
 
     let run = wb(&folder.path, &["prompt", "tester", "54", "--stamp"], "");
 
@@ -1154,6 +1157,7 @@ fn test_WB_PROMPT_39_a_change_that_fills_a_pattern_must_be_plain_or_it_is_refuse
 #[test]
 fn test_WB_PROMPT_39_plain_values_are_filled_and_a_value_that_fills_no_pattern_is_taken_as_given() {
     let folder = set_up_github();
+    branches(&folder.path, &["issue-T-1.a_b"]);
 
     let plain = wb(&folder.path, &["prompt", "tester", "T-1.a_b"], "");
     assert_eq!(code(&plain), Some(0), "{}", text(&plain.stderr));
@@ -1270,6 +1274,7 @@ fn test_WB_PROMPT_47_a_pattern_with_task_in_braces_is_refused_by_name_with_what_
 #[test]
 fn test_WB_PROMPT_48_the_stamp_names_the_issue_on_the_line_issue_and_has_no_line_task() {
     let folder = set_up_github();
+    branches(&folder.path, &["issue-54"]);
 
     let run = wb(&folder.path, &["prompt", "tester", "54", "--stamp"], "");
 

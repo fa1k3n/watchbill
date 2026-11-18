@@ -102,6 +102,17 @@ pub fn render(revision: &str, hash: &str, setup: &Setup) -> String {
     for (key, value) in rows {
         text.push_str(&format!("{}: {}\n", key, yaml_value(value)));
     }
+    // The patterns `wb prompt` fills (#72). The addresses are known for GitHub only, and only from a
+    // repository that is plain text; the branch does not depend on the server.
+    let plain = !setup.repository.is_empty()
+        && setup.repository != NONE
+        && setup.repository.chars().all(|c| c.is_ascii_alphanumeric() || "._-/".contains(c));
+    if setup.git_server == "github" && plain {
+        let address = |command: &str, word: &str| format!("gh {} view {{{}}} --repo {} --comments", command, word, setup.repository);
+        text.push_str(&format!("task_address: {}\n", yaml_value(&address("issue", "task"))));
+        text.push_str(&format!("change_address: {}\n", yaml_value(&address("pr", "change"))));
+    }
+    text.push_str(&format!("branch: {}\n", yaml_value("issue-{task}")));
     text
 }
 

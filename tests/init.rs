@@ -27,6 +27,8 @@ fn expected(rows: &[&str]) -> String {
     // The hash is written as `wb init` writes it: in quotes when it starts with a digit.
     all.push(format!("revision: {}", watchbill::init::yaml_value(&package_hash())));
     all.extend(rows.iter().map(|row| row.to_string()));
+    // The pattern of the branch is proposed for every server (#72), after the rows given.
+    all.push("branch: 'issue-{task}'".to_string());
     all.push(String::new());
     all.join("\n")
 }
@@ -53,6 +55,8 @@ fn test_WB_INIT_14_yes_writes_what_the_repository_says_and_asks_nothing() {
             "tracker: github",
             "requirements: requirements/*.md",
             "ci: github-actions",
+            "task_address: 'gh issue view {task} --repo example/brake-controller --comments'",
+            "change_address: 'gh pr view {change} --repo example/brake-controller --comments'",
         ])
     );
     assert!(!text(&run.stdout).contains("(brake-controller)"), "no question is put");
@@ -575,4 +579,58 @@ fn test_WB_INIT_38_an_error_of_reading_is_not_called_not_utf_8() {
     assert!(err.ends_with(". Nothing written.\n"), "{}", err);
     assert!(!err.contains("UTF-8"), "{}", err);
     assert!(!folder.path.join(".watchbill").exists());
+}
+
+// ---- the patterns of `wb prompt` (#72) ----
+
+#[test]
+fn test_WB_INIT_43_a_github_origin_gets_the_patterns_of_the_two_addresses_and_the_branch() {
+    let folder = repository(Some("https://github.com/example/brake-controller.git"));
+
+    let run = wb(&folder.path, &["init", "--yes"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let file = read(&config(&folder.path));
+    assert!(
+        file.ends_with(
+            "task_address: 'gh issue view {task} --repo example/brake-controller --comments'\n\
+             change_address: 'gh pr view {change} --repo example/brake-controller --comments'\n\
+             branch: 'issue-{task}'\n"
+        ),
+        "{}",
+        file
+    );
+    assert!(text(&run.stdout).contains("task_address: 'gh issue view {task}"), "the file is shown first");
+    // The file is read through the loader, and wb check holds with the new lines.
+    assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
+}
+
+#[test]
+fn test_WB_INIT_44_another_server_none_or_a_repository_that_is_not_plain_gets_no_address() {
+    for origin in [
+        Some("https://gitlab.example.com/brakes/controller.git"),
+        Some("https://git.example.org/brakes/controller.git"),
+        Some("git@github.com:example/it's.git"),
+        None,
+    ] {
+        let folder = repository(origin);
+
+        let run = wb(&folder.path, &["init", "--yes"], "");
+
+        assert_eq!(code(&run), Some(0), "{:?}: {}", origin, text(&run.stderr));
+        let file = read(&config(&folder.path));
+        assert!(!file.contains("task_address") && !file.contains("change_address"), "{:?}: {}", origin, file);
+    }
+}
+
+#[test]
+fn test_WB_INIT_45_the_branch_pattern_is_proposed_for_every_server() {
+    for origin in [Some("https://gitlab.example.com/brakes/controller.git"), None] {
+        let folder = repository(origin);
+
+        let run = wb(&folder.path, &["init", "--yes"], "");
+
+        assert_eq!(code(&run), Some(0), "{:?}: {}", origin, text(&run.stderr));
+        assert!(read(&config(&folder.path)).ends_with("ci: none\nbranch: 'issue-{task}'\n"), "{:?}", origin);
+    }
 }

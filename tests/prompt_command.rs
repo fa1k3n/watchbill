@@ -265,11 +265,12 @@ fn test_WB_PROMPT_13_a_folder_that_is_not_in_a_git_repository_ends_with_2() {
 fn test_WB_PROMPT_14_a_placeholder_the_prompt_uses_with_no_option_is_refused_by_name() {
     let folder = set_up();
 
-    let run = wb(&folder.path, &["prompt", "build", "--task", "12"], "");
+    // `requirements` has its default text (#72), and this repository has no pattern for the address.
+    let run = wb(&folder.path, &["prompt", "build", "--task", "12", "--branch", "task-12"], "");
 
     assert_eq!(code(&run), Some(1));
     assert_eq!(text(&run.stdout), "");
-    assert!(text(&run.stderr).contains("{requirements}"), "{}", text(&run.stderr));
+    assert!(text(&run.stderr).contains("{task_address}"), "{}", text(&run.stderr));
 }
 
 #[test]
@@ -317,13 +318,13 @@ fn test_WB_PROMPT_15_an_option_that_is_no_placeholder_ends_with_2_and_the_usage(
 }
 
 #[test]
-fn test_WB_PROMPT_15_a_missing_role_a_second_word_and_a_repeated_option_end_with_2_and_the_usage() {
+fn test_WB_PROMPT_15_a_missing_role_a_third_word_and_a_repeated_option_end_with_2_and_the_usage() {
     let folder = set_up();
 
     for args in [
         vec!["prompt"],
         vec!["prompt", "--task", "1"],
-        vec!["prompt", "build", "fix"],
+        vec!["prompt", "build", "1", "2"],
         vec!["prompt", "build", "--task", "1", "--task", "2"],
         vec!["prompt", "build", "--task"],
         vec!["prompt", "build", "--parts=yes"],
@@ -798,4 +799,387 @@ fn test_WB_PROMPT_23_stamp_or_parts_given_twice_ends_with_2_and_prints_nothing()
         assert_eq!(text(&run.stdout), "", "{}", flag);
         assert!(text(&run.stderr).contains(&format!("'{}' is given twice", flag)), "{}", text(&run.stderr));
     }
+}
+
+// ---- what `wb prompt` asks only for what it cannot know (#72) ----
+
+const GH: &str = "git@github.com:example/brake-controller.git";
+
+/// A repository with a GitHub `origin`, set up by `wb init --yes`.
+fn set_up_github() -> Folder {
+    let folder = repository(Some(GH));
+    let run = wb(&folder.path, &["init", "--yes"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    folder
+}
+
+/// Local branches of the given names, on one empty commit.
+fn branches(folder: &Path, names: &[&str]) {
+    git(folder, &["-c", "user.name=t", "-c", "user.email=t@example.org", "commit", "-q", "--allow-empty", "-m", "x"]);
+    for name in names {
+        git(folder, &["branch", name]);
+    }
+}
+
+fn root_of(folder: &Path) -> String {
+    fs::canonicalize(folder).unwrap().to_str().unwrap().to_string()
+}
+
+const TASK_ADDRESS: &str = "gh issue view 54 --repo example/brake-controller --comments";
+const CHANGE_ADDRESS: &str = "gh pr view 168 --repo example/brake-controller --comments";
+const REQUIREMENTS: &str = "the numbered requirements of task 54";
+
+/// The values of `wb prompt review 54 --change 168 --round 1` with one local branch `issue-54-serve`.
+fn derived(folder: &Path) -> Vec<(&'static str, String)> {
+    vec![
+        ("task", "54".to_string()),
+        ("change", "168".to_string()),
+        ("round", "1".to_string()),
+        ("requirements", REQUIREMENTS.to_string()),
+        ("checkout", root_of(folder)),
+        ("branch", "issue-54-serve".to_string()),
+        ("task_address", TASK_ADDRESS.to_string()),
+        ("change_address", CHANGE_ADDRESS.to_string()),
+    ]
+}
+
+fn filled_with(role: &str, values: &[(&str, String)]) -> String {
+    let all: Vec<(&str, &str)> = values.iter().map(|(name, value)| (*name, value.as_str())).collect();
+    filled(role, &all)
+}
+
+#[test]
+fn test_WB_PROMPT_31_the_task_is_the_word_after_the_role_and_the_tester_needs_nothing_else() {
+    let folder = set_up_github();
+
+    let run = wb(&folder.path, &["prompt", "tester", "54"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let values = vec![
+        ("task", "54".to_string()),
+        ("requirements", REQUIREMENTS.to_string()),
+        ("checkout", root_of(&folder.path)),
+        ("branch", "issue-54".to_string()),
+        ("task_address", TASK_ADDRESS.to_string()),
+    ];
+    assert_eq!(text(&run.stdout), filled_with("tester", &values));
+    assert_eq!(text(&run.stderr), "");
+}
+
+#[test]
+fn test_WB_PROMPT_31_the_task_word_may_stand_after_an_option() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-54-serve"]);
+
+    let run = wb(&folder.path, &["prompt", "review", "--change", "168", "54", "--round", "1"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(text(&run.stdout), filled_with("review", &derived(&folder.path)));
+}
+
+#[test]
+fn test_WB_PROMPT_31_the_option_task_still_works_and_is_the_same_as_the_word() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-54-serve"]);
+
+    let by_word = wb(&folder.path, &["prompt", "review", "54", "--change", "168", "--round", "1"], "");
+    let by_option = wb(&folder.path, &["prompt", "review", "--task", "54", "--change", "168", "--round", "1"], "");
+
+    assert_eq!(code(&by_option), Some(0), "{}", text(&by_option.stderr));
+    assert_eq!(text(&by_option.stdout), text(&by_word.stdout));
+}
+
+#[test]
+fn test_WB_PROMPT_31_a_task_word_with_the_option_task_ends_with_2_and_prints_nothing() {
+    let folder = set_up_github();
+
+    for args in [
+        vec!["prompt", "tester", "54", "--task", "54"],
+        vec!["prompt", "tester", "54", "--task", "55"],
+        vec!["prompt", "tester", "--task", "54", "54"],
+    ] {
+        let run = wb(&folder.path, &args, "");
+
+        assert_eq!(code(&run), Some(2), "{:?}", args);
+        assert_eq!(text(&run.stdout), "", "{:?}", args);
+        assert!(text(&run.stderr).contains("--task"), "{:?}: {}", args, text(&run.stderr));
+        assert!(text(&run.stderr).ends_with(&format!("\n\n{}", USAGE)), "{:?}", args);
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_31_an_empty_task_word_ends_with_2() {
+    let folder = set_up_github();
+
+    let run = wb(&folder.path, &["prompt", "tester", ""], "");
+
+    assert_eq!(code(&run), Some(2));
+    assert_eq!(text(&run.stdout), "");
+}
+
+#[test]
+fn test_WB_PROMPT_32_to_35_review_with_one_local_branch_fills_the_branch_the_addresses_and_the_rest() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-54-serve"]);
+
+    let run = wb(&folder.path, &["prompt", "review", "54", "--change", "168", "--round", "1"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(text(&run.stdout), filled_with("review", &derived(&folder.path)));
+}
+
+#[test]
+fn test_WB_PROMPT_32_the_checkout_is_the_root_when_run_in_a_folder_inside() {
+    let folder = set_up_github();
+    fs::create_dir_all(folder.path.join("src/deep")).unwrap();
+
+    let run = wb(&folder.path.join("src/deep"), &["prompt", "tester", "54"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains(&format!("the checkout {},", root_of(&folder.path))), "{}", text(&run.stdout));
+}
+
+#[test]
+fn test_WB_PROMPT_34_a_branch_that_is_the_pattern_alone_is_found_and_issue_540_is_not_issue_54() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-54", "issue-540", "issue-5"]);
+
+    let run = wb(&folder.path, &["prompt", "build", "54"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("on the branch issue-54."), "{}", text(&run.stdout));
+}
+
+#[test]
+fn test_WB_PROMPT_34_two_local_branches_are_refused_with_both_named_and_nothing_on_standard_output() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-54-a", "issue-54-b"]);
+
+    for role in ["build", "review", "fix"] {
+        let run = wb(&folder.path, &["prompt", role, "54", "--change", "168", "--round", "1"], "");
+
+        assert_eq!(code(&run), Some(1), "{}", role);
+        assert_eq!(text(&run.stdout), "", "{}", role);
+        let err = text(&run.stderr);
+        assert!(err.contains("issue-54-a") && err.contains("issue-54-b") && err.contains("--branch"), "{}: {}", role, err);
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_34_no_local_branch_is_refused_the_same_way() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-6-other"]);
+
+    let run = wb(&folder.path, &["prompt", "build", "54"], "");
+
+    assert_eq!(code(&run), Some(1));
+    assert_eq!(text(&run.stdout), "");
+    let err = text(&run.stderr);
+    assert!(err.contains("issue-54") && err.contains("--branch"), "{}", err);
+}
+
+#[test]
+fn test_WB_PROMPT_35_requirements_with_no_option_is_the_numbered_requirements_of_the_task() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-54-x"]);
+
+    let run = wb(&folder.path, &["prompt", "build", "54"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("the requirements the numbered requirements of task 54"), "{}", text(&run.stdout));
+}
+
+#[test]
+fn test_WB_PROMPT_36_an_option_given_wins_over_each_derived_value() {
+    let folder = set_up_github();
+    // Two branches match, so the branch is only found when it is given.
+    branches(&folder.path, &["issue-54-serve", "issue-54-other"]);
+
+    for name in ["requirements", "checkout", "branch", "task_address", "change_address"] {
+        let value = format!("the value of {}", name);
+        let option = format!("--{}", name);
+        let mut values = derived(&folder.path);
+        for (given, own) in values.iter_mut() {
+            if *given == name {
+                *own = value.clone();
+            }
+        }
+        let mut args = vec!["prompt", "review", "54", "--change", "168", "--round", "1"];
+        if name != "branch" {
+            args.extend(["--branch", "issue-54-serve"]);
+        }
+        args.push(option.as_str());
+        args.push(value.as_str());
+
+        let run = wb(&folder.path, &args, "");
+
+        assert_eq!(code(&run), Some(0), "{}: {}", name, text(&run.stderr));
+        assert_eq!(text(&run.stdout), filled_with("review", &values), "{}", name);
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_36_a_task_option_in_place_of_the_word_and_a_given_change_are_used_as_given() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-54-serve"]);
+
+    let run = wb(&folder.path, &["prompt", "review", "--task", "54", "--change", "9", "--round", "2"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("gh pr view 9 --repo example/brake-controller --comments"), "{}", text(&run.stdout));
+}
+
+/// A repository set up before #72: the lines of the patterns are not in `watchbill.yml`.
+fn without_patterns() -> Folder {
+    let folder = set_up_github();
+    let file = config(&folder.path);
+    let kept: String = read(&file)
+        .lines()
+        .filter(|line| !["task_address:", "change_address:", "branch:"].iter().any(|key| line.starts_with(key)))
+        .map(|line| format!("{}\n", line))
+        .collect();
+    fs::write(&file, kept).unwrap();
+    folder
+}
+
+#[test]
+fn test_WB_PROMPT_37_a_watchbill_yml_with_no_patterns_needs_the_options_as_before_and_wb_check_holds() {
+    let folder = without_patterns();
+    branches(&folder.path, &["issue-54-serve"]);
+
+    assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
+    let refused = wb(&folder.path, &["prompt", "tester", "54"], "");
+    assert_eq!(code(&refused), Some(1));
+    assert_eq!(text(&refused.stdout), "");
+    assert!(text(&refused.stderr).contains("got no value"), "{}", text(&refused.stderr));
+
+    let run = wb(&folder.path, &["prompt", "tester", "54", "--branch", "b-1", "--task_address", "at 54"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let values = vec![
+        ("task", "54".to_string()),
+        ("requirements", REQUIREMENTS.to_string()),
+        ("checkout", root_of(&folder.path)),
+        ("branch", "b-1".to_string()),
+        ("task_address", "at 54".to_string()),
+    ];
+    assert_eq!(text(&run.stdout), filled_with("tester", &values));
+}
+
+#[test]
+fn test_WB_PROMPT_37_a_pattern_that_is_not_a_text_is_refused_by_the_loader() {
+    let folder = set_up_github();
+    let file = config(&folder.path);
+    let changed = read(&file).replace("branch: 'issue-{task}'", "branch:\n  - a");
+    fs::write(&file, changed).unwrap();
+
+    let run = wb(&folder.path, &["prompt", "tester", "54"], "");
+
+    assert_eq!(code(&run), Some(1));
+    assert_eq!(text(&run.stdout), "");
+    assert!(text(&run.stderr).contains("branch"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_PROMPT_38_the_stamp_holds_the_derived_values() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-54-serve"]);
+
+    let run = wb(&folder.path, &["prompt", "review", "54", "--change", "168", "--round", "1", "--stamp"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let found = fields(&text(&run.stdout));
+    assert_eq!(value(&found, "task"), "54");
+    assert_eq!(value(&found, "change"), "168");
+    assert_eq!(value(&found, "round"), "1");
+    assert_eq!(value(&found, "branch"), "issue-54-serve");
+    assert_eq!(value(&found, "checkout"), root_of(&folder.path));
+}
+
+#[test]
+fn test_WB_PROMPT_38_the_stamp_is_refused_with_1_for_a_derived_checkout_that_is_not_one_plain_line() {
+    let folder = repository_named("brakes\nx", Some(GH));
+    assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+
+    let run = wb(&folder.path, &["prompt", "tester", "54", "--stamp"], "");
+
+    // Nothing was used wrongly, and the caller gave no option for it: refused, with where it came from.
+    assert_eq!(code(&run), Some(1));
+    assert_eq!(text(&run.stdout), "");
+    let err = text(&run.stderr);
+    assert!(err.contains("checkout") && err.contains("root of the repository"), "{}", err);
+    assert!(!err.contains("'--checkout'"), "{}", err);
+}
+
+/// Values that carry shell, a path or a pattern of a glob, or that git or `gh` would take as more than a name.
+const NOT_PLAIN: [&str; 12] =
+    ["54; rm -rf ~", "$(x)", "`x`", "5 && x", "..", "5/6", "5*", "a..b", ".hidden", "5.", "-x", "a.lock"];
+
+#[test]
+fn test_WB_PROMPT_39_a_task_that_fills_a_pattern_must_be_plain_or_it_is_refused_by_name_with_2() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-54-serve"]);
+
+    for bad in NOT_PLAIN {
+        let as_option = format!("--task={}", bad);
+        for args in [vec!["prompt", "tester", bad], vec!["prompt", "tester", as_option.as_str()]] {
+            if bad.starts_with('-') && args[2] == bad {
+                continue; // a word that starts with `-` is an option, not the task word
+            }
+            let run = wb(&folder.path, &args, "");
+
+            assert_eq!(code(&run), Some(2), "{:?}", args);
+            assert_eq!(text(&run.stdout), "", "{:?}", args);
+            let err = text(&run.stderr);
+            assert!(err.starts_with("wb prompt: ") && err.contains("'--task'"), "{:?}: {}", args, err);
+        }
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_39_a_change_that_fills_a_pattern_must_be_plain_or_it_is_refused_by_name_with_2() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-54-serve"]);
+
+    for bad in NOT_PLAIN {
+        let change = format!("--change={}", bad);
+        let run = wb(&folder.path, &["prompt", "review", "54", change.as_str(), "--round", "1"], "");
+
+        assert_eq!(code(&run), Some(2), "{}", bad);
+        assert_eq!(text(&run.stdout), "", "{}", bad);
+        assert!(text(&run.stderr).contains("'--change'"), "{}: {}", bad, text(&run.stderr));
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_39_plain_values_are_filled_and_a_value_that_fills_no_pattern_is_taken_as_given() {
+    let folder = set_up_github();
+
+    let plain = wb(&folder.path, &["prompt", "tester", "T-1.a_b"], "");
+    assert_eq!(code(&plain), Some(0), "{}", text(&plain.stderr));
+    assert!(text(&plain.stdout).contains("issue-T-1.a_b"), "{}", text(&plain.stdout));
+
+    // Given the branch and the address, the task fills no pattern: it is not held to the rule.
+    let run = wb(&folder.path, &["prompt", "tester", "5 6", "--branch", "b", "--task_address", "a"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("task 5 6"), "{}", text(&run.stdout));
+}
+
+#[test]
+fn test_WB_PROMPT_17_a_run_that_derives_writes_nothing_under_the_repository() {
+    let folder = set_up_github();
+    branches(&folder.path, &["issue-54-serve"]);
+    let before = snapshot(&folder.path.join(".watchbill"));
+
+    let run = wb(&folder.path, &["prompt", "review", "54", "--change", "168", "--round", "1"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(snapshot(&folder.path.join(".watchbill")), before);
+}
+
+#[test]
+fn test_WB_PROMPT_31_the_usage_names_the_task_word() {
+    let run = wb(&folder().path, &["--help"], "");
+
+    assert!(text(&run.stdout).contains("wb prompt <role> [<task>]"), "{}", text(&run.stdout));
 }

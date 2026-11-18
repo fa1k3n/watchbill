@@ -264,6 +264,156 @@ fn fill(text: &str, values: &[(&str, &str)]) -> String {
     out
 }
 
+/// Refuses a role the revision does not have, naming the roles it has.
+pub fn require_role(root: &Path, role: &str) -> Result<(), PromptError> {
+    let have = roles(root)?;
+    if have.iter().any(|(name, _)| name == role) {
+        return Ok(());
+    }
+    let names: Vec<&str> = have.iter().map(|(name, _)| name.as_str()).collect();
+    refuse(format!("the revision has no role '{}'. Its roles are: {}", role, names.join(", ")))
+}
+
+/// The text `requirements` has until the breakdown of a task gives the IDs (#64).
+fn default_requirements(task: &str) -> String {
+    format!("the numbered requirements of task {}", task)
+}
+
+/// The names of the local branches, from the refs of the repository: nothing is asked of the network.
+fn local_branches(root: &str) -> Result<Vec<String>, PromptError> {
+    let run = crate::detect::git_output(&["-C", root, "for-each-ref", "--format=%(refname)", "refs/heads"], None);
+    let Some(run) = run.filter(|run| run.status.success()) else {
+        return refuse("the local branches cannot be read with git".to_string());
+    };
+    let Ok(text) = String::from_utf8(run.stdout) else {
+        return refuse("a name of a local branch is not UTF-8 text".to_string());
+    };
+    Ok(text.lines().map(|line| line.strip_prefix("refs/heads/").unwrap_or(line).to_string()).collect())
+}
+
+/// Whether a value may fill a pattern: letters, digits, `.`, `_` and `-`, and as one name for git and
+/// for `gh`: no `..`, not starting with `.` or `-`, not ending with `.` or `.lock`. The address is text
+/// an agent runs, so a value never carries shell into it.
+pub fn is_plain_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
+        && !value.contains("..")
+        && !value.starts_with(['.', '-'])
+        && !value.ends_with('.')
+        && !value.ends_with(".lock")
+}
+
+/// Why a derivation is refused. `Used` is a value the caller gave that is not plain, named by its
+/// option: the command was used wrongly (2). `Refused` is the rest (1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Derive {
+    Used(String),
+    Refused(PromptError),
+}
+
+impl From<PromptError> for Derive {
+    fn from(why: PromptError) -> Derive {
+        Derive::Refused(why)
+    }
+}
+
+/// The values a prompt gets without being given them (#72), added to those given after them: a value
+/// given is never replaced. From the repository root come `checkout` and, with the patterns of
+/// `watchbill.yml` (read through the loader), the addresses and the branch. `requirements` has its
+/// default text. The tester takes the branch from the pattern, as it makes the branch; any other
+/// role takes the one local branch that starts with it and a `-`, or is the pattern. None, or more
+/// than one, is refused with the names found.
+pub fn derive(
+    root: &str,
+    role: &str,
+    given: &[(&'static str, String)],
+) -> Result<Vec<(&'static str, String)>, Derive> {
+    let mut values = given.to_vec();
+    // A value that fills a pattern must be plain, and is named by its option when it is not.
+    let plain = |option: &str, value: &str| -> Result<(), Derive> {
+        if is_plain_name(value) {
+            return Ok(());
+        }
+        Err(Derive::Used(format!(
+            "the value of '--{}' fills a pattern, and is only letters, digits, '.', '_' and '-', with no '..', not starting with '.' or '-', not ending with '.' or '.lock'",
+            option
+        )))
+    };
+    let has = |values: &[(&'static str, String)], name: &str| values.iter().any(|(given, _)| *given == name);
+    let get = |values: &[(&'static str, String)], name: &str| {
+        values.iter().find(|(given, _)| *given == name).map(|(_, value)| value.clone())
+    };
+    let config = Path::new(root).join(crate::init::CONFIG_FOLDER).join(crate::init::CONFIG_FILE);
+    let document = std::cell::OnceCell::new();
+    // A pattern of `watchbill.yml`, `None` when the file has none.
+    let pattern = |key: &str| -> Result<Option<String>, PromptError> {
+        if document.get().is_none() {
+            let loaded = crate::yamlfile::load(&config).map_err(|why| PromptError(why.to_string()))?;
+            let _ = document.set(loaded);
+        }
+        let document = document.get().unwrap();
+        let place = [crate::yamlfile::Part::from(key)];
+        if !document.has(&place) {
+            return Ok(None);
+        }
+        document.text(&place).map(Some).map_err(|why| PromptError(why.to_string()))
+    };
+    let task = get(&values, "task");
+    let change = get(&values, "change");
+    if !has(&values, "checkout") {
+        values.push(("checkout", root.to_string()));
+    }
+    if let (false, Some(task)) = (has(&values, "requirements"), &task) {
+        values.push(("requirements", default_requirements(task)));
+    }
+    if let (false, Some(task)) = (has(&values, "task_address"), &task) {
+        if let Some(found) = pattern("task_address")? {
+            plain("task", task)?;
+            values.push(("task_address", found.replace("{task}", task)));
+        }
+    }
+    if let (false, Some(change)) = (has(&values, "change_address"), &change) {
+        if let Some(found) = pattern("change_address")? {
+            plain("change", change)?;
+            values.push(("change_address", found.replace("{change}", change)));
+        }
+    }
+    if let (false, Some(task)) = (has(&values, "branch"), &task) {
+        if let Some(found) = pattern("branch")? {
+            plain("task", task)?;
+            let start = found.replace("{task}", task);
+            if role == "tester" {
+                values.push(("branch", start));
+            } else {
+                let names: Vec<String> = local_branches(root)?
+                    .into_iter()
+                    .filter(|name| *name == start || name.starts_with(&format!("{}-", start)))
+                    .collect();
+                match names.as_slice() {
+                    [one] => values.push(("branch", one.clone())),
+                    [] => {
+                        return Err(PromptError(format!(
+                            "no local branch is named {} or starts with {}-. Give --branch",
+                            start, start
+                        ))
+                        .into())
+                    }
+                    _ => {
+                        return Err(PromptError(format!(
+                            "more than one local branch is named {} or starts with {}-: {}. Give --branch",
+                            start,
+                            start,
+                            names.join(", ")
+                        ))
+                        .into())
+                    }
+                }
+            }
+        }
+    }
+    Ok(values)
+}
+
 /// The placeholders whose values a stamp prints, in the order the stamp has them.
 pub const STAMPED: [&str; 5] = ["task", "change", "round", "branch", "checkout"];
 

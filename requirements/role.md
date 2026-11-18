@@ -1,10 +1,10 @@
 # The role prompts
 
-The prompts of the first revision: tester, build, review and fix. What a revision is: [docs/revision.md](../docs/revision.md).
+The role prompts: breakdown, tester, build, review and fix. The first revision had the last four. What a revision is: [docs/revision.md](../docs/revision.md).
 
 | ID | Requirement | Ver | Status |
 |---|---|---|---|
-| WB-ROLE-1 | The revision shall hold one prompt file, `roles/<role>.md`, for each of the roles tester, build, review and fix, and for no other role. Issue: #4. | T | Implemented |
+| WB-ROLE-1 | The revision shall hold one prompt file, `roles/<role>.md`, for each of the roles tester, build, review and fix, and for no other role. Replaced by WB-ROLE-47. Issue: #4. | T | Deprecated |
 | WB-ROLE-2 | Each role prompt shall have these four parts in this order: what the role produces, what it reads and must not read, what it must never do, and how it ends. Issue: #4. | T | Implemented |
 | WB-ROLE-3 | The words a prompt is filled in with shall be one fixed list of placeholders, written in `revision/roles/placeholders.md`. Issue: #4. | T | Implemented |
 | WB-ROLE-4 | A role prompt shall use no placeholder that is not on the list. Issue: #4. | T | Implemented |
@@ -50,3 +50,14 @@ The prompts of the first revision: tester, build, review and fix. What a revisio
 | WB-ROLE-44 | The tester's prompt shall say that the tester writes no copy of an existing test the task names as a guard. Issue: #62. | T | Implemented |
 | WB-ROLE-45 | The tester's prompt shall say that where the tester thinks an existing test the task names as a guard does not cover its clause, it says so under `untested`. Issue: #62. | T | Implemented |
 | WB-ROLE-46 | The reviewer's prompt shall say that a new test that repeats an existing one is a `note`. Issue: #62. | T | Implemented |
+| WB-ROLE-47 | The revision shall hold one prompt file, `roles/<role>.md`, for each of the roles breakdown, tester, build, review and fix, and for no other role. Issue: #75. | T | Implemented |
+| WB-ROLE-48 | The breakdown's prompt shall say that the breakdown reads the task at `{task_address}` and the code in `{checkout}`. Issue: #75. | T | Implemented |
+| WB-ROLE-49 | The breakdown's prompt shall say that the breakdown writes `.watchbill/tasks/{task}.yml` in the form of the task's file, with every key in its order. Issue: #75. | T | Implemented |
+| WB-ROLE-50 | The breakdown's prompt shall say that the breakdown commits the task's file alone on `{branch}`. Issue: #75. | T | Implemented |
+| WB-ROLE-51 | The breakdown's prompt shall say that the breakdown never changes the task, the code or a test. Issue: #75. | T | Implemented |
+| WB-ROLE-52 | The breakdown's prompt shall say that the breakdown puts what the task leaves open under `questions` and does not answer it. Issue: #75. | T | Implemented |
+| WB-ROLE-53 | The breakdown's prompt shall say that the breakdown finds the guards among the existing tests. Issue: #75. | T | Implemented |
+| WB-ROLE-54 | The breakdown's prompt shall say that the breakdown lists for each role what it may read, as narrow as the work allows. Issue: #75. | T | Implemented |
+| WB-ROLE-55 | The breakdown's prompt shall say that the breakdown reads the settings of the project's checks, so that what a check needs, such as a built page or a generated file, is in the task. Issue: #75. | T | Implemented |
+| WB-ROLE-56 | The first lines of the breakdown's prompt shall say that it runs on a local model unless a person has cleared another runner for the breakdown. Issue: #75. | T | Implemented |
+| WB-ROLE-57 | The breakdown's last message shall have the fields `model`, `effort`, `file`, `requirements` (how many), `questions` and `needs_person`, in this order. Issue: #75. | T | Implemented |

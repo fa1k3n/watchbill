@@ -11,8 +11,10 @@ use std::path::{Path, PathBuf};
 
 use watchbill::rules;
 
-const ROLES: [&str; 5] = ["tester", "build", "review", "fix", "officer"];
-const WITH_PROMPT: [&str; 4] = ["tester", "build", "review", "fix"];
+const ROLES: [&str; 6] = ["breakdown", "tester", "build", "review", "fix", "officer"];
+const WITH_PROMPT: [&str; 5] = ["breakdown", "tester", "build", "review", "fix"];
+// The roles with a row for a vendor's runner in the model table: all with a prompt but the breakdown (#75).
+const WITH_MODEL: [&str; 4] = ["tester", "build", "review", "fix"];
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -182,11 +184,11 @@ fn good_rules() -> J {
 
 fn good_models() -> J {
     let mut models = J::M(vec![]);
-    for name in WITH_PROMPT {
+    for name in WITH_MODEL {
         models.set(name, map(vec![("model", s("claude-sonnet-5-5")), ("effort", s("medium"))]));
     }
     models.set("review", map(vec![("model", s("claude-opus-5-5")), ("effort", s("high"))]));
-    map(vec![("models", models)])
+    map(vec![("models", models), ("local_models", J::M(vec![]))])
 }
 
 /// Two tables in a folder of their own, written from `rules` and `models` unless a text is given.
@@ -284,12 +286,12 @@ fn names_a_table(text: &str) -> bool {
 // TestFirstRevision
 
 #[test]
-fn test_WB_RULE_1_the_rule_table_of_the_package_has_the_five_roles() {
+fn test_WB_RULE_39_the_rule_table_of_the_package_has_the_six_roles() {
     assert_eq!(sorted(first_revision().roles.keys().cloned().collect()), sorted_names(&ROLES));
 }
 
 #[test]
-fn test_WB_RULE_1_the_files_of_the_package_are_in_the_revision_folder() {
+fn test_WB_RULE_39_the_files_of_the_package_are_in_the_revision_folder() {
     let revision = root().join("share").join("watchbill").join("revision");
     assert_eq!(Path::new(rules::RULES_FILE), revision.join("rules.yml"));
     assert_eq!(Path::new(rules::MODELS_FILE), revision.join("models.yml"));
@@ -310,7 +312,7 @@ fn test_WB_RULE_2_every_role_has_every_field_with_something_in_it() {
 }
 
 #[test]
-fn test_WB_RULE_2_the_four_roles_with_a_prompt_name_a_file_in_roles() {
+fn test_WB_RULE_2_the_roles_with_a_prompt_name_a_file_in_roles() {
     let table = first_revision();
     for name in WITH_PROMPT {
         assert_eq!(table.roles[name].prompt, format!("roles/{}.md", name));
@@ -379,12 +381,13 @@ fn test_WB_RULE_7_the_first_table_names_no_queue() {
 }
 
 #[test]
-fn test_WB_RULE_8_the_model_table_has_a_row_for_the_roles_with_a_prompt_only() {
+fn test_WB_RULE_40_the_model_table_has_a_row_for_the_roles_with_a_prompt_but_the_breakdown_only() {
     let table = first_revision();
-    assert_eq!(sorted(table.models.keys().cloned().collect()), sorted_names(&WITH_PROMPT));
+    assert_eq!(sorted(table.models.keys().cloned().collect()), sorted_names(&WITH_MODEL));
     assert!(!table.models.contains_key("officer"));
+    assert!(!table.models.contains_key("breakdown"));
     for (name, role) in &table.roles {
-        assert_eq!(table.models.contains_key(name), role.prompt != "none", "{}", name);
+        assert_eq!(table.models.contains_key(name), role.prompt != "none" && name != "breakdown", "{}", name);
     }
 }
 
@@ -400,13 +403,13 @@ fn test_WB_RULE_9_the_models_and_efforts_of_the_first_table() {
 // TestShape
 
 #[test]
-fn test_WB_RULE_1_a_good_table_is_read() {
+fn test_WB_RULE_39_a_good_table_is_read() {
     let table = Tables::new().load();
     assert_eq!(sorted(table.roles.keys().cloned().collect()), sorted_names(&ROLES));
 }
 
 #[test]
-fn test_WB_RULE_1_a_table_without_one_of_the_five_roles_is_refused_and_names_it() {
+fn test_WB_RULE_39_a_table_without_one_of_the_six_roles_is_refused_and_names_it() {
     let mut t = Tables::new();
     t.rules.get("roles").del("fix");
     if let J::M(roles) = t.rules.get("roles") {
@@ -418,7 +421,7 @@ fn test_WB_RULE_1_a_table_without_one_of_the_five_roles_is_refused_and_names_it(
 }
 
 #[test]
-fn test_WB_RULE_1_a_role_that_is_not_one_of_the_five_is_refused_and_names_it() {
+fn test_WB_RULE_39_a_role_that_is_not_one_of_the_six_is_refused_and_names_it() {
     let mut t = Tables::new();
     t.rules.get("roles").set("captain", role_row("captain"));
     assert!(t.refused().contains("captain"));
@@ -472,10 +475,10 @@ fn test_WB_RULE_6_a_role_that_may_merge_is_refused_and_names_the_role() {
 fn test_WB_RULE_6_an_officer_that_may_hold_another_role_is_refused() {
     let mut t = Tables::new();
     t.role("officer").set("may_not_also_hold", texts(&["tester"]));
-    for name in ["build", "review", "fix"] {
+    for name in ["breakdown", "build", "review", "fix"] {
         t.role(name).get("may_not_also_hold").list().retain(|other| !matches!(other, J::S(role) if role == "officer"));
     }
-    t.role("tester").set("may_not_also_hold", texts(&["build", "review", "fix", "officer"]));
+    t.role("tester").set("may_not_also_hold", texts(&["breakdown", "build", "review", "fix", "officer"]));
     assert!(t.refused().contains("officer"));
 }
 
@@ -494,7 +497,7 @@ fn test_WB_RULE_7_a_queue_is_read_as_a_name() {
 }
 
 #[test]
-fn test_WB_RULE_8_a_model_row_for_a_role_without_a_prompt_is_refused() {
+fn test_WB_RULE_40_a_model_row_for_a_role_without_a_prompt_is_refused() {
     let mut t = Tables::new();
     t.models.get("models").set("officer", map(vec![("model", s("claude-sonnet-5-5")), ("effort", s("medium"))]));
     let message = t.refused();
@@ -503,7 +506,7 @@ fn test_WB_RULE_8_a_model_row_for_a_role_without_a_prompt_is_refused() {
 }
 
 #[test]
-fn test_WB_RULE_8_a_role_with_a_prompt_and_no_model_row_is_refused() {
+fn test_WB_RULE_40_a_role_with_a_prompt_and_no_model_row_is_refused() {
     let mut t = Tables::new();
     t.models.get("models").del("fix");
     let message = t.refused();
@@ -512,7 +515,7 @@ fn test_WB_RULE_8_a_role_with_a_prompt_and_no_model_row_is_refused() {
 }
 
 #[test]
-fn test_WB_RULE_8_a_model_row_without_a_model_or_an_effort_is_refused_and_names_both() {
+fn test_WB_RULE_40_a_model_row_without_a_model_or_an_effort_is_refused_and_names_both() {
     let mut t = Tables::new();
     t.models.get("models").get("build").del("model");
     let message = t.refused();
@@ -544,7 +547,7 @@ fn test_WB_RULE_20_the_efforts_low_to_max_are_accepted() {
 }
 
 #[test]
-fn test_WB_RULE_22_a_role_in_may_not_also_hold_that_is_not_one_of_the_five_is_refused() {
+fn test_WB_RULE_41_a_role_in_may_not_also_hold_that_is_not_one_of_the_six_is_refused() {
     let mut t = Tables::new();
     t.role("build").get("may_not_also_hold").list().push(s("captain"));
     let message = t.refused();
@@ -553,7 +556,7 @@ fn test_WB_RULE_22_a_role_in_may_not_also_hold_that_is_not_one_of_the_five_is_re
 }
 
 #[test]
-fn test_WB_RULE_22_a_role_that_may_not_also_hold_itself_is_refused() {
+fn test_WB_RULE_41_a_role_that_may_not_also_hold_itself_is_refused() {
     let mut t = Tables::new();
     t.role("build").get("may_not_also_hold").list().push(s("build"));
     assert!(t.refused().contains("build"));
@@ -923,7 +926,7 @@ fn test_WB_RULE_12_a_key_is_named_as_it_is_written() {
 }
 
 #[test]
-fn test_WB_RULE_1_the_tables_read_hold_what_the_files_say() {
+fn test_WB_RULE_39_the_tables_read_hold_what_the_files_say() {
     let mut t = Tables::new();
     t.rules.set("officer_queues", texts(&["triage", "small"]));
     let table = t.load();
@@ -935,7 +938,7 @@ fn test_WB_RULE_1_the_tables_read_hold_what_the_files_say() {
     assert_eq!(build.produces, "what build produces");
     assert_eq!(build.reads, vec!["a thing to read"]);
     assert_eq!(build.may, vec!["a thing to do"]);
-    assert_eq!(build.may_not_also_hold, vec!["tester", "review", "fix", "officer"]);
+    assert_eq!(build.may_not_also_hold, vec!["breakdown", "tester", "review", "fix", "officer"]);
     assert_eq!(build.prompt, "roles/build.md");
 }
 
@@ -1062,4 +1065,70 @@ fn test_WB_RULE_36_a_requirement_added_to_a_change_goes_to_a_person() {
 fn test_WB_RULE_37_the_check_of_a_fix_after_the_last_round_goes_to_a_person() {
     let person = first_revision().always_to_a_person;
     assert!(person.contains(&"check_of_a_fix_after_last_round".to_string()), "{:?}", person);
+}
+
+// The breakdown and the place for the models of local runners (#75).
+
+#[test]
+fn test_WB_RULE_40_a_model_row_for_the_breakdown_is_refused() {
+    let mut t = Tables::new();
+    t.models.get("models").set("breakdown", map(vec![("model", s("claude-sonnet-5-5")), ("effort", s("medium"))]));
+    let message = t.refused();
+    assert!(message.contains("breakdown"), "{}", message);
+    assert!(message.contains("models.yml"), "{}", message);
+}
+
+#[test]
+fn test_WB_RULE_42_the_breakdown_comes_before_the_tester() {
+    let step = &first_revision().roles["breakdown"].step;
+    assert!(step.contains("The breakdown comes before the tester."), "{}", step);
+}
+
+#[test]
+fn test_WB_RULE_43_no_other_role_of_a_task_is_started_until_its_file_is_accepted() {
+    let step = &first_revision().roles["breakdown"].step;
+    assert!(
+        step.contains("No other role of the task is started until a person has accepted the task's file."),
+        "{}",
+        step
+    );
+}
+
+#[test]
+fn test_WB_RULE_44_the_breakdown_holds_no_other_role_and_no_other_role_holds_it() {
+    let table = first_revision();
+    let others: Vec<&str> = ROLES.iter().copied().filter(|name| *name != "breakdown").collect();
+    assert_eq!(sorted(table.roles["breakdown"].may_not_also_hold.clone()), sorted_names(&others));
+    for name in others {
+        assert!(table.roles[name].may_not_also_hold.iter().any(|other| other == "breakdown"), "{}", name);
+    }
+    assert_eq!(table.roles["breakdown"].prompt, "roles/breakdown.md");
+}
+
+#[test]
+fn test_WB_RULE_45_the_model_table_has_an_empty_place_for_the_models_of_local_runners() {
+    assert!(first_revision().local_models.is_empty());
+    let text = fs::read_to_string(rules::MODELS_FILE).unwrap();
+    assert!(text.split('\n').any(|line| line == "local_models: {}"), "{}", text);
+    let mut t = Tables::new();
+    t.models.del("local_models");
+    let message = t.refused();
+    assert!(message.contains("local_models"), "{}", message);
+    assert!(message.contains("models.yml"), "{}", message);
+}
+
+#[test]
+fn test_WB_RULE_46_a_model_table_with_something_under_local_models_is_refused() {
+    let mut t = Tables::new();
+    for bad in [
+        map(vec![("breakdown", map(vec![("model", s("granite-4")), ("effort", s("medium"))]))]),
+        texts(&["granite-4"]),
+        s("granite-4"),
+        J::Null,
+    ] {
+        t.models.set("local_models", bad.clone());
+        let message = t.refused();
+        assert!(message.contains("local_models"), "{:?}: {}", bad, message);
+        assert!(message.contains("models.yml"), "{:?}: {}", bad, message);
+    }
 }

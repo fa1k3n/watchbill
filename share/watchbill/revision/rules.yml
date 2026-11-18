@@ -37,6 +37,20 @@ added_requirement_goes_to: [tester, build]
 # For each role: the step and what it produces, what it may read, what it may do,
 # the roles the same team member may not also hold on one change, and the prompt file.
 roles:
+  breakdown:
+    step: Read the task and the code, and write the task's file. The breakdown comes before the tester. No other role of the task is started until a person has accepted the task's file.
+    produces: The task's file, committed alone on the branch of the task, with what the task leaves open under its questions and not answered.
+    reads:
+      - The task, as a person wrote it.
+      - The code in the checkout, without a list. It is the one role that does, so that the others can have one.
+      - The settings of the project's checks.
+      - The project's instructions for how code is written and checked.
+    may:
+      - Write the task's file of the task.
+      - Commit the task's file alone on the branch of the task.
+    may_not_also_hold: [tester, build, review, fix, officer]
+    prompt: roles/breakdown.md
+
   tester:
     step: Write the tests from the requirement, before the code exists.
     produces: Tests that each carry a requirement ID and fail for the right reason, in a commit that holds only tests.
@@ -48,7 +62,7 @@ roles:
       - Add new tests on the branch of the task.
       - Commit the tests.
       - Run the tests against a stand-in that gives a wrong answer, in a scratch copy it never commits.
-    may_not_also_hold: [build, review, fix, officer]
+    may_not_also_hold: [breakdown, build, review, fix, officer]
     prompt: roles/tester.md
 
   build:
@@ -63,7 +77,7 @@ roles:
       - Change the files the task names.
       - Run the checks of the project.
       - Open the change for review.
-    may_not_also_hold: [tester, review, fix, officer]
+    may_not_also_hold: [breakdown, tester, review, fix, officer]
     prompt: roles/build.md
 
   review:
@@ -79,7 +93,7 @@ roles:
     may:
       - Break the code in a scratch copy it never commits, to see a test fail on its own.
       - Post its findings on the change.
-    may_not_also_hold: [tester, build, fix, officer]
+    may_not_also_hold: [breakdown, tester, build, fix, officer]
     prompt: roles/review.md
 
   fix:
@@ -93,7 +107,7 @@ roles:
       - Commit fixes on the branch of the change.
       - Add a test beside a weak one, written first.
       - Post its answers on the change.
-    may_not_also_hold: [tester, build, review, officer]
+    may_not_also_hold: [breakdown, tester, build, review, officer]
     prompt: roles/fix.md
 
   officer:
@@ -105,5 +119,5 @@ roles:
     may:
       - Propose a handover to the program.
       - Assign a task through its own account, once the program has checked the handover.
-    may_not_also_hold: [tester, build, review, fix]
+    may_not_also_hold: [breakdown, tester, build, review, fix]
     prompt: none

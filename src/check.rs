@@ -100,7 +100,18 @@ fn parse(manifest: &str, found: &mut Vec<String>) -> Vec<(String, String)> {
 
 const LINK: &str = "(a link is never followed)";
 
-fn finish(found: &[String], settings: usize, project: &[String], out: &mut dyn Write) -> i32 {
+/// A fault in `watchbill.yml` as a line. The loader's message starts with the path of the file, and
+/// the others name it themselves: the file is named once.
+fn about_config(why: &dyn std::fmt::Display) -> String {
+    let why = why.to_string();
+    if why.contains(CONFIG_FILE) {
+        why
+    } else {
+        format!("{}: {}", CONFIG_FILE, why)
+    }
+}
+
+fn finish(found: &[String], settings: usize, unpinned: bool, project: &[String], out: &mut dyn Write) -> i32 {
     if found.is_empty() && project.is_empty() {
         let _ = writeln!(out, "The repository is at the revision it is pinned to, and the installed wb is that revision.");
         return 0;
@@ -112,8 +123,12 @@ fn finish(found: &[String], settings: usize, project: &[String], out: &mut dyn W
     let plural = if count == 1 { "" } else { "s" };
     if found.is_empty() {
         let _ = writeln!(out, "{} difference{}. The project's text cannot be used with the revision it is pinned to.", count, plural);
+    } else if found.len() == settings && project.is_empty() && unpinned && found.len() == 1 {
+        let _ = writeln!(out, "{} difference{}. {} pins no revision.", count, plural, CONFIG_FILE);
     } else if found.len() == settings && project.is_empty() {
         let _ = writeln!(out, "{} difference{}. {} does not fit the revision it is pinned to.", count, plural, CONFIG_FILE);
+    } else if found.len() == settings {
+        let _ = writeln!(out, "{} difference{}. {} and the project's text do not fit the revision it is pinned to.", count, plural, CONFIG_FILE);
     } else {
         let _ = writeln!(out, "{} difference{}. The repository is not at the revision it is pinned to.", count, plural);
     }
@@ -130,10 +145,11 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
     let mut found: Vec<String> = Vec::new();
     // How many of `found` are faults in the settings of `watchbill.yml`.
     let mut settings = 0;
+    let mut unpinned = false;
     match look(&folder) {
         Some(Kind::Link) => {
             found.push(format!("link: {} {}", CONFIG_FOLDER, LINK));
-            return finish(&found, 0, &[], out);
+            return finish(&found, 0, false, &[], out);
         }
         Some(Kind::Folder) => {}
         _ => {
@@ -230,15 +246,20 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
         Some(Kind::Link) => found.push(format!("link: {} {}", name(CONFIG_FILE), LINK)),
         Some(Kind::File) => match load(&config) {
             Err(why) => {
-                found.push(format!("{}: {}", CONFIG_FILE, why));
+                found.push(about_config(&why));
                 settings += 1;
             }
             Ok(document) => {
                 let line = document.text(&[Part::from("revision")]);
                 let pinned_version = document.text(&[Part::from("watchbill")]);
                 match (&line, &pinned_hash) {
+                    (Err(_), _) if !document.has(&[Part::from("revision")]) => {
+                        found.push(format!("{} pins no revision: the line `revision:` is not there", CONFIG_FILE));
+                        settings += 1;
+                        unpinned = true;
+                    }
                     (Err(why), _) => {
-                        found.push(format!("{}: {}", CONFIG_FILE, why));
+                        found.push(about_config(&why));
                         settings += 1;
                     }
                     (Ok(line), Some(hash)) if line != hash => found.push(format!(
@@ -248,14 +269,13 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
                     _ => {}
                 }
                 if let Err(why) = &pinned_version {
-                    found.push(format!("{}: {}", CONFIG_FILE, why));
+                    found.push(about_config(&why));
                     settings += 1;
                 }
                 // `breakdown: none` is refused where the rule table holds the breakdown, as `wb prompt` refuses it (#97).
                 if let Ok(rules) = crate::rules::load_revision() {
                     if let Err(why) = crate::issue::file_needed(Path::new(root), rules.roles.contains_key("breakdown")) {
-                        // The message names the file already, or the loader's does with its path: once.
-                        found.push(if why.starts_with(CONFIG_FILE) { why } else { format!("{}: {}", CONFIG_FILE, why) });
+                        found.push(about_config(&why));
                         settings += 1;
                     }
                 }
@@ -276,5 +296,5 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
     }
     // The project's own text, with the placeholders judged as `wb prompt` judges them.
     let project = crate::prompt::unknown_in_project(Path::new(root));
-    finish(&found, settings, &project, out)
+    finish(&found, settings, unpinned, &project, out)
 }

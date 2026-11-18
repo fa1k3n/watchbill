@@ -28,3 +28,11 @@ How a prompt is put together from the revision and the project's own text, and t
 | WB-PROMPT-22 | A value with a line break shall be refused by name in a stamp, with status 2. Issue: #68. | T | Implemented |
 | WB-PROMPT-23 | `wb prompt` given both `--stamp` and `--parts` shall end with 2. Issue: #68. | T | Implemented |
 | WB-PROMPT-24 | `wb prompt --stamp` shall print nothing on standard output and end with 1 when the check of `wb check` does not hold. Issue: #68. | T | Implemented |
+| WB-PROMPT-25 | `wb prompt <role> <task>` shall take the first word after the role as the task, as `--task` does; both together, a third word, or an empty task shall end with 2. Issue: #72. | T | Draft |
+| WB-PROMPT-26 | `wb prompt` shall fill `checkout` with the root of the repository it runs in, unless `--checkout` is given. Issue: #72. | T | Draft |
+| WB-PROMPT-27 | `wb prompt` shall fill `task_address` and `change_address` from the patterns of `watchbill.yml` with the task and the change, unless the option is given. Issue: #72. | T | Draft |
+| WB-PROMPT-28 | For the build, the review and the fix, `wb prompt` shall fill `branch` with the one local branch whose name is the pattern or starts with it and a `-`, unless `--branch` is given; none or several shall be refused with 1, naming the branches found, with nothing on standard output; the tester takes the pattern filled. Issue: #72. | T | Draft |
+| WB-PROMPT-29 | `wb prompt` shall fill `requirements` with "the numbered requirements of task {task}", unless `--requirements` is given. Issue: #72. | T | Draft |
+| WB-PROMPT-30 | An option given to `wb prompt` shall win over the value derived for it. Issue: #72. | T | Draft |
+| WB-PROMPT-31 | A `watchbill.yml` with no patterns shall leave the options needed as before, and `wb check` shall not fail on it; a pattern that is not a text shall be refused by the loader. Issue: #72. | T | Draft |
+| WB-PROMPT-32 | The stamp shall hold the values as handed out, derived or given; a derived value that is not one plain line shall be refused with 2. Issue: #72. | T | Draft |

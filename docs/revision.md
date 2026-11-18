@@ -1,6 +1,6 @@
 # What a revision contains
 
-A revision is what a project is set up for and what its agents run under: the same on every machine, and checkable by anyone. This page says exactly what it is. Each point was settled with the owner on 2026-11-16 (#3). Points 1 and 6 were changed on 2026-11-17, when the owner decided that `wb` is written in Rust and not in Python (#20). Nothing else on the page changed: the files of a revision and their hash are the same.
+A revision is what a project is set up for and what its agents run under: the same on every machine, and checkable by anyone. This page says exactly what it is. Each point was settled with the owner on 2026-11-16 (#3). Points 1 and 6 were changed on 2026-11-17, when the owner decided that `wb` is written in Rust and not in Python (#20). Nothing else on the page changed: the files of a revision and their hash are the same. Point 14 and the changes to points 10, 12 and 13 on accounts were settled with the owner on 2026-11-18 (#30), and are in revision 0.0.7 (#82).
 
 ## In short
 
@@ -8,6 +8,7 @@ A revision is what a project is set up for and what its agents run under: the sa
 - The files are the role prompts, the rule table and the model table.
 - `wb init` copies them into the repository, and `wb check` fails on any difference.
 - The levels of confidentiality and the runners are the organisation's and are not part of the revision.
+- Each role works under an account of its own, and a handover is an assignment at the tracker.
 
 ## 1. The files of a revision
 
@@ -138,9 +139,10 @@ Any change to a file of the revision is a new version of the package.
 The role that is given issues and hands them on. The captain is the person, who decides what is built.
 
 - **The program** decides all that the rule table can decide (who is free, who may hold which role on this change, the order, the rounds, what goes to a person) and performs every handover.
-- **The officer** is a model's role for what takes judgement: whether an issue is clear enough to start, how it is broken into pieces, which paths and which class it touches, the brief for the one who gets it, and what to do with a piece that is stuck.
+- **The officer** is a model's role for what takes judgement: whether an issue is clear enough to start, how it is broken into pieces, the brief for the one who gets it, and what to do with a piece that is stuck. Which paths and which class a piece touches are not the officer's: the breakdown says them (#64).
+- The officer reads only the issue and the tracker, as the rule table says.
 - The officer proposes and the program checks. A handover that breaks a rule is refused, whoever proposed it.
-- The officer holds no other role on an issue it has handed out, and never merges. It has an account of its own, so every handover shows at the tracker as an assignment from it.
+- The officer holds no other role on an issue it has handed out, and never merges. It has an account of its own, so every handover shows at the tracker as an assignment from it (point 14).
 - Taking an issue that nobody assigned is off, unless a rule the captain approved names the queue it may take from, with a cap on the work in progress, and never for classed code. The first table names no queue.
 - In the first revision the officer has its rows in the rule table. Its prompt is written after the first run of the other four roles.
 
@@ -163,7 +165,7 @@ What a session ran as is said by the one who started it, not by the session. Set
 
 - **What is stamped:** the role; the model ID and the effort of the model table; the runner; the version of the package and the hash of the revision; the issue, the change and the round; the branch and the checkout; the time; and the hash of each part of the prompt.
 - **What it means:** what was handed out. `wb prompt` knows what the table asks for and what the prompt holds. It cannot see what the session truly runs as. The one who starts the session starts it so; a starter that does both in one step closes the gap (#66).
-- **Who stamps:** the program that hands out the prompt: `wb prompt --stamp` (#68). A person who starts a session by hand posts the stamp as it was printed.
+- **Who stamps:** the program that hands out the prompt: `wb prompt --stamp` (#68). A person who starts a session by hand posts the stamp as it was printed. The stamp is posted by the identity of the starter, never by the session's (point 14).
 - **Its form:** lines of `name: value` in a fixed order, the same on every machine, with one line for each part of the prompt in the form `sha256sum` prints. A program can read it and `sha256sum` can check its parts.
 - **Where it is kept:** on the issue, one comment per session, whose first line starts with `[stamp] <role> round <n>`. The tester and the build run before there is a change, so the issue is the one place that holds every session. #30 may move it later.
 - **The agent's own word:** `model` and `effort` stay in the last message, as what the session says of itself (#69). Where they differ from the stamp, that is a finding for a person, and the stamp is what counts. `unknown` is written down, not a finding: a session often cannot see its own effort.
@@ -179,8 +181,29 @@ A person's issue, read into a form `wb` reads. It was called the task's file unt
 - **What a requirement is without a table:** a point of the issue's file. Its ID is the issue's number and the point, `54.1`. A test is named after it, a finding points at it, and it can be followed both ways. A project with a table of requirements gives the row's ID instead.
 - **How a person accepts it:** `wb accept <issue>` writes `.watchbill/issues/<issue>.accepted`, with the SHA-256 of the issue's file, the person's git identity and the time. It refuses while the file holds a question. It never writes over an acceptance that is there: to accept again, the person removes the old one.
 - **An edit after acceptance** voids it: the hash no longer holds, and no prompt of the issue is handed out until a person accepts again (#76).
-- **What acceptance cannot stop:** under one account shared by a person and the agents, an agent can run `wb accept` itself. The hash stops a change after acceptance, not a false acceptance. Only accounts of their own (#30), or later a signed commit, stop that.
+- **The acceptance at the tracker:** the person also posts one comment on the issue, from their own account, whose first line starts with `[accepted]`, with the SHA-256 of the issue's file. The tracker keeps who wrote it. What a listener trusts is a comment with `system: false` whose author's role at the project, read from the server, is at least the one the rule table names. The `.accepted` file stays.
+- **What acceptance cannot stop:** under one account shared by a person and the agents, an agent can run `wb accept` itself, or post the comment. The hash stops a change after acceptance, not a false acceptance. Accounts of their own for the agents (point 14) stop that: an agent's account is never a person's, so its comment counts for nothing. A signed commit may later do the same for the `.accepted` file.
 - **Without an issue's file** a project works as before: the issue holds its numbered requirements, and `wb prompt` is given what it cannot know.
+
+## 14. Accounts
+
+Each role works under an account of its own at the git server and the tracker. Settled with the owner on 2026-11-18 (#30), after two runs in which every session ran under the owner's account, so that nothing told a person's decision from an agent's claim.
+
+- **One account per role:** tester, build, review, fix, officer and breakdown. Each is bound to one project, and none is a person's. It is not a pool of named agents: work in parallel is a matter of free places on a runner, and the stamp tells the sessions apart. An account bound to one project keeps the level of an assignment (point 11) from being raised by other projects.
+- **The first tools:** GitLab, as the git server and as the tracker.
+- **Setting them up:** a person creates the accounts from a written recipe. `wb` creates none, and no model takes part. `wb accounts check` only reads: each role has an account, they are distinct, none is a person's, each has the rights of its role and no more, and each is bound to this project (#83).
+- **The handover is an assignment.** The program reads the last assignment note of the issue: a note with `system: true`, its author and its time. It counts only when its author is the officer's account, or a person whose role at the project, read from the server, is at least the one the rule table names. The organisation's file may ask for a higher role, never a lower one. A comment whose words read like an assignment has `system: false` and counts for nothing.
+- **The server does not refuse a low role.** On GitLab a Reporter can assign an issue (trial of 2026-11-18, #30). `wb` reads the role of the author and decides.
+- **The assignee is whose move it is.** A session that needs a person assigns the issue back to that person, with a comment. `wb` does not rely on the server to keep one assignee at a time.
+- **The entry, in two steps.** First a listener picks up what a person assigns straight to a role's account. Then the officer is the normal entry: a person assigns the issue to the officer, it judges, and the program hands the issue on. A person may still assign straight to a role.
+- **The listener** runs on a machine that is always on and asks the tracker at a fixed interval for the issues assigned to the roles' accounts. No webhook: no port is opened, and nothing is lost while the machine is down (#85).
+- **The starter** is a command of `wb`, one path for a person's `wb build --issue <n>` and for the listener. The checks of the rule table, the acceptance and the stamp sit in that path (#84, #66).
+- **The issue's file is never left out.** Every piece has an issue's file and a person's acceptance before the tester starts (point 13).
+- **An issue that is several pieces:** the officer posts the pieces as one comment in a fixed form, and the issue is assigned back to the person. After a yes, the program writes the issues from the officer's account. The person's issue is never changed (#86).
+- **The stamp** is posted by the identity of the starter, never by the session's (point 12).
+- **Local work:** `wb build --issue <n>` on a person's own machine runs under that person's account and counts as the person's. The stamp says an agent wrote it. That person's account holds build on the change, so the review is never that person. Classed code is refused in local work until a session sees only its files (#65).
+- **The tokens:** the program holds them and gives a session only its own.
+- **The rule table** keeps `may_not_also_hold` as it is.
 
 ## The requirements
 
@@ -188,7 +211,7 @@ The pieces that build this have their requirements reserved as Draft rows in `re
 
 | Area | File | Issue |
 |---|---|---|
-| `WB-ROLE` | `requirements/role.md` | #4, #69, #75, #78 |
+| `WB-ROLE` | `requirements/role.md` | #4, #69, #75, #78, #82 |
 | `WB-RULE` | `requirements/rule.md` | #5, #75 |
 | `WB-REV` | `requirements/rev.md` | #6 |
 | `WB-PIN` | `requirements/pin.md` | #7 |

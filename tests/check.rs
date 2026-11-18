@@ -603,8 +603,42 @@ fn test_WB_CHECK_13_only_the_project_text_differing_does_not_say_the_revision_is
     assert_eq!(code(&run), Some(1));
     let out = text(&run.stdout);
     let last = out.lines().last().unwrap();
-    assert!(last.contains("project's text does not fit the revision"), "{}", out);
+    assert!(last.contains("The project's text cannot be used with the revision it is pinned to."), "{}", out);
     assert!(!last.contains("not at the revision"), "{}", out);
+}
+
+#[test]
+fn test_WB_CHECK_16_breakdown_none_names_watchbill_yml_once_and_the_last_line_says_it_does_not_fit() {
+    let folder = set_up();
+    let mut yml = read(&config(&folder.path));
+    yml.push_str("breakdown: none\n");
+    put(&folder.path, ".watchbill/watchbill.yml", &yml);
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
+    let out = text(&run.stdout);
+    let line = out.lines().find(|line| line.contains("breakdown: none")).expect("the fault is named");
+    assert_eq!(line.matches("watchbill.yml").count(), 1, "{}", out);
+    let last = out.lines().last().unwrap();
+    assert!(last.contains("watchbill.yml does not fit the revision"), "{}", out);
+    assert!(!last.contains("not at the revision"), "{}", out);
+}
+
+#[test]
+fn test_WB_CHECK_16_only_a_project_file_that_is_a_link_ends_with_the_line_for_the_project_s_text() {
+    let folder = set_up();
+    put(&folder.path, "elsewhere.md", "Plain text.\n");
+    fs::create_dir_all(watchbill_dir(&folder).join("project")).unwrap();
+    std::os::unix::fs::symlink(folder.path.join("elsewhere.md"), watchbill_dir(&folder).join("project/all.md")).unwrap();
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
+    let out = text(&run.stdout);
+    let last = out.lines().last().unwrap();
+    assert!(last.ends_with("The project's text cannot be used with the revision it is pinned to."), "{}", out);
+    assert!(!last.contains("does not fit"), "{}", out);
 }
 
 #[test]
@@ -667,4 +701,53 @@ fn test_WB_CHECK_14_the_refusal_of_assemble_is_the_line_that_check_prints() {
 
     assert_eq!(refusal, watchbill::prompt::unknown_in(".watchbill/project/all.md", "One.\nUse {task}.\n")[0]);
     assert!(text(&run.stdout).lines().any(|line| line == refusal), "{}\n---\n{}", refusal, text(&run.stdout));
+}
+
+#[test]
+fn test_WB_CHECK_16_a_fault_the_loader_gives_names_watchbill_yml_once() {
+    let folder = set_up();
+    let mut yml = read(&config(&folder.path));
+    yml.push_str("breakdown: other\n");
+    put(&folder.path, ".watchbill/watchbill.yml", &yml);
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
+    let out = text(&run.stdout);
+    let line = out.lines().find(|line| line.contains("breakdown")).expect("the fault is named");
+    assert_eq!(line.matches("watchbill.yml").count(), 1, "{}", out);
+    assert!(!out.lines().last().unwrap().contains("not at the revision"), "{}", out);
+}
+
+#[test]
+fn test_WB_CHECK_16_settings_and_the_project_text_differing_say_so_and_not_that_the_revision_is_not_held() {
+    let folder = set_up();
+    let mut yml = read(&config(&folder.path));
+    yml.push_str("breakdown: none\n");
+    put(&folder.path, ".watchbill/watchbill.yml", &yml);
+    put(&folder.path, ".watchbill/project/all.md", "Use {task}.\n");
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
+    let out = text(&run.stdout);
+    let last = out.lines().last().unwrap();
+    assert!(last.contains("watchbill.yml and the project's text do not fit the revision"), "{}", out);
+    assert!(!last.contains("not at the revision"), "{}", out);
+}
+
+#[test]
+fn test_WB_CHECK_16_no_line_revision_says_that_watchbill_yml_pins_no_revision() {
+    let folder = set_up();
+    let yml: String = read(&config(&folder.path)).lines().filter(|line| !line.starts_with("revision:")).map(|line| format!("{}\n", line)).collect();
+    put(&folder.path, ".watchbill/watchbill.yml", &yml);
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
+    let out = text(&run.stdout);
+    assert!(out.lines().any(|line| line.contains("pins no revision")), "{}", out);
+    let last = out.lines().last().unwrap();
+    assert!(!last.contains("not at the revision"), "{}", out);
+    assert!(!last.contains("does not fit"), "{}", out);
 }

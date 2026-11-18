@@ -32,7 +32,7 @@ How a prompt is put together from the revision and the project's own text, and t
 | WB-PROMPT-26 | When an issue's file is accepted, `wb prompt` shall add the interface and what the role may change and read as parts after the role's text. Issue: #76. | T | Implemented |
 | WB-PROMPT-27 | When an issue's file is there and not accepted, or changed since its acceptance, `wb prompt` shall print nothing on standard output and end with 1, with the reason on standard error. Issue: #76. | T | Implemented |
 | WB-PROMPT-28 | When an issue has no file, `wb prompt` shall hand out its prompts as before. Replaced by WB-PROMPT-50. Issue: #76. | T | Deprecated |
-| WB-PROMPT-29 | `wb prompt breakdown <issue>` shall hand out the breakdown's prompt without an issue's file. Issue: #76. | T | Draft |
+| WB-PROMPT-29 | `wb prompt breakdown <issue>` shall hand out the breakdown's prompt without an issue's file. Replaced by WB-PROMPT-52. Issue: #76. | T | Deprecated |
 | WB-PROMPT-30 | The stamp and `--parts` shall name the issue's file and its SHA-256 as a part, when one is used. Issue: #76. | T | Implemented |
 | WB-PROMPT-31 | `wb prompt <role> <issue>` shall take the first word after the role as the issue, as `--issue` does; both together, a third word, or an empty issue shall end with 2. Issue: #72. | T | Implemented |
 | WB-PROMPT-32 | `wb prompt` shall fill `checkout` with the root of the repository it runs in, unless `--checkout` is given. Issue: #72. | T | Implemented |
@@ -55,3 +55,4 @@ How a prompt is put together from the revision and the project's own text, and t
 | WB-PROMPT-49 | `wb prompt` shall fill `branch` for the breakdown with the pattern filled, and for the tester, the build, the review and the fix with the one local branch whose name is the pattern or starts with it and a `-`, unless `--branch` is given; none or several shall be refused with 1, naming the branches found, with nothing on standard output. Replaces WB-PROMPT-34. Issue: #92. | T | Implemented |
 | WB-PROMPT-50 | When `watchbill.yml` says `breakdown: none` and an issue has no file, `wb prompt` shall hand out its prompts as before. Issue: #97. | T | Implemented |
 | WB-PROMPT-51 | When `watchbill.yml` says `breakdown: none` and an issue has no file, `wb prompt` shall fill `requirements` with "the numbered requirements of issue {issue}", unless `--requirements` is given. Issue: #97. | T | Implemented |
+| WB-PROMPT-52 | Given `--runner` with a runner that the organisation has cleared for the breakdown up to the repository's level, `wb prompt breakdown <issue>` shall hand out the breakdown's prompt without an issue's file. Replaces WB-PROMPT-29. Issue: #109. | T | Implemented |

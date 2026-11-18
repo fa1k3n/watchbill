@@ -475,10 +475,10 @@ fn test_WB_RULE_6_a_role_that_may_merge_is_refused_and_names_the_role() {
 fn test_WB_RULE_6_an_officer_that_may_hold_another_role_is_refused() {
     let mut t = Tables::new();
     t.role("officer").set("may_not_also_hold", texts(&["tester"]));
-    for name in ["build", "review", "fix"] {
+    for name in ["breakdown", "build", "review", "fix"] {
         t.role(name).get("may_not_also_hold").list().retain(|other| !matches!(other, J::S(role) if role == "officer"));
     }
-    t.role("tester").set("may_not_also_hold", texts(&["build", "review", "fix", "officer"]));
+    t.role("tester").set("may_not_also_hold", texts(&["breakdown", "build", "review", "fix", "officer"]));
     assert!(t.refused().contains("officer"));
 }
 

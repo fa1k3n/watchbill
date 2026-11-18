@@ -286,8 +286,9 @@ pub fn unknown_in(path: &str, text: &str) -> Vec<String> {
 }
 
 /// What the project's own text holds that the revision does not know: `project/all.md` and
-/// `project/<role>.md` for each role of the manifest, as `wb prompt` takes them. A file that is not
-/// there, a link, or not text is not looked at here: `wb prompt` refuses those by itself.
+/// `project/<role>.md` for each role of the manifest, as `wb prompt` takes them, read the way it
+/// reads them. A file that is not there is no difference; one that `wb prompt` would refuse (a link,
+/// not a plain file, not UTF-8) is named as it names it. A link is never followed.
 pub fn unknown_in_project(root: &Path) -> Vec<String> {
     let mut names = vec!["all".to_string()];
     if let Ok(found) = roles(root) {
@@ -295,8 +296,16 @@ pub fn unknown_in_project(root: &Path) -> Vec<String> {
     }
     let mut found = Vec::new();
     for name in names {
-        if let Ok(Some(part)) = read_part(root, format!("{}/{}.md", PROJECT_FOLDER, name)) {
-            found.extend(unknown_in(&part.path, &part.text));
+        match read_part(root, format!("{}/{}.md", PROJECT_FOLDER, name)) {
+            Ok(Some(part)) => found.extend(unknown_in(&part.path, &part.text)),
+            Ok(None) => {}
+            Err(why) => {
+                // A link for the folder is the same line for each file: said once.
+                let why = why.to_string();
+                if !found.contains(&why) {
+                    found.push(why);
+                }
+            }
         }
     }
     found

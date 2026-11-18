@@ -100,20 +100,21 @@ fn parse(manifest: &str, found: &mut Vec<String>) -> Vec<(String, String)> {
 
 const LINK: &str = "(a link is never followed)";
 
-fn finish(found: &[String], out: &mut dyn Write) -> i32 {
-    if found.is_empty() {
+fn finish(found: &[String], project: &[String], out: &mut dyn Write) -> i32 {
+    if found.is_empty() && project.is_empty() {
         let _ = writeln!(out, "The repository is at the revision it is pinned to, and the installed wb is that revision.");
         return 0;
     }
-    for line in found {
+    for line in found.iter().chain(project) {
         let _ = writeln!(out, "{}", line);
     }
-    let _ = writeln!(
-        out,
-        "{} difference{}. The repository is not at the revision it is pinned to.",
-        found.len(),
-        if found.len() == 1 { "" } else { "s" }
-    );
+    let count = found.len() + project.len();
+    let plural = if count == 1 { "" } else { "s" };
+    if found.is_empty() {
+        let _ = writeln!(out, "{} difference{}. The project's text does not fit the revision it is pinned to.", count, plural);
+    } else {
+        let _ = writeln!(out, "{} difference{}. The repository is not at the revision it is pinned to.", count, plural);
+    }
     1
 }
 
@@ -128,7 +129,7 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
     match look(&folder) {
         Some(Kind::Link) => {
             found.push(format!("link: {} {}", CONFIG_FOLDER, LINK));
-            return finish(&found, out);
+            return finish(&found, &[], out);
         }
         Some(Kind::Folder) => {}
         _ => {
@@ -255,6 +256,6 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
         _ => found.push(format!("changed: {} (it is not a plain file)", name(CONFIG_FILE))),
     }
     // The project's own text, with the placeholders judged as `wb prompt` judges them.
-    found.extend(crate::prompt::unknown_in_project(Path::new(root)));
-    finish(&found, out)
+    let project = crate::prompt::unknown_in_project(Path::new(root));
+    finish(&found, &project, out)
 }

@@ -62,6 +62,8 @@ pub struct Part {
 pub struct Prompt {
     pub text: String,
     pub parts: Vec<Part>,
+    /// The placeholders that the parts hold, each once, in the order of the list.
+    pub used: Vec<&'static str>,
 }
 
 /// Why a prompt cannot be put together. The text says what and which file.
@@ -234,8 +236,13 @@ pub fn assemble(root: &Path, role: &str, values: &[(&str, &str)]) -> Result<Prom
         }
         text.push_str(&fill(&part.text, values));
     }
+    let used = PLACEHOLDERS
+        .iter()
+        .copied()
+        .filter(|name| parts.iter().any(|part| placeholders(&part.text).iter().any(|(_, _, found)| found == name)))
+        .collect();
     let parts = parts.into_iter().map(|part| Part { path: part.path, hash: part.hash }).collect();
-    Ok(Prompt { text, parts })
+    Ok(Prompt { text, parts, used })
 }
 
 fn known() -> String {
@@ -255,4 +262,81 @@ fn fill(text: &str, values: &[(&str, &str)]) -> String {
     }
     out.push_str(&text[at..]);
     out
+}
+
+/// The placeholders whose values a stamp prints, in the order the stamp has them.
+pub const STAMPED: [&str; 5] = ["task", "change", "round", "branch", "checkout"];
+
+/// A time as `2026-11-17T18:04:05Z`, in UTC, from seconds since 1970-01-01.
+pub fn utc(seconds: u64) -> String {
+    let days = (seconds / 86400) as i64;
+    let rest = seconds % 86400;
+    // The civil date of a day count, as Howard Hinnant gives it.
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + if month <= 2 { 1 } else { 0 };
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year,
+        month,
+        day,
+        rest / 3600,
+        rest % 3600 / 60,
+        rest % 60
+    )
+}
+
+/// What a stamp says besides the values of the placeholders.
+pub struct Stamp<'a> {
+    pub role: &'a str,
+    pub model: &'a str,
+    pub effort: &'a str,
+    pub version: &'a str,
+    pub revision: &'a str,
+    pub time: &'a str,
+}
+
+/// The stamp of an assignment (`docs/revision.md`, point 12): lines of `name: value` in a fixed order,
+/// then one line `part: <sha256>  <path>` for each part, as `--parts` gives it. A value that is empty, or that the prompt does not hold, is
+/// written as the name and the colon alone. `runner` is empty until a runner is given (#11).
+pub fn stamp(said: &Stamp, values: &[(&str, &str)], prompt: &Prompt) -> String {
+    // A value the prompt does not hold was not handed out, and is written empty.
+    let given = |name: &str| {
+        if !prompt.used.contains(&name) {
+            return "";
+        }
+        values.iter().find(|(given, _)| *given == name).map(|(_, value)| *value).unwrap_or("")
+    };
+    let mut lines: Vec<(&str, &str)> = vec![
+        ("role", said.role),
+        ("model", said.model),
+        ("effort", said.effort),
+        ("runner", ""),
+        ("version", said.version),
+        ("revision", said.revision),
+    ];
+    for name in &STAMPED[..3] {
+        lines.push((name, given(name)));
+    }
+    lines.push(("branch", given("branch")));
+    lines.push(("checkout", given("checkout")));
+    lines.push(("time", said.time));
+    let mut text = String::new();
+    for (name, value) in lines {
+        if value.is_empty() {
+            text.push_str(&format!("{}:\n", name));
+        } else {
+            text.push_str(&format!("{}: {}\n", name, value));
+        }
+    }
+    for part in &prompt.parts {
+        text.push_str(&format!("part: {}  {}\n", part.hash, part.path));
+    }
+    text
 }

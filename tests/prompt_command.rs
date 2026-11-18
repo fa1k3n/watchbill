@@ -478,3 +478,324 @@ fn test_WB_PROMPT_18_an_option_of_where_the_work_is_is_taken_and_filled_in() {
         assert!(text(&run.stdout).contains(&value), "{}: {}", name, text(&run.stdout));
     }
 }
+
+// ---- `wb prompt <role> --stamp` (#68) ----
+
+const STAMP_NAMES: [&str; 12] =
+    ["role", "model", "effort", "runner", "version", "revision", "task", "change", "round", "branch", "checkout", "time"];
+
+const ROLES: [&str; 4] = ["build", "fix", "review", "tester"];
+
+/// Seconds since 1970 of a time in the form `2026-11-17T18:04:05Z`, or `None` when it has another form.
+fn seconds_of(time: &str) -> Option<u64> {
+    let b = time.as_bytes();
+    let shape = "dddd-dd-ddTdd:dd:ddZ";
+    if b.len() != shape.len() || !shape.bytes().zip(b).all(|(s, c)| if s == b'd' { c.is_ascii_digit() } else { s == *c }) {
+        return None;
+    }
+    let n = |from: usize, to: usize| time[from..to].parse::<i64>().unwrap();
+    let (y, m, d) = (n(0, 4), n(5, 7), n(8, 10));
+    // Days from the civil date, as Howard Hinnant gives them.
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146097 + doe - 719468;
+    Some((days * 86400 + n(11, 13) * 3600 + n(14, 16) * 60 + n(17, 19)) as u64)
+}
+
+fn now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+}
+
+/// The lines of a stamp as (name, value): split at the first `: `, or a `:` that ends the line.
+fn fields(stamp: &str) -> Vec<(String, String)> {
+    stamp
+        .lines()
+        .map(|line| match line.split_once(": ") {
+            Some((name, value)) => (name.to_string(), value.to_string()),
+            None => (line.strip_suffix(':').expect(line).to_string(), String::new()),
+        })
+        .collect()
+}
+
+fn stamp_of(folder: &Path, role: &str, extra: &[&str]) -> std::process::Output {
+    let mut args = vec!["prompt", role, "--stamp"];
+    args.extend(extra);
+    wb(folder, &args, "")
+}
+
+fn value<'a>(found: &'a [(String, String)], name: &str) -> &'a str {
+    &found.iter().find(|(given, _)| given == name).unwrap().1
+}
+
+#[test]
+fn test_WB_PROMPT_19_a_stamp_is_the_twelve_lines_in_order_and_the_parts_for_each_role() {
+    let folder = set_up();
+    put(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
+
+    for role in ROLES {
+        let run = stamp_of(&folder.path, role, &ALL);
+
+        assert_eq!(code(&run), Some(0), "{}: {}", role, text(&run.stderr));
+        assert_eq!(text(&run.stderr), "", "{}", role);
+        let out = text(&run.stdout);
+        let found = fields(&out);
+        let names: Vec<&str> = found.iter().take(12).map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, STAMP_NAMES, "{}", role);
+        assert!(found.len() > 12, "{}: {}", role, out);
+        assert!(found.iter().skip(12).all(|(name, _)| name == "part"), "{}: {}", role, out);
+        assert!(out.ends_with('\n'), "{}", role);
+        assert_eq!(value(&found, "role"), role);
+        // A value the prompt does not hold is written empty: it was not handed out.
+        let role_text = fs::read_to_string(package().join("revision/roles").join(format!("{}.md", role))).unwrap();
+        for name in ["task", "change", "round", "branch", "checkout"] {
+            let given = ALL_VALUES.iter().find(|(n, _)| *n == name).unwrap().1;
+            let expected = if role_text.contains(&format!("{{{}}}", name)) { given } else { "" };
+            assert_eq!(value(&found, name), expected, "{} {}", role, name);
+        }
+        assert_eq!(value(&found, "runner"), "", "{}", role);
+        // The prompt itself is not in the stamp.
+        assert!(!out.contains("Everyone"), "{}", role);
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_19_version_and_revision_are_those_of_the_pinned_revision() {
+    let folder = set_up();
+    let shown = text(&wb(&folder.path, &["revision"], "").stdout);
+    let hash = shown.lines().nth(1).unwrap().strip_prefix("revision ").unwrap().to_string();
+
+    let run = stamp_of(&folder.path, "build", &ALL);
+
+    let found = fields(&text(&run.stdout));
+    assert_eq!(value(&found, "version"), env!("CARGO_PKG_VERSION"));
+    assert_eq!(value(&found, "revision"), hash);
+}
+
+#[test]
+fn test_WB_PROMPT_19_time_is_utc_in_its_form_and_between_before_and_after_the_run() {
+    let folder = set_up();
+
+    let before = now();
+    let run = stamp_of(&folder.path, "build", &ALL);
+    let after = now();
+
+    let found = fields(&text(&run.stdout));
+    let time = value(&found, "time");
+    let seconds = seconds_of(time).unwrap_or_else(|| panic!("not of the form YYYY-MM-DDTHH:MM:SSZ: {}", time));
+    assert!(before <= seconds && seconds <= after, "{} not between {} and {}", time, before, after);
+}
+
+#[test]
+fn test_WB_PROMPT_19_a_stamped_value_that_got_no_option_is_written_empty_with_no_trailing_space() {
+    let folder = set_up();
+
+    // The build prompt uses {task}, {requirements} and the places of the work; nothing else is given.
+    let mut args = vec!["prompt", "build", "--stamp"];
+    args.extend(with_where(&["--task", "12", "--requirements", "R"]));
+    let run = wb(&folder.path, &args, "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let out = text(&run.stdout);
+    for name in ["runner", "change", "round"] {
+        assert!(out.lines().any(|line| line == format!("{}:", name)), "{}: {}", name, out);
+    }
+    assert!(out.lines().all(|line| !line.ends_with(' ')), "{}", out);
+}
+
+#[test]
+fn test_WB_PROMPT_14_a_stamp_is_refused_for_a_placeholder_the_prompt_uses_with_no_value() {
+    let folder = set_up();
+
+    let run = stamp_of(&folder.path, "build", &[]);
+
+    assert_eq!(code(&run), Some(1));
+    assert_eq!(text(&run.stdout), "");
+    assert!(text(&run.stderr).contains("got no value"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_PROMPT_20_model_and_effort_are_those_of_the_table_read_through_the_loader() {
+    let folder = set_up();
+    let table =
+        watchbill::rules::load(package().join("revision/rules.yml"), package().join("revision/models.yml")).unwrap();
+
+    for role in ROLES {
+        let run = stamp_of(&folder.path, role, &ALL);
+
+        assert_eq!(code(&run), Some(0), "{}: {}", role, text(&run.stderr));
+        let found = fields(&text(&run.stdout));
+        let row = &table.models[role];
+        assert_eq!(value(&found, "model"), row.model, "{}", role);
+        assert_eq!(value(&found, "effort"), row.effort, "{}", role);
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_21_the_part_lines_are_the_lines_of_parts_in_order() {
+    let folder = set_up();
+    put(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
+    put(&folder.path, ".watchbill/project/review.md", "Reviewers: read twice.\n");
+    let mut args = vec!["prompt", "review", "--parts"];
+    args.extend(ALL);
+    let parts = text(&wb(&folder.path, &args, "").stdout);
+
+    let run = stamp_of(&folder.path, "review", &ALL);
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let out = text(&run.stdout);
+    let lines: Vec<String> = out.lines().skip(12).map(|line| line.strip_prefix("part: ").unwrap().to_string()).collect();
+    let expected: Vec<String> = parts.lines().map(|line| line.to_string()).collect();
+    assert_eq!(lines.len(), 3);
+    assert_eq!(lines, expected);
+    // `sha256sum` takes them with `part: ` taken off.
+    let sums = folder.path.join("sums.txt");
+    fs::write(&sums, lines.join("\n") + "\n").unwrap();
+    let check = Command::new("sha256sum").arg("-c").arg(&sums).current_dir(&folder.path).output().unwrap();
+    assert!(check.status.success(), "{}{}", text(&check.stdout), text(&check.stderr));
+}
+
+#[test]
+fn test_WB_PROMPT_22_a_stamped_value_with_a_line_break_is_refused_by_name_with_2() {
+    let folder = set_up();
+
+    for name in ["task", "change", "round", "branch", "checkout"] {
+        for bad in [
+            "a\nb", "a\rb", "a\x0bb", "a\x0cb", "a\u{85}b", "a\u{2028}b", "a\u{2029}b", "a\x1bb", "a\tb", " a",
+            "a ", "   ", "\u{a0}a", "a\u{3000}",
+        ] {
+            let mut args = vec!["prompt", "build", "--stamp"];
+            for pair in ALL.chunks(2) {
+                args.push(pair[0]);
+                args.push(if pair[0] == format!("--{}", name) { bad } else { pair[1] });
+            }
+
+            let run = wb(&folder.path, &args, "");
+
+            assert_eq!(code(&run), Some(2), "{} {:?}", name, bad);
+            assert_eq!(text(&run.stdout), "", "{} {:?}", name, bad);
+            assert!(text(&run.stderr).contains(&format!("--{}", name)), "{}: {}", name, text(&run.stderr));
+            assert!(text(&run.stderr).contains("one line"), "{}: {}", name, text(&run.stderr));
+        }
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_22_a_value_the_stamp_does_not_print_may_still_hold_a_line_break() {
+    let folder = set_up();
+    let mut args = vec!["prompt", "build", "--stamp"];
+    args.extend(with_where(&["--task", "1", "--requirements", "a\nb"]));
+
+    let run = wb(&folder.path, &args, "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(!text(&run.stdout).contains("a\nb"));
+}
+
+#[test]
+fn test_WB_PROMPT_23_stamp_with_parts_ends_with_2_and_prints_nothing() {
+    let folder = set_up();
+
+    for first in [["--stamp", "--parts"], ["--parts", "--stamp"]] {
+        let mut args = vec!["prompt", "build"];
+        args.extend(first);
+        args.extend(ALL);
+
+        let run = wb(&folder.path, &args, "");
+
+        assert_eq!(code(&run), Some(2), "{:?}", args);
+        assert_eq!(text(&run.stdout), "", "{:?}", args);
+        assert!(text(&run.stderr).contains("--stamp"), "{}", text(&run.stderr));
+        assert!(!text(&run.stderr).contains("is not known"), "{}", text(&run.stderr));
+        assert!(text(&run.stderr).contains("--parts"), "{}", text(&run.stderr));
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_24_one_changed_byte_of_a_prompt_ends_with_1_prints_nothing_and_names_the_file() {
+    let folder = set_up();
+    let path = folder.path.join(".watchbill/revision/roles/build.md");
+    let mut bytes = fs::read(&path).unwrap();
+    bytes.push(b'x');
+    fs::write(&path, bytes).unwrap();
+
+    let run = stamp_of(&folder.path, "build", &ALL);
+
+    assert_eq!(code(&run), Some(1));
+    assert_eq!(text(&run.stdout), "");
+    assert!(text(&run.stderr).contains("roles/build.md"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_PROMPT_24_a_repository_that_is_not_set_up_ends_with_2_and_prints_nothing() {
+    let folder = repository(None);
+
+    let run = stamp_of(&folder.path, "build", &ALL);
+
+    assert_eq!(code(&run), Some(2));
+    assert_eq!(text(&run.stdout), "");
+    assert!(text(&run.stderr).contains("not set up"), "{}", text(&run.stderr));
+    assert!(!text(&run.stderr).contains("is not known"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_PROMPT_17_a_stamp_changes_nothing_under_the_repository() {
+    let folder = set_up();
+    let before = snapshot(&folder.path);
+
+    let run = stamp_of(&folder.path, "build", &ALL);
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(snapshot(&folder.path), before);
+}
+
+#[test]
+fn test_WB_PROMPT_19_the_usage_names_stamp() {
+    let run = wb(&folder().path, &["--help"], "");
+
+    assert!(text(&run.stdout).contains("[--stamp]"), "{}", text(&run.stdout));
+}
+
+#[test]
+fn test_WB_PROMPT_19_a_value_the_prompt_does_not_use_is_written_empty() {
+    let folder = set_up();
+    let mut args = vec!["prompt", "build", "--stamp", "--change", "5", "--round", "2"];
+    args.extend(with_where(&["--task", "1", "--requirements", "R"]));
+
+    let run = wb(&folder.path, &args, "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let out = text(&run.stdout);
+    assert!(out.lines().any(|line| line == "change:"), "{}", out);
+    assert!(out.lines().any(|line| line == "round:"), "{}", out);
+}
+
+#[test]
+fn test_WB_PROMPT_22_a_stamped_value_may_hold_white_space_inside() {
+    let folder = set_up();
+    let mut args = vec!["prompt", "build", "--stamp", "--requirements", "R", "--checkout", "/work/my brakes"];
+    args.extend(["--task", "T 1", "--branch", "task-1", "--task_address", "x"]);
+
+    let run = wb(&folder.path, &args, "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("\ntask: T 1\n"), "{}", text(&run.stdout));
+}
+
+#[test]
+fn test_WB_PROMPT_23_stamp_or_parts_given_twice_ends_with_2_and_prints_nothing() {
+    let folder = set_up();
+
+    for flag in ["--stamp", "--parts"] {
+        let mut args = vec!["prompt", "build", flag, flag];
+        args.extend(ALL);
+
+        let run = wb(&folder.path, &args, "");
+
+        assert_eq!(code(&run), Some(2), "{}", flag);
+        assert_eq!(text(&run.stdout), "", "{}", flag);
+        assert!(text(&run.stderr).contains(&format!("'{}' is given twice", flag)), "{}", text(&run.stderr));
+    }
+}

@@ -16,3 +16,7 @@ What `wb` reads of an issue's file and how a person accepts it. What the file is
 | WB-TASK-10 | An issue's file shall count as accepted only while the SHA-256 in its acceptance is that of the file as it is. Issue: #74. | T | Implemented |
 | WB-TASK-11 | `wb check` shall not fail on the files under `.watchbill/issues/`. Issue: #74. | T | Implemented |
 | WB-TASK-12 | `wb accept` shall write nothing but the acceptance, and ask nothing of the network. Issue: #74. | T | Implemented |
+| WB-TASK-13 | For the tester, the build, the review and the fix, `wb prompt` shall end with 1, print nothing on standard output and name the file when the issue's file or its acceptance is not committed in `HEAD` or differs from it in the working tree. Issue: #97. | T | Draft |
+| WB-TASK-14 | For the tester, the build, the review and the fix, `wb prompt` shall end with 1, print nothing on standard output and name the missing file when the issue has no file, unless `watchbill.yml` says `breakdown: none`. Issue: #97. | T | Draft |
+| WB-TASK-15 | `wb` shall refuse `breakdown: none` in `watchbill.yml` when the revision's rule table holds the breakdown. Issue: #97. | T | Draft |
+| WB-TASK-16 | `wb accept` shall end by saying that the acceptance is to be committed alone, with the command. Issue: #97. | T | Draft |

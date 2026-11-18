@@ -136,6 +136,16 @@ fn text(document: &Document, place: &[&str]) -> Result<String, String> {
 /// fault, with the file and the line.
 pub fn read(path: impl AsRef<Path>) -> Result<Task, String> {
     let document = load(path).map_err(fault)?;
+    task_of(&document)
+}
+
+/// As `read`, for the bytes of the file that were read already.
+fn read_bytes(path: &Path, bytes: Vec<u8>) -> Result<Task, String> {
+    let document = crate::yamlfile::load_bytes(path, bytes).map_err(fault)?;
+    task_of(&document)
+}
+
+fn task_of(document: &Document) -> Result<Task, String> {
     keys_of(&document, &[], &KEYS, KEYS.len())?;
 
     let task = text(&document, &["task"])?;
@@ -226,6 +236,145 @@ pub fn is_accepted(root: &Path, task: &str) -> bool {
     };
     let hash = crate::manifest::hash_bytes(&bytes);
     text.lines().find_map(|line| line.strip_prefix("sha256: ")) == Some(hash.as_str())
+}
+
+/// The roles that are given the task's file in their prompts.
+pub const ROLES: [&str; 4] = ["tester", "build", "review", "fix"];
+
+/// A task's file that a prompt is made from: read, held to its form, and accepted as it is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Used {
+    pub task: Task,
+    /// The path from the root of the repository.
+    pub path: String,
+    /// The SHA-256 of the file as it was read.
+    pub hash: String,
+}
+
+/// The most a task's file may be: it is read whole, and a file larger than a task needs is refused.
+pub const MAX_BYTES: u64 = 1024 * 1024;
+
+/// A character that a value in a prompt never holds: a control character (a line break and a tab
+/// are let through where `block` is true, as in the interface), a line or paragraph separator, or a
+/// bidirectional control (U+202A to U+202E, U+2066 to U+2069, among them the right-to-left override).
+fn is_unsafe(c: char, block: bool) -> bool {
+    if block && (c == '\n' || c == '\t') {
+        return false;
+    }
+    c.is_control() || matches!(c, '\u{2028}' | '\u{2029}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+}
+
+/// The task's file for a prompt of a role (`wb prompt`, #76). `Ok(None)` when the task has no file, so
+/// a project goes on without one. When there is one it is used only if it is accepted as it is and
+/// holds to its form; else the reason is the error, and no prompt is handed out.
+pub fn for_prompt(root: &Path, task: &str) -> Result<Option<Used>, String> {
+    // A name that is not a task's name (`a/b`, `..`) cannot be the name of an accepted file: `wb accept`
+    // refuses it, and the files are looked for by name only. So there is no file to look for, and the
+    // prompt goes on as for a task with none. A task that fills a pattern is refused by #72 on its own.
+    if !is_name(task) {
+        return Ok(None);
+    }
+    if let Some(why) = way_fault(root) {
+        return Err(format!("{}. No prompt is handed out.", why));
+    }
+    let shown = format!("{}/{}.yml", FOLDER, task);
+    let file = file_of(root, task);
+    match fs::symlink_metadata(&file) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("{} cannot be read ({}). No prompt is handed out.", shown, error)),
+        Ok(found) if !found.is_file() => return Err(format!("{} is not a plain file. No prompt is handed out.", shown)),
+        Ok(_) => {}
+    }
+    // The file is read once, up to the limit and one byte more: these bytes give the hash, the form
+    // and the prompt, so what was checked is what is handed out.
+    let too_big = || format!("{} is larger than 1 MiB, and a task's file is not. No prompt is handed out.", shown);
+    let mut bytes = Vec::new();
+    let opened = fs::File::open(&file).and_then(|opened| std::io::Read::read_to_end(&mut std::io::Read::take(opened, MAX_BYTES + 1), &mut bytes));
+    opened.map_err(|error| format!("{} cannot be read ({}). No prompt is handed out.", shown, error))?;
+    if bytes.len() as u64 > MAX_BYTES {
+        return Err(too_big());
+    }
+    let hash = crate::manifest::hash_bytes(&bytes);
+    let accepted = accepted_of(root, task);
+    let body = match fs::symlink_metadata(&accepted) {
+        Ok(found) if found.is_file() => fs::read_to_string(&accepted).ok(),
+        _ => None,
+    };
+    let Some(body) = body else {
+        return Err(format!(
+            "the task's file {} is not accepted. To accept it, run `wb accept {}`. No prompt is handed out.",
+            shown, task
+        ));
+    };
+    if body.lines().find_map(|line| line.strip_prefix("sha256: ")) != Some(hash.as_str()) {
+        return Err(format!(
+            "the task's file {} is not accepted: it changed since its acceptance. Remove {}/{}.accepted and run `wb accept {}` again. No prompt is handed out.",
+            shown, FOLDER, task, task
+        ));
+    }
+    let prefix = format!("{}/", root.display().to_string().trim_end_matches('/'));
+    let read = read_bytes(&file, bytes).map_err(|why| format!("{}. No prompt is handed out.", why.replace(&prefix, "")))?;
+    if read.task != task {
+        return Err(format!("{} says the task is {}, not {}. No prompt is handed out.", shown, self::shown(&read.task), task));
+    }
+    if !read.questions.is_empty() {
+        return Err(format!("{} holds a question, and a file with one is not used. No prompt is handed out.", shown));
+    }
+    // Every value that reaches a prompt is held to be plain text, and the field is named, never the character.
+    let unsafe_in = |name: &str| {
+        format!(
+            "{}: `{}` holds a control character, a line or paragraph separator or a bidirectional control (such as the right-to-left override). No prompt is handed out.",
+            shown, name
+        )
+    };
+    if read.interface.chars().any(|c| is_unsafe(c, true)) {
+        return Err(unsafe_in("interface"));
+    }
+    for (index, requirement) in read.requirements.iter().enumerate() {
+        for (field, value) in [("id", &requirement.id), ("text", &requirement.text)] {
+            if value.chars().any(|c| is_unsafe(c, false)) {
+                return Err(unsafe_in(&format!("requirements[{}].{}", index, field)));
+            }
+        }
+    }
+    let lists = std::iter::once(("changes".to_string(), &read.changes))
+        .chain(read.reads.iter().map(|(role, list)| (format!("reads.{}", role), list)));
+    for (name, list) in lists {
+        if list.iter().any(|path| path.chars().any(|c| is_unsafe(c, false))) {
+            return Err(unsafe_in(&name));
+        }
+    }
+    Ok(Some(Used { task: read, path: shown, hash }))
+}
+
+impl Used {
+    /// What `{requirements}` is filled with: each ID and its text, one to a line.
+    pub fn requirements(&self) -> String {
+        if self.task.requirements.is_empty() {
+            return "none: the task's file holds no requirement".to_string();
+        }
+        let lines: Vec<String> = self.task.requirements.iter().map(|r| format!("- {}: {}", r.id, r.text)).collect();
+        format!("\n{}", lines.join("\n"))
+    }
+
+    /// The two parts of a prompt the task's file adds for a role: the interface, and what the role may
+    /// change and read. It is put in as it is, and is never read for placeholders.
+    pub fn text(&self, role: &str) -> String {
+        let list = |paths: &[String]| -> String {
+            if paths.is_empty() {
+                return "- none\n".to_string();
+            }
+            paths.iter().map(|path| format!("- {}\n", path)).collect()
+        };
+        let reads = self.task.reads.iter().find(|(name, _)| name == role).map(|(_, paths)| paths.as_slice()).unwrap_or(&[]);
+        let interface = if self.task.interface.ends_with('\n') { self.task.interface.clone() } else { format!("{}\n", self.task.interface) };
+        format!(
+            "## The interface\n\n{}\n## What you may change and read\n\nYou may change:\n\n{}\nYou may read, besides those:\n\n{}",
+            interface,
+            list(&self.task.changes),
+            list(reads)
+        )
+    }
 }
 
 /// One value of `git config`, or why there is none.

@@ -347,12 +347,33 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
         let _ = err.write_all(&why);
         return status;
     }
-    let before = values.len();
     // A role the revision does not have is refused before anything is derived for it.
     if let Err(why) = prompt::require_role(Path::new(&root), &role) {
         let _ = writeln!(err, "wb prompt: {}", why);
         return 1;
     }
+    // The file of the task (#76): used when it is accepted as it is, refused when it is there and is
+    // not, and left out when there is none. An option for the requirements wins over the file.
+    let mut file = None;
+    let mut requirements_given = false;
+    if task::ROLES.contains(&role.as_str()) {
+        if let Some((_, task)) = values.iter().find(|(name, _)| *name == "task") {
+            match task::for_prompt(Path::new(&root), task) {
+                Ok(found) => file = found,
+                Err(why) => {
+                    let _ = writeln!(err, "wb prompt: {}", why);
+                    return 1;
+                }
+            }
+        }
+    }
+    if let Some(file) = &file {
+        requirements_given = values.iter().any(|(name, _)| *name == "requirements");
+        if !requirements_given {
+            values.push(("requirements", file.requirements()));
+        }
+    }
+    let before = values.len();
     let values = match prompt::derive(&root, &role, &values) {
         Ok(values) => values,
         Err(prompt::Derive::Used(why)) => return used(err, why),
@@ -378,7 +399,9 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
         }
     }
     let given: Vec<(&str, &str)> = values.iter().map(|(name, value)| (*name, value.as_str())).collect();
-    match prompt::assemble(Path::new(&root), &role, &given) {
+    let text = file.as_ref().map(|file| file.text(&role));
+    let extra = file.as_ref().zip(text.as_deref()).map(|(file, text)| prompt::Extra { path: &file.path, hash: &file.hash, text });
+    match prompt::assemble_with(Path::new(&root), &role, &given, extra.as_ref()) {
         Err(why) => {
             let _ = writeln!(err, "wb prompt: {}", why);
             1
@@ -419,6 +442,7 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
                     version: VERSION,
                     revision: &revision,
                     time: &time,
+                    requirements_given,
                 };
                 let _ = out.write_all(prompt::stamp(&said, &given, &found).as_bytes());
             } else if parts {

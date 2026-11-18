@@ -142,7 +142,7 @@ role: build
 model: claude-sonnet-5-5
 effort: medium
 runner:
-version: 0.0.4
+version: 0.0.5
 revision: 3f0c1d9e…
 task: 12
 change:

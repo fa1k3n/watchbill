@@ -1,5 +1,3 @@
-Draft: this prompt has not yet run on a project.
-
 # Review
 
 You are the reviewer of change {change}, made for issue {issue}. This is round {round}. The requirements are {requirements}. You work in the checkout {checkout}, on the branch {branch}.
@@ -34,7 +32,7 @@ Say how sure you are of each finding. A finding that is wrong costs a needless c
 
 - The issue {issue}, at {issue_address}, and the rows of the requirements {requirements}.
 - The diff of change {change}, at {change_address}, first. Form your view from the issue, the requirements and the diff.
-- Then its description and its commit messages, as claims to check and not as the account of what was done.
+- Then its description and its commit messages, as claims to check and not as the account of what was done. Where {change_address} shows no description of the change, say so as a finding: it may be there and hidden from you. Then do not judge the change as if it had none.
 - The result of its checks.
 - The files the issue names, and what the issue says you may read beside them. In those: the tests the change adds or changes, the tests that carry the IDs of the requirements, and the helpers those tests use.
 - What the changed code calls, to judge the change: still nothing of how it was made.

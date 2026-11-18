@@ -212,8 +212,8 @@ The pieces that build this have their requirements reserved as Draft rows in `re
 
 | Area | File | Issue |
 |---|---|---|
-| `WB-ROLE` | `requirements/role.md` | #4, #69, #75, #78, #82, #95 |
-| `WB-RULE` | `requirements/rule.md` | #5, #75, #95 |
+| `WB-ROLE` | `requirements/role.md` | #4, #69, #75, #78, #82, #95, #98 |
+| `WB-RULE` | `requirements/rule.md` | #5, #75, #95, #98 |
 | `WB-REV` | `requirements/rev.md` | #6 |
 | `WB-PIN` | `requirements/pin.md` | #7 |
 | `WB-CHECK` | `requirements/check.md` | #8 |

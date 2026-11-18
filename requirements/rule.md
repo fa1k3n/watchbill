@@ -51,3 +51,4 @@ The two tables of the first revision and the one loader that reads YAML. What a 
 | WB-RULE-45 | The model table shall have the key `local_models`, the place for the models of local runners, and the first table that has it shall leave it empty. Issue: #75. | T | Implemented |
 | WB-RULE-46 | A model table with anything under `local_models` shall be refused, and the message shall name the field. Issue: #75. | T | Implemented |
 | WB-RULE-47 | The breakdown's row of the rule table shall allow it to post its questions on the issue, one comment each, and nothing else, and shall say that it reads the issue with its comments. Issue: #95. | T | Implemented |
+| WB-RULE-48 | The rows of the breakdown, the tester, the build and the fix in the rule table shall each allow it to push to the branch of the issue, and the rows of the review and the officer shall allow no push. Issue: #98. | T | Implemented |

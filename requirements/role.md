@@ -11,7 +11,7 @@ The role prompts: breakdown, tester, build, review and fix. The first revision h
 | WB-ROLE-5 | Every placeholder on the list shall be used by at least one role prompt. Issue: #4. | T | Implemented |
 | WB-ROLE-6 | No role prompt shall name a product of a git server, a tracker or a CI driver. Issue: #4. | T | Implemented |
 | WB-ROLE-7 | Every role prompt shall be UTF-8 with LF line endings and end with one line break. Issue: #4. | T | Implemented |
-| WB-ROLE-8 | Each role prompt of the first revision shall start with a line saying that it is a draft that has not yet run on a project. Issue: #4. | T | Implemented |
+| WB-ROLE-8 | Each role prompt of the first revision shall start with a line saying that it is a draft that has not yet run on a project. From revision 0.0.7 only a prompt that has not yet run keeps the line: WB-ROLE-66. Issue: #4, #98. | T | Implemented |
 | WB-ROLE-9 | The tester's prompt shall say that the tester never reads the implementation. Issue: #4. | I | Implemented |
 | WB-ROLE-10 | The reviewer's prompt shall say that the reviewer only reports, never fixes, and never reads how the change was made. Issue: #4. | I | Implemented |
 | WB-ROLE-11 | The tester's and the fixer's prompts shall say that an existing test is never changed without a person's word. Issue: #4. | I | Implemented |
@@ -67,8 +67,8 @@ The role prompts: breakdown, tester, build, review and fix. The first revision h
 | WB-ROLE-61 | The breakdown's prompt shall say that a person answers in a comment whose first line is `[answer] {issue}.q<n>`, or in the question's thread. Issue: #95. | T | Implemented |
 | WB-ROLE-62 | The breakdown's prompt shall say that a second, fresh session folds the answers of a person into the issue's file, removes the questions answered, keeps those with no answer, and commits the file alone. Issue: #95. | T | Implemented |
 | WB-ROLE-63 | The breakdown's last message shall have the field `asked`, naming the comments it posted. Issue: #95. | T | Implemented |
-| WB-ROLE-64 | The prompts of the breakdown, the tester, the build and the fix shall say to commit and then push to `{branch}`, and their last messages shall name the commit that was pushed. Issue: #98. | T | Draft |
-| WB-ROLE-65 | The breakdown's prompt shall say that a requirement is what the change must do and a test or a reading of the code can show, and that how an existing test changes goes under `existing_tests_changed`, never as a requirement. Issue: #98. | T | Draft |
-| WB-ROLE-66 | The line "Draft: this prompt has not yet run on a project." shall stand in `fix.md` and in no other role file. Issue: #98. | T | Draft |
-| WB-ROLE-67 | The review's prompt shall say that where its address shows no description of the change, the review says so as a finding. Issue: #98. | T | Draft |
+| WB-ROLE-64 | The prompts of the breakdown, the tester, the build and the fix shall say to commit and then push to `{branch}`, and their last messages shall name the commit that was pushed. Issue: #98. | T | Implemented |
+| WB-ROLE-65 | The breakdown's prompt shall say that a requirement is what the change must do and a test or a reading of the code can show, and that how an existing test changes goes under `existing_tests_changed`, never as a requirement. Issue: #98. | T | Implemented |
+| WB-ROLE-66 | The line "Draft: this prompt has not yet run on a project." shall stand in `fix.md` and in no other role file. Issue: #98. | T | Implemented |
+| WB-ROLE-67 | The review's prompt shall say that where its address shows no description of the change, the review says so as a finding. Issue: #98. | T | Implemented |
 | WB-ROLE-68 | The review's prompt shall say that each finding starts with its number and its level, `<n>. must` or `<n>. note`, where it is posted and in the last message, and the fix's prompt shall read a finding in that form. Issue: #82. | T | Implemented |

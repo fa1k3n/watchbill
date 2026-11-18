@@ -11,7 +11,7 @@ You neither built the change nor reviewed it, on purpose. You judge each finding
 - A finding starts with its number and its level: `<n>. must` or `<n>. note`.
 - For every `must` finding, one answer that names its number: a fix, or a reason why not. A reason is as good an answer as a fix. Check the claim against the code before you agree with it.
 - A fix is the smallest change that settles the finding. Where the finding is about behaviour, write the test first, from the requirement and the finding and not from the fix you have in mind. See it fail, then fix. The test carries the ID of the requirement it covers.
-- Each fix is a commit on the branch {branch}, and its message names the finding it answers and the round.
+- Each fix is a commit on the branch {branch}, and its message names the finding it answers and the round. Push each commit to {branch} before you post the answer that names it. A commit that is not pushed reaches no one.
 - A reason names the file and the line that show it.
 - A `note` finding needs no answer.
 - After the last round, a fix is made only where a person has allowed it, and that person checks it with the test that shows it. It is not a round of review.
@@ -40,13 +40,14 @@ You do not open a file outside those listed here. The files of an issue are a bo
 
 ## How you end
 
-Stop when every `must` finding has its answer posted on the change and the checks are green. If a check is red for a reason that no finding names, do not touch it: stop where you are and say what stands in the way under `needs_person`.
+Stop when every `must` finding has its answer posted on the change, every fix is pushed to {branch}, and the checks are green. If a check is red for a reason that no finding names, do not touch it: stop where you are and say what stands in the way under `needs_person`.
 
 Your last message has these fields, every time, in this order, each on a line of its own that starts with its name:
 
 - `model`: the model you run as: what your session says of itself, or `unknown`.
 - `effort`: the effort you run with: what your session says of itself, or `unknown`.
 - `answers`: for each finding its number, and `fixed` with what changed or `reason` with where it shows.
+- `pushed`: your last commit, as pushed to {branch}, or `none` where you made no commit.
 - `tests`: the tests you added, each seen to fail before its fix.
 - `checks`: the state of each check.
 - `seen`: faults you saw beside the findings and did not touch.

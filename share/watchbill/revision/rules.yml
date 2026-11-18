@@ -48,6 +48,7 @@ roles:
     may:
       - Write the issue's file.
       - Commit the issue's file alone on the branch of the issue.
+      - Push its commit to the branch of the issue.
       - Post its questions on the issue, one comment each.
     may_not_also_hold: [tester, build, review, fix, officer]
     prompt: roles/breakdown.md
@@ -62,6 +63,7 @@ roles:
     may:
       - Add new tests on the branch of the issue.
       - Commit the tests.
+      - Push the commit of the tests to the branch of the issue.
       - Run the tests against a stand-in that gives a wrong answer, in a scratch copy it never commits.
     may_not_also_hold: [breakdown, build, review, fix, officer]
     prompt: roles/tester.md
@@ -77,6 +79,7 @@ roles:
     may:
       - Change the files the issue names.
       - Run the checks of the project.
+      - Push its commits to the branch of the issue.
       - Open the change for review.
     may_not_also_hold: [breakdown, tester, review, fix, officer]
     prompt: roles/build.md
@@ -106,6 +109,7 @@ roles:
       - The files the issue names, and the files and tests the findings name, with the helpers of those tests.
     may:
       - Commit fixes on the branch of the change.
+      - Push its fixes to the branch of the issue.
       - Add a test beside a weak one, written first.
       - Post its answers on the change.
     may_not_also_hold: [breakdown, tester, build, review, officer]

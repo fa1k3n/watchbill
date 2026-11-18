@@ -48,8 +48,9 @@ pub const USAGE: &str = "usage:
             --task. What no option gives is taken from the repository and
             watchbill.yml: the checkout, the branch, the two addresses and
             the requirements; an option always wins. It runs the check of wb
-            check first and prints nothing when that fails. --parts prints the path and the SHA-256 of
-            each part, in the form sha256sum prints, in place of the text.
+            check first and prints nothing when that fails. --parts prints
+            the path and the SHA-256 of each part, in the form sha256sum
+            prints, in place of the text.
             --stamp prints, in place of the text, what the assignment is: the
             role, its model and effort, the version and revision, the task, the
             change, the round, the branch, the checkout, the time, and each
@@ -336,6 +337,7 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
         let _ = err.write_all(&why);
         return status;
     }
+    let before = values.len();
     // A role the revision does not have is refused before anything is derived for it.
     if let Err(why) = prompt::require_role(Path::new(&root), &role) {
         let _ = writeln!(err, "wb prompt: {}", why);
@@ -343,14 +345,26 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     }
     let values = match prompt::derive(&root, &role, &values) {
         Ok(values) => values,
-        Err(why) => {
+        Err(prompt::Derive::Used(why)) => return used(err, why),
+        Err(prompt::Derive::Refused(why)) => {
             let _ = writeln!(err, "wb prompt: {}", why);
             return 1;
         }
     };
+    // A value derived that is not one plain line is not the caller's fault: refused, with where it came from.
     if stamp {
-        if let Some(why) = stamp_fault(&values) {
-            return used(err, why);
+        let derived = &values[before..];
+        if let Some(name) = stamp_fault_in(derived) {
+            let source = match name {
+                "checkout" => "the root of the repository",
+                _ => "the pattern of watchbill.yml and the branches of the repository",
+            };
+            let _ = writeln!(
+                err,
+                "wb prompt: the {} was derived from {} and holds a control character or a line break, or white space at its start or end, and a stamp holds it as one line. Give --{}.",
+                name, source, name
+            );
+            return 1;
         }
     }
     let given: Vec<(&str, &str)> = values.iter().map(|(name, value)| (*name, value.as_str())).collect();
@@ -408,19 +422,23 @@ fn run_prompt(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     }
 }
 
-/// One field of a stamp stays one line, and one that a comment may trim: no control character, no
-/// line or paragraph separator, and no white space at its start or end. The fault is said by name.
-fn stamp_fault(values: &[(&'static str, String)]) -> Option<String> {
-    for (name, value) in values {
+/// The name of the first value that a stamp cannot hold as one plain line, or `None`: it holds a control
+/// character, a line or paragraph separator, or white space at its start or end.
+fn stamp_fault_in(values: &[(&'static str, String)]) -> Option<&'static str> {
+    values.iter().find_map(|(name, value)| {
         let broken = value.chars().any(|c| c.is_control() || c == '\u{2028}' || c == '\u{2029}');
-        if prompt::STAMPED.contains(name) && (broken || value.trim() != value) {
-            return Some(format!(
-                "the value of '--{}' holds a control character or a line break, or white space at its start or end, and a stamp holds it as one line",
-                name
-            ));
-        }
-    }
-    None
+        (prompt::STAMPED.contains(name) && (broken || value.trim() != value)).then_some(*name)
+    })
+}
+
+/// One field of a stamp stays one line, and one that a comment may trim. The fault is said by name.
+fn stamp_fault(values: &[(&'static str, String)]) -> Option<String> {
+    stamp_fault_in(values).map(|name| {
+        format!(
+            "the value of '--{}' holds a control character or a line break, or white space at its start or end, and a stamp holds it as one line",
+            name
+        )
+    })
 }
 
 /// `wb revision`: the version of the package, the hash of the revision and the manifest. It writes

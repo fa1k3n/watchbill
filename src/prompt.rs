@@ -291,6 +291,32 @@ fn local_branches(root: &str) -> Result<Vec<String>, PromptError> {
     Ok(text.lines().map(|line| line.strip_prefix("refs/heads/").unwrap_or(line).to_string()).collect())
 }
 
+/// Whether a value may fill a pattern: letters, digits, `.`, `_` and `-`, and as one name for git and
+/// for `gh`: no `..`, not starting with `.` or `-`, not ending with `.` or `.lock`. The address is text
+/// an agent runs, so a value never carries shell into it.
+pub fn is_plain_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
+        && !value.contains("..")
+        && !value.starts_with(['.', '-'])
+        && !value.ends_with('.')
+        && !value.ends_with(".lock")
+}
+
+/// Why a derivation is refused. `Used` is a value the caller gave that is not plain, named by its
+/// option: the command was used wrongly (2). `Refused` is the rest (1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Derive {
+    Used(String),
+    Refused(PromptError),
+}
+
+impl From<PromptError> for Derive {
+    fn from(why: PromptError) -> Derive {
+        Derive::Refused(why)
+    }
+}
+
 /// The values a prompt gets without being given them (#72), added to those given after them: a value
 /// given is never replaced. From the repository root come `checkout` and, with the patterns of
 /// `watchbill.yml` (read through the loader), the addresses and the branch. `requirements` has its
@@ -301,8 +327,18 @@ pub fn derive(
     root: &str,
     role: &str,
     given: &[(&'static str, String)],
-) -> Result<Vec<(&'static str, String)>, PromptError> {
+) -> Result<Vec<(&'static str, String)>, Derive> {
     let mut values = given.to_vec();
+    // A value that fills a pattern must be plain, and is named by its option when it is not.
+    let plain = |option: &str, value: &str| -> Result<(), Derive> {
+        if is_plain_name(value) {
+            return Ok(());
+        }
+        Err(Derive::Used(format!(
+            "the value of '--{}' fills a pattern, and is only letters, digits, '.', '_' and '-', with no '..', not starting with '.' or '-', not ending with '.' or '.lock'",
+            option
+        )))
+    };
     let has = |values: &[(&'static str, String)], name: &str| values.iter().any(|(given, _)| *given == name);
     let get = |values: &[(&'static str, String)], name: &str| {
         values.iter().find(|(given, _)| *given == name).map(|(_, value)| value.clone())
@@ -332,16 +368,19 @@ pub fn derive(
     }
     if let (false, Some(task)) = (has(&values, "task_address"), &task) {
         if let Some(found) = pattern("task_address")? {
+            plain("task", task)?;
             values.push(("task_address", found.replace("{task}", task)));
         }
     }
     if let (false, Some(change)) = (has(&values, "change_address"), &change) {
         if let Some(found) = pattern("change_address")? {
+            plain("change", change)?;
             values.push(("change_address", found.replace("{change}", change)));
         }
     }
     if let (false, Some(task)) = (has(&values, "branch"), &task) {
         if let Some(found) = pattern("branch")? {
+            plain("task", task)?;
             let start = found.replace("{task}", task);
             if role == "tester" {
                 values.push(("branch", start));
@@ -353,18 +392,20 @@ pub fn derive(
                 match names.as_slice() {
                     [one] => values.push(("branch", one.clone())),
                     [] => {
-                        return refuse(format!(
+                        return Err(PromptError(format!(
                             "no local branch is named {} or starts with {}-. Give --branch",
                             start, start
                         ))
+                        .into())
                     }
                     _ => {
-                        return refuse(format!(
+                        return Err(PromptError(format!(
                             "more than one local branch is named {} or starts with {}-: {}. Give --branch",
                             start,
                             start,
                             names.join(", ")
                         ))
+                        .into())
                     }
                 }
             }

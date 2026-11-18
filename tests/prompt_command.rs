@@ -1311,8 +1311,10 @@ fn test_WB_PROMPT_48_the_stamp_names_the_issue_on_the_line_issue_and_has_no_line
 #[test]
 fn test_WB_PROMPT_49_the_breakdown_with_no_branch_there_is_given_the_pattern_filled() {
     let folder = set_up_github();
+    // The breakdown is handed out only to a runner the organisation cleared for it (#93).
+    let (_place, organisation) = cleared(&folder.path);
 
-    let run = wb(&folder.path, &["prompt", "breakdown", "42"], "");
+    let run = prompt_with(&folder.path, &organisation, &["breakdown", "42", "--runner", "claude-code"]);
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(text(&run.stdout).contains("on the branch issue-42."), "{}", text(&run.stdout));
@@ -1363,8 +1365,13 @@ fn test_WB_PROMPT_49_branch_given_to_the_tester_and_the_breakdown_wins() {
     let folder = set_up_github();
     branches(&folder.path, &["issue-42-a", "issue-42-b"]);
 
+    // The breakdown is handed out only to a runner the organisation cleared for it (#93).
+    let (_place, organisation) = cleared(&folder.path);
     for role in ["tester", "breakdown"] {
-        let run = wb(&folder.path, &["prompt", role, "42", "--branch", "mine"], "");
+        let run = match role {
+            "breakdown" => prompt_with(&folder.path, &organisation, &[role, "42", "--branch", "mine", "--runner", "claude-code"]),
+            _ => wb(&folder.path, &["prompt", role, "42", "--branch", "mine"], ""),
+        };
 
         assert_eq!(code(&run), Some(0), "{}: {}", role, text(&run.stderr));
         assert!(text(&run.stdout).contains("on the branch mine."), "{}: {}", role, text(&run.stdout));

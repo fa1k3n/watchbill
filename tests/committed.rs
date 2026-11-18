@@ -173,10 +173,18 @@ fn test_WB_TASK_13_an_acceptance_changed_in_the_working_tree_after_its_commit_is
 #[test]
 fn test_WB_TASK_13_the_breakdown_is_never_asked_for_an_acceptance() {
     let folder = set_up();
-    let run = prompt(&folder.path, "breakdown", &[]);
+    // The breakdown is handed out only to a runner the organisation cleared for it (#93).
+    let (_place, organisation) = cleared(&folder.path);
+    let breakdown = |folder: &Path| {
+        let mut args = vec!["breakdown", "54"];
+        args.extend(REST);
+        args.extend(["--runner", "claude-code"]);
+        prompt_with(folder, &organisation, &args)
+    };
+    let run = breakdown(&folder.path);
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     put(&folder.path, YML, GOOD);
-    let run = prompt(&folder.path, "breakdown", &[]);
+    let run = breakdown(&folder.path);
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
 }
 

@@ -590,3 +590,79 @@ fn test_WB_CHECK_14_the_same_text_with_a_known_placeholder_passes_both() {
     assert_eq!(code(&check), Some(0));
     assert_eq!(code(&prompt), Some(0), "{}", text(&prompt.stderr));
 }
+
+#[test]
+fn test_WB_CHECK_13_only_the_project_text_differing_does_not_say_the_revision_is_not_held() {
+    let folder = set_up();
+    put(&folder.path, ".watchbill/project/all.md", "Use {task}.\n");
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1));
+    let out = text(&run.stdout);
+    let last = out.lines().last().unwrap();
+    assert!(last.contains("project's text does not fit the revision"), "{}", out);
+    assert!(!last.contains("not at the revision"), "{}", out);
+}
+
+#[test]
+fn test_WB_CHECK_14_a_project_file_that_is_a_link_is_named_by_check_and_refused_by_prompt() {
+    let folder = set_up();
+    put(&folder.path, "elsewhere.md", "Plain text.\n");
+    fs::create_dir_all(watchbill_dir(&folder).join("project")).unwrap();
+    std::os::unix::fs::symlink(folder.path.join("elsewhere.md"), watchbill_dir(&folder).join("project/all.md")).unwrap();
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains(".watchbill/project/all.md is a link"), "{}", text(&run.stdout));
+    assert!(watchbill::prompt::assemble(&folder.path, "build", &[]).is_err());
+}
+
+#[test]
+fn test_WB_CHECK_14_the_folder_project_as_a_link_is_named_by_check() {
+    let folder = set_up();
+    put(&folder.path, "elsewhere/all.md", "Plain text.\n");
+    let project = watchbill_dir(&folder).join("project");
+    fs::remove_dir_all(&project).ok();
+    std::os::unix::fs::symlink(folder.path.join("elsewhere"), &project).unwrap();
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains(".watchbill/project is a link"), "{}", text(&run.stdout));
+}
+
+#[test]
+fn test_WB_CHECK_14_a_folder_where_a_project_file_goes_is_named_by_check() {
+    let folder = set_up();
+    fs::create_dir_all(watchbill_dir(&folder).join("project/all.md")).unwrap();
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains(".watchbill/project/all.md is a link or not a plain file"), "{}", text(&run.stdout));
+}
+
+#[test]
+fn test_WB_CHECK_14_a_project_file_that_is_not_utf8_is_named_by_check() {
+    let folder = set_up();
+    fs::write(watchbill_dir(&folder).join("project/all.md"), [0xff, 0xfe, b'x']).unwrap();
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains(".watchbill/project/all.md is not UTF-8 text"), "{}", text(&run.stdout));
+}
+
+#[test]
+fn test_WB_CHECK_14_the_refusal_of_assemble_is_the_line_that_check_prints() {
+    let folder = set_up();
+    put(&folder.path, ".watchbill/project/all.md", "One.\nUse {task}.\n");
+
+    let refusal = watchbill::prompt::assemble(&folder.path, "build", &[]).unwrap_err().to_string();
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(refusal, watchbill::prompt::unknown_in(".watchbill/project/all.md", "One.\nUse {task}.\n")[0]);
+    assert!(text(&run.stdout).lines().any(|line| line == refusal), "{}\n---\n{}", refusal, text(&run.stdout));
+}

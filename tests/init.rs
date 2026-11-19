@@ -824,6 +824,37 @@ fn no_pattern(keys: &[&str]) {
     }
 }
 
+// ---- the pattern that lists the open issues (#139) ----
+
+#[test]
+fn test_WB_INIT_56_a_github_origin_gets_open_issues_that_prints_the_number_a_tab_and_the_title() {
+    let folder = repository(Some("https://github.com/example/brake-controller.git"));
+    let run = wb(&folder.path, &["init", "--yes"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(
+        pattern(&folder.path, "open_issues").as_deref(),
+        Some("gh issue list --repo example/brake-controller --state open --limit 1000 --json number,title --jq '.[] | \"\\(.number)\\t\\(.title)\"'")
+    );
+    assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
+}
+
+#[test]
+fn test_WB_INIT_56_a_gitlab_origin_gets_open_issues_with_the_host_of_origin() {
+    let folder = repository(Some("https://gitlab.team.example/brakes/controller.git"));
+    let run = wb(&folder.path, &["init", "--yes"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(
+        pattern(&folder.path, "open_issues").as_deref(),
+        Some("glab api --hostname gitlab.team.example 'projects/brakes%2Fcontroller/issues?state=opened&per_page=100' --paginate --output ndjson | jq -r '\"\\(.iid)\\t\\(.title)\"'")
+    );
+    assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
+}
+
+#[test]
+fn test_WB_INIT_56_another_server_gets_no_open_issues() {
+    no_pattern(&["open_issues"]);
+}
+
 // ---- which paths are classed (#84, the owner's answer of 2026-11-19) ----
 
 /// The list `classed` of `watchbill.yml` as the loader reads it back, or `None` when the file has none.

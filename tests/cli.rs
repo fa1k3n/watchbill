@@ -17,6 +17,11 @@ const USAGE: &str = "usage:
             [--requirements <text>] [--round <text>] [--checkout <text>]
             [--branch <text>] [--issue_address <text>]
             [--change_address <text>] [--runner <name>] [--parts] [--stamp]
+  wb breakdown <issue> [--runner <name>] [--prompt] [the options of prompt]
+  wb tester <issue> [--runner <name>] [--prompt] [the options of prompt]
+  wb build <issue> [--runner <name>] [--prompt] [the options of prompt]
+  wb review [<issue>] [--runner <name>] [--prompt] [the options of prompt]
+  wb fix [<issue>] [--runner <name>] [--prompt] [the options of prompt]
   wb revision
   wb accept <issue>
   wb --version
@@ -55,6 +60,20 @@ const USAGE: &str = "usage:
             file, and --parts adds the level and the runner. Ends with 0 when
             the prompt is printed, 1 when it is refused, 2 when it was used
             wrongly or the repository is not set up. Writes nothing
+  breakdown, tester, build, review, fix
+            start a session of the role: check what prompt checks, that a fix
+            follows a review, that no classed code is in its way (classed: of
+            watchbill.yml), that the runner has start in the organisation's
+            file, and that standard input and output are a terminal; then say
+            and post the stamp by issue_comment of watchbill.yml (by
+            change_comment for a review or a fix of a change with no issue),
+            and run the runner's start in the root of the checkout. The runner
+            is --runner, or the organisation's default. The round and the
+            change are worked out from issue_comments, change_comments and
+            change_of_branch; --round and --change win. --prompt, --stamp and
+            --parts print as prompt does, and post and start nothing. Ends with
+            the session: 0 when it ended with 0, else 1; 1 when it is refused,
+            2 when it was used wrongly or the repository is not set up
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes nothing
   accept    accept the issue's file .watchbill/issues/<issue>.yml: read it,

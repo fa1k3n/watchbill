@@ -149,6 +149,23 @@ fn placeholders(text: &str) -> Vec<(usize, usize, &str)> {
     found
 }
 
+/// The names of the placeholders in a text, in the order they stand, as `{issue}` is found in a prompt.
+pub(crate) fn placeholder_names(text: &str) -> Vec<&str> {
+    placeholders(text).into_iter().map(|(_, _, name)| name).collect()
+}
+
+/// The placeholders of the list that the prompt of `role` holds: in the role's text of the revision and in
+/// the project's own text. A part that cannot be read gives none here; putting the prompt together names it.
+pub fn used_by(root: &Path, role: &str) -> Vec<&'static str> {
+    let mut texts = Vec::new();
+    for path in [format!("{}/{}.md", ROLES_FOLDER, role), format!("{}/all.md", PROJECT_FOLDER), format!("{}/{}.md", PROJECT_FOLDER, role)] {
+        if let Ok(Some(part)) = read_part(root, path) {
+            texts.push(part.text);
+        }
+    }
+    PLACEHOLDERS.iter().copied().filter(|name| texts.iter().any(|text| placeholder_names(text).contains(name))).collect()
+}
+
 /// A part as read: its path, its text as it is and its hash.
 struct Read {
     path: String,
@@ -459,16 +476,63 @@ pub fn derive(
     role: &str,
     given: &[(&'static str, String)],
 ) -> Result<Vec<(&'static str, String)>, Derive> {
+    derive_with(root, role, given, Need::default()).map(|(values, _)| values)
+}
+
+/// What a derivation is to work out from the patterns that ask the tracker and the git server (#84).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Need {
+    /// The round, from the stamps that `issue_comments` (or `change_comments`) prints.
+    pub round: bool,
+    /// The change, from what `change_of_branch` prints for the branch.
+    pub change: bool,
+    /// A pattern that is needed and not there is refused, where without it the value would only be missing.
+    pub strict: bool,
+}
+
+/// What was worked out from the patterns: the lines that say it, and the stamps that were read.
+#[derive(Clone, Debug, Default)]
+pub struct Worked {
+    pub said: Vec<String>,
+    pub stamps: Option<crate::starter::Stamps>,
+}
+
+/// Why a value that fills a pattern is refused, named by its option.
+pub fn not_plain(option: &str) -> String {
+    format!(
+        "the value of '--{}' fills a pattern, and is only letters, digits, '.', '_' and '-', with no '..', not starting with '.' or '-', not ending with '.' or '.lock'",
+        option
+    )
+}
+
+/// A pattern of `watchbill.yml` at `root`, read through the loader, or `None` when the file has none.
+pub fn pattern_of(root: &str, key: &str) -> Result<Option<String>, PromptError> {
+    let config = Path::new(root).join(crate::init::CONFIG_FOLDER).join(crate::init::CONFIG_FILE);
+    let document = crate::yamlfile::load(&config).map_err(|why| PromptError(why.to_string()))?;
+    let place = [crate::yamlfile::Part::from(key)];
+    if !document.has(&place) {
+        return Ok(None);
+    }
+    document.text(&place).map(Some).map_err(|why| PromptError(why.to_string()))
+}
+
+/// As `derive`, and with what `need` asks worked out from the patterns of `watchbill.yml` that ask the
+/// tracker and the git server (#84): the round, from the `[stamp]` lines on the issue, or on the change
+/// when there is no issue; and the change, as the one open change from the branch. A value given is
+/// never worked out. What was worked out is said in the lines of `Worked`.
+pub fn derive_with(
+    root: &str,
+    role: &str,
+    given: &[(&'static str, String)],
+    need: Need,
+) -> Result<(Vec<(&'static str, String)>, Worked), Derive> {
     let mut values = given.to_vec();
     // A value that fills a pattern must be plain, and is named by its option when it is not.
     let plain = |option: &str, value: &str| -> Result<(), Derive> {
         if is_plain_name(value) {
             return Ok(());
         }
-        Err(Derive::Used(format!(
-            "the value of '--{}' fills a pattern, and is only letters, digits, '.', '_' and '-', with no '..', not starting with '.' or '-', not ending with '.' or '.lock'",
-            option
-        )))
+        Err(Derive::Used(not_plain(option)))
     };
     let has = |values: &[(&'static str, String)], name: &str| values.iter().any(|(given, _)| *given == name);
     let get = |values: &[(&'static str, String)], name: &str| {
@@ -551,7 +615,93 @@ pub fn derive(
             }
         }
     }
-    Ok(values)
+    let mut worked = Worked::default();
+    // The round: from the stamps on the issue, or on the change when there is no issue (#84, #116).
+    let on = match (&issue, &alone) {
+        (Some(issue), _) => Some(("issue_comments", "issue", issue.clone())),
+        (None, Some(change)) => Some(("change_comments", "change", change.clone())),
+        _ => None,
+    };
+    if let (true, false, Some((key, word, value))) = (need.round, has(&values, "round"), &on) {
+        match pattern(key)? {
+            None if need.strict => {
+                return Err(PromptError(format!(
+                    "the round is worked out from the stamps that `{}` of watchbill.yml prints, and it has no `{}`. Add the line (see the README), or give --round",
+                    key, key
+                ))
+                .into())
+            }
+            None => {}
+            Some(found) => {
+                plain(word, value)?;
+                let stamps = crate::starter::read_stamps(root, key, &found.replace(&format!("{{{}}}", word), value), &format!("{} {}", word, value))
+                    .map_err(PromptError)?;
+                let (round, said) = stamps.round_of(role).map_err(PromptError)?;
+                values.push(("round", round.to_string()));
+                worked.said.push(said);
+                worked.stamps = Some(stamps);
+            }
+        }
+    }
+    // The change: the one open change from the branch of the issue (#84). A change with no issue is given.
+    if let (true, false, Some(_)) = (need.change, has(&values, "change"), &issue) {
+        let branch = get(&values, "branch");
+        match (pattern("change_of_branch")?, branch) {
+            (None, _) if need.strict => {
+                return Err(PromptError(
+                    "the change is worked out by `change_of_branch` of watchbill.yml, and it has none. Add the line (see the README), or give --change".to_string(),
+                )
+                .into())
+            }
+            (Some(found), Some(branch)) => {
+                if !is_plain_name(&branch) {
+                    if given.iter().any(|(name, _)| *name == "branch") {
+                        return Err(Derive::Used(not_plain("branch")));
+                    }
+                    return Err(PromptError(format!(
+                        "the branch {} fills `change_of_branch`, and is not only letters, digits, '.', '_' and '-'. Give --change",
+                        branch.escape_debug()
+                    ))
+                    .into());
+                }
+                let open = crate::starter::open_changes(root, &found.replace("{branch}", &branch)).map_err(PromptError)?;
+                match open.as_slice() {
+                    [one] if is_plain_name(one) => {
+                        worked.said.push(format!("change {} (the one open change from {})", one, branch));
+                        values.push(("change", one.clone()));
+                        if let (false, Some(found)) = (has(&values, "change_address"), pattern("change_address")?) {
+                            values.push(("change_address", found.replace("{change}", one)));
+                        }
+                    }
+                    [one] => {
+                        return Err(PromptError(format!(
+                            "`change_of_branch` of watchbill.yml printed {} for the branch {}, which is not the name of a change. Give --change",
+                            one.escape_debug(),
+                            branch
+                        ))
+                        .into())
+                    }
+                    [] => {
+                        return Err(PromptError(format!(
+                            "no open change from the branch {}: `change_of_branch` of watchbill.yml printed none. Give --change",
+                            branch
+                        ))
+                        .into())
+                    }
+                    more => {
+                        return Err(PromptError(format!(
+                            "more than one open change from the branch {}: {}. Give --change",
+                            branch,
+                            more.join(", ")
+                        ))
+                        .into())
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok((values, worked))
 }
 
 /// The placeholders whose values a stamp prints, in the order the stamp has them.

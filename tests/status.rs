@@ -611,3 +611,22 @@ fn test_WB_STATUS_26_without_issue_comments_it_says_so_once_on_standard_error() 
     assert_eq!(said.lines().count(), 1, "{}", said);
     assert!(said.starts_with("wb status:") && said.contains("issue_comments"), "{}", said);
 }
+
+#[test]
+fn test_WB_STATUS_31_stamps_before_the_last_breakdown_stamp_no_longer_decide_the_step() {
+    let folder = set_up();
+    open(&folder.path, &[("1", "Taken back, accepted"), ("2", "Taken back, not accepted"), ("3", "Built after the breakdown")]);
+    let before = ["[stamp] breakdown round 1", "[stamp] tester round 1", "[stamp] build round 1", "[stamp] review round 1", "[stamp] fix round 1"];
+    let with = |issue: &str, after: &[&str]| {
+        let all: Vec<&str> = before.iter().copied().chain(["[stamp] breakdown round 2"]).chain(after.iter().copied()).collect();
+        comments(&folder.path, issue, &all);
+    };
+    with("1", &[]);
+    with("2", &[]);
+    with("3", &["[stamp] build round 1"]);
+    branch(&folder.path, "1", true);
+    branch(&folder.path, "2", false);
+    branch(&folder.path, "3", true);
+    let (out, _) = stdout(&folder.path, &["status"]);
+    assert_eq!(out, "Broken down:\n  2  Taken back, not accepted\n\nAccepted:\n  1  Taken back, accepted\n\nBuilt:\n  3  Built after the breakdown\n");
+}

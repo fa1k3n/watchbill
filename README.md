@@ -494,6 +494,7 @@ Questions open:
   - `Accepted`: the issue's file and its acceptance are on the issue's branch, and the acceptance holds for the file;
   - `Broken down`: the issue's file is on the issue's branch;
   - `Not broken down`: none of these.
+  A new breakdown takes the issue back: only the stamps after the last `[stamp] breakdown` count, and with none after it the issue is under `Accepted` or `Broken down` by its file.
   A heading with no issue is not printed. No round, no command and no word for a step going on is printed.
 - **The questions, last.** `Questions open` lists each issue that has a `[question]` no one has answered, with the names of those questions. The issue stays under its step too. A question is `[question] <issue>.…`; it is closed by an `[answer] <name> …` line, and `[answer] <issue> suggested` closes every question asked before it.
 - **Who answered.** `issue_comments` prints the first line of each comment and no author, so `wb` cannot yet tell an answer of a person from another. Until it reads who wrote a comment (#83), each `[answer]` line counts as a person's; a line that starts with `[question]` is never an answer. It reads first lines only, so an answer below the first line of a comment is not seen, which errs towards "open"; and a choice number is not held against the choices of the question (`wb answer`, a later issue, will): `[answer] 5.q1 7` closes `5.q1` whatever its choices are.

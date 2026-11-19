@@ -34,3 +34,4 @@ What `wb status` says of the issues in the flow. It only reads.
 | WB-STATUS-28 | `wb status` shall run from any folder inside the repository. Issue: #139. | T | Implemented |
 | WB-STATUS-29 | `wb status` shall take `[answer] <issue> suggested` as an answer to every question asked before it, and to none asked after it. Issue: #139. | T | Implemented |
 | WB-STATUS-30 | `wb status` shall close a question by an `[answer]` of its name whatever follows the name, a choice number too. Issue: #139. | T | Implemented |
+| WB-STATUS-31 | `wb status` shall let only the stamps after the last `[stamp] breakdown` decide the step, so that a new breakdown takes the issue back to `Accepted` or `Broken down` by its file. Issue: #139. | T | Implemented |

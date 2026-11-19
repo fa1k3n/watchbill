@@ -151,6 +151,9 @@ fn read_issue(root: &str, number: &str, title: Option<String>, comments: Option<
     }
     let stamps = starter::stamps_in(&lines.join("\n"));
     let (file, accepted) = on_branches(root, number, pattern, all, &mut from);
+    // A new breakdown takes the issue back: only the stamps after the last `[stamp] breakdown` decide the step.
+    let since = stamps.iter().rposition(|(name, _)| name == "breakdown").map_or(0, |at| at + 1);
+    let stamps = &stamps[since..];
     let has = |role: &str| stamps.iter().any(|(name, _)| name == role);
     let step = match stamps.last().map(|(name, _)| name.as_str()) {
         Some("fix") => "Fixed",

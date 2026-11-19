@@ -1,6 +1,6 @@
 # What a revision contains
 
-A revision is what a project is set up for and what its agents run under: the same on every machine, and checkable by anyone. This page says exactly what it is. Each point was settled with the owner on 2026-11-16 (#3). Points 1 and 6 were changed on 2026-11-17, when the owner decided that `wb` is written in Rust and not in Python (#20). Nothing else on the page changed: the files of a revision and their hash are the same. Point 14 and the changes to points 10, 12 and 13 on accounts were settled with the owner on 2026-11-18 (#30), and are in revision 0.0.7 (#82).
+A revision is what a project is set up for and what its agents run under: the same on every machine, and checkable by anyone. This page says exactly what it is. Each point was settled with the owner on 2026-11-16 (#3). Points 1 and 6 were changed on 2026-11-17, when the owner decided that `wb` is written in Rust and not in Python (#20). Nothing else on the page changed: the files of a revision and their hash are the same. Point 14 and the changes to points 10, 12 and 13 on accounts were settled with the owner on 2026-11-18 (#30), and are in revision 0.0.7 (#82). That a person can start any role alone was settled with the owner on 2026-11-19, and changed points 12, 13 and 14 (#116, revision 0.0.8).
 
 ## In short
 
@@ -32,7 +32,7 @@ In a checkout the same files are under `share/watchbill/`.
 
 ## 2. The roles
 
-Breakdown, tester, build, review and fix. The first revision had the last four. The breakdown has its prompt and its rows from revision 0.0.5 (#75). It comes before the tester, and no other role of an issue is started until a person has accepted its file (point 13). The watch officer has rows in the rule table and no prompt yet (point 10). The architect comes later.
+Breakdown, tester, build, review and fix. The first revision had the last four. The breakdown has its prompt and its rows from revision 0.0.5 (#75). It comes before the tester, and once an issue has a file, no other role of it is started until a person has accepted the file (point 13). A person may start any role alone, with no file (#116). The watch officer has rows in the rule table and no prompt yet (point 10). The architect comes later.
 
 - **Breakdown:** reads a person's issue and the code, and writes the issue's file (point 13). It never changes the issue, the code or a test, and never answers what the issue leaves open. It is the one role that reads the code without a list. It holds no other role on the issue.
 - **Tester:** writes the tests from the requirement and never reads the implementation.
@@ -168,7 +168,7 @@ What a session ran as is said by the one who started it, not by the session. Set
 - **What it means:** what was handed out. `wb prompt` knows what the table asks for and what the prompt holds. It cannot see what the session truly runs as. The one who starts the session starts it so; a starter that does both in one step closes the gap (#66).
 - **Who stamps:** the program that hands out the prompt: `wb prompt --stamp` (#68). A person who starts a session by hand posts the stamp as it was printed. The stamp is posted by the identity of the starter, never by the session's (point 14).
 - **Its form:** lines of `name: value` in a fixed order, the same on every machine, with one line for each part of the prompt in the form `sha256sum` prints. A program can read it and `sha256sum` can check its parts.
-- **Where it is kept:** on the issue, one comment per session, whose first line starts with `[stamp] <role> round <n>`. The tester and the build run before there is a change, so the issue is the one place that holds every session. #30 may move it later.
+- **Where it is kept:** on the issue, one comment per session, whose first line starts with `[stamp] <role> round <n>`. The tester and the build run before there is a change, so the issue is the one place that holds every session. #30 may move it later. A review or a fix of a change with no issue has its stamp on the change, and its line `issue:` is empty (#116).
 - **The agent's own word:** `model` and `effort` stay in the last message, as what the session says of itself (#69). Where they differ from the stamp, that is a finding for a person, and the stamp is what counts. `unknown` is written down, not a finding: a session often cannot see its own effort.
 - **What it is not:** a record kept for an assessment. The stamp is working state: the program reads it to know what was handed out. Keeping a record is for the team's own tools or a recorder (the README, "Not goals").
 - **A session with no stamp:** its work is not taken as the work of a role, and nothing is handed on from it. Until a program hands work on (#66, the officer), a person keeps this rule: no stamp on the issue, no next role.
@@ -186,8 +186,9 @@ A person's issue, read into a form `wb` reads. It was called the task's file unt
 - **An edit after acceptance** voids it: the hash no longer holds, and no prompt of the issue is handed out until a person accepts again (#76).
 - **The acceptance at the tracker:** the person also posts one comment on the issue, from their own account, whose first line starts with `[accepted]`, with the SHA-256 of the issue's file. The tracker keeps who wrote it. What a listener trusts is a comment with `system: false` whose author's role at the project, read from the server, is at least the one the rule table names. The `.accepted` file stays.
 - **What acceptance cannot stop:** under one account shared by a person and the agents, an agent can run `wb accept` itself, or post the comment. The hash stops a change after acceptance, not a false acceptance. Accounts of their own for the agents (point 14) stop that: an agent's account is never a person's, so its comment counts for nothing. A signed commit may later do the same for the `.accepted` file.
-- **Without an issue's file** no role after the breakdown is handed out (decided by the owner, 2026-11-18, #97). A project that has no breakdown yet writes `breakdown: none` in `watchbill.yml`; then it works as before: the issue holds its numbered requirements, and `wb prompt` is given what it cannot know. `breakdown: none` is refused when the revision's rule table holds the breakdown, by `wb prompt` and by `wb check`. Where `breakdown:` is not written, the file is needed.
-- **Committed first:** the tester, the build, the review and the fix are handed out only when the issue's file and its acceptance are both committed in `HEAD` and are as git has them in the working tree, so the history holds what the issue was read as before the work it allows (#97).
+- **A role started alone:** a person may start any role with no step before it (decided by the owner, 2026-11-19, #116). With no issue's file, the role works from the issue's own numbered items. A review or a fix may be of a change with no issue: the change's description is the spec, and the stamp is posted on the change. A team takes Watchbill on one role at a time this way, starting with reviews. This replaces the rule of 2026-11-18 (#97) that no role after the breakdown is handed out without the file, and `breakdown: none`, which let a project out of it: since revision 0.0.8 the key `breakdown` is refused by name.
+- **The chain's gates bind once a file is there:** the tester, the build, the review and the fix of an issue with a file are handed out only when the file is accepted, and the file and its acceptance are both committed in `HEAD` and are as git has them in the working tree, so the history holds what the issue was read as before the work it allows (#97).
+- **The hand-on always needs the whole chain:** `wb handover`, the listener and the officer hand nothing on for an issue without an accepted file (#88, #85, #86).
 
 ## 14. Accounts
 
@@ -202,7 +203,7 @@ Each role works under an account of its own at the git server and the tracker. S
 - **The entry, in two steps.** First a listener picks up what a person assigns straight to a role's account. Then the officer is the normal entry: a person assigns the issue to the officer, it judges, and the program hands the issue on. A person may still assign straight to a role.
 - **The listener** runs on a machine that is always on and asks the tracker at a fixed interval for the issues assigned to the roles' accounts. No webhook: no port is opened, and nothing is lost while the machine is down (#85).
 - **The starter** is a command of `wb`, one path for a person's `wb build --issue <n>` and for the listener. The checks of the rule table, the acceptance and the stamp sit in that path (#84, #66).
-- **The issue's file is never left out.** Every piece has an issue's file and a person's acceptance before the tester starts (point 13).
+- **The issue's file is never left out of work that is handed on.** Every piece the program hands on has an issue's file and a person's acceptance before the tester starts. A role a person starts alone needs neither (point 13, #116).
 - **An issue that is several pieces:** the officer posts the pieces as one comment in a fixed form, and the issue is assigned back to the person. After a yes, the program writes the issues from the officer's account. The person's issue is never changed (#86).
 - **The stamp** is posted by the identity of the starter, never by the session's (point 12).
 - **Local work:** `wb build --issue <n>` on a person's own machine runs under that person's account and counts as the person's. The stamp says an agent wrote it. That person's account holds build on the change, so the review is never that person. Classed code is refused in local work until a session sees only its files (#65).
@@ -215,14 +216,14 @@ The pieces that build this have their requirements reserved as Draft rows in `re
 
 | Area | File | Issue |
 |---|---|---|
-| `WB-ROLE` | `requirements/role.md` | #4, #69, #75, #78, #82, #95, #98, #125 |
+| `WB-ROLE` | `requirements/role.md` | #4, #69, #75, #78, #82, #95, #98, #116, #125 |
 | `WB-RULE` | `requirements/rule.md` | #5, #75, #95, #98 |
 | `WB-REV` | `requirements/rev.md` | #6 |
 | `WB-PIN` | `requirements/pin.md` | #7 |
 | `WB-CHECK` | `requirements/check.md` | #8 |
-| `WB-PROMPT` | `requirements/prompt.md` | #9, #10, #68, #76, #78 |
+| `WB-PROMPT` | `requirements/prompt.md` | #9, #10, #68, #76, #78, #116 |
 | `WB-CONF` | `requirements/conf.md` | #11 |
-| `WB-TASK` | `requirements/task.md` | #74, #78: the area keeps its name, and its rows say issue |
+| `WB-TASK` | `requirements/task.md` | #74, #78, #116: the area keeps its name, and its rows say issue |
 | `WB-ACCT` | `requirements/acct.md` | #83 |
 | `WB-BUILD` | `requirements/build.md` | #84 |
 | `WB-LISTEN` | `requirements/listen.md` | #85 |

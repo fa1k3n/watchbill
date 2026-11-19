@@ -21,6 +21,7 @@ You work from the requirement and not from the code, on purpose. A test written 
 ## What you read
 
 - The issue {issue}, at {issue_address}, and the rows of the requirements it names.
+- Where no part of the issue's file follows this text, the issue has no file. Then you work from the issue's own numbered items: they are the requirements, and the files its text names are the files the issue names.
 - The files the issue names, and what the issue says you may read beside them. In those:
   - the tests, to follow how this project writes and names them, and the helpers those tests use;
   - the interface of the thing under test that the issue names: a declaration, a header or a signature, not its body. Where it shares a file with the body, read only the interface and not the file.

@@ -189,53 +189,50 @@ fn test_WB_TASK_13_the_breakdown_is_never_asked_for_an_acceptance() {
 }
 
 #[test]
-fn test_WB_TASK_14_an_issue_with_no_file_is_refused_with_the_file_named() {
+fn test_WB_TASK_17_an_issue_with_no_file_is_handed_out_to_each_role_and_no_file_is_named() {
+    // Was test_WB_TASK_14_an_issue_with_no_file_is_refused_with_the_file_named. Since #116 an issue with
+    // no file is handed out.
     let folder = set_up();
     commit(&folder.path, &[".watchbill"]);
     for role in ROLES {
         for extra in [&[][..], &["--parts"], &["--stamp"]] {
             let run = prompt(&folder.path, role, extra);
-            refused(&run, YML);
-            assert!(text(&run.stderr).contains("breakdown"), "{}", text(&run.stderr));
+            assert_eq!(code(&run), Some(0), "{} {:?}: {}", role, extra, text(&run.stderr));
+            assert!(!text(&run.stdout).contains(YML), "{} {:?}", role, extra);
+            assert_eq!(text(&run.stderr), "", "{} {:?}", role, extra);
         }
     }
 }
 
 #[test]
-fn test_WB_TASK_14_where_breakdown_is_not_written_the_file_is_needed() {
+fn test_WB_TASK_17_where_breakdown_is_not_written_no_file_is_needed() {
+    // Was test_WB_TASK_14_where_breakdown_is_not_written_the_file_is_needed.
     let folder = set_up();
     let before = read(&config(&folder.path));
     assert!(!before.contains("breakdown"));
-    refused(&prompt(&folder.path, "build", &[]), YML);
+    let run = prompt(&folder.path, "build", &[]);
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
 }
 
-#[test]
-fn test_WB_PROMPT_50_breakdown_none_means_no_file_is_needed_where_the_rule_table_lacks_the_breakdown() {
-    let folder = set_up();
-    let mut yml = read(&config(&folder.path));
-    yml.push_str("breakdown: none\n");
-    put(&folder.path, ".watchbill/watchbill.yml", &yml);
-    let needed = |holds| watchbill::issue::file_needed(&folder.path, holds);
-    assert_eq!(needed(false), Ok(false));
-    assert!(needed(true).is_err());
-    let bare = set_up();
-    assert_eq!(watchbill::issue::file_needed(&bare.path, false), Ok(true));
-    assert_eq!(watchbill::issue::file_needed(&bare.path, true), Ok(true));
-}
+// test_WB_PROMPT_50_breakdown_none_means_no_file_is_needed_where_the_rule_table_lacks_the_breakdown is
+// removed with `issue::file_needed`, which it called (#116). WB-PROMPT-50 is replaced by WB-TASK-17.
 
 #[test]
-fn test_WB_TASK_14_a_breakdown_that_is_not_none_is_refused_by_its_name() {
+fn test_WB_TASK_18_a_breakdown_that_is_not_none_is_refused_by_its_name() {
+    // Was test_WB_TASK_14_a_breakdown_that_is_not_none_is_refused_by_its_name: any value is refused now.
     let folder = set_up();
     let mut yml = read(&config(&folder.path));
     yml.push_str("breakdown: sometimes\n");
     put(&folder.path, ".watchbill/watchbill.yml", &yml);
     let run = prompt(&folder.path, "build", &[]);
-    refused(&run, "breakdown");
-    assert!(text(&run.stderr).contains("none"), "{}", text(&run.stderr));
+    refused(&run, "breakdown: sometimes");
+    assert!(text(&run.stderr).contains("Remove the line"), "{}", text(&run.stderr));
 }
 
 #[test]
-fn test_WB_TASK_15_breakdown_none_is_refused_when_the_rule_table_holds_the_breakdown() {
+fn test_WB_TASK_18_breakdown_none_is_refused_for_each_role() {
+    // Was test_WB_TASK_15_breakdown_none_is_refused_when_the_rule_table_holds_the_breakdown: refused
+    // whatever the rule table holds.
     let folder = set_up();
     commit(&folder.path, &[".watchbill"]);
     let mut yml = read(&config(&folder.path));
@@ -244,7 +241,7 @@ fn test_WB_TASK_15_breakdown_none_is_refused_when_the_rule_table_holds_the_break
     for role in ROLES {
         let run = prompt(&folder.path, role, &[]);
         refused(&run, "breakdown: none");
-        assert!(text(&run.stderr).contains("rule table"), "{}", text(&run.stderr));
+        assert!(text(&run.stderr).contains("Remove the line"), "{}", text(&run.stderr));
     }
 }
 
@@ -262,7 +259,8 @@ fn test_WB_TASK_16_wb_accept_says_that_the_acceptance_is_committed_alone_with_th
 }
 
 #[test]
-fn test_WB_TASK_15_wb_check_refuses_breakdown_none_when_the_rule_table_holds_the_breakdown() {
+fn test_WB_TASK_18_wb_check_refuses_breakdown_none_and_any_other_value() {
+    // Was test_WB_TASK_15_wb_check_refuses_breakdown_none_when_the_rule_table_holds_the_breakdown.
     let folder = set_up();
     assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
     let mut yml = read(&config(&folder.path));
@@ -271,7 +269,7 @@ fn test_WB_TASK_15_wb_check_refuses_breakdown_none_when_the_rule_table_holds_the
     let run = wb(&folder.path, &["check"], "");
     assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
     let said = text(&run.stdout) + &text(&run.stderr);
-    assert!(said.contains("breakdown: none") && said.contains("rule table"), "{}", said);
+    assert!(said.contains("breakdown: none") && said.contains("Remove the line"), "{}", said);
     let mut other = read(&config(&folder.path)).replace("breakdown: none", "breakdown: sometimes");
     other.push('\n');
     put(&folder.path, ".watchbill/watchbill.yml", &other);
@@ -279,13 +277,10 @@ fn test_WB_TASK_15_wb_check_refuses_breakdown_none_when_the_rule_table_holds_the
 }
 
 #[test]
-fn test_WB_PROMPT_51_with_breakdown_none_and_no_file_requirements_is_the_numbered_requirements_of_the_issue() {
+fn test_WB_TASK_17_with_no_file_requirements_is_the_numbered_requirements_of_the_issue_in_derive() {
+    // Was test_WB_PROMPT_51_with_breakdown_none_and_no_file_requirements_is_the_numbered_requirements_of_the_issue.
+    // Since #116 no line of `watchbill.yml` is needed for it.
     let folder = set_up();
-    let mut yml = read(&config(&folder.path));
-    yml.push_str("breakdown: none\n");
-    put(&folder.path, ".watchbill/watchbill.yml", &yml);
-    // No revision without the breakdown can be built into the tests, so the values `wb prompt` gives an
-    // issue that needs no file are had from `derive`, which no file stands in the way of.
     let root = folder.path.to_str().unwrap();
     let given = [("issue", "54".to_string()), ("branch", "issue-54".to_string())];
     let values = watchbill::prompt::derive(root, "build", &given).ok().expect("derive");

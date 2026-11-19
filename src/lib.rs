@@ -368,6 +368,13 @@ fn run_prompt(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, o
         }
         values.push(("issue", word));
     }
+    // Only the review and the fix take a change alone, with no issue (#116). The tester and the build
+    // work for an issue, and are used wrongly without one.
+    let has_issue = values.iter().any(|(name, _)| *name == "issue");
+    if !has_issue && (role == "tester" || role == "build") {
+        return used(err, format!("the {} is handed out for an issue: give it as the word after the role, or as '--issue'", role));
+    }
+    let alone = !has_issue && prompt::ALONE.contains(&role.as_str()) && values.iter().any(|(name, _)| *name == "change");
     if stamp {
         if let Some(why) = stamp_fault(&values) {
             return used(err, why);
@@ -443,28 +450,12 @@ fn run_prompt(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, o
             return 1;
         }
     };
-    // No role after the breakdown until the issue's file and its acceptance are committed (#97). Without
-    // a file, unless `watchbill.yml` says `breakdown: none`, none is handed out. A name that is not one
-    // of an issue has no file, so it is refused here too.
-    if issue::ROLES.contains(&role.as_str()) {
-        if let Some((_, issue)) = values.iter().find(|(name, _)| *name == "issue") {
-            // `breakdown: none` is judged whether there is a file or not.
-            let holds = rules::load_revision().map(|rules| rules.roles.contains_key("breakdown"));
-            let needed = holds.map_err(|why| why.to_string()).and_then(|holds| issue::file_needed(Path::new(&root), holds));
-            let gate = match (&file, needed) {
-                (_, Err(why)) => Err(why),
-                (Some(_), Ok(_)) => issue::committed(Path::new(&root), issue),
-                (None, Ok(true)) => Err(format!(
-                    "the issue has no file {}/{}.yml. Run the breakdown first; a project with no breakdown writes `breakdown: none` in watchbill.yml. No prompt is handed out.",
-                    issue::FOLDER,
-                    issue.escape_debug()
-                )),
-                (None, Ok(false)) => Ok(()),
-            };
-            if let Err(why) = gate {
-                let _ = writeln!(err, "wb prompt: {}", why);
-                return 1;
-            }
+    // An issue's file that is there is used only when it and its acceptance are committed (#97). An issue
+    // with no file is handed out as it is: a person may start any role alone (#116).
+    if let (Some(_), Some((_, issue))) = (&file, values.iter().find(|(name, _)| *name == "issue")) {
+        if let Err(why) = issue::committed(Path::new(&root), issue) {
+            let _ = writeln!(err, "wb prompt: {}", why);
+            return 1;
         }
     }
     // A value derived that is not one plain line is not the caller's fault: refused, with where it came from.
@@ -484,9 +475,19 @@ fn run_prompt(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, o
         }
     }
     let given: Vec<(&str, &str)> = values.iter().map(|(name, value)| (*name, value.as_str())).collect();
+    // The text of a review or a fix of a change with no issue says what to do where the issue is `none`
+    // (#116). Only the text has it: the stamp is made from `values`, and its `issue:` is empty.
+    let mut filled = given.clone();
+    if alone {
+        for name in ["issue", "issue_address"] {
+            if !filled.iter().any(|(given, _)| *given == name) {
+                filled.push((name, prompt::NO_ISSUE));
+            }
+        }
+    }
     let text = file.as_ref().map(|file| file.text(&role));
     let extra = file.as_ref().zip(text.as_deref()).map(|(file, text)| prompt::Extra { path: &file.path, hash: &file.hash, text });
-    match prompt::assemble_with(Path::new(&root), &role, &given, extra.as_ref()) {
+    match prompt::assemble_with(Path::new(&root), &role, &filled, extra.as_ref()) {
         Err(why) => {
             let _ = writeln!(err, "wb prompt: {}", why);
             1

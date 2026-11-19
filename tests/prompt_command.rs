@@ -286,10 +286,12 @@ fn test_WB_PROMPT_14_a_placeholder_the_prompt_uses_with_no_option_is_refused_by_
 }
 
 #[test]
-fn test_WB_PROMPT_14_no_option_at_all_is_refused_for_a_placeholder_that_is_used() {
+fn test_WB_PROMPT_14_an_issue_and_a_branch_alone_are_refused_for_a_placeholder_that_is_used() {
+    // Was test_WB_PROMPT_14_no_option_at_all_is_refused_for_a_placeholder_that_is_used. Since #116 the
+    // build with no issue is used wrongly; with one, this repository has no pattern for its address.
     let folder = set_up();
 
-    let run = wb(&folder.path, &["prompt", "build"], "");
+    let run = wb(&folder.path, &["prompt", "build", "1", "--branch", "b"], "");
 
     assert_eq!(code(&run), Some(1));
     assert_eq!(text(&run.stdout), "");
@@ -405,9 +407,9 @@ fn test_WB_PROMPT_11_parts_prints_one_line_per_part_and_sha256sum_passes_at_the_
 fn test_WB_PROMPT_11_with_no_project_text_parts_prints_the_line_of_the_role_and_of_the_issues_file() {
     let folder = set_up();
 
-    // The tester's text has placeholders with no value: refused, nothing printed.
+    // The tester with no issue is used wrongly (#116): refused, nothing printed.
     let run = wb(&folder.path, &["prompt", "tester", "--parts"], "");
-    assert_eq!(code(&run), Some(1));
+    assert_eq!(code(&run), Some(2));
     assert_eq!(text(&run.stdout), "");
 
     let mut args = vec!["prompt", "tester", "--parts"];
@@ -433,13 +435,16 @@ fn test_WB_PROMPT_16_a_value_that_starts_with_a_dash_or_holds_a_line_break_arriv
         assert_eq!(code(&run), Some(0), "{:?}: {}", args, text(&run.stderr));
         assert_eq!(text(&run.stdout), filled_where("build", &[("issue", issue), ("requirements", requirements)]), "{:?}", args);
     }
-    // A value that is no name of an issue has no file, and since #97 no role is handed out for it.
+    // A value that is no name of an issue has no file. From #97 no role was handed out for it; since #116
+    // an issue with no file is handed out, and the value arrives as it was given, with no part of a file.
     for issue in ["--", "{change}", "one\ntwo"] {
         let args = with_where(&["prompt", "build", "--issue", issue, "--requirements", "R"]);
         let run = wb(&folder.path, &args, "");
 
-        assert_eq!(code(&run), Some(1), "{:?}: {}", args, text(&run.stderr));
-        assert_eq!(text(&run.stdout), "", "{:?}", args);
+        assert_eq!(code(&run), Some(0), "{:?}: {}", args, text(&run.stderr));
+        let whole = filled_where("build", &[("issue", issue), ("requirements", "R")]);
+        let expected = whole.strip_suffix(&format!("\n{}", BARE_PART)).unwrap();
+        assert_eq!(text(&run.stdout), expected, "{:?}", args);
     }
 }
 
@@ -452,7 +457,8 @@ fn test_WB_PROMPT_17_a_run_changes_nothing_under_the_repository() {
     for (args, status) in [
         (with_where(&["prompt", "build", "--issue", "1", "--requirements", "R"]), 0),
         (with_where(&["prompt", "build", "--parts", "--issue", "1", "--requirements", "R"]), 0),
-        (vec!["prompt", "build"], 1),
+        // The build with no issue is used wrongly since #116.
+        (vec!["prompt", "build"], 2),
         (vec!["prompt", "nobody"], 1),
     ] {
         let run = wb(&folder.path, &args, "");
@@ -632,7 +638,8 @@ fn test_WB_PROMPT_19_a_stamped_value_that_got_no_option_is_written_empty_with_no
 fn test_WB_PROMPT_14_a_stamp_is_refused_for_a_placeholder_the_prompt_uses_with_no_value() {
     let folder = set_up();
 
-    let run = stamp_of(&folder.path, "build", &[]);
+    // Since #116 the build with no issue is used wrongly, so the issue is given and the address is not.
+    let run = stamp_of(&folder.path, "build", &["1", "--branch", "b"]);
 
     assert_eq!(code(&run), Some(1));
     assert_eq!(text(&run.stdout), "");

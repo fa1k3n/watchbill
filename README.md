@@ -11,13 +11,73 @@ A harness for AI agents in embedded software development, deployed at a fixed re
 
 **Status: an idea, written down 2026-11-16. Built: `wb init`, `wb check`, `wb prompt`, `wb accept` and `wb revision`. Nothing hands work from one role to the next yet, and `wb` starts no session.**
 
-## What it is to be
+## What Watchbill is for
 
-- **Deployed onto what the project already has.** The requirements tool, the tracker, the git server and the CI driver stay as they are.
-- **The agents show up where the team works.** When Watchbill is deployed, the agents appear in the team's own tools, not in a new place to look.
-- **One fixed revision.** A deployment is one revision of the harness, and the prompts are under version control.
-- **Traceable.** What an agent did, for which requirement, under which revision, can be followed afterwards.
-- **A method that can be assessed.** The aim is that a team's process with Watchbill in it can pass an assessment against an ISO standard. Watchbill is not certified, and nothing here says it is.
+Watchbill is for teams that build software under a standard, such as IEC 62304 for medical devices or ISO 26262 in automotive, or under rules about which source code may leave the premises.
+
+AI agents give such a team three problems:
+
+- **Roles.** The standard, or the team's process under it, says who may specify, implement, verify and release. One agent session does all four unless something stops it.
+- **Confidentiality.** A hosted model sees every file its agent opens. Some code may not leave the premises.
+- **Assessment.** An assessor asks what the agents are told to do, and what stops them from doing anything else. A prompt typed into a terminal answers neither.
+
+Watchbill sits between the team's tools and its agents, and is built to answer each:
+
+- **Roles.** The work is split into roles: breakdown, tests, build, review and fix. Each role has a fixed, versioned prompt. Where a limit of a role can be checked, the program checks it and refuses. No agent checks its own work, and no agent merges.
+- **Confidentiality.** A session is given only the files its work needs, and is started only with tools and a model the organisation has cleared for that code. Code that must stay on the premises is worked on there, by a model that runs there. One role reads the whole code to make the lists of files, and runs only where the organisation has cleared it.
+- **Assessment.** The prompts and the rules are one pinned revision in the repository, the same on every machine and checked by hash. That is what the assessor reads.
+
+Not all of this is built. [Where it stands](#where-it-stands) says what holds today.
+
+Watchbill is set up in an existing repository with one command, and uses the tracker, the git server and the CI the team already has.
+
+## Goals
+
+1. **It fits the team's workflow, not the other way round.** Agents work in the tracker, the git server and the CI the team already has, by the team's own conventions. Nothing is replaced. What Watchbill holds fixed is stated in one place: the roles, their order, their prompts and their rules ([docs/revision.md](docs/revision.md)).
+2. **Everyone can read exactly what the agents are told.** Each role's instructions are fixed and versioned, the same on every machine. What a team adds of its own is in the repository beside them.
+3. **The rules are enforced, not requested.** Where a rule can be checked, software checks it and stops what is not allowed. Where a rule cannot be checked, that is said.
+4. **People keep the decisions that are theirs.** A person decides what is built, accepts the reading of it before work starts, and merges the result. An agent does none of these.
+5. **Duties are separated.** No work is checked by the one who did it. The tests are written from the requirement before the code, by another role than the one that builds.
+6. **An agent sees only the code it needs.** For each piece of work the agent is given the files that work needs. The rest of the code is not there for it to read.
+7. **Code goes only where it is allowed to go.** The organisation, not the team, says which tools and models may see which code. Code that must stay on the premises is worked on there, by a model that runs there.
+8. **A team starts small.** It can use one role alone, such as a review of what a person wrote, and add the rest when it is ready.
+9. **A team starts strict and opens up as it learns.** It can begin with everything protected and a model on the premises. As it sees how the work goes, it finds the parts of the code that do not need full protection, and the organisation opens those parts, and only those. Where nothing is said, the strictest applies.
+10. **The process can be shown to an assessor.** What the agents are told, and what holds each rule, can be read in one place. A team's process with Watchbill in it can be assessed. Watchbill is not certified, and nothing here says it is.
+11. **It needs no other product.** One package to install. `wb` asks nothing of the network unless the command is about a system on the network.
+
+### When it works
+
+A team takes an issue from its text to a merged change, and a person only accepts what is to be built, starts each role, answers questions and merges.
+
+### Where it stands
+
+At 0.0.7. An issue that changes a verdict changes its row.
+
+| Goal | Today | What will hold it |
+|---|---|---|
+| 1. Fits the workflow | Partly: any tracker and git server with a command line, by a pattern the team writes. `wb init` writes the patterns for GitHub only. The CI and the requirements tool are names and nothing more. `wb` installs on Fedora and Enterprise Linux only | No issue yet for GitLab's patterns |
+| 2. What the agents are told | Held for what `wb` hands out: the pinned revision, `wb check`. That a session was given that prompt is the word of the one who started it | The starter, #84 |
+| 3. Rules enforced | Partly: the pinned revision, the acceptance, the breakdown's runner and the placeholders are checked in code. No limit of the rule table is | #28 names each limit and what holds it; then #65, #88 and the pieces #28 writes |
+| 4. People keep the decisions | Partly: `wb accept` asks for a person's word, but cannot tell a person from an agent under one account. That an agent cannot merge rests on the git server's settings | The roles' accounts, #83, and the acceptance read at the tracker, #88. No issue yet checks that a role's account cannot merge |
+| 5. Duties separated | Partly: the rule table says it, and nothing knows who holds which role | #83 and #88, for work that is handed on. No issue yet for a session a person starts |
+| 6. Sees only the code it needs | Not yet: the lists are in the prompt only | The sandbox, #65 |
+| 7. Code goes only where allowed | Partly: checked for the breakdown | The other roles, #11. No issue yet for a local model for them |
+| 8. Starts small | Not yet: every role needs an issue and its accepted file | #116 |
+| 9. Starts strict, opens up | Not yet: one level for the whole repository, and no level given means the strictest | #11, #65, and a level for each path, which has no issue yet |
+| 10. Shown to an assessor | Partly: what the agents are told can be read. The rule table says more than the program enforces | #28 |
+| 11. Needs no other product | Held: one RPM, `git`, and a build with the network off | |
+
+### Not goals
+
+- A record of what happened. That is for the team's own tools or a recorder, such as [Handover Ledger](https://github.com/fa1k3n/handover-ledger). Watchbill needs none. The stamp `wb` asks for on the issue is working state, not an archive.
+- A new place to work. There is no dashboard and no tracker of its own.
+- A model or an agent of its own. Watchbill ships neither.
+- Deciding what is built. That is a person's.
+
+### Later
+
+- Agents handing work to each other without a person starting each step. A convenience on top of the goals, not a goal.
+- Hardware in the loop: tests that run on the real device.
 
 ## Setting it up in a repository
 

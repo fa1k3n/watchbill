@@ -90,9 +90,13 @@ pub fn no_review(on: &str, key: &str) -> String {
 /// known, and a line of another form is not a stamp.
 pub fn read_stamps(root: &str, key: &str, line: &str, on: &str) -> Result<Stamps, String> {
     let printed = run(root, key, line, None)?;
-    let text = String::from_utf8_lossy(&printed);
-    let found = text
-        .lines()
+    let found = stamps_in(&String::from_utf8_lossy(&printed));
+    Ok(Stamps { on: on.to_string(), key: key.to_string(), found })
+}
+
+/// The stamps in the first lines of comments, one to a line: the role and the round of each `[stamp] <role> round <n>`.
+pub fn stamps_in(text: &str) -> Vec<(String, u64)> {
+    text.lines()
         .filter_map(|line| {
             let rest = line.trim_end_matches('\r').strip_prefix("[stamp] ")?;
             match rest.split(' ').collect::<Vec<_>>().as_slice() {
@@ -100,8 +104,7 @@ pub fn read_stamps(root: &str, key: &str, line: &str, on: &str) -> Result<Stamps
                 _ => None,
             }
         })
-        .collect();
-    Ok(Stamps { on: on.to_string(), key: key.to_string(), found })
+        .collect()
 }
 
 /// The open changes that `change_of_branch`, filled as `line`, prints: one to a line, empty lines left out.

@@ -17,6 +17,7 @@ pub mod rules;
 pub mod issue;
 pub mod sessions;
 pub mod starter;
+pub mod status;
 mod word;
 pub mod yamlfile;
 
@@ -38,6 +39,7 @@ pub const USAGE: &str = "usage:
   wb fix [<issue>] [--runner <name>] [--prompt] [the options of prompt]
   wb revision
   wb accept <issue>
+  wb status [<issue>] [--stage <heading>]
   wb --version
 
   init      set Watchbill up in the git repository of this folder: propose what
@@ -97,6 +99,17 @@ pub const USAGE: &str = "usage:
             time in UTC. An acceptance that is there is never written over.
             Ends with 0 when it is accepted, 1 when it is refused, 2 when it
             was used wrongly or the repository is not set up
+  status    list the issues in the flow under headings, as git status lists
+            files: each issue under the last step it has done (Not broken
+            down, Broken down, Accepted, Tested, Built, Reviewed, Fixed), with
+            its title, and last the issues that have a question no [answer]
+            line has closed. The open issues come from open_issues of watchbill.yml,
+            the comments from issue_comments. <issue> prints that issue and
+            what it was worked out from; --stage <heading> prints that heading
+            only, whatever its case. Ends with 0 when every issue could be
+            read, 1 when a pattern failed for one (it is listed under Not
+            read), 2 when it was used wrongly or the repository is not set up.
+            Writes nothing
 ";
 
 /// Runs a command so that a fault in `wb` itself is not shown as a panic: the hook prints nothing,
@@ -195,7 +208,7 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
             "version".to_string()
         }
         Ok(Some(Word::Value(value))) => match value.to_str() {
-            Some(name @ ("help" | "init" | "check" | "prompt" | "revision" | "accept")) => name.to_string(),
+            Some(name @ ("help" | "init" | "check" | "prompt" | "revision" | "accept" | "status")) => name.to_string(),
             Some(name) if STARTED.contains(&name) => name.to_string(),
             _ => {
                 let _ = write!(err, "wb: no command '{}'\n\n{}", word(value.as_bytes()), USAGE);
@@ -221,6 +234,7 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
         "check" => run_check(&mut parser, out, err),
         "prompt" => run_prompt(&mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), out, err),
         "accept" => run_accept(&mut parser, out, err),
+        "status" => run_status(&mut parser, out, err),
         role if STARTED.contains(&role) => {
             use std::io::IsTerminal;
             let terminal = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
@@ -989,6 +1003,59 @@ fn run_accept(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
             2
         }
         Ok(Some(root)) => issue::accept(&root, &issue, out, err),
+    }
+}
+
+/// `wb status [<issue>] [--stage <heading>]` (#139): where each issue stands. It only reads.
+fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let used = |err: &mut dyn Write, why: String| {
+        let _ = write!(err, "wb status: {}\n\n{}", why, USAGE);
+        2
+    };
+    let mut issue: Option<String> = None;
+    let mut stage: Option<&'static str> = None;
+    loop {
+        let found = match next(parser) {
+            Ok(None) => break,
+            Ok(Some(found)) => found,
+            Err(refused) => return used(err, format!("'{}' is not known", refused)),
+        };
+        match found {
+            Word::Value(value) if issue.is_none() => issue = Some(word(value.as_bytes())),
+            Word::Long(option) if option == "stage" && stage.is_none() => {
+                let Ok(value) = parser.value() else {
+                    return used(err, "'--stage' needs a heading".to_string());
+                };
+                let given = word(value.as_bytes());
+                match status::heading_of(&given) {
+                    Some(heading) => stage = Some(heading),
+                    None => {
+                        let names: Vec<&str> = status::STEPS.iter().chain([&status::QUESTIONS, &status::NOT_READ]).copied().collect();
+                        return used(err, format!("'{}' is not a heading of `wb status`: {}", given.escape_debug(), names.join(", ")));
+                    }
+                }
+            }
+            found => {
+                let refused = named(found, parser);
+                return used(err, format!("'{}' is not known", refused));
+            }
+        }
+    }
+    if let Some(issue) = &issue {
+        if !issue::is_name(issue) {
+            return used(err, format!("'{}' is not an issue: an issue is letters, digits, '.', '_' and '-', and does not start with '.'", issue.escape_debug()));
+        }
+    }
+    match init::repository_root(None) {
+        Err(why) => {
+            let _ = writeln!(err, "wb status: {}.", why);
+            2
+        }
+        Ok(None) => {
+            let _ = writeln!(err, "wb status: this folder is not in a git repository. Watchbill is set up in one.");
+            2
+        }
+        Ok(Some(root)) => status::status(&root, issue.as_deref(), stage, out, err),
     }
 }
 

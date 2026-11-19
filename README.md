@@ -369,9 +369,11 @@ issue_comments: 'gh api repos/example/brake-controller/issues/{issue}/comments -
 change_comment: 'gh pr comment {change} --repo example/brake-controller --body-file -'
 change_comments: 'gh api repos/example/brake-controller/issues/{change}/comments --paginate --jq ''.[].body | split("\n")[0]'''
 change_of_branch: 'gh pr list --repo example/brake-controller --head {branch} --state open --json number --jq ''.[].number'''
+open_issues: 'gh issue list --repo example/brake-controller --state open --limit 1000 --json number,title --jq ''.[] | "\(.number)\t\(.title | gsub("[\n\r]"; " "))"'''
 ```
 
 - `issue_comment` and `change_comment` post a comment from standard input. `issue_comments` and `change_comments` print the first line of each comment, one to a line. `change_of_branch` prints the numbers of the open changes from `{branch}`, one to a line. At GitHub the comments of a pull request are those of an issue, so `change_comments` reads them the same way.
+- `open_issues` prints the open issues, one to a line: the number, a tab and the title, with a line break in a title written as a space. For GitHub it stops at 1000 open issues. `wb status` reads it ([Where each issue stands](#where-each-issue-stands)); no role needs it.
 - Each is one line for `/bin/sh -c`, run in the root of the checkout, as an agent runs the addresses. The values filled in (`{issue}`, `{change}`, `{branch}`) are plain names, as for the addresses. A value given that is not is refused with 2, by its option. A branch worked out that is not is refused with 1, saying to give `--change`.
 - A repository set up before these lines, or with another server, adds them by hand. Without them, `wb prompt` asks for `--change` and `--round` as before, and `wb <role>` is refused, naming the line it needs.
 - `wb <role>` asks nothing of the network but through these lines and the runner's `start`.
@@ -384,6 +386,7 @@ issue_comments: 'glab api --hostname gitlab.example.com projects/brakes%2Fcontro
 change_comment: 'glab api --hostname gitlab.example.com --method POST projects/brakes%2Fcontroller/merge_requests/{change}/notes -F body=@-'
 change_comments: 'glab api --hostname gitlab.example.com projects/brakes%2Fcontroller/merge_requests/{change}/notes --paginate --output ndjson | jq -r ''select(.system == false) | .body | split("\n")[0]'''
 change_of_branch: 'glab mr list --repo https://gitlab.example.com/brakes/controller --source-branch {branch} -F json --jq ''.[].iid'''
+open_issues: 'glab api --hostname gitlab.example.com ''projects/brakes%2Fcontroller/issues?state=opened&per_page=100'' --paginate --output ndjson | jq -r ''"\(.iid)\t\(.title | gsub("[\n\r]"; " "))"'''
 issue_address: 'glab issue view {issue} --repo https://gitlab.example.com/brakes/controller --comments'
 change_address: 'glab mr view {change} --repo https://gitlab.example.com/brakes/controller --comments'
 ```
@@ -461,6 +464,47 @@ Each command posts its stamp and starts its session. The person answers the ques
 - Keep the session's last message and hand it on (#88).
 - Know whether a session of the same role already runs on the issue (#88).
 - Say what the session does with its prompt. The stamp says what was handed out and started.
+
+## Where each issue stands
+
+`wb status` lists the issues in the flow under headings, as `git status` lists files under theirs: each issue under the last step it has done, with its title. It only reads, and it says what is, never what to do. It runs anywhere inside the repository.
+
+```
+Not broken down:
+  178  howl export takes a range of dates
+
+Broken down:
+  176  The page shows how old the ledger is
+
+Accepted:
+  175  An event says where its task came from
+
+Reviewed:
+  177  A review round is counted the same everywhere
+
+Questions open:
+  176  176.q1, 176.q2
+```
+
+- **The headings**, in the order of the flow. An issue goes under the first that holds:
+  - `Fixed`: the last stamp on the issue is a `[stamp] fix`;
+  - `Reviewed`: the last stamp is a `[stamp] review`;
+  - `Built`: there is a `[stamp] build`;
+  - `Tested`: there is a `[stamp] tester`;
+  - `Accepted`: the issue's file and its acceptance are on the issue's branch, and the acceptance holds for the file;
+  - `Broken down`: the issue's file is on the issue's branch;
+  - `Not broken down`: none of these.
+  A new breakdown takes the issue back: only the stamps after the last `[stamp] breakdown` count, and with none after it the issue is under `Accepted` or `Broken down` by its file.
+  A heading with no issue is not printed. No round, no command and no word for a step going on is printed.
+- **The questions, last.** `Questions open` lists each issue that has a `[question]` no one has answered, with the names of those questions. The issue stays under its step too. A question is `[question] <issue>.…`; it is closed by an `[answer] <name> …` line, and `[answer] <issue> suggested` closes every question asked before it.
+- **Who answered.** `issue_comments` prints the first line of each comment and no author, so `wb` cannot yet tell an answer of a person from another. Until it reads who wrote a comment (#83), each `[answer]` line counts as a person's; a line that starts with `[question]` is never an answer. It reads first lines only, so an answer below the first line of a comment is not seen, which errs towards "open"; and a choice number is not held against the choices of the question (`wb answer`, a later issue, will): `[answer] 5.q1 7` closes `5.q1` whatever its choices are.
+- **Without `issue_comments`** in `watchbill.yml` no stamp, question or answer is read, so each issue is at `Accepted` or below; `wb status` says so once on standard error.
+- **Which issues, and their titles:** the open issues from the pattern `open_issues` of `watchbill.yml` ([The patterns](#the-patterns)), one to a line: number, a tab, title. `wb init` writes it for a GitHub and a GitLab `origin`. Without it, the issues are those with a branch of the pattern `branch` (local or at `origin`) or a file under `.watchbill/issues/`, with no title. A title is printed with its control characters escaped. A line of `open_issues` whose first field is not a plain issue name is listed under `Not read`.
+- **`wb status <issue>`** prints that issue's heading and line and, under them, `Worked out from:` and the lines it was worked out from: its stamps, questions and answers, and the branch and files it found.
+- **`wb status --stage <heading>`** prints only that heading, for example `wb status --stage "not broken down"`. The names are matched without regard to case; `Questions open` and `Not read` too. A name that is not known is used wrongly.
+- **What it reads:** the issue's file and its acceptance from the branch with `git show`, never by switching branches, and the comments through `issue_comments`. It writes nothing, and asks the network only through `open_issues` and `issue_comments`.
+- **The exit status:** 0 when every issue could be read; 1 when a pattern failed for an issue (it is listed last, under `Not read`, with why; the others are printed), or `open_issues` itself failed; 2 when it was used wrongly or Watchbill is not set up.
+- **It is not a dashboard** ([Not goals](#not-goals)): a list in the terminal, of now, for one repository. The sessions that run on this machine are for #140.
 
 ## Taking it on one role at a time
 

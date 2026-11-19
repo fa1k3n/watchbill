@@ -1,6 +1,6 @@
 # What a revision contains
 
-A revision is what a project is set up for and what its agents run under: the same on every machine, and checkable by anyone. This page says exactly what it is. Each point was settled with the owner on 2026-11-16 (#3). Points 1 and 6 were changed on 2026-11-17, when the owner decided that `wb` is written in Rust and not in Python (#20). Nothing else on the page changed: the files of a revision and their hash are the same. Point 14 and the changes to points 10, 12 and 13 on accounts were settled with the owner on 2026-11-18 (#30), and are in revision 0.0.7 (#82). That a person can start any role alone was settled with the owner on 2026-11-19, and changed points 12, 13 and 14 (#116, revision 0.0.8). That every role asks on the issue, plainly and with a suggested answer, changed points 12 and 13 (#113, revision 0.0.8). That `wb accept` checks the lists by the project's `needs` and keeps the build out of `changes` changed point 13 (#125, revision 0.0.9).
+A revision is what a project is set up for and what its agents run under: the same on every machine, and checkable by anyone. This page says exactly what it is. Each point was settled with the owner on 2026-11-16 (#3). Points 1 and 6 were changed on 2026-11-17, when the owner decided that `wb` is written in Rust and not in Python (#20). Nothing else on the page changed: the files of a revision and their hash are the same. Point 14 and the changes to points 10, 12 and 13 on accounts were settled with the owner on 2026-11-18 (#30), and are in revision 0.0.7 (#82). That a person can start any role alone was settled with the owner on 2026-11-19, and changed points 12, 13 and 14 (#116, revision 0.0.8). That every role asks on the issue, plainly and with a suggested answer, changed points 12 and 13 (#113, revision 0.0.8). That `wb accept` checks the lists by the project's `needs` and keeps the build out of `changes` changed point 13 (#125, revision 0.0.9). That a session sees only its files, in a view, changed points 3 and 12 (#126, revision 0.0.9).
 
 ## In short
 
@@ -61,6 +61,8 @@ For the whole table:
 - the rule for classed code (point 4).
 
 The program enforces the table. A prompt repeats a limit so the agent knows it, but no limit rests on the prompt alone.
+
+What a session may read and change is the program's to hold for a session that `wb <role>` starts for an issue with an accepted file: it runs in a view, in bubblewrap, with only the paths of its lists and no history, and its commits come back only where `changes` allows (#126). For a session a person starts by hand, or one with no issue's file, that limit rests on the prompt alone. Decided by the owner on 2026-11-19 (#65), in revision 0.0.9.
 
 ## 4. Code classes
 
@@ -164,7 +166,7 @@ A level that decides where an assignment may run. It is a second axis beside the
 
 What a session ran as is said by the one who started it, not by the session. Settled with the owner on 2026-11-17 (#31), after two runs in which every session gave its effort as `unknown`.
 
-- **What is stamped:** the role; the model ID and the effort of the model table; the runner; the version of the package and the hash of the revision; the issue, the change and the round; the branch and the checkout; the time; and the hash of each part of the prompt.
+- **What is stamped:** the role; the model ID and the effort of the model table; the runner; the version of the package and the hash of the revision; the issue, the change and the round; the branch and the checkout; the time; the view, as the hash of its list of paths, or `none` (#126); and the hash of each part of the prompt.
 - **What it means:** what was handed out. `wb prompt` knows what the table asks for and what the prompt holds. It cannot see what the session truly runs as. The one who starts the session starts it so. `wb <role>` does both in one step (#84), and closes the gap for a runner whose `start` sets the model and the effort.
 - **Who stamps:** the program that hands out the prompt: `wb prompt --stamp` (#68), and `wb <role>`, which posts it by `issue_comment` before it starts the session (#84). A person who starts a session by hand posts the stamp as it was printed. The stamp is posted by the identity of the starter, never by the session's (point 14).
 - **Its form:** lines of `name: value` in a fixed order, the same on every machine, with one line for each part of the prompt in the form `sha256sum` prints. A program can read it and `sha256sum` can check its parts.

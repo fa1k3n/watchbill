@@ -755,3 +755,68 @@ fn no_pattern(keys: &[&str]) {
         }
     }
 }
+
+// ---- which paths are classed (#84, the owner's answer of 2026-11-19) ----
+
+/// The list `classed` of `watchbill.yml` as the loader reads it back, or `None` when the file has none.
+fn classed(folder: &std::path::Path) -> Option<Vec<String>> {
+    let document = watchbill::yamlfile::load(config(folder)).unwrap();
+    let place = [watchbill::yamlfile::Part::from("classed")];
+    document.has(&place).then(|| document.texts(&place, true).unwrap())
+}
+
+const CLASSED_QUESTION: &str = "classed code (paths from the root, separated by commas, or [] for none): ([]) ";
+
+#[test]
+fn test_WB_INIT_54_yes_writes_classed_as_an_empty_list_after_the_ci() {
+    for origin in [Some("https://github.com/example/brake-controller.git"), None] {
+        let folder = repository(origin);
+        let run = wb(&folder.path, &["init", "--yes"], "");
+        assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+        assert_eq!(classed(&folder.path), Some(vec![]), "{:?}", origin);
+        let file = read(&config(&folder.path));
+        assert!(file.contains("\nci: none\nclassed: []\n") || file.contains("\nci: github-actions\nclassed: []\n"), "{}", file);
+    }
+}
+
+#[test]
+fn test_WB_INIT_54_the_question_proposes_an_empty_list_and_enter_keeps_it() {
+    let folder = repository(None);
+    // project, git server, tracker, requirements, ci, classed, then the question whether it is OK.
+    let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", "", "yes"]));
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let out = text(&run.stdout);
+    let ci = out.find("ci driver").unwrap();
+    let asked = out.find(CLASSED_QUESTION).unwrap_or_else(|| panic!("{}", out));
+    assert!(ci < asked, "{}", out);
+    assert_eq!(classed(&folder.path), Some(vec![]));
+}
+
+#[test]
+fn test_WB_INIT_54_an_answer_of_paths_is_written_as_the_list() {
+    let folder = repository(None);
+    let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", "src/brake, firmware/safety.c, 'odd name'/x", "yes"]));
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(classed(&folder.path), Some(vec!["src/brake".to_string(), "firmware/safety.c".to_string(), "'odd name'/x".to_string()]));
+    // Written in brackets too, and `none`, are taken as such.
+    for (answer, list) in [("[src, docs]", vec!["src", "docs"]), ("none", vec![]), ("[]", vec![])] {
+        let folder = repository(None);
+        let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", answer, "yes"]));
+        assert_eq!(code(&run), Some(0), "{}: {}", answer, text(&run.stderr));
+        let list: Vec<String> = list.iter().map(|path| path.to_string()).collect();
+        assert_eq!(classed(&folder.path), Some(list), "{}", answer);
+    }
+}
+
+#[test]
+fn test_WB_INIT_54_a_path_that_wb_role_would_refuse_is_not_taken_and_asked_again() {
+    for answer in ["/etc", "a/../b", "src,,docs", "src/\x07", ".", "src, "] {
+        let folder = repository(None);
+        let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", answer, "", "yes"]));
+        assert_eq!(code(&run), Some(0), "{:?}: {}", answer, text(&run.stderr));
+        let out = text(&run.stdout);
+        assert_eq!(out.matches(CLASSED_QUESTION).count(), 2, "{:?}: {}", answer, out);
+        assert!(out.contains("Not taken: "), "{:?}: {}", answer, out);
+        assert_eq!(classed(&folder.path), Some(vec![]), "{:?}", answer);
+    }
+}

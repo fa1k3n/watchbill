@@ -55,7 +55,7 @@ At 0.0.8. An issue that changes a verdict changes its row.
 
 | Goal | Today | What will hold it |
 |---|---|---|
-| 1. Fits the workflow | Partly: any tracker and git server with a command line, by a pattern the team writes. `wb init` writes the patterns for GitHub only. The CI and the requirements tool are names and nothing more. `wb` installs on Fedora and Enterprise Linux only | No issue yet for GitLab's patterns |
+| 1. Fits the workflow | Partly: any tracker and git server with a command line, by a pattern the team writes. `wb init` writes the patterns for GitHub and GitLab only. The CI and the requirements tool are names and nothing more. `wb` installs on Fedora and Enterprise Linux only | |
 | 2. What the agents are told | Held for what `wb` hands out: the pinned revision, `wb check`. `wb <role>` posts the stamp and starts the session with that prompt itself. A session started by hand is the word of the one who started it, and so is the effort of a runner whose `start` cannot set it | |
 | 3. Rules enforced | Partly: the pinned revision, the acceptance, the breakdown's runner and the placeholders are checked in code. No limit of the rule table is | #28 names each limit and what holds it; then #65, #88 and the pieces #28 writes |
 | 4. People keep the decisions | Partly: `wb accept` asks for a person's word, but cannot tell a person from an agent under one account. That an agent cannot merge rests on the git server's settings | The roles' accounts, #83, and the acceptance read at the tracker, #88. No issue yet checks that a role's account cannot merge |
@@ -136,7 +136,7 @@ classed: []
 - **A file that is already there is never changed.** When any file `wb init` would write is there, or a folder on the way to one is a link or not a folder, or `.watchbill/revision` is there, it writes nothing at all and names the path. Bringing a repository to a newer revision is a command of its own, later. A write that fails part way removes what it had written.
 - **The project's own text goes in `.watchbill/project/`.** `all.md` is added to the prompt of every role and `<role>.md` (`build.md`, `review.md`, `fix.md`, `tester.md`) to that of one role. Both are optional. They are the project's files: not part of the revision, not in the manifest, and `wb check` does not fail on them, except for a placeholder that the revision does not know (see `wb check`). A prompt is the role's text of the revision, then one fixed line, then `all.md`, then `<role>.md`. This text says how things are done here: the commands, the board, the words. It never lifts a limit of a role. `wb init` leaves `project/README.md`, which says so. The placeholders of `revision/roles/placeholders.md` (`{issue}`, `{branch}` and the others) are filled in every part, and any other placeholder is refused. A placeholder is a lower-case word in braces: `{`, a letter a to z, letters a to z or `_`, then `}`, with no `$` just before it. Anything else in braces is text and stays as it is, such as `${BUILD_DIR}`, `{Issue}`, `{issue-id}` and `{ issue }`. A value that is filled in is never itself read for placeholders. The command that prints a prompt comes later.
 - **`classed` is the code that is classed** ([Classed code](#classed-code)). `wb init` proposes `[]`, none, and `--yes` takes that. A person who answers gives paths from the root of the repository, separated by commas; a path that starts with `/`, holds `..` or is the root is not taken, and the question is asked again. A repository set up before this has no line `classed`, so every path counts as classed: add the line by hand.
-- **The answers are only written down.** No adapter exists yet, so a git server or a tracker is a name and nothing more. For a GitHub `origin`, `wb init` also writes the patterns that `wb prompt` and `wb <role>` run ([below](#starting-a-session)).
+- **The answers are only written down.** No adapter exists yet, so a git server or a tracker is a name and nothing more. For a GitHub or a GitLab `origin`, `wb init` also writes the patterns that `wb prompt` and `wb <role>` run ([below](#starting-a-session)).
 
 ## Checking it
 
@@ -181,7 +181,7 @@ The issue is the word after the role, or `--issue`; both together end with 2. Th
 
 - `--issue <text>`, `--change <text>`, `--requirements <text>`, `--round <text>`, `--checkout <text>`, `--branch <text>`, `--issue_address <text>`, `--change_address <text>`. What each is, is in `.watchbill/revision/roles/placeholders.md`.
 - `checkout` is the root of the repository `wb` runs in.
-- `issue_address` and `change_address` are the patterns of those names in `.watchbill/watchbill.yml`, with `{issue}` and `{change}` filled in. `wb init` proposes them for a GitHub `origin` only (`gh issue view {issue} --repo <repository>; gh issue view {issue} --repo <repository> --comments`, `gh pr view {change} --repo <repository>; gh pr view {change} --repo <repository> --comments`: each shows the text or the description first, then the comments, as `--comments` alone hides the first). For another server, or none, there is no pattern and the option must be given.
+- `issue_address` and `change_address` are the patterns of those names in `.watchbill/watchbill.yml`, with `{issue}` and `{change}` filled in. `wb init` proposes them for a GitHub `origin` (`gh issue view {issue} --repo <repository>; gh issue view {issue} --repo <repository> --comments`, `gh pr view {change} --repo <repository>; gh pr view {change} --repo <repository> --comments`: each shows the text or the description first, then the comments, as `--comments` alone hides the first). For a GitLab `origin` it writes one command each, with `--comments`. For another server, or none, there is no pattern and the option must be given.
 - `branch` is the pattern of that name in `watchbill.yml`, proposed as `issue-{issue}`, with `{issue}` filled in. The breakdown makes the branch, so it gets the pattern as it is. For the tester, the build, the review and the fix it is the one local branch (from the refs of the repository) whose name is the pattern, or starts with it and a `-`. None, or more than one, is refused with 1, the names found are said on standard error, and `--branch` must be given.
 - For a review or a fix of a change with no issue, `branch` is the branch checked out. `wb` asks nothing of the network, so it cannot see which branch the change is from: it refuses, with 2 and the words to give `--branch`, a HEAD on no branch, the branch that `origin/HEAD` names (where changes go), and any branch where `origin/HEAD` is not there.
 - `round` and `change`, where the role's text holds them (the review and the fix) and they are not given, are worked out as `wb <role>` works them out ([the round and the change](#the-round-and-the-change)), when `watchbill.yml` has the patterns. Without them the options are needed, as before. What was worked out is said on standard error, for example `wb prompt: round 2 (1 review stamp on issue 41), change 174 (the one open change from issue-41)`. This, and nothing else of `wb prompt`, asks the network, through the team's own patterns. The tester and the build ask nothing.
@@ -375,6 +375,22 @@ change_of_branch: 'gh pr list --repo example/brake-controller --head {branch} --
 - Each is one line for `/bin/sh -c`, run in the root of the checkout, as an agent runs the addresses. The values filled in (`{issue}`, `{change}`, `{branch}`) are plain names, as for the addresses. A value given that is not is refused with 2, by its option. A branch worked out that is not is refused with 1, saying to give `--change`.
 - A repository set up before these lines, or with another server, adds them by hand. Without them, `wb prompt` asks for `--change` and `--round` as before, and `wb <role>` is refused, naming the line it needs.
 - `wb <role>` asks nothing of the network but through these lines and the runner's `start`.
+
+For a GitLab `origin`, `wb init` writes the same patterns with `glab`, here for `brakes/controller` on `gitlab.example.com`, and `issue_address` and `change_address` besides:
+
+```yaml
+issue_comment: 'glab api --hostname gitlab.example.com --method POST projects/brakes%2Fcontroller/issues/{issue}/notes -F body=@-'
+issue_comments: 'glab api --hostname gitlab.example.com projects/brakes%2Fcontroller/issues/{issue}/notes --paginate --output ndjson | jq -r ''select(.system == false) | .body | split("\n")[0]'''
+change_comment: 'glab api --hostname gitlab.example.com --method POST projects/brakes%2Fcontroller/merge_requests/{change}/notes -F body=@-'
+change_comments: 'glab api --hostname gitlab.example.com projects/brakes%2Fcontroller/merge_requests/{change}/notes --paginate --output ndjson | jq -r ''select(.system == false) | .body | split("\n")[0]'''
+change_of_branch: 'glab mr list --repo https://gitlab.example.com/brakes/controller --source-branch {branch} -F json --jq ''.[].iid'''
+issue_address: 'glab issue view {issue} --repo https://gitlab.example.com/brakes/controller --comments'
+change_address: 'glab mr view {change} --repo https://gitlab.example.com/brakes/controller --comments'
+```
+
+- The host is that of `origin`, without a user name or a token; without it `glab` asks gitlab.com. An `origin` with a port gets none of these lines.
+- The comments are posted through `glab api`, which reads the whole text from standard input; `glab issue note` would ask for it at a prompt. `glab api` has no `--jq`, so `issue_comments` and `change_comments` need `jq` on the machine of the team. `wb` does not. They keep no system note, and print the first line of each other note.
+- The project is written in the path of the API with each `/` as `%2F`.
 
 ### Classed code
 

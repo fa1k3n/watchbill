@@ -252,6 +252,15 @@ fn origin(root: &str, env: Option<&[(String, String)]>) -> Result<String, String
     }
 }
 
+/// The host of `origin` when it is plain text and has no port, else an empty text. The user name and the
+/// token of an address are never kept. A port is not kept: for `ssh` it is not the port of the web.
+pub fn origin_host(root: &str, env: Option<&[(String, String)]>) -> String {
+    let remote = origin(root, env).ok().and_then(|address| parse_remote(&address));
+    remote
+        .filter(|r| r.port.is_empty() && !r.host.is_empty() && r.host.chars().all(|c| c.is_ascii_alphanumeric() || ".-".contains(c)))
+        .map_or(String::new(), |r| r.host)
+}
+
 /// What the repository in `root` says about itself. The error is what cannot be read as text.
 pub fn detect(root: &str, env: Option<&[(String, String)]>) -> Result<Setup, String> {
     let remote = parse_remote(&origin(root, env)?);

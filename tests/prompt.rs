@@ -243,7 +243,7 @@ fn test_WB_PROMPT_9_wb_init_leaves_the_readme_of_the_project_files() {
 fn test_WB_PROMPT_9_the_readme_is_named_before_the_question_and_before_it_is_written() {
     let folder = repository(None);
 
-    let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", "no"]));
+    let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", "", "no"]));
 
     let out = text(&run.stdout);
     let file = fs::canonicalize(&folder.path).unwrap().join(".watchbill/project/README.md");

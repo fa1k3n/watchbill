@@ -97,6 +97,7 @@ repository at the git server: (brakes/controller)
 tracker (github, gitlab, jira or none): (gitlab) jira
 requirements (a path to files, the name of a tool, or none): (requirements/*.md)
 ci driver (github-actions, gitlab-ci, jenkins or none): (gitlab-ci)
+classed code (paths from the root, separated by commas, or [] for none): ([])
 ```
 
 Enter keeps what stands in brackets. `wb init --yes` takes all of it and asks nothing; it shows the files before it writes them. Input that ends before a yes, and Ctrl-C, write nothing and end with 1. The result is the folder `.watchbill/` at the root of the repository, to be kept under version control with the code:
@@ -126,6 +127,7 @@ repository: brakes/controller
 tracker: jira
 requirements: requirements/*.md
 ci: gitlab-ci
+classed: []
 ```
 
 - **`watchbill` is the version of the package** the repository is set up for: the version of the `wb` that wrote the file. A revision is the version and the hash of its files together ([docs/revision.md](docs/revision.md)); the hash is the line `revision`, and is the one `wb revision` prints.
@@ -133,6 +135,7 @@ ci: gitlab-ci
 - **The revision is copied, never edited.** The files under `.watchbill/revision/` are written by `wb` and never by hand. `cd .watchbill && sha256sum -c revision.sha256` checks them without `wb`.
 - **A file that is already there is never changed.** When any file `wb init` would write is there, or a folder on the way to one is a link or not a folder, or `.watchbill/revision` is there, it writes nothing at all and names the path. Bringing a repository to a newer revision is a command of its own, later. A write that fails part way removes what it had written.
 - **The project's own text goes in `.watchbill/project/`.** `all.md` is added to the prompt of every role and `<role>.md` (`build.md`, `review.md`, `fix.md`, `tester.md`) to that of one role. Both are optional. They are the project's files: not part of the revision, not in the manifest, and `wb check` does not fail on them, except for a placeholder that the revision does not know (see `wb check`). A prompt is the role's text of the revision, then one fixed line, then `all.md`, then `<role>.md`. This text says how things are done here: the commands, the board, the words. It never lifts a limit of a role. `wb init` leaves `project/README.md`, which says so. The placeholders of `revision/roles/placeholders.md` (`{issue}`, `{branch}` and the others) are filled in every part, and any other placeholder is refused. A placeholder is a lower-case word in braces: `{`, a letter a to z, letters a to z or `_`, then `}`, with no `$` just before it. Anything else in braces is text and stays as it is, such as `${BUILD_DIR}`, `{Issue}`, `{issue-id}` and `{ issue }`. A value that is filled in is never itself read for placeholders. The command that prints a prompt comes later.
+- **`classed` is the code that is classed** ([Classed code](#classed-code)). `wb init` proposes `[]`, none, and `--yes` takes that. A person who answers gives paths from the root of the repository, separated by commas; a path that starts with `/`, holds `..` or is the root is not taken, and the question is asked again. A repository set up before this has no line `classed`, so every path counts as classed: add the line by hand.
 - **The answers are only written down.** No adapter exists yet, so a git server or a tracker is a name and nothing more. For a GitHub `origin`, `wb init` also writes the patterns that `wb prompt` and `wb <role>` run ([below](#starting-a-session)).
 
 ## Checking it
@@ -361,7 +364,7 @@ classed: [src/brake, firmware/safety.c]
 ```
 
 - A path of the issue's `changes` is classed when it is a path of the list, lies below one, or is a folder above one. Such an issue is refused with 1, naming the paths and #65.
-- **With no `classed`, every path is classed.** Where a class is not given, the most restrictive applies. A person writes `classed: []` when no code is classed. `wb init` writes no `classed`: what is classed is for a person to say.
+- **With no `classed`, every path is classed.** Where a class is not given, the most restrictive applies. `wb init` asks for the list and proposes `classed: []`, and `wb init --yes` writes that: what is classed is for a person to say. A repository set up before this adds the line by hand.
 - **With no issue's file** (or no issue), the paths the session may change are not known. The role is then refused unless the list is empty: `classed: []`.
 - The breakdown is not checked on the class. It changes only the issue's file.
 - `--prompt` is not refused on the class.

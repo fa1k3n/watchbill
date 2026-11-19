@@ -57,3 +57,4 @@ What `wb init` does today: it sets Watchbill up in a git repository. What it wri
 | WB-INIT-51 | `wb init` shall propose `build_files` with the CI file it found, and write no `build_files` when it found none. Issue: #125. | T | Draft |
 | WB-INIT-52 | `wb init` shall write `change_checks` for a GitHub and a GitLab `origin`, and none for another server. Issue: #127. | T | Draft |
 | WB-INIT-53 | `wb init` shall write the patterns `change_comment` and `change_comments` for a GitHub `origin`, and none for another server. Issue: #84, #116. | T | Implemented |
+| WB-INIT-54 | `wb init` shall ask for `classed` after the CI driver, propose `[]`, and write the answer as the line `classed:` of `watchbill.yml`, `classed: []` with `--yes`; a path that starts with `/`, holds `..` or is the root shall not be taken, and the question shall be asked again. Issue: #84. | T | Implemented |

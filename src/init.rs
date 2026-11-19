@@ -83,8 +83,41 @@ pub fn yaml_value(value: &str) -> String {
     }
 }
 
-/// The file `wb init` writes.
+/// The question of the classed paths (#84), asked after the CI driver. What stands in brackets is `[]`.
+const CLASSED_QUESTION: &str = "classed code (paths from the root, separated by commas, or [] for none)";
+
+/// The classed paths of an answer, or why it is not taken. `[]`, `none` and nothing are no classed code. The
+/// paths are separated by commas, in brackets or not, and each is one that `wb <role>` takes: from the root of
+/// the repository, not starting with `/`, with no `..`, and not the root.
+fn classed_answer(answer: &str) -> Result<Vec<String>, &'static str> {
+    let inner = answer.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')).unwrap_or(answer).trim();
+    if inner.is_empty() || inner == NONE {
+        return Ok(Vec::new());
+    }
+    if answer.chars().count() > 200 {
+        return Err("that is over 200 characters");
+    }
+    if answer.chars().any(|c| c <= '\x1f' || c == '\x7f') {
+        return Err("that holds a character that cannot be written");
+    }
+    let mut paths = Vec::new();
+    for path in inner.split(',').map(str::trim) {
+        let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty() && *part != ".").collect();
+        if path.is_empty() || path.starts_with('/') || parts.is_empty() || parts.contains(&"..") {
+            return Err("a classed path is a file or a folder from the root of the repository, not `/` at its start, with no `..`, and not the root; paths are separated by commas");
+        }
+        paths.push(path.to_string());
+    }
+    Ok(paths)
+}
+
+/// The file `wb init` writes, with no classed code.
 pub fn render(revision: &str, hash: &str, setup: &Setup) -> String {
+    render_with(revision, hash, setup, &[])
+}
+
+/// The file `wb init` writes, with the classed paths given as `classed:` after the CI driver (#84).
+pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]) -> String {
     let rows = [
         ("watchbill", revision),
         ("revision", hash),
@@ -102,6 +135,9 @@ pub fn render(revision: &str, hash: &str, setup: &Setup) -> String {
     for (key, value) in rows {
         text.push_str(&format!("{}: {}\n", key, yaml_value(value)));
     }
+    // Which paths are classed (#84): a person says it here. With no line, `wb <role>` takes every path as classed.
+    let listed: Vec<String> = classed.iter().map(|path| yaml_value(path)).collect();
+    text.push_str(&format!("classed: [{}]\n", listed.join(", ")));
     // The patterns `wb prompt` fills (#72). The addresses are known for GitHub only, and only from a
     // repository that is plain text; the branch does not depend on the server.
     let plain = !setup.repository.is_empty()
@@ -291,6 +327,18 @@ impl Talk<'_> {
         }
         Ok(setup)
     }
+
+    /// The classed paths (#84): asked after the CI driver, with `[]` proposed. An empty line, or input that has
+    /// ended, keeps it; an answer that is not taken is said, and the question is asked again.
+    fn classed(&mut self) -> io::Result<Vec<String>> {
+        loop {
+            let line = self.ask(&format!("{}: ([]) ", CLASSED_QUESTION))?;
+            match classed_answer(strip(line.as_deref().unwrap_or(""))) {
+                Ok(paths) => return Ok(paths),
+                Err(why) => self.say(&format!("Not taken: {}.", why)),
+            }
+        }
+    }
 }
 
 /// Runs `wb init` in the repository at `root`. Returns the exit status.
@@ -331,6 +379,7 @@ pub fn init(
             return 1;
         }
     };
+    let mut classed = Vec::new();
     if !yes {
         talk.say(&format!("This sets Watchbill {} up in {}.", revision, root));
         talk.say(&format!("It asks a few things and writes {}/{}. What it found in the", CONFIG_FOLDER, CONFIG_FILE));
@@ -343,9 +392,16 @@ pub fn init(
                 return 1;
             }
         };
+        classed = match talk.classed() {
+            Ok(paths) => paths,
+            Err(error) => {
+                let _ = err.write_all(read_failure(&error).as_bytes());
+                return 1;
+            }
+        };
     }
 
-    let text = render(revision, &pin.hash, &setup);
+    let text = render_with(revision, &pin.hash, &setup, &classed);
     talk.say(&format!("\nAbout to write {}:\n\n{}", file, text));
     talk.say("and these files: those of the revision, byte for byte as the package has them, and the README of the project's own text:\n");
     for path in &targets[..targets.len() - 1] {

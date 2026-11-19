@@ -217,7 +217,7 @@ The pieces that build this have their requirements reserved as Draft rows in `re
 
 | Area | File | Issue |
 |---|---|---|
-| `WB-ROLE` | `requirements/role.md` | #4, #69, #75, #78, #82, #95, #98, #113, #116 |
+| `WB-ROLE` | `requirements/role.md` | #4, #69, #75, #78, #82, #95, #98, #113, #116, #125 |
 | `WB-RULE` | `requirements/rule.md` | #5, #75, #95, #98, #113 |
 | `WB-REV` | `requirements/rev.md` | #6 |
 | `WB-PIN` | `requirements/pin.md` | #7 |
@@ -230,5 +230,7 @@ The pieces that build this have their requirements reserved as Draft rows in `re
 | `WB-LISTEN` | `requirements/listen.md` | #85 |
 | `WB-OFFICER` | `requirements/officer.md` | #86 |
 | `WB-HAND` | `requirements/hand.md` | #88 |
+| `WB-MON` | `requirements/mon.md` | #124, #126, #127 |
+| `WB-VIEW` | `requirements/view.md` | #126 |
 
 The move to Rust builds no new area. #21 to #25 port what #2 and #4 to #6 built, row by row, and their new rows are reserved in `requirements/pkg.md`, `init.md`, `rule.md` and `rev.md`.

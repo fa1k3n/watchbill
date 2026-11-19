@@ -18,11 +18,13 @@ use std::path::{Path, PathBuf};
 use std::process::Output;
 use watchbill::USAGE;
 
-/// A repository made for a test, the folder of its stand-ins, and the organisation's file.
+/// A repository made for a test, the folder of its stand-ins, and the organisation's file, in a folder of its
+/// own: a session in a view (#126) has the folder of the stand-ins bound, and never the organisation's.
 struct Bench {
     repo: Folder,
     log: Folder,
     org: PathBuf,
+    _org_folder: Folder,
 }
 
 impl Bench {
@@ -171,9 +173,10 @@ fn bench() -> Bench {
     git(&repo.path, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
     git(&repo.path, &["branch", "issue-54"]);
     git(&repo.path, &["checkout", "-q", "-b", "feature-x"]);
-    let path = log.path.join("organisation.yml");
+    let org_folder = folder_named("org");
+    let path = org_folder.path.join("organisation.yml");
     fs::write(&path, org(&log.path, Some("stand-in"))).unwrap();
-    Bench { repo, log, org: path }
+    Bench { repo, log, org: path, _org_folder: org_folder }
 }
 
 /// The model and effort of the model table for a role.

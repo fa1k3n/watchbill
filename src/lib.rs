@@ -18,6 +18,7 @@ pub mod issue;
 pub mod sessions;
 pub mod starter;
 pub mod status;
+pub mod view;
 mod word;
 pub mod yamlfile;
 
@@ -239,7 +240,15 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
             use std::io::IsTerminal;
             let terminal = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
             let state = sessions::state_folder();
-            run_start(role, &mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), terminal, state.as_deref(), out, err)
+            let home = home_folder();
+            let machine = Machine {
+                organisation: Path::new(confidentiality::ORGANISATION_FILE),
+                terminal,
+                state: state.as_deref(),
+                sandbox: Path::new(view::BWRAP),
+                home: home.as_deref(),
+            };
+            run_start(role, &mut parser, None, &machine, out, err)
         }
         _ => run_revision(&mut parser, Path::new(manifest::PACKAGE_FOLDER), out, err),
     }
@@ -326,11 +335,39 @@ pub fn start(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> i32 {
+    let home = home_folder();
+    let machine = Machine { organisation, terminal, state, sandbox: Path::new(view::BWRAP), home: home.as_deref() };
+    start_on(args, folder, &machine, out, err)
+}
+
+/// What `wb <role>` takes from the machine it runs on. `run` gives the path of the organisation's file fixed in
+/// `wb`, what the terminal says, `sessions::state_folder`, bubblewrap at `view::BWRAP` and `$HOME`; a test gives
+/// its own.
+pub struct Machine<'a> {
+    /// The organisation's file (#93).
+    pub organisation: &'a Path,
+    /// Whether standard input and output are a terminal (#84).
+    pub terminal: bool,
+    /// The state folder the lines of the start (#124) and the views (#126) are written below, or none.
+    pub state: Option<&'a Path>,
+    /// bubblewrap, which a session in a view runs in (#126).
+    pub sandbox: &'a Path,
+    /// The home folder that `~/` of a runner's `binds` names, or none.
+    pub home: Option<&'a Path>,
+}
+
+/// The home folder of the person who runs `wb`: `$HOME` when it is an absolute path.
+fn home_folder() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME").map(std::path::PathBuf::from).filter(|path| path.is_absolute())
+}
+
+/// `wb <role>`, as `start` runs it, on the machine `machine` says.
+pub fn start_on(args: &[OsString], folder: &Path, machine: &Machine, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let mut parser = Parser::from_args(args.iter().cloned());
     match next(&mut parser) {
         Ok(Some(Word::Value(value))) if value.to_str().is_some_and(|role| STARTED.contains(&role)) => {
             let role = word(value.as_bytes());
-            run_start(&role, &mut parser, Some(folder), organisation, terminal, state, out, err)
+            run_start(&role, &mut parser, Some(folder), machine, out, err)
         }
         _ => {
             let _ = write!(err, "wb: no command '{}'\n\n{}", word(args.first().map(|arg| arg.as_bytes()).unwrap_or_default()), USAGE);
@@ -647,7 +684,12 @@ fn stamp_of(role: &str, handed: &Handed, runner: &str, seconds: Result<u64, Stri
     let model = model_of(role, handed.cleared.as_ref())?;
     let revision = manifest::revision_hash(manifest::PACKAGE_FOLDER).map_err(|why| why.to_string())?;
     let time = prompt::utc(seconds?);
+    let view = match view_paths(role, handed) {
+        Some(paths) => view::hash(&paths),
+        None => "none".to_string(),
+    };
     let said = prompt::Stamp {
+        view: &view,
         role,
         model: &model.model,
         effort: &model.effort,
@@ -659,6 +701,14 @@ fn stamp_of(role: &str, handed: &Handed, runner: &str, seconds: Result<u64, Stri
     };
     let given: Vec<(&str, &str)> = handed.values.iter().map(|(name, value)| (*name, value.as_str())).collect();
     Ok(prompt::stamp(&said, &given, &handed.found))
+}
+
+/// The paths of the view a session of `role` runs in (#126): those of the issue's file for the role, when the
+/// role is one the file lists paths for and a file is used. `None`: the session runs without a view, as the
+/// breakdown, which reads the whole code by its role, and a role started with no issue's file (#116) do.
+fn view_paths(role: &str, handed: &Handed) -> Option<Vec<String>> {
+    let file = handed.file.as_ref()?;
+    issue::ROLES.contains(&role).then(|| view::paths(&file.issue, role))
 }
 
 /// Prints what was handed out, as `wb prompt` prints it: the stamp, the parts, or the text.
@@ -737,22 +787,16 @@ fn refusal_in(name: &str, said: &[u8]) -> String {
 
 /// `wb <role> [<issue>] [--runner <name>] [--prompt] …` (#84): the checks of `wb prompt`, then that the rule
 /// table lets the role start, that no classed code is in its way, that the runner has `start`, and that it
-/// runs at a terminal; then the stamp is posted by `issue_comment` (or `change_comment`), and the session is
-/// started by the runner's `start`. The first fault ends it, and nothing is posted or started. With
-/// `--prompt`, `--stamp` or `--parts` it does what `wb prompt` does, and writes nothing.
+/// runs at a terminal, and for an issue with an accepted file that its view can be made (#126); then the stamp
+/// is posted by `issue_comment` (or `change_comment`), and the session is started by the runner's `start`, in
+/// its view in bubblewrap where it has one, and its commits are taken back. The first fault ends it, and nothing
+/// is posted or started. With `--prompt`, `--stamp` or `--parts` it does what `wb prompt` does, and writes
+/// nothing.
 ///
 /// From the checks on, each start leaves its lines in a new folder below `state` (#124): the stamp, posted
-/// or as it would have been, and the outcome (`sessions`).
-fn run_start(
-    role: &str,
-    parser: &mut Parser,
-    folder: Option<&Path>,
-    organisation: &Path,
-    terminal: bool,
-    state: Option<&Path>,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
-) -> i32 {
+/// or as it would have been, the outcome (`sessions`), and for a view `view` and `back`.
+fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &Machine, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let (organisation, terminal, state) = (machine.organisation, machine.terminal, machine.state);
     let name = format!("wb {}", role);
     let name = name.as_str();
     let mut words = match read_words(parser, name, Some(role), err) {
@@ -915,8 +959,25 @@ fn run_start(
             "standard input or standard output is not a terminal, and no session is started out of a person's sight before a session sees only its files (#65). Use --prompt.",
         );
     }
-    // The pattern that posts the stamp. From here, a fault leaves the stamp not posted.
+    // 6. The view (#126): a session of an issue with an accepted file runs in one, in bubblewrap. Its binds, the
+    // sandbox and the view itself are made sure of before anything is posted.
+    let paths = view_paths(role, &handed);
+    let mut prepared: Option<Prepared> = None;
+    if let Some(paths) = &paths {
+        match prepare_view(root, role, words.get("issue"), paths, &chosen.binds, machine) {
+            Ok(found) => prepared = Some(found),
+            Err(why) => return refused(&mut lines, err, "view", &why),
+        }
+    }
+    // A view made and not run in is removed, whatever ends the start.
+    let discard = |prepared: &Option<Prepared>| {
+        if let Some(prepared) = prepared {
+            view::discard(&prepared.view);
+        }
+    };
+    // The pattern that posts the stamp. From here, a fault leaves the stamp not posted, and no view.
     let not_posted = |lines: &mut sessions::Lines, err: &mut dyn Write, why: &str| {
+        discard(&prepared);
         let _ = writeln!(err, "{}: {}", name, why);
         lines.close(stamp.as_deref().ok(), sessions::Outcome::NotPosted { status: 1, message: why.to_string() }, err);
         1
@@ -934,36 +995,162 @@ fn run_start(
         Err(why) => return not_posted(&mut lines, err, why),
     };
     lines.open(Some(stamp), err);
+    if let Some(paths) = &paths {
+        lines.write("view", &view::list(paths), err);
+    }
     let _ = write!(err, "{}: will post on {} {}, by `{}` of watchbill.yml:\n{}", name, word, on, post, stamp);
     match starter::run(root, post, &line.replace(&format!("{{{}}}", word), &on), Some(stamp.as_bytes())) {
         Ok(said) => {
             let _ = err.write_all(&said);
         }
         Err(why) => {
+            discard(&prepared);
             let why = format!("{}. The stamp may not be posted, and no session is started.", why);
             let _ = writeln!(err, "{}: {}", name, why);
             lines.close(None, sessions::Outcome::NotPosted { status: 1, message: why }, err);
             return 1;
         }
     }
-    let _ = writeln!(err, "{}: starts {} on the runner {}, in {}", name, role, runner, root);
     let began = std::time::Instant::now();
-    match starter::session(root, &filled) {
-        Ok(status) => {
-            let seconds = began.elapsed().as_secs();
-            let code = if status.success() { 0 } else { 1 };
-            if code != 0 {
-                let _ = writeln!(err, "{}: the session did not end with 0", name);
+    let ran = match &prepared {
+        None => {
+            // A role started with no issue's file (#116) runs as in revision 0.0.8, and the person is told (#126).
+            if role != "breakdown" {
+                let _ = writeln!(
+                    err,
+                    "{}: there is no issue's file, so the session runs without a view: it sees the whole checkout and its history, and the limits of its prompt rest on the prompt alone",
+                    name
+                );
             }
-            lines.close(None, sessions::Outcome::Ended { status, seconds }, err);
-            code
+            let _ = writeln!(err, "{}: starts {} on the runner {}, in {}", name, role, runner, root);
+            starter::session(root, &filled)
         }
+        Some(prepared) => {
+            let _ = writeln!(
+                err,
+                "{}: starts {} on the runner {}, in a view of {} at {}, in bubblewrap",
+                name,
+                role,
+                runner,
+                prepared.view.folder.display(),
+                root
+            );
+            let organisation_folder = organisation.parent().filter(|folder| folder.is_dir());
+            let plan = view::Plan {
+                view: &prepared.view.folder,
+                checkout: Path::new(root),
+                binds: prepared.binds.clone(),
+                organisation: organisation_folder,
+                home: machine.home,
+                new_session: view::new_session(),
+                words: &filled,
+            };
+            view::run(machine.sandbox, &plan)
+        }
+    };
+    let status = match ran {
+        Ok(status) => status,
         Err(why) => {
             let _ = writeln!(err, "{}: {}", name, why);
+            if let Some(prepared) = &prepared {
+                let back = view::Back { failed: Some(why.clone()), ..Default::default() };
+                let kept = view::tidy(name, &prepared.view, &back, err);
+                lines.write("back", &back.text(kept.as_deref()), err);
+            }
             lines.close(None, sessions::Outcome::Refused { check: "start", status: 1, message: why }, err);
-            1
+            return 1;
+        }
+    };
+    let seconds = began.elapsed().as_secs();
+    let mut code = if status.success() { 0 } else { 1 };
+    if code != 0 {
+        let _ = writeln!(err, "{}: the session did not end with 0", name);
+    }
+    // What the session committed in its view comes back onto the branch, as far as it keeps to `changes`.
+    if let (Some(prepared), Some(file)) = (&prepared, &handed.file) {
+        let back = view::take_back(name, root, &prepared.view, &file.issue.changes, &prepared.build_files, err);
+        let kept = view::tidy(name, &prepared.view, &back, err);
+        lines.write("back", &back.text(kept.as_deref()), err);
+        if back.refused_any() {
+            code = 1;
         }
     }
+    lines.close(None, sessions::Outcome::Ended { status, seconds }, err);
+    code
+}
+
+/// A view made for a session, before it is posted: the view, the runner's binds as paths, and `build_files` of
+/// `watchbill.yml`.
+struct Prepared {
+    view: view::View,
+    binds: Vec<(std::path::PathBuf, bool)>,
+    build_files: Vec<String>,
+}
+
+/// Makes sure of what a session in a view needs, and makes the view (#126): the runner's binds, each from the
+/// root and holding neither the checkout, the folder of the organisation's file nor the state folder; a state
+/// folder to make the view below; bubblewrap that can make a sandbox; `build_files`. The error says why not.
+fn prepare_view(
+    root: &str,
+    role: &str,
+    issue: Option<&str>,
+    paths: &[String],
+    binds: &[confidentiality::Bind],
+    machine: &Machine,
+) -> Result<Prepared, String> {
+    let mut resolved = Vec::new();
+    for bind in binds {
+        let path = match (bind.path.strip_prefix("~/"), machine.home) {
+            (None, _) => std::path::PathBuf::from(&bind.path),
+            (Some(rest), Some(home)) => home.join(rest),
+            (Some(_), None) => {
+                return Err(format!(
+                    "the runner's bind {} is in the home folder, and HOME names no absolute folder. Set HOME, or take it out of `binds` in the organisation's file {}",
+                    bind.path,
+                    machine.organisation.display()
+                ))
+            }
+        };
+        resolved.push((path, bind.writable));
+    }
+    let mut kept: Vec<(std::path::PathBuf, &str)> = vec![(std::path::PathBuf::from(root), "the checkout")];
+    if let Some(folder) = machine.organisation.parent().filter(|folder| !folder.as_os_str().is_empty()) {
+        kept.push((folder.to_path_buf(), "the folder of the organisation's file"));
+    }
+    if let Some(state) = machine.state {
+        kept.push((state.join("watchbill"), "the state folder of Watchbill, which holds the views"));
+    }
+    let forms = |path: &Path| -> Vec<String> {
+        let mut found = vec![path.display().to_string()];
+        if let Ok(real) = std::fs::canonicalize(path) {
+            found.push(real.display().to_string());
+        }
+        found
+    };
+    for (path, _) in &resolved {
+        for (other, what) in &kept {
+            let meets = forms(path).iter().any(|one| forms(other).iter().any(|two| starter::meet(one, two)));
+            if meets {
+                return Err(format!(
+                    "the runner's bind {} holds or lies in {}, {}, which a view never shows. Take it out of `binds` in the organisation's file {}",
+                    path.display(),
+                    what,
+                    other.display(),
+                    machine.organisation.display()
+                ));
+            }
+        }
+    }
+    let state = machine
+        .state
+        .ok_or("neither XDG_STATE_HOME nor HOME names an absolute folder, and a view is made below the state folder of Watchbill")?;
+    view::works(machine.sandbox)?;
+    let settings = yamlfile::load(Path::new(root).join(init::CONFIG_FOLDER).join(init::CONFIG_FILE)).map_err(|why| why.to_string())?;
+    let build_files = issue::build_files_of(&settings)?.unwrap_or_default();
+    let time = now().map(|seconds| prompt::utc(seconds).replace(':', ""))?;
+    let base = format!("{}-{}-{}", time, role, issue.unwrap_or("none"));
+    let made = view::make(root, paths, &state.join("watchbill").join("views"), &base)?;
+    Ok(Prepared { view: made, binds: resolved, build_files })
 }
 
 /// `wb accept <issue>`: accepts the issue's file (`issue::accept`).

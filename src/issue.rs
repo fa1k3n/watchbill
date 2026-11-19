@@ -404,7 +404,7 @@ const BUILDING: [&str; 2] = ["tester", "build"];
 
 /// The list `build_files` of `watchbill.yml` (#125), or `None` when it has none. Each is a file or a folder from
 /// the root of the repository, not `/` at its start, with no `..`, and not the root.
-fn build_files_of(settings: &Document) -> Result<Option<Vec<String>>, String> {
+pub(crate) fn build_files_of(settings: &Document) -> Result<Option<Vec<String>>, String> {
     let place = [Part::from("build_files")];
     if !settings.has(&place) {
         return Ok(None);

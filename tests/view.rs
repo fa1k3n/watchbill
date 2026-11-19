@@ -135,6 +135,8 @@ fn bench() -> Bench {
     git(&repo.path, &["branch", "-M", "main"]);
     git(&repo.path, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
     git(&repo.path, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+    // Issue 99 has no file: its branch is there for a role started alone.
+    git(&repo.path, &["branch", "issue-99"]);
     git(&repo.path, &["checkout", "-q", "-b", "issue-54"]);
     put(&repo.path, ".watchbill/issues/54.yml", ISSUE_54);
     let run = wb(&repo.path, &["accept", "54"], "");

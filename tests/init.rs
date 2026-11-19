@@ -61,6 +61,8 @@ fn test_WB_INIT_14_yes_writes_what_the_repository_says_and_asks_nothing() {
             "tracker: github",
             "requirements: requirements/*.md",
             "ci: github-actions",
+            // The CI file that was found is a file of the build (#125), after `classed`.
+            "build_files: ['.github/workflows']",
             // The patterns of the starter (#84), before the addresses.
             "issue_comment: 'gh issue comment {issue} --repo example/brake-controller --body-file -'",
             "issue_comments: 'gh api repos/example/brake-controller/issues/{issue}/comments --paginate --jq ''.[].body | split(\"\\n\")[0]'''",
@@ -114,6 +116,8 @@ fn test_WB_INIT_9_an_answer_replaces_what_was_found_and_an_empty_line_keeps_it()
             "tracker: jira",
             "requirements: polarion",
             "ci: jenkins",
+            // Each CI file that was found (#125), whatever the answer for the driver.
+            "build_files: ['.gitlab-ci.yml', Jenkinsfile]",
         ])
     );
     let out = text(&run.stdout);
@@ -960,4 +964,54 @@ fn test_WB_INIT_54_a_path_that_wb_role_would_refuse_is_not_taken_and_asked_again
         assert!(out.contains("Not taken: "), "{:?}: {}", answer, out);
         assert_eq!(classed(&folder.path), Some(vec![]), "{:?}", answer);
     }
+}
+
+/// The list `build_files` of `watchbill.yml`, or `None` when it has none.
+fn build_files(folder: &std::path::Path) -> Option<Vec<String>> {
+    let document = watchbill::yamlfile::load(config(folder)).unwrap();
+    let place = [watchbill::yamlfile::Part::from("build_files")];
+    document.has(&place).then(|| document.texts(&place, true).unwrap())
+}
+
+#[test]
+fn test_WB_INIT_51_build_files_holds_the_ci_file_that_was_found_and_is_not_written_for_none() {
+    let some = |paths: &[&str]| Some(paths.iter().map(|path| path.to_string()).collect::<Vec<String>>());
+    for (files, list) in [
+        (vec![".gitlab-ci.yml"], some(&[".gitlab-ci.yml"])),
+        (vec![".github/workflows/ci.yml"], some(&[".github/workflows"])),
+        (vec!["Jenkinsfile"], some(&["Jenkinsfile"])),
+        (vec!["azure-pipelines.yml"], some(&["azure-pipelines.yml"])),
+        (vec!["bitbucket-pipelines.yml"], some(&["bitbucket-pipelines.yml"])),
+        (vec![".circleci/config.yml"], some(&[".circleci"])),
+        (vec![".zuul.yaml"], some(&[".zuul.yaml"])),
+        (vec!["zuul.d/jobs.yaml"], some(&["zuul.d"])),
+        // Each CI file that was found, in the order of the drivers.
+        (vec!["Jenkinsfile", ".gitlab-ci.yml"], some(&[".gitlab-ci.yml", "Jenkinsfile"])),
+        // No CI file: no line at all.
+        (vec![], None),
+        (vec![".github/dependabot.yml"], None),
+        (vec!["Makefile"], None),
+    ] {
+        let folder = repository(None);
+        for file in &files {
+            put(&folder.path, file, "");
+        }
+        let run = wb(&folder.path, &["init", "--yes"], "");
+        assert_eq!(code(&run), Some(0), "{:?}: {}", files, text(&run.stderr));
+        assert_eq!(build_files(&folder.path), list, "{:?}", files);
+        if list.is_none() {
+            assert!(!read(&config(&folder.path)).contains("build_files"), "{:?}", files);
+        }
+    }
+}
+
+#[test]
+fn test_WB_INIT_51_build_files_is_shown_before_it_is_written_after_classed() {
+    let folder = repository(None);
+    put(&folder.path, ".gitlab-ci.yml", "");
+    let run = wb(&folder.path, &["init", "--yes"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("build_files: ['.gitlab-ci.yml']"), "{}", text(&run.stdout));
+    let file = read(&config(&folder.path));
+    assert!(file.contains("\nclassed: []\nbuild_files: ['.gitlab-ci.yml']\n"), "{}", file);
 }

@@ -898,6 +898,21 @@ fn test_WB_ROLE_65_how_an_existing_test_changes_goes_under_existing_tests_change
 }
 
 #[test]
+fn test_WB_ROLE_78_the_breakdown_s_lists_must_pass_the_check_of_needs() {
+    let point = breakdown_point("## What you produce", "- Your lists must pass the check of `needs`.");
+    assert!(point.contains("`wb accept` runs it for each path of `changes` and of the tester's and the build's `reads`"), "{}", point);
+    assert!(point.contains("in neither that role's `reads` nor `changes`"), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_78_the_breakdown_runs_the_command_itself_before_it_commits_the_issue_s_file() {
+    let point = breakdown_point("## What you produce", "- Your lists must pass the check of `needs`.");
+    assert!(point.contains("Run the command yourself, for each of those paths, before you commit the issue's file"), "{}", point);
+    let read = breakdown_point("## What you read", "- `.watchbill/watchbill.yml`");
+    assert!(read.contains("`needs`") && read.contains("`build_files`"), "{}", read);
+}
+
+#[test]
 fn test_WB_ROLE_77_no_role_file_holds_the_draft_line() {
     // The fix ran on a project for the first time at 0.0.7, so the line left its file (#113).
     let mut names: Vec<String> = fs::read_dir(roles_folder())

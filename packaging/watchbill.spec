@@ -32,8 +32,8 @@ BuildRequires:  crate(lexopt) >= 0.3
 # `wb init` asks git for the root of the repository and the address of origin.
 Requires:       git-core
 # `wb <role>` runs a session of an issue with an accepted file in a view, in bubblewrap (#126). The
-# tests run it where the machine allows a sandbox.
-BuildRequires:  bubblewrap
+# build needs none: a test that needs a sandbox checks first that bubblewrap can make one, and a
+# build root often cannot.
 Requires:       bubblewrap
 
 %description

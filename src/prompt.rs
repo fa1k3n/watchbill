@@ -747,9 +747,8 @@ pub struct Stamp<'a> {
 }
 
 /// The stamp of an assignment (`docs/revision.md`, point 12): lines of `name: value` in a fixed order,
-/// then one line `part: <sha256>  <path>` for each part, as `--parts` gives it. A value that is empty, or that the prompt does not hold
-/// (but the round, #136), is
-/// written as the name and the colon alone. `runner` is empty when no runner is given (#93).
+/// then one line `part: <sha256>  <path>` for each part, as `--parts` gives it. A value that is empty, or (but for the
+/// round, #136) that the prompt does not hold, is written as the name and the colon alone. `runner` is empty when no runner is given (#93).
 pub fn stamp(said: &Stamp, values: &[(&str, &str)], prompt: &Prompt) -> String {
     // A value the prompt does not hold was not handed out, and is written empty.
     // The round is a fact of the start, not only of the prompt: it is written where it is known (#136).

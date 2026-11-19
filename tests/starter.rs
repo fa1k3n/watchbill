@@ -1332,3 +1332,13 @@ fn test_WB_PROMPT_55_a_stamp_keeps_change_empty_for_a_role_whose_text_has_no_cha
     let out = text(&run.stdout);
     assert!(out.lines().any(|line| line == "change:") && out.lines().any(|line| line == "round: 1"), "{}", out);
 }
+
+#[test]
+fn test_WB_PROMPT_55_a_stamp_of_the_build_without_a_round_leaves_it_empty_and_runs_no_pattern() {
+    let bench = bench();
+    bench.comments("issue", "54", &["[stamp] build round 1"]);
+    let run = bench.prompt(&["build", "54", "--stamp"]);
+    ok(&run);
+    assert!(text(&run.stdout).lines().any(|line| line == "round:"), "{}", text(&run.stdout));
+    assert!(!bench.calls().iter().any(|call| call.starts_with("comments")), "{:?}", bench.calls());
+}

@@ -790,7 +790,7 @@ fn test_WB_PROMPT_19_the_usage_names_stamp() {
 }
 
 #[test]
-fn test_WB_PROMPT_19_a_value_the_prompt_does_not_use_is_written_empty() {
+fn test_WB_PROMPT_19_a_value_the_prompt_does_not_use_is_written_empty_but_the_round() {
     let folder = set_up();
     let mut args = vec!["prompt", "build", "--stamp", "--change", "5", "--round", "2"];
     args.extend(with_where(&["--issue", "1", "--requirements", "R"]));

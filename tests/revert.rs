@@ -135,7 +135,12 @@ fn test_WB_REVERT_2_the_review_is_round_1_again_and_a_fix_follows_no_review() {
     assert_eq!(code(&revert_review(&folder.path)), Some(0));
     assert_eq!(round_of_review(&folder.path), "1");
     let branch = git_text(&folder.path, &["rev-parse", "--abbrev-ref", "HEAD"]);
-    let run = wb(&folder.path, &["fix", "174", "--change", "9", "--branch", branch.trim(), "--issue_address", "a", "--change_address", "b"], "");
+    // The organisation's file is the test's own, so that no file of this machine is read.
+    let place = folder_named("organisation");
+    let organisation = place.path.join("organisation.yml");
+    fs::write(&organisation, ORGANISATION).unwrap();
+    let args = ["fix", "174", "--runner", "claude-code", "--change", "9", "--branch", branch.trim(), "--issue_address", "a", "--change_address", "b"];
+    let run = start_with(&folder.path, &organisation, false, &args);
     assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
     assert!(text(&run.stderr).contains("no review stamp"), "{}", text(&run.stderr));
 }

@@ -799,7 +799,19 @@ fn test_WB_PROMPT_19_a_value_the_prompt_does_not_use_is_written_empty() {
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let out = text(&run.stdout);
     assert!(out.lines().any(|line| line == "change:"), "{}", out);
-    assert!(out.lines().any(|line| line == "round:"), "{}", out);
+    assert!(out.lines().any(|line| line == "round: 2"), "{}", out);
+}
+
+#[test]
+fn test_WB_PROMPT_55_with_no_round_given_or_worked_out_the_round_line_is_empty() {
+    let folder = set_up();
+    let mut args = vec!["prompt", "build", "--stamp"];
+    args.extend(with_where(&["--issue", "1", "--requirements", "R"]));
+
+    let run = wb(&folder.path, &args, "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).lines().any(|line| line == "round:"), "{}", text(&run.stdout));
 }
 
 #[test]

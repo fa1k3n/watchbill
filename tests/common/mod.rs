@@ -177,6 +177,17 @@ pub fn prompt_with(folder: &Path, organisation: &Path, args: &[&str]) -> Output 
     Output { status: std::process::ExitStatus::from_raw(status << 8), stdout: out, stderr: err }
 }
 
+/// Runs `wb <role>` in the test process, through `watchbill::start`, with the organisation's file at
+/// `organisation` (#93) and `terminal` as the answer to whether standard input and output are a terminal
+/// (#84). `args` are the role and the words after it. The result is as the program gives it.
+pub fn start_with(folder: &Path, organisation: &Path, terminal: bool, args: &[&str]) -> Output {
+    use std::os::unix::process::ExitStatusExt;
+    let args: Vec<std::ffi::OsString> = args.iter().map(std::ffi::OsString::from).collect();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let status = watchbill::start(&args, folder, organisation, terminal, &mut out, &mut err);
+    Output { status: std::process::ExitStatus::from_raw(status << 8), stdout: out, stderr: err }
+}
+
 /// An organisation's file that clears the runner `claude-code` for the breakdown up to `public`.
 pub const ORGANISATION: &str = "levels: [public, internal, confidential]
 runners:

@@ -4,7 +4,7 @@ What `wb status` says of the issues in the flow. It only reads.
 
 | ID | Requirement | Ver | Status |
 |---|---|---|---|
-| WB-STATUS-1 | `wb status` shall print one line per issue: the issue, its stage, and the command that comes next. Issue: #139. | T | Draft |
+| WB-STATUS-1 | `wb status` shall print one line per issue: the issue and its stage, and no command to run. Issue: #139. | T | Draft |
 | WB-STATUS-2 | `wb status` shall give an issue the first stage that holds, in the order `needs a person`, `in review round <n>` or `fixed round <n>`, `built`, `tested`, `accepted`, `broken down`, `new`, each worked out as #139 says. Issue: #139. | T | Draft |
 | WB-STATUS-3 | `wb status` shall count a `[question]` as open until a person has answered it, and an `[answer]` that a person did not write shall not close it. Issue: #139. | T | Draft |
 | WB-STATUS-4 | `wb status` shall take the issues from the pattern `open_issues` of `watchbill.yml`, and without it from the branches of the pattern `branch` and the files under `.watchbill/issues/`. Issue: #139. | T | Draft |

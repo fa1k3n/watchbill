@@ -50,9 +50,10 @@ What `wb init` does today: it sets Watchbill up in a git repository. What it wri
 | WB-INIT-44 | `wb init` shall write no address pattern for another server, for none, or for a repository that is not plain text. Issue: #72. | T | Implemented |
 | WB-INIT-45 | `wb init` shall write the pattern `branch: 'issue-{issue}'` for every server. Issue: #72. | T | Implemented |
 | WB-INIT-46 | The `issue_address` and `change_address` patterns `wb init` writes for a GitHub `origin` shall each run two commands: one that shows the issue's text or the change's description, and one that shows the comments. Issue: #96. | T | Implemented |
-| WB-INIT-47 | `wb init` shall write the pattern `issue_comment: 'gh issue comment {issue} --repo <repo> --body-file -'` for a GitHub `origin`, and none for another server. Issue: #84. | T | Draft |
-| WB-INIT-48 | `wb init` shall write the patterns `issue_comments` and `change_of_branch` for a GitHub `origin`, and none for another server. Issue: #84. | T | Draft |
+| WB-INIT-47 | `wb init` shall write the pattern `issue_comment: 'gh issue comment {issue} --repo <repo> --body-file -'` for a GitHub `origin`, and none for another server. Issue: #84. | T | Implemented |
+| WB-INIT-48 | `wb init` shall write the patterns `issue_comments` and `change_of_branch` for a GitHub `origin`, and none for another server. Issue: #84. | T | Implemented |
 | WB-INIT-49 | For a GitLab `origin` whose repository is plain, `wb init` shall write `issue_address`, `change_address`, `issue_comment`, `issue_comments` and `change_of_branch` as `glab` commands with the repository filled in, and none of them for a repository that is not plain. Issue: #123. | T | Draft |
 | WB-INIT-50 | For a GitLab `origin`, the `issue_comments` that `wb init` writes shall print the first line of each comment and of no system note. Issue: #123. | D | Draft |
 | WB-INIT-51 | `wb init` shall propose `build_files` with the CI file it found, and write no `build_files` when it found none. Issue: #125. | T | Draft |
 | WB-INIT-52 | `wb init` shall write `change_checks` for a GitHub and a GitLab `origin`, and none for another server. Issue: #127. | T | Draft |
+| WB-INIT-53 | `wb init` shall write the patterns `change_comment` and `change_comments` for a GitHub `origin`, and none for another server. Issue: #84, #116. | T | Implemented |

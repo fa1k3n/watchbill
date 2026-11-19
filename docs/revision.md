@@ -64,7 +64,7 @@ The program enforces the table. A prompt repeats a limit so the agent knows it, 
 
 ## 4. Code classes
 
-One rule in the first revision: a change that touches classed code needs a person as its verifier. Which paths are classed is the project's to say. Levels per class come later.
+One rule in the first revision: a change that touches classed code needs a person as its verifier. Which paths are classed is the project's to say: the list `classed` of `watchbill.yml`, and every path where it says none (#84). Levels per class come later.
 
 ## 5. The model table
 
@@ -165,8 +165,8 @@ A level that decides where an assignment may run. It is a second axis beside the
 What a session ran as is said by the one who started it, not by the session. Settled with the owner on 2026-11-17 (#31), after two runs in which every session gave its effort as `unknown`.
 
 - **What is stamped:** the role; the model ID and the effort of the model table; the runner; the version of the package and the hash of the revision; the issue, the change and the round; the branch and the checkout; the time; and the hash of each part of the prompt.
-- **What it means:** what was handed out. `wb prompt` knows what the table asks for and what the prompt holds. It cannot see what the session truly runs as. The one who starts the session starts it so; a starter that does both in one step closes the gap (#66).
-- **Who stamps:** the program that hands out the prompt: `wb prompt --stamp` (#68). A person who starts a session by hand posts the stamp as it was printed. The stamp is posted by the identity of the starter, never by the session's (point 14).
+- **What it means:** what was handed out. `wb prompt` knows what the table asks for and what the prompt holds. It cannot see what the session truly runs as. The one who starts the session starts it so. `wb <role>` does both in one step (#84), and closes the gap for a runner whose `start` sets the model and the effort.
+- **Who stamps:** the program that hands out the prompt: `wb prompt --stamp` (#68), and `wb <role>`, which posts it by `issue_comment` before it starts the session (#84). A person who starts a session by hand posts the stamp as it was printed. The stamp is posted by the identity of the starter, never by the session's (point 14).
 - **Its form:** lines of `name: value` in a fixed order, the same on every machine, with one line for each part of the prompt in the form `sha256sum` prints. A program can read it and `sha256sum` can check its parts.
 - **Where it is kept:** on the issue, one comment per session, whose first line starts with `[stamp] <role> round <n>`. The tester and the build run before there is a change, so the issue is the one place that holds every session. #30 may move it later. A review or a fix of a change with no issue has its stamp on the change, and its line `issue:` is empty (#116).
 - **The agent's own word:** `model` and `effort` stay in the last message, as what the session says of itself (#69). Where they differ from the stamp, that is a finding for a person, and the stamp is what counts. `unknown` is written down, not a finding: a session often cannot see its own effort. So every role prompt says that its model and effort are in its stamp, the latest `[stamp] <role>` comment, and that the last message gives them from there (#113).
@@ -203,11 +203,11 @@ Each role works under an account of its own at the git server and the tracker. S
 - **The assignee is whose move it is.** A session that needs a person assigns the issue back to that person, with a comment. `wb` does not rely on the server to keep one assignee at a time.
 - **The entry, in two steps.** First a listener picks up what a person assigns straight to a role's account. Then the officer is the normal entry: a person assigns the issue to the officer, it judges, and the program hands the issue on. A person may still assign straight to a role.
 - **The listener** runs on a machine that is always on and asks the tracker at a fixed interval for the issues assigned to the roles' accounts. No webhook: no port is opened, and nothing is lost while the machine is down (#85).
-- **The starter** is a command of `wb`, one path for a person's `wb build --issue <n>` and for the listener. The checks of the rule table, the acceptance and the stamp sit in that path (#84, #66).
+- **The starter** is a command of `wb`, one path for a person's `wb build <n>` and, after the sandbox, for the listener. The checks of the rule table, the acceptance and the stamp sit in that path (#84, #66).
 - **The issue's file is never left out of work that is handed on.** Every piece the program hands on has an issue's file and a person's acceptance before the tester starts. A role a person starts alone needs neither (point 13, #116).
 - **An issue that is several pieces:** the officer posts the pieces as one comment in a fixed form, and the issue is assigned back to the person. After a yes, the program writes the issues from the officer's account. The person's issue is never changed (#86).
 - **The stamp** is posted by the identity of the starter, never by the session's (point 12).
-- **Local work:** `wb build --issue <n>` on a person's own machine runs under that person's account and counts as the person's. The stamp says an agent wrote it. That person's account holds build on the change, so the review is never that person. Classed code is refused in local work until a session sees only its files (#65).
+- **Local work:** `wb build <n>` on a person's own machine runs under that person's account and counts as the person's. The stamp says an agent wrote it. That person's account holds build on the change, so the review is never that person. Classed code is refused in local work until a session sees only its files (#65).
 - **The tokens:** the program holds them and gives a session only its own.
 - **The rule table** keeps `may_not_also_hold` as it is.
 

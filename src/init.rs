@@ -108,6 +108,23 @@ pub fn render(revision: &str, hash: &str, setup: &Setup) -> String {
         && setup.repository != NONE
         && setup.repository.chars().all(|c| c.is_ascii_alphanumeric() || "._-/".contains(c));
     if setup.git_server == "github" && plain {
+        // The patterns of the starter (#84): post a comment from standard input, print the first line of each
+        // comment, and print the numbers of the open pull requests from a branch. A pull request's comments
+        // are those of an issue at GitHub, so `change_comments` reads them the same way.
+        let repository = &setup.repository;
+        let first_lines = |word: &str| {
+            format!("gh api repos/{}/issues/{{{}}}/comments --paginate --jq '.[].body | split(\"\\n\")[0]'", repository, word)
+        };
+        let patterns = [
+            ("issue_comment", format!("gh issue comment {{issue}} --repo {} --body-file -", repository)),
+            ("issue_comments", first_lines("issue")),
+            ("change_comment", format!("gh pr comment {{change}} --repo {} --body-file -", repository)),
+            ("change_comments", first_lines("change")),
+            ("change_of_branch", format!("gh pr list --repo {} --head {{branch}} --state open --json number --jq '.[].number'", repository)),
+        ];
+        for (key, line) in patterns {
+            text.push_str(&format!("{}: {}\n", key, yaml_value(&line)));
+        }
         let address = |command: &str, word: &str| {
             // One command shows the text or the description, the other the comments: `--comments` alone hides the first (#96).
             let show = format!("gh {} view {{{}}} --repo {}", command, word, setup.repository);

@@ -12,9 +12,12 @@ use crate::yamlfile::{self, Document, Part, YamlError};
 /// The organisation's file. It is laid out by the organisation's own means, outside every repository.
 pub const ORGANISATION_FILE: &str = "/etc/watchbill/organisation.yml";
 
-const RUNNER_FIELDS: [&str; 5] = ["tools", "model", "agreement", "up_to", "breakdown"];
+const RUNNER_FIELDS: [&str; 6] = ["tools", "model", "agreement", "up_to", "breakdown", "start"];
 const RUNNER_NEEDS: [&str; 4] = ["tools", "model", "agreement", "up_to"];
 const BREAKDOWN_FIELDS: [&str; 3] = ["up_to", "model", "effort"];
+
+/// The placeholders of a runner's `start` (#84): what `wb <role>` fills in each word.
+pub const START_PLACEHOLDERS: [&str; 3] = ["model", "effort", "prompt"];
 
 /// What a runner is cleared for in the breakdown: the highest level and the model and effort it runs with.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,13 +36,18 @@ pub struct Runner {
     pub agreement: String,
     pub up_to: String,
     pub breakdown: Option<Breakdown>,
+    /// The command that starts a session on this runner, as a list of words with `{model}`, `{effort}` and
+    /// `{prompt}` to fill (#84). `None` when the runner has none: `wb <role>` then starts nothing on it.
+    pub start: Option<Vec<String>>,
 }
 
-/// The organisation's file: the levels from the least to the most restrictive, and the runners.
+/// The organisation's file: the levels from the least to the most restrictive, the runners, and the runner
+/// `wb <role>` takes when none is given.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Organisation {
     pub levels: Vec<String>,
     pub runners: Vec<Runner>,
+    pub default: Option<String>,
 }
 
 impl Organisation {
@@ -119,7 +127,45 @@ fn read_runner(doc: &Document, name: &str, levels: &[String]) -> Result<Runner, 
         }
         breakdown = Some(Breakdown { up_to: cleared, model, effort });
     }
-    Ok(Runner { name: name.to_string(), tools, model, agreement, up_to, breakdown })
+    let mut start = None;
+    let words = with(&place, "start");
+    if doc.has(&words) {
+        start = Some(read_start(doc, &words)?);
+    }
+    Ok(Runner { name: name.to_string(), tools, model, agreement, up_to, breakdown, start })
+}
+
+/// A runner's `start` (#84): a list of one word or more, each a text of one plain line, with no character
+/// that is not printed. A placeholder in a word is one of `START_PLACEHOLDERS`, and none stands in the
+/// first word: the program is the organisation's to name, never filled in.
+fn read_start(doc: &Document, place: &[Part]) -> Result<Vec<String>, YamlError> {
+    let words = doc.texts(place, false)?;
+    for (index, word) in words.iter().enumerate() {
+        let here = with(place, index);
+        if word.is_empty() {
+            return Err(doc.fail(&here, "a word of `start` is empty", false));
+        }
+        if word.chars().any(|c| c.is_control() || c == '\u{2028}' || c == '\u{2029}') {
+            return Err(doc.fail(&here, "a word of `start` holds a control character or a line break", false));
+        }
+        for name in crate::prompt::placeholder_names(word) {
+            if !START_PLACEHOLDERS.contains(&name) {
+                return Err(doc.fail(
+                    &here,
+                    &format!("the placeholder {{{}}} is not known in `start`; the known ones are {{model}}, {{effort}} and {{prompt}}", name),
+                    false,
+                ));
+            }
+            if index == 0 {
+                return Err(doc.fail(
+                    &here,
+                    &format!("the first word of `start` is the program, and holds no placeholder, such as {{{}}}", name),
+                    false,
+                ));
+            }
+        }
+    }
+    Ok(words)
 }
 
 /// Reads and checks the organisation's file at `path`, through the one loader. A file that is not there
@@ -136,7 +182,7 @@ pub fn read(path: &Path) -> Result<Organisation, String> {
 }
 
 fn read_document(doc: &Document) -> Result<Organisation, YamlError> {
-    doc.only(&[], &["levels", "runners"])?;
+    doc.only(&[], &["levels", "runners", "default"])?;
     doc.need(&[], &["levels", "runners"])?;
     let levels = doc.texts(&at(&["levels"]), false)?;
     for (index, name) in levels.iter().enumerate() {
@@ -152,7 +198,19 @@ fn read_document(doc: &Document) -> Result<Organisation, YamlError> {
     for name in doc.table(&at(&["runners"]))? {
         runners.push(read_runner(doc, &name, &levels)?);
     }
-    Ok(Organisation { levels, runners })
+    // The runner `wb <role>` takes when none is given (#84): one of the runners of the file.
+    let mut default = None;
+    let place = at(&["default"]);
+    if doc.has(&place) {
+        let name = doc.text(&place)?;
+        if !runners.iter().any(|runner| runner.name == name) {
+            let names: Vec<&str> = runners.iter().map(|runner| runner.name.as_str()).collect();
+            let have = if names.is_empty() { "it names none".to_string() } else { format!("its runners are: {}", names.join(", ")) };
+            return Err(doc.fail(&place, &format!("the default `{}` is not a runner of this file; {}", name, have), false));
+        }
+        default = Some(name);
+    }
+    Ok(Organisation { levels, runners, default })
 }
 
 /// The level of the repository at `root`: the line `confidentiality:` of `.watchbill/watchbill.yml`, and

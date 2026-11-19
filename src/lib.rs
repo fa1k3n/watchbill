@@ -15,6 +15,7 @@ pub mod manifest;
 pub mod prompt;
 pub mod rules;
 pub mod issue;
+pub mod starter;
 mod word;
 pub mod yamlfile;
 
@@ -29,6 +30,11 @@ pub const USAGE: &str = "usage:
             [--requirements <text>] [--round <text>] [--checkout <text>]
             [--branch <text>] [--issue_address <text>]
             [--change_address <text>] [--runner <name>] [--parts] [--stamp]
+  wb breakdown <issue> [--runner <name>] [--prompt] [the options of prompt]
+  wb tester <issue> [--runner <name>] [--prompt] [the options of prompt]
+  wb build <issue> [--runner <name>] [--prompt] [the options of prompt]
+  wb review [<issue>] [--runner <name>] [--prompt] [the options of prompt]
+  wb fix [<issue>] [--runner <name>] [--prompt] [the options of prompt]
   wb revision
   wb accept <issue>
   wb --version
@@ -67,6 +73,20 @@ pub const USAGE: &str = "usage:
             file, and --parts adds the level and the runner. Ends with 0 when
             the prompt is printed, 1 when it is refused, 2 when it was used
             wrongly or the repository is not set up. Writes nothing
+  breakdown, tester, build, review, fix
+            start a session of the role: check what prompt checks, that a fix
+            follows a review, that no classed code is in its way (classed: of
+            watchbill.yml), that the runner has start in the organisation's
+            file, and that standard input and output are a terminal; then say
+            and post the stamp by issue_comment of watchbill.yml (by
+            change_comment for a review or a fix of a change with no issue),
+            and run the runner's start in the root of the checkout. The runner
+            is --runner, or the organisation's default. The round and the
+            change are worked out from issue_comments, change_comments and
+            change_of_branch; --round and --change win. --prompt, --stamp and
+            --parts print as prompt does, and post and start nothing. Ends with
+            the session: 0 when it ended with 0, else 1; 1 when it is refused,
+            2 when it was used wrongly or the repository is not set up
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes nothing
   accept    accept the issue's file .watchbill/issues/<issue>.yml: read it,
@@ -174,7 +194,8 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
             "version".to_string()
         }
         Ok(Some(Word::Value(value))) => match value.to_str() {
-            Some(name @ ("help" | "init" | "check" | "prompt" | "revision" | "accept"))=> name.to_string(),
+            Some(name @ ("help" | "init" | "check" | "prompt" | "revision" | "accept")) => name.to_string(),
+            Some(name) if STARTED.contains(&name) => name.to_string(),
             _ => {
                 let _ = write!(err, "wb: no command '{}'\n\n{}", word(value.as_bytes()), USAGE);
                 return 2;
@@ -199,6 +220,11 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
         "check" => run_check(&mut parser, out, err),
         "prompt" => run_prompt(&mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), out, err),
         "accept" => run_accept(&mut parser, out, err),
+        role if STARTED.contains(&role) => {
+            use std::io::IsTerminal;
+            let terminal = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+            run_start(role, &mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), terminal, out, err)
+        }
         _ => run_revision(&mut parser, Path::new(manifest::PACKAGE_FOLDER), out, err),
     }
 }
@@ -270,285 +296,573 @@ pub fn prompt(args: &[OsString], folder: &Path, organisation: &Path, out: &mut d
     run_prompt(&mut Parser::from_args(args.iter().cloned()), Some(folder), organisation, out, err)
 }
 
-/// `wb prompt <role> [--<placeholder> X]... [--runner <name>] [--parts]`: the prompt of a role, filled from
-/// one option for each placeholder of the list (`prompt::PLACEHOLDERS`), or with `--parts` the path and hash
-/// of each of its parts. Nothing is printed unless the check of `wb check` holds and the prompt can be put
-/// together. The breakdown is handed out only to a runner the organisation's file clears for it (#93). It
-/// writes nothing.
-fn run_prompt(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    let used = |err: &mut dyn Write, why: String| {
-        let _ = write!(err, "wb prompt: {}\n\n{}", why, USAGE);
-        2
-    };
-    let mut role: Option<String> = None;
+/// `wb <role>`, with the role and the words after it, in the repository of `folder`, with the organisation's
+/// file at `organisation`, and `terminal` the answer to whether standard input and output are a terminal
+/// (#84). `run` gives the folder it runs in, the path fixed in `wb`, and what the terminal says; this is so
+/// that a test can give its own, as `prompt` does.
+pub fn start(args: &[OsString], folder: &Path, organisation: &Path, terminal: bool, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let mut parser = Parser::from_args(args.iter().cloned());
+    match next(&mut parser) {
+        Ok(Some(Word::Value(value))) if value.to_str().is_some_and(|role| STARTED.contains(&role)) => {
+            let role = word(value.as_bytes());
+            run_start(&role, &mut parser, Some(folder), organisation, terminal, out, err)
+        }
+        _ => {
+            let _ = write!(err, "wb: no command '{}'\n\n{}", word(args.first().map(|arg| arg.as_bytes()).unwrap_or_default()), USAGE);
+            2
+        }
+    }
+}
+
+/// The roles that are commands of their own: `wb <role>` starts a session of the role (#84).
+const STARTED: [&str; 5] = ["breakdown", "tester", "build", "review", "fix"];
+
+/// Says that a command was used wrongly, then the usage, and gives 2.
+fn used(err: &mut dyn Write, name: &str, why: &str) -> i32 {
+    let _ = write!(err, "{}: {}\n\n{}", name, why, USAGE);
+    2
+}
+
+/// What `wb prompt <role> …` or `wb <role> …` was given.
+struct Words {
+    role: String,
+    /// The value of each placeholder given, the issue word among them as `issue`.
+    values: Vec<(&'static str, String)>,
+    parts: bool,
+    stamp: bool,
+    /// `--prompt` of `wb <role>`: print the prompt, as `wb prompt` does.
+    print: bool,
+    runner: Option<String>,
+}
+
+impl Words {
+    fn get(&self, name: &str) -> Option<&str> {
+        self.values.iter().find(|(given, _)| *given == name).map(|(_, value)| value.as_str())
+    }
+
+    /// Only what `wb prompt` does: print, and post and start nothing.
+    fn prints(&self) -> bool {
+        self.print || self.stamp || self.parts
+    }
+
+    /// A review or a fix of a change with no issue (#116).
+    fn alone(&self) -> bool {
+        self.get("issue").is_none() && prompt::ALONE.contains(&self.role.as_str()) && self.get("change").is_some()
+    }
+}
+
+/// Reads the words of `wb prompt`, where the first word is the role, or of `wb <role>`, where `role` is given
+/// and `--prompt` is taken too. What `wb prompt` refuses as used wrongly is refused here, in its order, with
+/// its words after `name`. The status of a refusal is the error.
+fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn Write) -> Result<Words, i32> {
+    let starter = role.is_some();
+    let mut role: Option<String> = role.map(str::to_string);
     let mut issue_word: Option<String> = None;
     let mut values: Vec<(&'static str, String)> = Vec::new();
-    let mut parts = false;
-    let mut stamp = false;
+    let (mut parts, mut stamp, mut print) = (false, false, false);
     let mut runner: Option<String> = None;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
             Ok(Some(found)) => found,
-            Err(refused) => return used(err, format!("'{}' is not known", refused)),
+            Err(refused) => return Err(used(err, name, &format!("'{}' is not known", refused))),
         };
         match found {
-            Word::Long(option) if option == "parts" || option == "stamp" => {
-                let flag = if option == "parts" { &mut parts } else { &mut stamp };
+            Word::Long(option) if option == "parts" || option == "stamp" || (starter && option == "prompt") => {
+                let flag = match option.as_str() {
+                    "parts" => &mut parts,
+                    "stamp" => &mut stamp,
+                    _ => &mut print,
+                };
                 if *flag {
-                    return used(err, format!("'--{}' is given twice", option));
+                    return Err(used(err, name, &format!("'--{}' is given twice", option)));
                 }
                 *flag = true;
             }
             Word::Long(option) if option == "runner" => {
                 let Ok(value) = parser.value() else {
-                    return used(err, "'--runner' needs a value".to_string());
+                    return Err(used(err, name, "'--runner' needs a value"));
                 };
                 let Ok(value) = value.into_string() else {
-                    return used(err, "the value of '--runner' is not UTF-8 text".to_string());
+                    return Err(used(err, name, "the value of '--runner' is not UTF-8 text"));
                 };
                 if value.is_empty() {
-                    return used(err, "the value of '--runner' is empty".to_string());
+                    return Err(used(err, name, "the value of '--runner' is empty"));
                 }
                 if runner.is_some() {
-                    return used(err, "'--runner' is given twice".to_string());
+                    return Err(used(err, name, "'--runner' is given twice"));
                 }
                 if !one_line(&value) {
-                    return used(
+                    return Err(used(
                         err,
-                        "the value of '--runner' holds a control character or a line break, or white space at its start or end, and a stamp holds it as one line".to_string(),
-                    );
+                        name,
+                        "the value of '--runner' holds a control character or a line break, or white space at its start or end, and a stamp holds it as one line",
+                    ));
                 }
                 runner = Some(value);
             }
             Word::Long(option) if prompt::PLACEHOLDERS.contains(&option.as_str()) => {
-                let name = prompt::PLACEHOLDERS.iter().find(|name| **name == option).unwrap();
+                let placeholder = prompt::PLACEHOLDERS.iter().find(|known| **known == option).unwrap();
                 // A value is whatever follows, also when it starts with `-`.
                 let value = match parser.value() {
                     Ok(value) => value,
-                    Err(_) => return used(err, format!("'--{}' needs a value", option)),
+                    Err(_) => return Err(used(err, name, &format!("'--{}' needs a value", option))),
                 };
                 let Ok(value) = value.into_string() else {
-                    return used(err, format!("the value of '--{}' is not UTF-8 text", option));
+                    return Err(used(err, name, &format!("the value of '--{}' is not UTF-8 text", option)));
                 };
                 if value.is_empty() {
-                    return used(err, format!("the value of '--{}' is empty", option));
+                    return Err(used(err, name, &format!("the value of '--{}' is empty", option)));
                 }
-                if values.iter().any(|(given, _)| given == name) {
-                    return used(err, format!("'--{}' is given twice", option));
+                if values.iter().any(|(given, _)| given == placeholder) {
+                    return Err(used(err, name, &format!("'--{}' is given twice", option)));
                 }
-                values.push((name, value));
+                values.push((placeholder, value));
             }
             Word::Value(value) if role.is_none() => role = Some(word(value.as_bytes())),
             Word::Value(value) if issue_word.is_none() => issue_word = Some(word(value.as_bytes())),
             found => {
                 let refused = named(found, parser);
-                return used(err, format!("'{}' is not known", refused));
+                return Err(used(err, name, &format!("'{}' is not known", refused)));
             }
         }
     }
     let Some(role) = role else {
-        return used(err, "a role is needed".to_string());
+        return Err(used(err, name, "a role is needed"));
     };
     if stamp && parts {
-        return used(err, "'--stamp' and '--parts' are not used together".to_string());
+        return Err(used(err, name, "'--stamp' and '--parts' are not used together"));
     }
-    if role == "breakdown" && runner.is_none() {
-        return used(
+    // A session that `wb <role>` starts takes the organisation's default runner, when none is given (#84).
+    let prints = !starter || print || stamp || parts;
+    if role == "breakdown" && runner.is_none() && prints {
+        return Err(used(
             err,
-            "the breakdown is handed out only to a runner that the organisation's file clears for it: give '--runner <name>'".to_string(),
-        );
+            name,
+            "the breakdown is handed out only to a runner that the organisation's file clears for it: give '--runner <name>'",
+        ));
     }
     if let Some(word) = issue_word {
-        if values.iter().any(|(name, _)| *name == "issue") {
-            return used(err, "the issue is given as a word and as '--issue'".to_string());
+        if values.iter().any(|(given, _)| *given == "issue") {
+            return Err(used(err, name, "the issue is given as a word and as '--issue'"));
         }
         if word.is_empty() {
-            return used(err, "the issue word is empty".to_string());
+            return Err(used(err, name, "the issue word is empty"));
         }
         values.push(("issue", word));
     }
     // Only the review and the fix take a change alone, with no issue (#116). The tester and the build
     // work for an issue, and are used wrongly without one.
-    let has_issue = values.iter().any(|(name, _)| *name == "issue");
+    let has_issue = values.iter().any(|(given, _)| *given == "issue");
     if !has_issue && (role == "tester" || role == "build") {
-        return used(err, format!("the {} is handed out for an issue: give it as the word after the role, or as '--issue'", role));
+        return Err(used(err, name, &format!("the {} is handed out for an issue: give it as the word after the role, or as '--issue'", role)));
     }
-    let alone = !has_issue && prompt::ALONE.contains(&role.as_str()) && values.iter().any(|(name, _)| *name == "change");
-    if stamp {
+    // A stamp printed, or posted by `wb <role>`, holds each value as one line.
+    if stamp || !prints {
         if let Some(why) = stamp_fault(&values) {
-            return used(err, why);
+            return Err(used(err, name, &why));
         }
     }
+    Ok(Words { role, values, parts, stamp, print, runner })
+}
+
+/// A prompt handed out: the values it was filled with, what was put together, and what was read for it.
+struct Handed {
+    root: String,
+    values: Vec<(&'static str, String)>,
+    found: prompt::Prompt,
+    cleared: Option<confidentiality::Cleared>,
+    file: Option<issue::Used>,
+    requirements_given: bool,
+    stamps: Option<starter::Stamps>,
+}
+
+/// Everything `wb prompt` checks and does before it prints, for the words given: the check of `wb check`,
+/// the role, the breakdown's runner (#93), the issue's file (#76, #97), the values derived (#72) and those
+/// worked out from the patterns (#84), and the prompt put together. `starting` is `wb <role>` that starts a
+/// session: it always needs the round, and a pattern it needs that is not there is refused. What is
+/// refused is said after `name`, and its status is the error.
+fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Path, starting: bool, err: &mut dyn Write) -> Result<Handed, i32> {
+    let role = words.role.as_str();
     let found_root = match folder {
         None => init::repository_root(None),
         Some(folder) => init::repository_root_of(folder),
     };
     let root = match found_root {
         Err(why) => {
-            let _ = writeln!(err, "wb prompt: {}.", why);
-            return 2;
+            let _ = writeln!(err, "{}: {}.", name, why);
+            return Err(2);
         }
         Ok(None) => {
-            let _ = writeln!(err, "wb prompt: this folder is not in a git repository. Watchbill is set up in one.");
-            return 2;
+            let _ = writeln!(err, "{}: this folder is not in a git repository. Watchbill is set up in one.", name);
+            return Err(2);
         }
         Ok(Some(root)) => root,
+    };
+    let refused = |err: &mut dyn Write, why: &dyn std::fmt::Display| {
+        let _ = writeln!(err, "{}: {}", name, why);
+        1
     };
     // What `wb check` says is for standard error here: standard output holds the prompt or nothing.
     let (mut said, mut why) = (Vec::new(), Vec::new());
     let status = check::check(&root, VERSION, Path::new(manifest::PACKAGE_FOLDER), &mut said, &mut why);
     if status != 0 {
-        let _ = writeln!(err, "wb prompt: nothing printed, the check of `wb check` does not hold.");
+        let _ = writeln!(err, "{}: nothing printed, the check of `wb check` does not hold.", name);
         let _ = err.write_all(&said);
         let _ = err.write_all(&why);
-        return status;
+        return Err(status);
     }
     // A role the revision does not have is refused before anything is derived for it.
-    if let Err(why) = prompt::require_role(Path::new(&root), &role) {
-        let _ = writeln!(err, "wb prompt: {}", why);
-        return 1;
+    if let Err(why) = prompt::require_role(Path::new(&root), role) {
+        return Err(refused(err, &why));
     }
     // The breakdown goes only to a runner the organisation cleared for it, up to the repository's level (#93).
     let mut cleared = None;
     if role == "breakdown" {
-        match confidentiality::clear_breakdown(organisation, Path::new(&root), runner.as_deref().unwrap_or_default()) {
+        match confidentiality::clear_breakdown(organisation, Path::new(&root), words.runner.as_deref().unwrap_or_default()) {
             Ok(found) => cleared = Some(found),
-            Err(why) => {
-                let _ = writeln!(err, "wb prompt: {}", why);
-                return 1;
-            }
+            Err(why) => return Err(refused(err, &why)),
         }
     }
     // The file of the issue (#76): used when it is accepted as it is, refused when it is there and is
     // not, and left out when there is none. An option for the requirements wins over the file.
+    let mut values = words.values.clone();
     let mut file = None;
     let mut requirements_given = false;
-    if issue::ROLES.contains(&role.as_str()) {
-        if let Some((_, issue)) = values.iter().find(|(name, _)| *name == "issue") {
-            match issue::for_prompt(Path::new(&root), issue) {
-                Ok(found) => file = found,
-                Err(why) => {
-                    let _ = writeln!(err, "wb prompt: {}", why);
-                    return 1;
-                }
-            }
+    if let (true, Some(issue)) = (issue::ROLES.contains(&role), words.get("issue")) {
+        match issue::for_prompt(Path::new(&root), issue) {
+            Ok(found) => file = found,
+            Err(why) => return Err(refused(err, &why)),
         }
     }
     if let Some(file) = &file {
-        requirements_given = values.iter().any(|(name, _)| *name == "requirements");
+        requirements_given = words.get("requirements").is_some();
         if !requirements_given {
             values.push(("requirements", file.requirements()));
         }
     }
+    // The round and the change are worked out where the prompt holds them, and the round always for a
+    // session that `wb <role>` starts: its stamp's first line holds it (#84).
+    let holds = prompt::used_by(Path::new(&root), role);
+    let need = prompt::Need { round: starting || holds.contains(&"round"), change: holds.contains(&"change"), strict: starting };
     let before = values.len();
-    let values = match prompt::derive(&root, &role, &values) {
-        Ok(values) => values,
-        Err(prompt::Derive::Used(why)) => return used(err, why),
-        Err(prompt::Derive::Refused(why)) => {
-            let _ = writeln!(err, "wb prompt: {}", why);
-            return 1;
-        }
+    let (values, worked) = match prompt::derive_with(&root, role, &values, need) {
+        Ok(found) => found,
+        Err(prompt::Derive::Used(why)) => return Err(used(err, name, &why)),
+        Err(prompt::Derive::Refused(why)) => return Err(refused(err, &why)),
     };
+    // What was worked out is said first, so that a person sees it (#84).
+    if !worked.said.is_empty() {
+        let _ = writeln!(err, "{}: {}", name, worked.said.join(", "));
+    }
     // An issue's file that is there is used only when it and its acceptance are committed (#97). An issue
     // with no file is handed out as it is: a person may start any role alone (#116).
-    if let (Some(_), Some((_, issue))) = (&file, values.iter().find(|(name, _)| *name == "issue")) {
+    if let (Some(_), Some((_, issue))) = (&file, values.iter().find(|(given, _)| *given == "issue")) {
         if let Err(why) = issue::committed(Path::new(&root), issue) {
-            let _ = writeln!(err, "wb prompt: {}", why);
-            return 1;
+            return Err(refused(err, &why));
         }
     }
     // A value derived that is not one plain line is not the caller's fault: refused, with where it came from.
-    if stamp {
+    if words.stamp || starting {
         let derived = &values[before..];
-        if let Some(name) = stamp_fault_in(derived) {
-            let source = match name {
+        if let Some(name_of) = stamp_fault_in(derived) {
+            let source = match name_of {
                 "checkout" => "the root of the repository",
                 _ => "the pattern of watchbill.yml and the branches of the repository",
             };
             let _ = writeln!(
                 err,
-                "wb prompt: the {} was derived from {} and holds a control character or a line break, or white space at its start or end, and a stamp holds it as one line. Give --{}.",
-                name, source, name
+                "{}: the {} was derived from {} and holds a control character or a line break, or white space at its start or end, and a stamp holds it as one line. Give --{}.",
+                name, name_of, source, name_of
             );
+            return Err(1);
+        }
+    }
+    // The text of a review or a fix of a change with no issue says what to do where the issue is `none`
+    // (#116). Only the text has it: the stamp is made from `values`, and its `issue:` is empty.
+    let mut filled: Vec<(&str, &str)> = values.iter().map(|(given, value)| (*given, value.as_str())).collect();
+    if words.alone() {
+        for no in ["issue", "issue_address"] {
+            if !filled.iter().any(|(given, _)| *given == no) {
+                filled.push((no, prompt::NO_ISSUE));
+            }
+        }
+    }
+    let text = file.as_ref().map(|file| file.text(role));
+    let extra = file.as_ref().zip(text.as_deref()).map(|(file, text)| prompt::Extra { path: &file.path, hash: &file.hash, text });
+    let found = match prompt::assemble_with(Path::new(&root), role, &filled, extra.as_ref()) {
+        Ok(found) => found,
+        Err(why) => return Err(refused(err, &why)),
+    };
+    Ok(Handed { root, values, found, cleared, file, requirements_given, stamps: worked.stamps })
+}
+
+/// The model and effort a role is handed out with: for the breakdown those its runner is cleared with, for
+/// the others the model table's.
+fn model_of(role: &str, cleared: Option<&confidentiality::Cleared>) -> Result<rules::Model, String> {
+    if let Some(cleared) = cleared {
+        return Ok(rules::Model { model: cleared.model.clone(), effort: cleared.effort.clone() });
+    }
+    let rules = rules::load_revision().map_err(|why| why.to_string())?;
+    rules.models.get(role).cloned().ok_or_else(|| format!("the model table has no row for '{}'", role))
+}
+
+/// The stamp of what is handed out (`docs/revision.md`, point 12), as `wb prompt --stamp` prints it.
+fn stamp_of(role: &str, handed: &Handed, runner: &str) -> Result<String, String> {
+    let model = model_of(role, handed.cleared.as_ref())?;
+    let revision = manifest::revision_hash(manifest::PACKAGE_FOLDER).map_err(|why| why.to_string())?;
+    // A clock that fails, or is before 1970, gives no stamp: a false time is worse than none.
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| "the clock of this machine reads before 1970 or cannot be read. No stamp.".to_string())?
+        .as_secs();
+    let time = prompt::utc(seconds);
+    let said = prompt::Stamp {
+        role,
+        model: &model.model,
+        effort: &model.effort,
+        runner,
+        version: VERSION,
+        revision: &revision,
+        time: &time,
+        requirements_given: handed.requirements_given,
+    };
+    let given: Vec<(&str, &str)> = handed.values.iter().map(|(name, value)| (*name, value.as_str())).collect();
+    Ok(prompt::stamp(&said, &given, &handed.found))
+}
+
+/// Prints what was handed out, as `wb prompt` prints it: the stamp, the parts, or the text.
+fn print(name: &str, words: &Words, handed: &Handed, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    if words.stamp {
+        match stamp_of(&words.role, handed, words.runner.as_deref().unwrap_or_default()) {
+            Ok(text) => {
+                let _ = out.write_all(text.as_bytes());
+            }
+            Err(why) => {
+                let _ = writeln!(err, "{}: {}", name, why);
+                return 1;
+            }
+        }
+    } else if words.parts {
+        let mut lines: String = handed.found.parts.iter().map(|part| format!("{}  {}\n", part.hash, part.path)).collect();
+        if let (Some(cleared), Some(runner)) = (&handed.cleared, &words.runner) {
+            lines.push_str(&format!("level: {}\nrunner: {}\n", cleared.level, runner));
+        }
+        let _ = out.write_all(lines.as_bytes());
+    } else {
+        let _ = out.write_all(handed.found.text.as_bytes());
+    }
+    0
+}
+
+/// `wb prompt <role> [--<placeholder> X]... [--runner <name>] [--parts]`: the prompt of a role, filled from
+/// one option for each placeholder of the list (`prompt::PLACEHOLDERS`), or with `--parts` the path and hash
+/// of each of its parts. Nothing is printed unless the check of `wb check` holds and the prompt can be put
+/// together. The breakdown is handed out only to a runner the organisation's file clears for it (#93). It
+/// writes nothing.
+fn run_prompt(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let name = "wb prompt";
+    let words = match read_words(parser, name, None, err) {
+        Ok(words) => words,
+        Err(status) => return status,
+    };
+    match hand_out(name, &words, folder, organisation, false, err) {
+        Ok(handed) => print(name, &words, &handed, out, err),
+        Err(status) => status,
+    }
+}
+
+/// Whether a round given to `wb <role>` can stand in the first line of a stamp, to be read back: a whole
+/// number from 1, with no leading zero.
+fn is_round(value: &str) -> bool {
+    !value.is_empty() && value.chars().all(|c| c.is_ascii_digit()) && !value.starts_with('0')
+}
+
+/// `wb <role> [<issue>] [--runner <name>] [--prompt] …` (#84): the checks of `wb prompt`, then that the rule
+/// table lets the role start, that no classed code is in its way, that the runner has `start`, and that it
+/// runs at a terminal; then the stamp is posted by `issue_comment` (or `change_comment`), and the session is
+/// started by the runner's `start`. The first fault ends it, and nothing is posted or started. With
+/// `--prompt`, `--stamp` or `--parts` it does what `wb prompt` does.
+fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, organisation: &Path, terminal: bool, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let name = format!("wb {}", role);
+    let name = name.as_str();
+    let mut words = match read_words(parser, name, Some(role), err) {
+        Ok(words) => words,
+        Err(status) => return status,
+    };
+    if words.prints() {
+        return match hand_out(name, &words, folder, organisation, false, err) {
+            Ok(handed) => print(name, &words, &handed, out, err),
+            Err(status) => status,
+        };
+    }
+    // The stamp's first line is read back by the next start: the round is a whole number.
+    if let Some(round) = words.get("round") {
+        if !is_round(round) {
+            return used(err, name, "the value of '--round' is a whole number from 1, written without a leading zero");
+        }
+    }
+    // The issue, or the change of a review or a fix with no issue, fills the pattern that posts the stamp.
+    let alone = words.alone();
+    let (post, word, on) = match (words.get("issue"), words.get("change")) {
+        (Some(issue), _) => ("issue_comment", "issue", issue.to_string()),
+        (None, Some(change)) if alone => ("change_comment", "change", change.to_string()),
+        _ => ("issue_comment", "issue", String::new()),
+    };
+    if !on.is_empty() && !prompt::is_plain_name(&on) {
+        return used(err, name, &prompt::not_plain(word));
+    }
+    // The runner: the one given, else the organisation's `default`.
+    if words.runner.is_none() {
+        match confidentiality::read(organisation) {
+            Ok(found) => match found.default {
+                Some(default) => words.runner = Some(default),
+                None => {
+                    let why = format!(
+                        "no runner is given, and the organisation's file {} names no `default`: give '--runner <name>'",
+                        organisation.display()
+                    );
+                    return used(err, name, &why);
+                }
+            },
+            Err(_) if !organisation.exists() => {
+                let why = format!(
+                    "no runner is given, and there is no organisation's file {} to name a `default`: give '--runner <name>'",
+                    organisation.display()
+                );
+                return used(err, name, &why);
+            }
+            Err(why) => {
+                let _ = writeln!(err, "{}: {}", name, why);
+                return 1;
+            }
+        }
+    }
+    let runner = words.runner.clone().unwrap_or_default();
+    // 1. Everything `wb prompt` checks.
+    let handed = match hand_out(name, &words, folder, organisation, true, err) {
+        Ok(handed) => handed,
+        Err(status) => return status,
+    };
+    let root = handed.root.as_str();
+    let refused = |err: &mut dyn Write, why: &str| {
+        let _ = writeln!(err, "{}: {}", name, why);
+        1
+    };
+    // 2. The rule table: a fix follows a review. The number of rounds is no rule for a person (#84).
+    if role == "fix" {
+        let stamps = match &handed.stamps {
+            Some(stamps) => stamps.clone(),
+            None => {
+                let (key, word) = if alone { ("change_comments", "change") } else { ("issue_comments", "issue") };
+                let line = match prompt::pattern_of(root, key) {
+                    Ok(Some(line)) => line,
+                    Ok(None) => {
+                        let why = format!(
+                            "a fix follows a review (the rule table), and that is checked from the stamps that `{}` of watchbill.yml prints, and it has none. Add the line (see the README)",
+                            key
+                        );
+                        return refused(err, &why);
+                    }
+                    Err(why) => return refused(err, &why.to_string()),
+                };
+                let at = format!("{} {}", word, on);
+                match starter::read_stamps(root, key, &line.replace(&format!("{{{}}}", word), &on), &at) {
+                    Ok(stamps) => stamps,
+                    Err(why) => return refused(err, &why),
+                }
+            }
+        };
+        if stamps.count("review") == 0 {
+            return refused(err, &starter::no_review(&stamps.on, &stamps.key));
+        }
+    }
+    // 3. The class: no classed code is worked on here before #65. The breakdown changes only the issue's file.
+    if role != "breakdown" {
+        let changes = handed.file.as_ref().map(|file| file.issue.changes.as_slice());
+        if let Err(why) = starter::class(root, changes) {
+            return refused(err, &why);
+        }
+    }
+    // 4. The runner's `start`, filled, and each word one that a program can be handed.
+    let organisation_file = match confidentiality::read(organisation) {
+        Ok(found) => found,
+        Err(why) => return refused(err, &why),
+    };
+    let Some(chosen) = organisation_file.runners.iter().find(|one| one.name == runner) else {
+        let names: Vec<&str> = organisation_file.runners.iter().map(|one| one.name.as_str()).collect();
+        let why = format!(
+            "the organisation's file {} names no runner '{}'. Its runners are: {}.",
+            organisation.display(),
+            runner.escape_debug(),
+            names.join(", ")
+        );
+        return refused(err, &why);
+    };
+    let Some(start) = &chosen.start else {
+        let why = format!(
+            "the runner '{}' has no `start` in the organisation's file {}, so wb starts no session on it. Use --prompt, and start the session by hand.",
+            runner,
+            organisation.display()
+        );
+        return refused(err, &why);
+    };
+    let model = match model_of(role, handed.cleared.as_ref()) {
+        Ok(model) => model,
+        Err(why) => return refused(err, &why),
+    };
+    let filled = starter::fill(start, &model.model, &model.effort, &handed.found.text);
+    if let Some((index, _)) = filled.iter().enumerate().find(|(_, word)| word.len() + 1 > starter::LONGEST_WORD) {
+        let why = format!(
+            "word {} of the runner's `start` is {} bytes once filled, and a program is handed no word of 128 KiB or more. Use --prompt, and hand the prompt to the session another way.",
+            index,
+            filled[index].len()
+        );
+        return refused(err, &why);
+    }
+    // 5. A terminal: no session is started out of a person's sight before the sandbox (#65).
+    if !terminal {
+        return refused(
+            err,
+            "standard input or standard output is not a terminal, and no session is started out of a person's sight before a session sees only its files (#65). Use --prompt.",
+        );
+    }
+    // The pattern that posts the stamp.
+    let line = match prompt::pattern_of(root, post) {
+        Ok(Some(line)) => line,
+        Ok(None) => {
+            let why = format!("watchbill.yml has no `{}`, so the stamp cannot be posted, and no session is started without it. Add the line (see the README), or use --prompt.", post);
+            return refused(err, &why);
+        }
+        Err(why) => return refused(err, &why.to_string()),
+    };
+    let Some(round) = handed.values.iter().find(|(given, _)| *given == "round").map(|(_, value)| value.clone()) else {
+        return refused(err, "no round was given or worked out. Give --round");
+    };
+    let stamp = match stamp_of(role, &handed, &runner) {
+        Ok(stamp) => format!("[stamp] {} round {}\n{}", role, round, stamp),
+        Err(why) => return refused(err, &why),
+    };
+    let _ = write!(err, "{}: will post on {} {}, by `{}` of watchbill.yml:\n{}", name, word, on, post, stamp);
+    match starter::run(root, post, &line.replace(&format!("{{{}}}", word), &on), Some(stamp.as_bytes())) {
+        Ok(said) => {
+            let _ = err.write_all(&said);
+        }
+        Err(why) => {
+            let _ = writeln!(err, "{}: {}. The stamp may not be posted, and no session is started.", name, why);
             return 1;
         }
     }
-    let given: Vec<(&str, &str)> = values.iter().map(|(name, value)| (*name, value.as_str())).collect();
-    // The text of a review or a fix of a change with no issue says what to do where the issue is `none`
-    // (#116). Only the text has it: the stamp is made from `values`, and its `issue:` is empty.
-    let mut filled = given.clone();
-    if alone {
-        for name in ["issue", "issue_address"] {
-            if !filled.iter().any(|(given, _)| *given == name) {
-                filled.push((name, prompt::NO_ISSUE));
-            }
-        }
-    }
-    let text = file.as_ref().map(|file| file.text(&role));
-    let extra = file.as_ref().zip(text.as_deref()).map(|(file, text)| prompt::Extra { path: &file.path, hash: &file.hash, text });
-    match prompt::assemble_with(Path::new(&root), &role, &filled, extra.as_ref()) {
-        Err(why) => {
-            let _ = writeln!(err, "wb prompt: {}", why);
+    let _ = writeln!(err, "{}: starts {} on the runner {}, in {}", name, role, runner, root);
+    match starter::session(root, &filled) {
+        Ok(true) => 0,
+        Ok(false) => {
+            let _ = writeln!(err, "{}: the session did not end with 0", name);
             1
         }
-        Ok(found) => {
-            if stamp {
-                let rules = match rules::load_revision() {
-                    Ok(rules) => rules,
-                    Err(why) => {
-                        let _ = writeln!(err, "wb prompt: {}", why);
-                        return 1;
-                    }
-                };
-                // The breakdown runs with the model and effort its runner is cleared with; the others with the table's.
-                let model = match &cleared {
-                    Some(cleared) => rules::Model { model: cleared.model.clone(), effort: cleared.effort.clone() },
-                    None => match rules.models.get(&role) {
-                        Some(model) => model.clone(),
-                        None => {
-                            let _ = writeln!(err, "wb prompt: the model table has no row for '{}'", role);
-                            return 1;
-                        }
-                    },
-                };
-                let revision = match manifest::revision_hash(manifest::PACKAGE_FOLDER) {
-                    Ok(hash) => hash,
-                    Err(why) => {
-                        let _ = writeln!(err, "wb prompt: {}", why);
-                        return 1;
-                    }
-                };
-                // A clock that fails, or is before 1970, gives no stamp: a false time is worse than none.
-                let seconds = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-                    Ok(since) => since.as_secs(),
-                    Err(_) => {
-                        let _ = writeln!(err, "wb prompt: the clock of this machine reads before 1970 or cannot be read. No stamp.");
-                        return 1;
-                    }
-                };
-                let time = prompt::utc(seconds);
-                let said = prompt::Stamp {
-                    role: &role,
-                    model: &model.model,
-                    effort: &model.effort,
-                    runner: runner.as_deref().unwrap_or_default(),
-                    version: VERSION,
-                    revision: &revision,
-                    time: &time,
-                    requirements_given,
-                };
-                let _ = out.write_all(prompt::stamp(&said, &given, &found).as_bytes());
-            } else if parts {
-                let mut lines: String = found.parts.iter().map(|part| format!("{}  {}\n", part.hash, part.path)).collect();
-                if let (Some(cleared), Some(runner)) = (&cleared, &runner) {
-                    lines.push_str(&format!("level: {}\nrunner: {}\n", cleared.level, runner));
-                }
-                let _ = out.write_all(lines.as_bytes());
-            } else {
-                let _ = out.write_all(found.text.as_bytes());
-            }
-            0
+        Err(why) => {
+            let _ = writeln!(err, "{}: {}", name, why);
+            1
         }
     }
 }

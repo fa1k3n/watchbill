@@ -55,6 +55,12 @@ fn test_WB_INIT_14_yes_writes_what_the_repository_says_and_asks_nothing() {
             "tracker: github",
             "requirements: requirements/*.md",
             "ci: github-actions",
+            // The patterns of the starter (#84), before the addresses.
+            "issue_comment: 'gh issue comment {issue} --repo example/brake-controller --body-file -'",
+            "issue_comments: 'gh api repos/example/brake-controller/issues/{issue}/comments --paginate --jq ''.[].body | split(\"\\n\")[0]'''",
+            "change_comment: 'gh pr comment {change} --repo example/brake-controller --body-file -'",
+            "change_comments: 'gh api repos/example/brake-controller/issues/{change}/comments --paginate --jq ''.[].body | split(\"\\n\")[0]'''",
+            "change_of_branch: 'gh pr list --repo example/brake-controller --head {branch} --state open --json number --jq ''.[].number'''",
             "issue_address: 'gh issue view {issue} --repo example/brake-controller; gh issue view {issue} --repo example/brake-controller --comments'",
             "change_address: 'gh pr view {change} --repo example/brake-controller; gh pr view {change} --repo example/brake-controller --comments'",
         ])
@@ -664,4 +670,88 @@ fn test_WB_INIT_46_a_github_address_runs_one_command_for_the_text_and_one_for_th
     let line = |key: &str| file.lines().find(|l| l.starts_with(key)).unwrap().to_string();
     assert_eq!(line("issue_address").matches("{issue}").count(), 2, "{}", file);
     assert_eq!(line("change_address").matches("{change}").count(), 2, "{}", file);
+}
+
+// ---- the patterns of the starter (#84) ----
+
+/// A pattern of `watchbill.yml` as the loader reads it back, or `None` when the file has none.
+fn pattern(folder: &std::path::Path, key: &str) -> Option<String> {
+    let document = watchbill::yamlfile::load(config(folder)).unwrap();
+    let place = [watchbill::yamlfile::Part::from(key)];
+    document.has(&place).then(|| document.text(&place).unwrap())
+}
+
+#[test]
+fn test_WB_INIT_47_a_github_origin_gets_the_pattern_that_posts_a_comment_on_an_issue() {
+    let folder = repository(Some("https://github.com/example/brake-controller.git"));
+    let run = wb(&folder.path, &["init", "--yes"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(
+        pattern(&folder.path, "issue_comment").as_deref(),
+        Some("gh issue comment {issue} --repo example/brake-controller --body-file -")
+    );
+    assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
+}
+
+#[test]
+fn test_WB_INIT_48_a_github_origin_gets_the_patterns_that_read_the_comments_and_find_the_change() {
+    let folder = repository(Some("git@github.com:example/brake-controller.git"));
+    let run = wb(&folder.path, &["init", "--yes"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(
+        pattern(&folder.path, "issue_comments").as_deref(),
+        Some("gh api repos/example/brake-controller/issues/{issue}/comments --paginate --jq '.[].body | split(\"\\n\")[0]'")
+    );
+    assert_eq!(
+        pattern(&folder.path, "change_of_branch").as_deref(),
+        Some("gh pr list --repo example/brake-controller --head {branch} --state open --json number --jq '.[].number'")
+    );
+}
+
+#[test]
+fn test_WB_INIT_53_a_github_origin_gets_the_patterns_that_post_and_read_comments_on_a_change() {
+    let folder = repository(Some("https://github.com/example/brake-controller.git"));
+    let run = wb(&folder.path, &["init", "--yes"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(
+        pattern(&folder.path, "change_comment").as_deref(),
+        Some("gh pr comment {change} --repo example/brake-controller --body-file -")
+    );
+    // The comments of a pull request are those of an issue at GitHub.
+    assert_eq!(
+        pattern(&folder.path, "change_comments").as_deref(),
+        Some("gh api repos/example/brake-controller/issues/{change}/comments --paginate --jq '.[].body | split(\"\\n\")[0]'")
+    );
+}
+
+#[test]
+fn test_WB_INIT_47_another_server_gets_no_pattern_that_posts_on_an_issue() {
+    no_pattern(&["issue_comment"]);
+}
+
+#[test]
+fn test_WB_INIT_48_another_server_gets_no_pattern_that_reads_the_comments_or_finds_the_change() {
+    no_pattern(&["issue_comments", "change_of_branch"]);
+}
+
+#[test]
+fn test_WB_INIT_53_another_server_gets_no_pattern_for_the_comments_of_a_change() {
+    no_pattern(&["change_comment", "change_comments"]);
+}
+
+/// None of the patterns is written for another server, for none, or for a repository that is not plain.
+fn no_pattern(keys: &[&str]) {
+    for origin in [
+        Some("https://gitlab.example.com/brakes/controller.git"),
+        Some("https://git.example.org/brakes/controller.git"),
+        Some("git@github.com:example/it's.git"),
+        None,
+    ] {
+        let folder = repository(origin);
+        let run = wb(&folder.path, &["init", "--yes"], "");
+        assert_eq!(code(&run), Some(0), "{:?}: {}", origin, text(&run.stderr));
+        for key in keys {
+            assert_eq!(pattern(&folder.path, key), None, "{:?}: {}", origin, key);
+        }
+    }
 }

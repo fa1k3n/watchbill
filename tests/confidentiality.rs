@@ -357,3 +357,82 @@ fn test_WB_CONF_18_wb_prompt_breakdown_writes_nothing() {
 
     assert_eq!((listing(&folder.path), listing(&place.path)), before);
 }
+
+// ---- WB-CONF-24: a runner's `start`, and the `default` runner (#84) ----
+
+/// `ORGANISATION` with a `start` for `claude-code`, written as `start`, and a line `default`, when given.
+fn with_start(start: &str, default: Option<&str>) -> String {
+    let file = ORGANISATION.replace("    up_to: internal\n", &format!("    up_to: internal\n    start: {}\n", start));
+    match default {
+        Some(line) => format!("{}{}\n", file, line),
+        None => file,
+    }
+}
+
+/// Reads an organisation's file of the given text with `watchbill::confidentiality::read`. The path of the
+/// file is written `<the file>` in what is refused.
+fn read_organisation(file: &str) -> Result<watchbill::confidentiality::Organisation, String> {
+    let place = folder_named("organisation");
+    let path = place.path.join("organisation.yml");
+    fs::write(&path, file).unwrap();
+    watchbill::confidentiality::read(&path).map_err(|why| why.replace(path.to_str().unwrap(), "<the file>"))
+}
+
+#[test]
+fn test_WB_CONF_24_a_start_of_plain_words_and_a_default_that_names_a_runner_are_taken() {
+    let found = read_organisation(&with_start(
+        "[claude, --model, '{model}', --effort, '{effort}', '{prompt}']",
+        Some("default: claude-code"),
+    ))
+    .unwrap();
+    assert_eq!(found.default.as_deref(), Some("claude-code"));
+    let words = found.runners[0].start.clone().unwrap();
+    assert_eq!(words, ["claude", "--model", "{model}", "--effort", "{effort}", "{prompt}"]);
+    // A placeholder may stand inside a word, and a word may hold braces that are no placeholder.
+    let found = read_organisation(&with_start("[env, 'X={effort}', run, '--text={prompt}', '{Model}', '${HOME}']", None)).unwrap();
+    assert_eq!(found.default, None);
+    assert_eq!(found.runners[0].start.as_ref().unwrap()[1], "X={effort}");
+    // `start` is not needed.
+    assert_eq!(read_organisation(ORGANISATION).unwrap().runners[0].start, None);
+}
+
+#[test]
+fn test_WB_CONF_24_a_start_that_is_not_a_list_of_plain_words_is_refused_with_the_file_and_the_place() {
+    for (start, place) in [
+        ("claude", "runners.claude-code.start"),
+        ("[]", "runners.claude-code.start"),
+        ("[claude, 5]", "runners.claude-code.start.1"),
+        ("[claude, '']", "runners.claude-code.start.1"),
+        ("[claude, \"a\\tb\"]", "runners.claude-code.start.1"),
+        ("[claude, \"a\\nb\"]", "runners.claude-code.start.1"),
+        ("[claude, [a]]", "runners.claude-code.start.1"),
+        ("{run: claude}", "runners.claude-code.start"),
+    ] {
+        let why = read_organisation(&with_start(start, None)).expect_err(start);
+        assert!(why.starts_with("<the file>"), "{}: {}", start, why);
+        assert!(why.contains(place), "{}: {}", start, why);
+    }
+}
+
+#[test]
+fn test_WB_CONF_24_a_placeholder_that_is_not_known_or_one_in_the_first_word_is_refused_with_the_place() {
+    for (start, place, named) in [
+        ("[claude, '{issue}']", "runners.claude-code.start.1", "{issue}"),
+        ("[claude, '--x={runner}']", "runners.claude-code.start.1", "{runner}"),
+        ("['{model}', run]", "runners.claude-code.start.0", "{model}"),
+        ("['/opt/{effort}/bin/agent', run]", "runners.claude-code.start.0", "{effort}"),
+    ] {
+        let why = read_organisation(&with_start(start, None)).expect_err(start);
+        assert!(why.starts_with("<the file>") && why.contains(place) && why.contains(named), "{}: {}", start, why);
+    }
+}
+
+#[test]
+fn test_WB_CONF_24_a_default_that_names_no_runner_or_is_not_a_name_is_refused_with_the_file_and_the_place() {
+    for line in ["default: other", "default: [claude-code]", "default: ''"] {
+        let why = read_organisation(&with_start("[claude]", Some(line))).expect_err(line);
+        assert!(why.starts_with("<the file>") && why.contains("default"), "{}: {}", line, why);
+    }
+    let why = read_organisation(&with_start("[claude]", Some("default: other"))).unwrap_err();
+    assert!(why.contains("other") && why.contains("claude-code"), "{}", why);
+}

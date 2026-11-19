@@ -112,7 +112,7 @@ fn test_WB_PIN_4_a_file_that_is_there_stops_it_before_it_asks() {
 fn test_WB_PIN_4_a_no_at_the_last_question_writes_none_of_the_files() {
     let folder = repository(None);
 
-    let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", "no"]));
+    let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", "", "no"]));
 
     assert_eq!(code(&run), Some(1));
     assert!(text(&run.stdout).contains("revision.sha256"), "the files were shown");
@@ -124,7 +124,7 @@ fn test_WB_PIN_4_a_no_at_the_last_question_writes_none_of_the_files() {
 fn test_WB_PIN_5_every_file_is_named_before_it_is_asked_whether_it_is_ok() {
     let folder = repository(None);
 
-    let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", "no"]));
+    let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", "", "no"]));
 
     let out = text(&run.stdout);
     let ok = out.find("Is this OK?").unwrap();

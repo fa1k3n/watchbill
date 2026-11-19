@@ -122,7 +122,7 @@ fn org(log: &Path, default: Option<&str>) -> String {
     ORG.replace("{log}", log.to_str().unwrap()).replace("{default}", &line)
 }
 
-/// A repository set up by `wb init --yes`, with every pattern a stand-in, `classed: []`, the level `public`,
+/// A repository set up by `wb init --yes`, which writes `classed: []`, with every pattern a stand-in, the level `public`,
 /// committed on `main`, with `origin/HEAD` naming `main`, the branch `issue-54`, and `feature-x` checked out.
 /// `origin` is an address no stand-in serves; git reaches it only through `ssh.sh`, which writes `network`.
 fn bench() -> Bench {
@@ -158,7 +158,6 @@ fn bench() -> Bench {
         format!("change_of_branch: '{} {{branch}}'", at("changes.sh")),
         "issue_address: 'tracker {issue}'".to_string(),
         "change_address: 'server {change}'".to_string(),
-        "classed: []".to_string(),
         "confidentiality: public".to_string(),
     ] {
         yml.push_str(&format!("{}\n", line));

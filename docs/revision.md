@@ -64,7 +64,7 @@ The program enforces the table. A prompt repeats a limit so the agent knows it, 
 
 ## 4. Code classes
 
-One rule in the first revision: a change that touches classed code needs a person as its verifier. Which paths are classed is the project's to say: the list `classed` of `watchbill.yml`, and every path where it says none (#84). Levels per class come later.
+One rule in the first revision: a change that touches classed code needs a person as its verifier. Which paths are classed is the project's to say: the list `classed` of `watchbill.yml`, and every path where it says none (#84). `wb init` asks for the list and proposes none: `classed: []`. Levels per class come later.
 
 ## 5. The model table
 

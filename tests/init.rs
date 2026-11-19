@@ -26,7 +26,13 @@ fn expected(rows: &[&str]) -> String {
     all.push(format!("watchbill: {}", REVISION));
     // The hash is written as `wb init` writes it: in quotes when it starts with a digit.
     all.push(format!("revision: {}", watchbill::init::yaml_value(&package_hash())));
-    all.extend(rows.iter().map(|row| row.to_string()));
+    for row in rows {
+        all.push(row.to_string());
+        // The classed paths follow the CI driver (#84): none, as `wb init` proposes.
+        if row.starts_with("ci: ") {
+            all.push("classed: []".to_string());
+        }
+    }
     // The pattern of the branch is proposed for every server (#72), after the rows given.
     all.push("branch: 'issue-{issue}'".to_string());
     all.push(String::new());
@@ -95,7 +101,7 @@ fn test_WB_INIT_9_an_answer_replaces_what_was_found_and_an_empty_line_keeps_it()
     put(&folder.path, "Jenkinsfile", "");
 
     // project, git server, repository, tracker, requirements, ci, then the question whether it is OK.
-    let run = wb(&folder.path, &["init"], &lines(&["brakes", "", "", "jira", "polarion", "jenkins", "yes"]));
+    let run = wb(&folder.path, &["init"], &lines(&["brakes", "", "", "jira", "polarion", "jenkins", "", "yes"]));
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert_eq!(
@@ -119,7 +125,7 @@ fn test_WB_INIT_9_an_answer_replaces_what_was_found_and_an_empty_line_keeps_it()
 fn test_WB_INIT_10_with_no_git_server_the_repository_is_not_asked_for() {
     let folder = repository(Some("git@github.com:example/brake-controller.git"));
 
-    let run = wb(&folder.path, &["init"], &lines(&["", "none", "", "", "", ""]));
+    let run = wb(&folder.path, &["init"], &lines(&["", "none", "", "", "", "", ""]));
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(!text(&run.stdout).contains("repository at the git server"));
@@ -141,7 +147,7 @@ fn test_WB_INIT_11_input_that_ends_early_keeps_what_was_found_for_the_rest() {
 fn test_WB_INIT_12_a_project_name_that_cannot_be_used_is_asked_for_again() {
     let folder = repository(None);
 
-    let run = wb(&folder.path, &["init"], &lines(&["Brake Controller", "brakes", "", "", "", "", "yes"]));
+    let run = wb(&folder.path, &["init"], &lines(&["Brake Controller", "brakes", "", "", "", "", "", "yes"]));
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(text(&run.stdout).contains("Not taken: a project name is"));
@@ -153,7 +159,7 @@ fn test_WB_INIT_22_an_answer_yaml_would_read_as_something_else_is_written_in_quo
     let folder = repository(None);
 
     // project, git server (none, so no repository), tracker, requirements, ci, OK.
-    let run = wb(&folder.path, &["init"], &lines(&["", "", "true", "docs/it's here/*.md #1", "", ""]));
+    let run = wb(&folder.path, &["init"], &lines(&["", "", "true", "docs/it's here/*.md #1", "", "", ""]));
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let file = read(&config(&folder.path));
@@ -166,7 +172,7 @@ fn test_WB_INIT_22_an_answer_yaml_would_read_as_something_else_is_written_in_quo
 fn test_WB_INIT_16_no_at_the_last_question_writes_nothing() {
     let folder = repository(None);
 
-    let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", "no"]));
+    let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", "", "no"]));
 
     assert_eq!(code(&run), Some(1));
     assert!(text(&run.stdout).contains("Nothing written."));
@@ -247,7 +253,7 @@ fn test_WB_INIT_13_an_answer_over_200_characters_or_with_a_control_character_is_
     let run = wb(
         &folder.path,
         &["init"],
-        &lines(&[&long, "bra\x07kes", "brakes", "", &tracker, "tra\x07cker", "", "", "", "yes"]),
+        &lines(&[&long, "bra\x07kes", "brakes", "", &tracker, "tra\x07cker", "", "", "", "", "yes"]),
     );
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
@@ -263,7 +269,7 @@ fn test_WB_INIT_13_an_answer_over_200_characters_or_with_a_control_character_is_
 fn test_WB_INIT_15_the_file_is_shown_before_it_is_asked_whether_it_is_ok() {
     let folder = repository(None);
 
-    let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", "no"]));
+    let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", "", "no"]));
 
     let out = text(&run.stdout);
     let shown = out.find(&format!("About to write {}", real(&folder.path) + "/.watchbill/watchbill.yml")).unwrap();
@@ -286,7 +292,7 @@ fn test_WB_INIT_18_the_version_of_wb_is_written_as_the_line_watchbill() {
 fn test_WB_INIT_23_the_file_that_was_written_is_named() {
     let folder = repository(None);
 
-    let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", ""]));
+    let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", "", ""]));
 
     let wrote = format!("Wrote {}/.watchbill/watchbill.yml.", real(&folder.path));
     assert!(text(&run.stdout).contains(&wrote));
@@ -310,7 +316,7 @@ fn test_WB_INIT_24_it_ends_with_0_when_the_file_is_written() {
 fn test_WB_INIT_16_y_is_a_yes() {
     let folder = repository(None);
 
-    let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", "y"]));
+    let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", "", "y"]));
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(config(&folder.path).exists());
@@ -320,7 +326,7 @@ fn test_WB_INIT_16_y_is_a_yes() {
 fn test_WB_INIT_28_an_empty_line_keeps_the_proposal() {
     let folder = repository(Some("git@github.com:example/brake-controller.git"));
 
-    let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", "", "yes"]));
+    let run = wb(&folder.path, &["init"], &lines(&["", "", "", "", "", "", "", "yes"]));
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(read(&config(&folder.path))
@@ -331,7 +337,7 @@ fn test_WB_INIT_28_an_empty_line_keeps_the_proposal() {
 fn test_WB_INIT_29_the_repository_is_none_when_the_git_server_is_none() {
     let folder = repository(Some("git@github.com:example/brake-controller.git"));
 
-    let run = wb(&folder.path, &["init"], &lines(&["", "none", "", "", "", "yes"]));
+    let run = wb(&folder.path, &["init"], &lines(&["", "none", "", "", "", "", "yes"]));
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(read(&config(&folder.path)).contains("\nrepository: none\n"));
@@ -492,7 +498,7 @@ fn test_WB_INIT_37_any_usable_text_is_taken_for_the_git_server_tracker_and_ci_dr
     let run = wb(
         &folder.path,
         &["init"],
-        &lines(&["", "forgejo", "", "linear", "reqs/*.md", "woodpecker", "yes"]),
+        &lines(&["", "forgejo", "", "linear", "reqs/*.md", "woodpecker", "", "yes"]),
     );
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
@@ -559,7 +565,7 @@ fn test_WB_INIT_32_an_interrupt_that_came_in_ignored_stays_ignored() {
     std::thread::sleep(Duration::from_millis(500));
     assert!(child.try_wait().unwrap().is_none(), "wb ended on an interrupt that is ignored");
     use std::io::Write;
-    child.stdin.take().unwrap().write_all(lines(&["", "", "", "", "", "yes"]).as_bytes()).unwrap();
+    child.stdin.take().unwrap().write_all(lines(&["", "", "", "", "", "", "yes"]).as_bytes()).unwrap();
     let (status, out, err) = finish(child, before);
     assert_eq!(status, Some(0), "{}", err);
     assert!(!out.contains("Nothing written."));
@@ -637,7 +643,7 @@ fn test_WB_INIT_45_the_branch_pattern_is_proposed_for_every_server() {
         let run = wb(&folder.path, &["init", "--yes"], "");
 
         assert_eq!(code(&run), Some(0), "{:?}: {}", origin, text(&run.stderr));
-        assert!(read(&config(&folder.path)).ends_with("ci: none\nbranch: 'issue-{issue}'\n"), "{:?}", origin);
+        assert!(read(&config(&folder.path)).ends_with("ci: none\nclassed: []\nbranch: 'issue-{issue}'\n"), "{:?}", origin);
     }
 }
 

@@ -339,10 +339,12 @@ fn test_WB_STATUS_6_a_stage_that_is_not_known_is_used_wrongly() {
 #[test]
 fn test_WB_STATUS_6_stage_without_a_value_and_an_option_not_known_are_used_wrongly() {
     let folder = at_every_step();
-    assert_eq!(code(&wb(&folder.path, &["status", "--stage"], "")), Some(2));
-    assert_eq!(code(&wb(&folder.path, &["status", "--all"], "")), Some(2));
-    assert_eq!(code(&wb(&folder.path, &["status", "1", "2"], "")), Some(2));
-    assert_eq!(code(&wb(&folder.path, &["status", "../x"], "")), Some(2));
+    // Only `wb status` says `wb status:`; a command that is not known says `wb: no command`.
+    for args in [vec!["status", "--stage"], vec!["status", "--all"], vec!["status", "../x"], vec!["status", "1", "2"]] {
+        let run = wb(&folder.path, &args, "");
+        assert_eq!(code(&run), Some(2), "{:?}", args);
+        assert!(text(&run.stderr).starts_with("wb status:"), "{:?}: {}", args, text(&run.stderr));
+    }
 }
 
 #[test]
@@ -424,9 +426,11 @@ fn test_WB_STATUS_8_a_folder_that_is_not_set_up_or_not_a_repository_ends_with_2(
     let folder = repository(None);
     let run = wb(&folder.path, &["status"], "");
     assert_eq!(code(&run), Some(2));
-    assert!(text(&run.stderr).contains("watchbill.yml"), "{}", text(&run.stderr));
+    assert!(text(&run.stderr).starts_with("wb status:") && text(&run.stderr).contains("watchbill.yml"), "{}", text(&run.stderr));
     let plain = folder_named("plain");
-    assert_eq!(code(&wb(&plain.path, &["status"], "")), Some(2));
+    let run = wb(&plain.path, &["status"], "");
+    assert_eq!(code(&run), Some(2));
+    assert!(text(&run.stderr).starts_with("wb status:"), "{}", text(&run.stderr));
 }
 
 #[test]

@@ -20,3 +20,5 @@ What `wb` reads of an issue's file and how a person accepts it. What the file is
 | WB-TASK-14 | For the tester, the build, the review and the fix, `wb prompt` shall end with 1, print nothing on standard output and name the missing file when the issue has no file, unless `watchbill.yml` says `breakdown: none`. Issue: #97. | T | Implemented |
 | WB-TASK-15 | `wb` shall refuse `breakdown: none` in `watchbill.yml` when the revision's rule table holds the breakdown. Issue: #97. | T | Implemented |
 | WB-TASK-16 | `wb accept` shall end by saying that the acceptance is to be committed alone, with the command. Issue: #97. | T | Implemented |
+| WB-TASK-17 | When an issue has no file, `wb prompt` shall hand out the tester's, the build's, the review's and the fix's prompts, and fill `requirements` with "the numbered requirements of issue {issue}" unless `--requirements` is given. Replaces WB-TASK-14 and WB-PROMPT-50 when built. Issue: #116. | T | Draft |
+| WB-TASK-18 | `wb check` and `wb prompt` shall refuse a `watchbill.yml` that has the key `breakdown`, name the line, say to remove it, and end with 1. Replaces WB-TASK-15 when built. Issue: #116. | T | Draft |

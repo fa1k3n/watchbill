@@ -1,7 +1,8 @@
 #!/bin/sh
 # Checks a release tag: packaging/check-tag.sh <tag> [<folder of the checkout>]
 # The tag must be the version in Cargo.toml, revisions.txt must have a line for it, and the hash
-# on that line must be the SHA-256 of share/watchbill/revision.sha256.
+# on that line must be the SHA-256 of share/watchbill/revision.sha256. When the checkout holds a
+# tag of that name, it must be annotated and its message must hold that hash.
 # Exit 0 when it holds, 1 when it does not, 2 when it is used wrongly.
 set -eu
 
@@ -37,5 +38,15 @@ computed=$(sha256sum "$here/share/watchbill/revision.sha256" | cut -d' ' -f1)
 if [ "$listed" != "$computed" ]; then
   echo "check-tag: the hash of $tag in revisions.txt is $listed but the hash of the manifest is $computed" >&2
   exit 1
+fi
+if git -C "$here" rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1; then
+  if [ "$(git -C "$here" cat-file -t "refs/tags/$tag")" != tag ]; then
+    echo "check-tag: the tag $tag is not annotated; a tag is annotated, with the hash of the revision in its message" >&2
+    exit 1
+  fi
+  if ! git -C "$here" tag -l --format='%(contents)' "$tag" | grep -qF "$computed"; then
+    echo "check-tag: the message of the tag $tag does not hold the hash $computed" >&2
+    exit 1
+  fi
 fi
 echo "check-tag: $tag is the version, is in revisions.txt, and its hash is $computed" >&2

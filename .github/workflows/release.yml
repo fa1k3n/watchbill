@@ -8,13 +8,16 @@ on:
       - '[0-9]+.[0-9]+.[0-9]+'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - name: The tag is the version, is in revisions.txt, and has the hash of the manifest
         run: sh packaging/check-tag.sh "$GITHUB_REF_NAME"
 
@@ -27,7 +30,7 @@ jobs:
         include:
           # The Fedora release is written here and nowhere else.
           - name: fedora
-            image: registry.fedoraproject.org/fedora:44
+            image: registry.fedoraproject.org/fedora:45
             prepare: dnf install -y git-core tar gzip findutils
           - name: el9
             image: docker.io/library/almalinux:9
@@ -40,6 +43,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: The container runs as root, so git is told the folder is safe
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: The needs of the build, as the top of packaging/rpm.sh lists them
@@ -72,12 +76,16 @@ jobs:
   release:
     needs: [check, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Stop when the release is already there
         run: |
+          # A failed look (network, auth) counts as "not there"; that is safe, as gh release create
+          # refuses a release that exists.
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             echo "the release $GITHUB_REF_NAME is already there; it is not written over" >&2
             exit 1
@@ -91,7 +99,7 @@ jobs:
         run: |
           set -eu
           git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
-          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" >notes.md
+          git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$GITHUB_REF_NAME" >notes.md
           cd files
           ls watchbill-[0-9]*.src.rpm
           ls watchbill-[0-9]*.rpm

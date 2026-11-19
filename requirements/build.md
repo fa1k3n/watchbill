@@ -30,3 +30,4 @@ What `wb <role> <issue>` checks, posts and starts. One path for a person and, af
 | WB-BUILD-24 | `wb <role>` shall refuse with 1, naming `--prompt`, a word of `start` that is 128 KiB or more once filled, before it posts or starts anything. Issue: #84. | T | Implemented |
 | WB-BUILD-25 | While the session runs, an interrupt (SIGINT) or a quit (SIGQUIT) sent to `wb <role>` shall not end it, and it shall end with the status that WB-BUILD-6 gives. Issue: #84. | T | Implemented |
 | WB-BUILD-26 | The README shall show a worked `start` for Claude Code and one for goose with an Ollama model, and say that where a `start` leaves out `{model}` or `{effort}`, the stamp's model or effort is not what ran. Issue: #84. | I | Implemented |
+| WB-BUILD-27 | The stamp that `wb <role>` posts shall hold on its line `round:` the round of its first line, for every role, also where the text of the role has no `{round}`. Issue: #136. | T | Implemented |

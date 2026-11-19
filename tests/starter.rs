@@ -1283,3 +1283,62 @@ fn test_WB_MON_6_the_program_s_wb_prompt_wb_check_and_wb_role_prompt_write_nothi
     ok(&wb_with(&bench.repo.path, &["build", "54", "--prompt"], &[("HOME", home.path.as_path())], &["XDG_STATE_HOME"]));
     assert!(everything(&home.path).is_empty(), "{:?}", everything(&home.path));
 }
+
+// ---- WB-BUILD-27: the stamp's `round:` line holds the round of its first line, for every role ----
+
+/// The first line of a posted stamp is `[stamp] <role> round <n>` and its line `round:` says `n`.
+fn agree(posted: &str, role: &str, round: usize) {
+    let (first, rest) = posted.split_once('\n').unwrap();
+    assert_eq!(first, format!("[stamp] {} round {}", role, round), "{}", posted);
+    assert!(rest.lines().any(|line| line == format!("round: {}", round)), "{}", posted);
+}
+
+#[test]
+fn test_WB_BUILD_27_the_round_line_agrees_with_the_first_line_for_each_role_with_the_round_worked_out() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    bench.comments("issue", "54", &["[stamp] breakdown round 1", "[stamp] tester round 1", "[stamp] tester round 2", "[stamp] review round 1", "[stamp] review round 2"]);
+    for (role, round) in [("breakdown", 2), ("tester", 3), ("build", 1), ("review", 3), ("fix", 2)] {
+        ok(&bench.start(true, &[role, "54"]));
+        agree(&bench.posted("issue", "54").unwrap(), role, round);
+    }
+}
+
+#[test]
+fn test_WB_BUILD_27_the_round_line_agrees_with_the_first_line_for_a_build_with_a_round_given() {
+    let bench = bench();
+    ok(&bench.start(true, &["build", "54", "--round", "1"]));
+    agree(&bench.posted("issue", "54").unwrap(), "build", 1);
+    let run = bench.prompt(&["build", "54", "--round", "1", "--stamp"]);
+    ok(&run);
+    assert!(text(&run.stdout).lines().any(|line| line == "round: 1"), "{}", text(&run.stdout));
+}
+
+#[test]
+fn test_WB_BUILD_27_the_round_line_agrees_with_the_first_line_for_a_review_of_a_change_with_no_issue() {
+    let bench = bench();
+    bench.comments("change", "174", &["[stamp] review round 1"]);
+    ok(&bench.start(true, &["review", "--change", "174"]));
+    agree(&bench.posted("change", "174").unwrap(), "review", 2);
+}
+
+// ---- WB-PROMPT-55: `--stamp` holds the round for every role, where there is one ----
+
+#[test]
+fn test_WB_PROMPT_55_a_stamp_keeps_change_empty_for_a_role_whose_text_has_no_change() {
+    let bench = bench();
+    let run = bench.prompt(&["build", "54", "--round", "1", "--change", "9", "--stamp"]);
+    ok(&run);
+    let out = text(&run.stdout);
+    assert!(out.lines().any(|line| line == "change:") && out.lines().any(|line| line == "round: 1"), "{}", out);
+}
+
+#[test]
+fn test_WB_PROMPT_55_a_stamp_of_the_build_without_a_round_leaves_it_empty_and_runs_no_pattern() {
+    let bench = bench();
+    bench.comments("issue", "54", &["[stamp] build round 1"]);
+    let run = bench.prompt(&["build", "54", "--stamp"]);
+    ok(&run);
+    assert!(text(&run.stdout).lines().any(|line| line == "round:"), "{}", text(&run.stdout));
+    assert!(!bench.calls().iter().any(|call| call.starts_with("comments")), "{:?}", bench.calls());
+}

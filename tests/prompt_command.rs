@@ -581,7 +581,8 @@ fn test_WB_PROMPT_19_a_stamp_is_the_twelve_lines_in_order_and_the_parts_for_each
         let role_text = fs::read_to_string(package().join("revision/roles").join(format!("{}.md", role))).unwrap();
         for name in ["issue", "change", "round", "branch", "checkout"] {
             let given = ALL_VALUES.iter().find(|(n, _)| *n == name).unwrap().1;
-            let expected = if role_text.contains(&format!("{{{}}}", name)) { given } else { "" };
+            // The round is written where it is given, whatever the text holds (#136).
+            let expected = if name == "round" || role_text.contains(&format!("{{{}}}", name)) { given } else { "" };
             assert_eq!(value(&found, name), expected, "{} {}", role, name);
         }
         assert_eq!(value(&found, "runner"), "", "{}", role);
@@ -789,7 +790,7 @@ fn test_WB_PROMPT_19_the_usage_names_stamp() {
 }
 
 #[test]
-fn test_WB_PROMPT_19_a_value_the_prompt_does_not_use_is_written_empty() {
+fn test_WB_PROMPT_19_a_value_the_prompt_does_not_use_is_written_empty_but_the_round() {
     let folder = set_up();
     let mut args = vec!["prompt", "build", "--stamp", "--change", "5", "--round", "2"];
     args.extend(with_where(&["--issue", "1", "--requirements", "R"]));
@@ -799,7 +800,19 @@ fn test_WB_PROMPT_19_a_value_the_prompt_does_not_use_is_written_empty() {
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let out = text(&run.stdout);
     assert!(out.lines().any(|line| line == "change:"), "{}", out);
-    assert!(out.lines().any(|line| line == "round:"), "{}", out);
+    assert!(out.lines().any(|line| line == "round: 2"), "{}", out);
+}
+
+#[test]
+fn test_WB_PROMPT_55_with_no_round_given_or_worked_out_the_round_line_is_empty() {
+    let folder = set_up();
+    let mut args = vec!["prompt", "build", "--stamp"];
+    args.extend(with_where(&["--issue", "1", "--requirements", "R"]));
+
+    let run = wb(&folder.path, &args, "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).lines().any(|line| line == "round:"), "{}", text(&run.stdout));
 }
 
 #[test]

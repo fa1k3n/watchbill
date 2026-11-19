@@ -856,6 +856,47 @@ fn test_WB_INIT_56_another_server_gets_no_open_issues() {
     no_pattern(&["open_issues"]);
 }
 
+/// What the jq of a pattern prints for a title with a line break and a tab, or `None` when `jq` is not here.
+fn jq_prints(program: &str, json: &str) -> Option<String> {
+    if !std::process::Command::new("jq").arg("--version").output().map(|run| run.status.success()).unwrap_or(false) {
+        eprintln!("jq is not installed: not checked");
+        return None;
+    }
+    let mut child = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(program)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    std::io::Write::write_all(&mut child.stdin.take().unwrap(), json.as_bytes()).unwrap();
+    Some(text(&child.wait_with_output().unwrap().stdout))
+}
+
+#[test]
+fn test_WB_INIT_57_the_github_pattern_prints_the_line_breaks_of_a_title_as_spaces() {
+    let folder = repository(Some("https://github.com/example/brake-controller.git"));
+    assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+    let line = pattern(&folder.path, "open_issues").unwrap();
+    // Only what `gh` prints is stood in for: the jq of the pattern is run on its JSON.
+    let jq = line.split_once("--jq ").unwrap().1;
+    if let Some(printed) = jq_prints(&format!("jq -r {}", jq), "[{\"number\":8,\"title\":\"Line\\nbreak\\r\\nand\\ttab\"}]") {
+        assert_eq!(printed, "8\tLine break  and\ttab\n");
+    }
+}
+
+#[test]
+fn test_WB_INIT_57_the_gitlab_pattern_prints_the_line_breaks_of_a_title_as_spaces() {
+    let folder = repository(Some("https://gitlab.example.com/brakes/controller.git"));
+    assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+    let line = pattern(&folder.path, "open_issues").unwrap();
+    let jq = line.split_once(" | ").unwrap().1;
+    assert!(jq.starts_with("jq -r "), "{}", jq);
+    if let Some(printed) = jq_prints(jq, "{\"iid\":8,\"title\":\"Line\\nbreak\\r\\nand\\ttab\"}\n") {
+        assert_eq!(printed, "8\tLine break  and\ttab\n");
+    }
+}
+
 // ---- which paths are classed (#84, the owner's answer of 2026-11-19) ----
 
 /// The list `classed` of `watchbill.yml` as the loader reads it back, or `None` when the file has none.

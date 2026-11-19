@@ -113,7 +113,7 @@ fn stdout(folder: &Path, args: &[&str]) -> (String, Option<i32>) {
 }
 
 #[test]
-fn test_WB_STATUS_2_each_issue_is_under_the_last_step_it_has_done_and_the_steps_are_in_the_order_of_the_flow() {
+fn test_WB_STATUS_2_each_issue_is_under_the_last_step_it_has_done() {
     let folder = at_every_step();
     let (out, status) = stdout(&folder.path, &["status"]);
     assert_eq!(status, Some(0));
@@ -142,7 +142,7 @@ Fixed:
 }
 
 #[test]
-fn test_WB_STATUS_1_a_heading_with_no_issue_is_left_out_and_no_line_says_a_round_a_command_or_a_step_going_on() {
+fn test_WB_STATUS_1_each_issue_is_a_line_of_its_number_and_its_title_under_the_heading_of_its_step() {
     let folder = set_up();
     open(&folder.path, &[("176", "The page shows how old the ledger is")]);
     comments(&folder.path, "176", &["[stamp] build round 2"]);
@@ -150,13 +150,47 @@ fn test_WB_STATUS_1_a_heading_with_no_issue_is_left_out_and_no_line_says_a_round
     let (out, status) = stdout(&folder.path, &["status"]);
     assert_eq!(status, Some(0));
     assert_eq!(out, "Built:\n  176  The page shows how old the ledger is\n");
-    for word in ["round", "running", "next", "wb ", "run "] {
+}
+
+#[test]
+fn test_WB_STATUS_11_a_heading_with_no_issue_is_not_printed() {
+    let folder = at_every_step();
+    let (out, _) = stdout(&folder.path, &["status", "--stage", "fixed"]);
+    assert_eq!(out, "Fixed:\n  7  Fixed issue\n");
+    let folder = set_up();
+    open(&folder.path, &[("1", "A")]);
+    comments(&folder.path, "1", &[]);
+    let (out, _) = stdout(&folder.path, &["status"]);
+    assert_eq!(out, "Not broken down:\n  1  A\n");
+    for heading in ["Broken down", "Accepted", "Tested", "Built", "Reviewed", "Fixed", "Questions open", "Not read"] {
+        assert!(!out.contains(heading), "{} in {}", heading, out);
+    }
+}
+
+#[test]
+fn test_WB_STATUS_12_no_line_says_a_round_a_command_or_a_step_going_on() {
+    let folder = at_every_step();
+    let (out, _) = stdout(&folder.path, &["status"]);
+    for word in ["round", "running", "going on", "next", "wb ", "run "] {
         assert!(!out.contains(word), "{} in {}", word, out);
     }
 }
 
 #[test]
-fn test_WB_STATUS_1_a_title_is_printed_with_its_control_characters_escaped() {
+fn test_WB_STATUS_13_the_steps_are_printed_in_the_order_of_the_flow() {
+    let folder = at_every_step();
+    let (out, _) = stdout(&folder.path, &["status"]);
+    let at: Vec<usize> = ["Not broken down:", "Broken down:", "Accepted:", "Tested:", "Built:", "Reviewed:", "Fixed:"]
+        .iter()
+        .map(|heading| out.find(&format!("\n{}", heading)).or_else(|| out.starts_with(heading).then_some(0)).expect(heading))
+        .collect();
+    let mut sorted = at.clone();
+    sorted.sort();
+    assert_eq!(at, sorted, "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_10_a_title_is_printed_with_its_control_characters_escaped() {
     let folder = set_up();
     open(&folder.path, &[("5", "Bell \u{7} and \u{1b}[31mred")]);
     comments(&folder.path, "5", &[]);
@@ -190,7 +224,7 @@ fn test_WB_STATUS_2_the_last_stamp_decides_between_reviewed_and_fixed() {
 }
 
 #[test]
-fn test_WB_STATUS_2_the_files_are_read_from_the_origin_branch_when_there_is_no_local_one() {
+fn test_WB_STATUS_18_the_files_are_read_from_the_origin_branch_when_there_is_no_local_one() {
     let folder = set_up();
     open(&folder.path, &[("9", "Only at origin")]);
     comments(&folder.path, "9", &[]);
@@ -204,7 +238,22 @@ fn test_WB_STATUS_2_the_files_are_read_from_the_origin_branch_when_there_is_no_l
 }
 
 #[test]
-fn test_WB_STATUS_9_an_issue_with_an_open_question_is_under_its_step_and_last_under_questions_open() {
+fn test_WB_STATUS_18_an_acceptance_that_is_written_and_not_committed_gives_broken_down() {
+    let folder = set_up();
+    open(&folder.path, &[("2", "Accepted, not committed")]);
+    comments(&folder.path, "2", &[]);
+    branch(&folder.path, "2", false);
+    git(&folder.path, &["checkout", "-q", "issue-2-work"]);
+    let run = wb(&folder.path, &["accept", "--", "2"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(folder.path.join(".watchbill/issues/2.accepted").exists());
+    git(&folder.path, &["checkout", "-q", "-"]);
+    let (out, _) = stdout(&folder.path, &["status"]);
+    assert_eq!(out, "Broken down:\n  2  Accepted, not committed\n");
+}
+
+#[test]
+fn test_WB_STATUS_9_questions_open_is_printed_after_the_steps() {
     let folder = set_up();
     open(&folder.path, &[("176", "Ledger age"), ("177", "Review count")]);
     comments(
@@ -220,6 +269,18 @@ fn test_WB_STATUS_9_an_issue_with_an_open_question_is_under_its_step_and_last_un
         out,
         "Not broken down:\n  177  Review count\n\nBuilt:\n  176  Ledger age\n\nQuestions open:\n  176  176.build.q2\n"
     );
+}
+
+#[test]
+fn test_WB_STATUS_22_an_issue_with_an_open_question_stays_under_its_step() {
+    let folder = set_up();
+    open(&folder.path, &[("176", "Ledger age")]);
+    comments(&folder.path, "176", &["[stamp] build round 1", "[question] 176.build.q1"]);
+    branch(&folder.path, "176", true);
+    let (out, _) = stdout(&folder.path, &["status"]);
+    assert!(out.starts_with("Built:\n  176  Ledger age\n"), "{}", out);
+    let (out, _) = stdout(&folder.path, &["status", "--stage", "built"]);
+    assert_eq!(out, "Built:\n  176  Ledger age\n");
 }
 
 #[test]
@@ -255,7 +316,36 @@ fn test_WB_STATUS_3_an_answer_in_words_closes_its_question() {
 }
 
 #[test]
-fn test_WB_STATUS_3_an_answer_of_suggested_closes_the_questions_before_it_and_not_those_after() {
+fn test_WB_STATUS_14_a_line_that_starts_with_question_is_never_an_answer() {
+    let folder = set_up();
+    open(&folder.path, &[("1", "A")]);
+    comments(&folder.path, "1", &["[question] 1.q1", "[question] [answer] 1.q1", "[question] 1.q1 [answer] 1.q1"]);
+    let (out, _) = stdout(&folder.path, &["status"]);
+    assert!(out.ends_with("Questions open:\n  1  1.q1\n"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_15_every_answer_line_counts_as_a_persons_until_wb_reads_who_wrote_a_comment() {
+    // `issue_comments` prints no author: an answer from an account that is not a person's cannot be told apart.
+    let folder = set_up();
+    open(&folder.path, &[("1", "A")]);
+    comments(&folder.path, "1", &["[question] 1.q1", "[answer] 1.q1 2"]);
+    let (out, _) = stdout(&folder.path, &["status"]);
+    assert_eq!(out, "Not broken down:\n  1  A\n");
+}
+
+#[test]
+fn test_WB_STATUS_30_an_answer_closes_its_question_whatever_follows_the_name() {
+    // A choice number is not held against the choices of the question: only first lines are read.
+    let folder = set_up();
+    open(&folder.path, &[("5", "A")]);
+    comments(&folder.path, "5", &["[question] 5.q1", "[answer] 5.q1 7"]);
+    let (out, _) = stdout(&folder.path, &["status"]);
+    assert_eq!(out, "Not broken down:\n  5  A\n");
+}
+
+#[test]
+fn test_WB_STATUS_29_an_answer_of_suggested_closes_the_questions_before_it_and_not_those_after() {
     let folder = set_up();
     open(&folder.path, &[("1", "A")]);
     comments(&folder.path, "1", &["[question] 1.q1", "[answer] 1 suggested", "[question] 1.q2"]);
@@ -318,6 +408,18 @@ fn test_WB_STATUS_5_one_issue_prints_its_heading_and_its_line_and_what_they_were
 }
 
 #[test]
+fn test_WB_STATUS_24_one_issue_prints_the_heading_worked_out_from_and_its_lines_indented() {
+    let folder = set_up();
+    open(&folder.path, &[("1", "A")]);
+    comments(&folder.path, "1", &["[stamp] tester round 1"]);
+    let (out, _) = stdout(&folder.path, &["status", "1"]);
+    assert_eq!(out, "Tested:\n  1  A\n\nWorked out from:\n  no branch of the issue, from the pattern `branch`: issue-{issue}\n  [stamp] tester round 1\n");
+    // The full list has no such heading.
+    let (out, _) = stdout(&folder.path, &["status"]);
+    assert!(!out.contains("Worked out from"), "{}", out);
+}
+
+#[test]
 fn test_WB_STATUS_6_stage_prints_only_that_heading_matched_without_regard_to_case() {
     let folder = at_every_step();
     let (out, status) = stdout(&folder.path, &["status", "--stage", "not BROKEN down"]);
@@ -328,7 +430,7 @@ fn test_WB_STATUS_6_stage_prints_only_that_heading_matched_without_regard_to_cas
 }
 
 #[test]
-fn test_WB_STATUS_6_a_stage_that_is_not_known_is_used_wrongly() {
+fn test_WB_STATUS_16_a_stage_that_is_not_known_is_used_wrongly() {
     let folder = at_every_step();
     let run = wb(&folder.path, &["status", "--stage", "running"], "");
     assert_eq!(code(&run), Some(2));
@@ -337,7 +439,7 @@ fn test_WB_STATUS_6_a_stage_that_is_not_known_is_used_wrongly() {
 }
 
 #[test]
-fn test_WB_STATUS_6_stage_without_a_value_and_an_option_not_known_are_used_wrongly() {
+fn test_WB_STATUS_20_a_stage_without_a_value_and_an_option_not_known_are_used_wrongly() {
     let folder = at_every_step();
     // Only `wb status` says `wb status:`; a command that is not known says `wb: no command`.
     for args in [vec!["status", "--stage"], vec!["status", "--all"], vec!["status", "../x"], vec!["status", "1", "2"]] {
@@ -370,12 +472,13 @@ fn test_WB_STATUS_7_a_pattern_that_fails_for_one_issue_lists_it_under_not_read_a
 }
 
 #[test]
-fn test_WB_STATUS_7_a_failing_open_issues_ends_with_1_and_names_the_pattern() {
+fn test_WB_STATUS_23_a_failing_open_issues_ends_with_1_and_lists_nothing() {
     let folder = set_up();
     fs::remove_file(folder.path.join(".tracker/open")).unwrap();
     let run = wb(&folder.path, &["status"], "");
     assert_eq!(code(&run), Some(1));
-    assert!(text(&run.stderr).contains("open_issues"), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).is_empty(), "{}", text(&run.stdout));
+    assert!(text(&run.stderr).contains("wb status: `open_issues` of watchbill.yml ended with 1"), "{}", text(&run.stderr));
 }
 
 /// Every file of the working tree but `.git`, with its size.
@@ -410,19 +513,47 @@ fn repository_state(folder: &Path) -> [String; 4] {
 }
 
 #[test]
-fn test_WB_STATUS_8_it_writes_nothing_and_switches_no_branch() {
+fn test_WB_STATUS_8_it_writes_nothing() {
     let folder = at_every_step();
     let before = repository_state(&folder.path);
     let files = tree(&folder.path);
     for args in [vec!["status"], vec!["status", "7"], vec!["status", "--stage", "fixed"]] {
         assert_eq!(code(&wb(&folder.path, &args, "")), Some(0));
     }
+    // The branches, the reflog and the index are as they were, and so is every file of the tree.
     assert_eq!(before, repository_state(&folder.path));
     assert_eq!(files, tree(&folder.path));
 }
 
 #[test]
-fn test_WB_STATUS_8_a_folder_that_is_not_set_up_or_not_a_repository_ends_with_2() {
+fn test_WB_STATUS_17_it_switches_no_branch() {
+    let folder = at_every_step();
+    git(&folder.path, &["checkout", "-q", "issue-4-work"]);
+    let before = git_text(&folder.path, &["rev-parse", "--abbrev-ref", "HEAD"]);
+    assert_eq!(before.trim(), "issue-4-work");
+    assert_eq!(code(&wb(&folder.path, &["status"], "")), Some(0));
+    assert_eq!(git_text(&folder.path, &["rev-parse", "--abbrev-ref", "HEAD"]), before);
+    assert!(git_text(&folder.path, &["reflog", "-1"]).contains("checkout: moving from"), "no checkout was made by wb");
+}
+
+#[test]
+fn test_WB_STATUS_19_it_runs_no_pattern_but_open_issues_and_issue_comments() {
+    let folder = set_up();
+    let others = ["change_of_branch", "change_comment", "change_comments", "issue_comment", "issue_address", "change_address"];
+    let lines: String = others.iter().map(|key| format!("{}: \"mkdir -p .marks && touch .marks/{}\"\n", key, key)).collect();
+    let mut file = fs::OpenOptions::new().append(true).open(config(&folder.path)).unwrap();
+    file.write_all(lines.as_bytes()).unwrap();
+    open(&folder.path, &[("1", "A")]);
+    comments(&folder.path, "1", &["[stamp] review round 1"]);
+    branch(&folder.path, "1", true);
+    for args in [vec!["status"], vec!["status", "1"], vec!["status", "--stage", "reviewed"]] {
+        assert_eq!(code(&wb(&folder.path, &args, "")), Some(0));
+    }
+    assert!(!folder.path.join(".marks").exists(), "a pattern other than open_issues and issue_comments was run");
+}
+
+#[test]
+fn test_WB_STATUS_21_a_folder_that_is_not_set_up_or_not_a_repository_ends_with_2() {
     let folder = repository(None);
     let run = wb(&folder.path, &["status"], "");
     assert_eq!(code(&run), Some(2));
@@ -434,7 +565,7 @@ fn test_WB_STATUS_8_a_folder_that_is_not_set_up_or_not_a_repository_ends_with_2(
 }
 
 #[test]
-fn test_WB_STATUS_8_it_runs_from_a_folder_below_the_root() {
+fn test_WB_STATUS_28_it_runs_from_a_folder_below_the_root() {
     let folder = set_up();
     open(&folder.path, &[("1", "A")]);
     comments(&folder.path, "1", &[]);
@@ -445,8 +576,38 @@ fn test_WB_STATUS_8_it_runs_from_a_folder_below_the_root() {
 }
 
 #[test]
-fn test_WB_STATUS_1_help_names_status() {
+fn test_WB_STATUS_27_help_names_status() {
     let folder = set_up();
     let (out, _) = stdout(&folder.path, &["--help"]);
     assert!(out.contains("wb status [<issue>] [--stage <heading>]"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_25_a_line_of_open_issues_whose_first_field_is_not_a_plain_name_is_listed_under_not_read() {
+    let folder = set_up();
+    put(&folder.path, ".tracker/open", "bad name\tTitle\n8\tFine\n; touch x\tEvil\n");
+    comments(&folder.path, "8", &[]);
+    let run = wb(&folder.path, &["status"], "");
+    assert_eq!(code(&run), Some(1));
+    let out = text(&run.stdout);
+    assert!(out.starts_with("Not broken down:\n  8  Fine\n"), "{}", out);
+    assert!(out.contains("\nNot read:\n  bad name  "), "{}", out);
+    assert!(out.contains("\n  ; touch x  "), "{}", out);
+    assert!(out.contains("not a plain issue name"), "{}", out);
+    assert!(!folder.path.join("x").exists());
+}
+
+#[test]
+fn test_WB_STATUS_26_without_issue_comments_it_says_so_once_on_standard_error() {
+    let folder = set_up();
+    let file = config(&folder.path);
+    let kept: String = read(&file).lines().filter(|line| !line.starts_with("issue_comments:")).map(|line| format!("{}\n", line)).collect();
+    fs::write(&file, kept).unwrap();
+    open(&folder.path, &[("1", "A"), ("2", "B"), ("3", "C")]);
+    let run = wb(&folder.path, &["status"], "");
+    assert_eq!(code(&run), Some(0));
+    assert_eq!(text(&run.stdout), "Not broken down:\n  1  A\n  2  B\n  3  C\n");
+    let said = text(&run.stderr);
+    assert_eq!(said.lines().count(), 1, "{}", said);
+    assert!(said.starts_with("wb status:") && said.contains("issue_comments"), "{}", said);
 }

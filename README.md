@@ -335,6 +335,27 @@ They are worked out, never asked. `--round` and `--change` are still taken, and 
 - **The session.** `wb` runs the runner's `start`, its words filled: `{model}` and `{effort}` are those of the stamp, and `{prompt}` is the whole prompt as one word. Nothing goes through a shell. It runs in the root of the checkout, in the foreground, in the person's terminal. Ctrl-C and Ctrl-\ go to the session, and `wb` waits for it. `wb` ends with 0 when the session ends with 0, and with 1 otherwise.
 - **`--prompt`** prints the prompt as `wb prompt` does, and posts and starts nothing. `--stamp` and `--parts` do as with `wb prompt`, with `--prompt` or without. No `default` runner is taken then: the output is that of `wb prompt` for the same words.
 
+### The lines it leaves
+
+Each start of `wb <role>`, started or refused, leaves a few plain lines on the machine where it ran (#124). When a run does not work, a person reads them and sees why, without the session's transcript.
+
+- **Where:** a new folder `<state>/watchbill/sessions/<time>-<role>-<issue>/`. `<state>` is `$XDG_STATE_HOME` when it is an absolute path, else `~/.local/state`. `<time>` is the stamp's, in UTC, with `:` left out, as `2026-11-19T094959Z`. `<issue>` is `none` for a role started with no issue. A folder that is there is never written over: a second start in the same second gets `-2`, a third `-3`.
+- **Said first:** `wb build: will write the lines of this start in <folder>`, on standard error, before it is written.
+- **`stamp`:** byte for byte the stamp posted, or the one that would have been posted. A start refused by the checks of `wb prompt` has none.
+- **`outcome`:** lines of `name: value`, in this order:
+
+  ```text
+  outcome: refused        outcome: not posted     outcome: ended
+  check: class            status: 1               status: 3
+  status: 1               message: …              seconds: 412
+  message: …
+  ```
+
+  `check` is the one that refused: `prompt`, `rule`, `class`, `start` or `terminal`. `message` is the first line of what was said. `not posted` is a stamp that was not posted, and no session was started. `ended` gives the session's own status (or `signal:` when a signal ended it) and the seconds it ran. A `wb` killed while the session runs leaves no `outcome`.
+- **Not in the way:** a folder that cannot be written is said on standard error. It changes neither the status nor whether the session starts.
+- **What writes none:** `--prompt`, `--stamp` and `--parts`, and `wb prompt` and `wb check`. Nor does a command used wrongly (status 2 before the checks begin): no start was tried.
+- **What they are:** diagnostics on one machine, not a record ([Not goals](#not-goals)). `wb` never reads them back to decide anything, and nothing in them leaves the machine. They are plain files, so the team's own tools or a recorder can collect them, and a person removes them when they are no longer wanted.
+
 ### The patterns
 
 `wb prompt` and `wb <role>` ask the tracker and the git server only through lines of `watchbill.yml`, the team's own commands. For a GitHub `origin`, `wb init` writes them, here for `example/brake-controller`:

@@ -15,6 +15,7 @@ pub mod manifest;
 pub mod prompt;
 pub mod rules;
 pub mod issue;
+pub mod sessions;
 pub mod starter;
 mod word;
 pub mod yamlfile;
@@ -223,7 +224,8 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
         role if STARTED.contains(&role) => {
             use std::io::IsTerminal;
             let terminal = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
-            run_start(role, &mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), terminal, out, err)
+            let state = sessions::state_folder();
+            run_start(role, &mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), terminal, state.as_deref(), out, err)
         }
         _ => run_revision(&mut parser, Path::new(manifest::PACKAGE_FOLDER), out, err),
     }
@@ -298,14 +300,23 @@ pub fn prompt(args: &[OsString], folder: &Path, organisation: &Path, out: &mut d
 
 /// `wb <role>`, with the role and the words after it, in the repository of `folder`, with the organisation's
 /// file at `organisation`, and `terminal` the answer to whether standard input and output are a terminal
-/// (#84). `run` gives the folder it runs in, the path fixed in `wb`, and what the terminal says; this is so
-/// that a test can give its own, as `prompt` does.
-pub fn start(args: &[OsString], folder: &Path, organisation: &Path, terminal: bool, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+/// (#84), and `state` the state folder the lines of the start are written below, or none (#124). `run` gives
+/// the folder it runs in, the path fixed in `wb`, what the terminal says, and `sessions::state_folder`; this
+/// is so that a test can give its own, as `prompt` does.
+pub fn start(
+    args: &[OsString],
+    folder: &Path,
+    organisation: &Path,
+    terminal: bool,
+    state: Option<&Path>,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> i32 {
     let mut parser = Parser::from_args(args.iter().cloned());
     match next(&mut parser) {
         Ok(Some(Word::Value(value))) if value.to_str().is_some_and(|role| STARTED.contains(&role)) => {
             let role = word(value.as_bytes());
-            run_start(&role, &mut parser, Some(folder), organisation, terminal, out, err)
+            run_start(&role, &mut parser, Some(folder), organisation, terminal, state, out, err)
         }
         _ => {
             let _ = write!(err, "wb: no command '{}'\n\n{}", word(args.first().map(|arg| arg.as_bytes()).unwrap_or_default()), USAGE);
@@ -607,16 +618,21 @@ fn model_of(role: &str, cleared: Option<&confidentiality::Cleared>) -> Result<ru
     rules.models.get(role).cloned().ok_or_else(|| format!("the model table has no row for '{}'", role))
 }
 
-/// The stamp of what is handed out (`docs/revision.md`, point 12), as `wb prompt --stamp` prints it.
-fn stamp_of(role: &str, handed: &Handed, runner: &str) -> Result<String, String> {
+/// The seconds since 1970 by the clock of this machine. A clock that fails, or is before 1970, gives no
+/// stamp: a false time is worse than none.
+fn now() -> Result<u64, String> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_secs())
+        .map_err(|_| "the clock of this machine reads before 1970 or cannot be read. No stamp.".to_string())
+}
+
+/// The stamp of what is handed out (`docs/revision.md`, point 12), as `wb prompt --stamp` prints it, with the
+/// time `seconds`, as `now` gives it.
+fn stamp_of(role: &str, handed: &Handed, runner: &str, seconds: Result<u64, String>) -> Result<String, String> {
     let model = model_of(role, handed.cleared.as_ref())?;
     let revision = manifest::revision_hash(manifest::PACKAGE_FOLDER).map_err(|why| why.to_string())?;
-    // A clock that fails, or is before 1970, gives no stamp: a false time is worse than none.
-    let seconds = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|_| "the clock of this machine reads before 1970 or cannot be read. No stamp.".to_string())?
-        .as_secs();
-    let time = prompt::utc(seconds);
+    let time = prompt::utc(seconds?);
     let said = prompt::Stamp {
         role,
         model: &model.model,
@@ -634,7 +650,7 @@ fn stamp_of(role: &str, handed: &Handed, runner: &str) -> Result<String, String>
 /// Prints what was handed out, as `wb prompt` prints it: the stamp, the parts, or the text.
 fn print(name: &str, words: &Words, handed: &Handed, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     if words.stamp {
-        match stamp_of(&words.role, handed, words.runner.as_deref().unwrap_or_default()) {
+        match stamp_of(&words.role, handed, words.runner.as_deref().unwrap_or_default(), now()) {
             Ok(text) => {
                 let _ = out.write_all(text.as_bytes());
             }
@@ -678,12 +694,51 @@ fn is_round(value: &str) -> bool {
     !value.is_empty() && value.chars().all(|c| c.is_ascii_digit()) && !value.starts_with('0')
 }
 
+/// Standard error, with what is said on it kept, so that the lines of a start (#124) hold what `wb prompt`
+/// refused, said as it says it.
+struct Kept<'a> {
+    inner: &'a mut dyn Write,
+    kept: Vec<u8>,
+}
+
+impl Write for Kept<'_> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let written = self.inner.write(bytes)?;
+        self.kept.extend_from_slice(&bytes[..written]);
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+/// The refusal in what `name` said: the last line that starts with `<name>: `, without it. What was worked
+/// out is said before a refusal, and what `wb check` says follows its own.
+fn refusal_in(name: &str, said: &[u8]) -> String {
+    let said = String::from_utf8_lossy(said);
+    let start = format!("{}: ", name);
+    said.lines().filter_map(|line| line.strip_prefix(&start)).last().or_else(|| said.lines().next()).unwrap_or_default().to_string()
+}
+
 /// `wb <role> [<issue>] [--runner <name>] [--prompt] …` (#84): the checks of `wb prompt`, then that the rule
 /// table lets the role start, that no classed code is in its way, that the runner has `start`, and that it
 /// runs at a terminal; then the stamp is posted by `issue_comment` (or `change_comment`), and the session is
 /// started by the runner's `start`. The first fault ends it, and nothing is posted or started. With
-/// `--prompt`, `--stamp` or `--parts` it does what `wb prompt` does.
-fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, organisation: &Path, terminal: bool, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+/// `--prompt`, `--stamp` or `--parts` it does what `wb prompt` does, and writes nothing.
+///
+/// From the checks on, each start leaves its lines in a new folder below `state` (#124): the stamp, posted
+/// or as it would have been, and the outcome (`sessions`).
+fn run_start(
+    role: &str,
+    parser: &mut Parser,
+    folder: Option<&Path>,
+    organisation: &Path,
+    terminal: bool,
+    state: Option<&Path>,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> i32 {
     let name = format!("wb {}", role);
     let name = name.as_str();
     let mut words = match read_words(parser, name, Some(role), err) {
@@ -739,14 +794,31 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, organisatio
         }
     }
     let runner = words.runner.clone().unwrap_or_default();
-    // 1. Everything `wb prompt` checks.
-    let handed = match hand_out(name, &words, folder, organisation, true, err) {
+    // The lines of this start (#124), from here on. The clock is read once: the folder's time is the stamp's.
+    let seconds = now();
+    let mut lines = sessions::Lines::new(name, state, seconds.clone(), role, words.get("issue"));
+    // 1. Everything `wb prompt` checks. What it refuses is said as `wb prompt` says it, and kept for the lines.
+    let mut kept = Kept { inner: err, kept: Vec::new() };
+    let handed = hand_out(name, &words, folder, organisation, true, &mut kept);
+    let said = kept.kept;
+    let handed = match handed {
         Ok(handed) => handed,
-        Err(status) => return status,
+        Err(status) => {
+            let message = refusal_in(name, &said);
+            lines.close(None, sessions::Outcome::Refused { check: "prompt", status, message }, err);
+            return status;
+        }
     };
     let root = handed.root.as_str();
-    let refused = |err: &mut dyn Write, why: &str| {
+    // The stamp, as it will be posted; made now, so that a start refused before it is posted leaves it.
+    let round = handed.values.iter().find(|(given, _)| *given == "round").map(|(_, value)| value.clone());
+    let stamp = match &round {
+        Some(round) => stamp_of(role, &handed, &runner, seconds).map(|stamp| format!("[stamp] {} round {}\n{}", role, round, stamp)),
+        None => Err("no round was given or worked out. Give --round".to_string()),
+    };
+    let refused = |lines: &mut sessions::Lines, err: &mut dyn Write, check: &'static str, why: &str| {
         let _ = writeln!(err, "{}: {}", name, why);
+        lines.close(stamp.as_deref().ok(), sessions::Outcome::Refused { check, status: 1, message: why.to_string() }, err);
         1
     };
     // 2. The rule table: a fix follows a review. The number of rounds is no rule for a person (#84).
@@ -762,32 +834,32 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, organisatio
                             "a fix follows a review (the rule table), and that is checked from the stamps that `{}` of watchbill.yml prints, and it has none. Add the line (see the README)",
                             key
                         );
-                        return refused(err, &why);
+                        return refused(&mut lines, err, "rule", &why);
                     }
-                    Err(why) => return refused(err, &why.to_string()),
+                    Err(why) => return refused(&mut lines, err, "rule", &why.to_string()),
                 };
                 let at = format!("{} {}", word, on);
                 match starter::read_stamps(root, key, &line.replace(&format!("{{{}}}", word), &on), &at) {
                     Ok(stamps) => stamps,
-                    Err(why) => return refused(err, &why),
+                    Err(why) => return refused(&mut lines, err, "rule", &why),
                 }
             }
         };
         if stamps.count("review") == 0 {
-            return refused(err, &starter::no_review(&stamps.on, &stamps.key));
+            return refused(&mut lines, err, "rule", &starter::no_review(&stamps.on, &stamps.key));
         }
     }
     // 3. The class: no classed code is worked on here before #65. The breakdown changes only the issue's file.
     if role != "breakdown" {
         let changes = handed.file.as_ref().map(|file| file.issue.changes.as_slice());
         if let Err(why) = starter::class(root, changes) {
-            return refused(err, &why);
+            return refused(&mut lines, err, "class", &why);
         }
     }
     // 4. The runner's `start`, filled, and each word one that a program can be handed.
     let organisation_file = match confidentiality::read(organisation) {
         Ok(found) => found,
-        Err(why) => return refused(err, &why),
+        Err(why) => return refused(&mut lines, err, "start", &why),
     };
     let Some(chosen) = organisation_file.runners.iter().find(|one| one.name == runner) else {
         let names: Vec<&str> = organisation_file.runners.iter().map(|one| one.name.as_str()).collect();
@@ -797,7 +869,7 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, organisatio
             runner.escape_debug(),
             names.join(", ")
         );
-        return refused(err, &why);
+        return refused(&mut lines, err, "start", &why);
     };
     let Some(start) = &chosen.start else {
         let why = format!(
@@ -805,11 +877,11 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, organisatio
             runner,
             organisation.display()
         );
-        return refused(err, &why);
+        return refused(&mut lines, err, "start", &why);
     };
     let model = match model_of(role, handed.cleared.as_ref()) {
         Ok(model) => model,
-        Err(why) => return refused(err, &why),
+        Err(why) => return refused(&mut lines, err, "start", &why),
     };
     let filled = starter::fill(start, &model.model, &model.effort, &handed.found.text);
     if let Some((index, _)) = filled.iter().enumerate().find(|(_, word)| word.len() + 1 > starter::LONGEST_WORD) {
@@ -818,50 +890,63 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, organisatio
             index,
             filled[index].len()
         );
-        return refused(err, &why);
+        return refused(&mut lines, err, "start", &why);
     }
     // 5. A terminal: no session is started out of a person's sight before the sandbox (#65).
     if !terminal {
         return refused(
+            &mut lines,
             err,
+            "terminal",
             "standard input or standard output is not a terminal, and no session is started out of a person's sight before a session sees only its files (#65). Use --prompt.",
         );
     }
-    // The pattern that posts the stamp.
+    // The pattern that posts the stamp. From here, a fault leaves the stamp not posted.
+    let not_posted = |lines: &mut sessions::Lines, err: &mut dyn Write, why: &str| {
+        let _ = writeln!(err, "{}: {}", name, why);
+        lines.close(stamp.as_deref().ok(), sessions::Outcome::NotPosted { status: 1, message: why.to_string() }, err);
+        1
+    };
     let line = match prompt::pattern_of(root, post) {
         Ok(Some(line)) => line,
         Ok(None) => {
             let why = format!("watchbill.yml has no `{}`, so the stamp cannot be posted, and no session is started without it. Add the line (see the README), or use --prompt.", post);
-            return refused(err, &why);
+            return not_posted(&mut lines, err, &why);
         }
-        Err(why) => return refused(err, &why.to_string()),
+        Err(why) => return not_posted(&mut lines, err, &why.to_string()),
     };
-    let Some(round) = handed.values.iter().find(|(given, _)| *given == "round").map(|(_, value)| value.clone()) else {
-        return refused(err, "no round was given or worked out. Give --round");
+    let stamp = match &stamp {
+        Ok(stamp) => stamp,
+        Err(why) => return not_posted(&mut lines, err, why),
     };
-    let stamp = match stamp_of(role, &handed, &runner) {
-        Ok(stamp) => format!("[stamp] {} round {}\n{}", role, round, stamp),
-        Err(why) => return refused(err, &why),
-    };
+    lines.open(Some(stamp), err);
     let _ = write!(err, "{}: will post on {} {}, by `{}` of watchbill.yml:\n{}", name, word, on, post, stamp);
     match starter::run(root, post, &line.replace(&format!("{{{}}}", word), &on), Some(stamp.as_bytes())) {
         Ok(said) => {
             let _ = err.write_all(&said);
         }
         Err(why) => {
-            let _ = writeln!(err, "{}: {}. The stamp may not be posted, and no session is started.", name, why);
+            let why = format!("{}. The stamp may not be posted, and no session is started.", why);
+            let _ = writeln!(err, "{}: {}", name, why);
+            lines.close(None, sessions::Outcome::NotPosted { status: 1, message: why }, err);
             return 1;
         }
     }
     let _ = writeln!(err, "{}: starts {} on the runner {}, in {}", name, role, runner, root);
+    let began = std::time::Instant::now();
     match starter::session(root, &filled) {
-        Ok(true) => 0,
-        Ok(false) => {
-            let _ = writeln!(err, "{}: the session did not end with 0", name);
-            1
+        Ok(status) => {
+            let seconds = began.elapsed().as_secs();
+            let code = if status.success() { 0 } else { 1 };
+            if code != 0 {
+                let _ = writeln!(err, "{}: the session did not end with 0", name);
+            }
+            lines.close(None, sessions::Outcome::Ended { status, seconds }, err);
+            code
         }
         Err(why) => {
             let _ = writeln!(err, "{}: {}", name, why);
+            lines.close(None, sessions::Outcome::Refused { check: "start", status: 1, message: why }, err);
             1
         }
     }

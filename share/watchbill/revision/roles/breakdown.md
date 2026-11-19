@@ -53,6 +53,8 @@ questions: [<what the issue leaves open, each starting with its name>]
 - `interface`: the names, types and signatures the tests will call, as they are in the code, or as the issue says they will be.
 - `changes`: the paths the change may change, and no more.
 - `reads`: for each role, what it may read beside the paths of `changes`, as narrow as the work allows. A role gets a file it needs for its work, and no file it does not. The tester gets the interface and not the body.
+- Your lists must pass the check of `needs`. Where the settings of Watchbill in `.watchbill/` have the line `needs`, it is the project's command that prints, one to a line, the paths a file needs to build: every header, direct or through another header, and the helpers of the tests. `wb accept` runs it for each path of `changes` and of the tester's and the build's `reads`, and refuses the issue's file when it prints a path that is in neither that role's `reads` nor `changes`. Run the command yourself, for each of those paths, before you commit the issue's file, and add what it prints to the lists. A function the code hides and the tests need is a stub, in a file of its own, and that file goes in the tester's and the build's `reads`.
+- No path of `changes` is a file of the build. `wb accept` refuses a path that is a path of `build_files` in those settings, lies under one, or is a folder that holds one. Where the issue needs the build changed, that is a question.
 - Read the settings of the project's checks, so that what a check needs, such as a built page or a generated file, is in the issue: under `changes` where the change makes it, and under `reads` where a role reads it.
 - `existing_tests_changed`: the existing tests the issue says the change changes, each by name, and the reason the issue gives. None that the issue does not name.
 - A path is relative to the root of the checkout, has no `..`, and names nothing under `.watchbill/`.
@@ -62,6 +64,7 @@ questions: [<what the issue leaves open, each starting with its name>]
 - The issue {issue}, at {issue_address}, as a person wrote it, with what is written under it: the answers of a person among them.
 - The code in {checkout}: the source, the tests and the helpers those tests use, the build files and the settings of the project's checks. You are the one role that reads the code without a list, so that the other roles can have one.
 - The project's table of requirements, where it has one.
+- The settings of Watchbill in `.watchbill/`, for the lines `needs` and `build_files`.
 - The project's own text, where it follows this prompt: how work is pushed and posted here, and how its tests are named.
 
 You do not read what lies outside the checkout, but the issue: not another checkout, not the files of the machine, and not the work of another session on this issue, but the issue's file on {branch} and the questions an earlier breakdown posted.

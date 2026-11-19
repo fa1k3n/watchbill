@@ -908,7 +908,7 @@ fn test_WB_ROLE_78_the_breakdown_s_lists_must_pass_the_check_of_needs() {
 fn test_WB_ROLE_78_the_breakdown_runs_the_command_itself_before_it_commits_the_issue_s_file() {
     let point = breakdown_point("## What you produce", "- Your lists must pass the check of `needs`.");
     assert!(point.contains("Run the command yourself, for each of those paths, before you commit the issue's file"), "{}", point);
-    let read = breakdown_point("## What you read", "- `.watchbill/watchbill.yml`");
+    let read = breakdown_point("## What you read", "- The settings of Watchbill in `.watchbill/`");
     assert!(read.contains("`needs`") && read.contains("`build_files`"), "{}", read);
 }
 

@@ -60,7 +60,7 @@ At 0.0.8. An issue that changes a verdict changes its row.
 | 3. Rules enforced | Partly: the pinned revision, the acceptance, the breakdown's runner and the placeholders are checked in code. No limit of the rule table is | #28 names each limit and what holds it; then #65, #88 and the pieces #28 writes |
 | 4. People keep the decisions | Partly: `wb accept` asks for a person's word, but cannot tell a person from an agent under one account. That an agent cannot merge rests on the git server's settings | The roles' accounts, #83, and the acceptance read at the tracker, #88. No issue yet checks that a role's account cannot merge |
 | 5. Duties separated | Partly: the rule table says it, and nothing knows who holds which role | #83 and #88, for work that is handed on. No issue yet for a session a person starts |
-| 6. Sees only the code it needs | Not yet: the lists are in the prompt only | The sandbox, #65 |
+| 6. Sees only the code it needs | Not yet: the lists are in the prompt only. `wb accept` checks that they hold what each file needs to build, by the team's own command `needs` ([below](#the-lists-checked-at-acceptance)) | The sandbox, #65 |
 | 7. Code goes only where allowed | Partly: checked for the breakdown | The other roles, #11. No issue yet for a local model for them |
 | 8. Starts small | Held: `wb <role>` starts any role alone, for an issue with no file, and a review or a fix of a change with no issue, and posts the stamp on the issue or the change ([one role at a time](#taking-it-on-one-role-at-a-time)) | |
 | 9. Starts strict, opens up | Not yet: one level for the whole repository, and no level given means the strictest | #11, #65, and a level for each path, which has no issue yet |
@@ -128,6 +128,7 @@ tracker: jira
 requirements: requirements/*.md
 ci: gitlab-ci
 classed: []
+build_files: ['.gitlab-ci.yml']
 ```
 
 - **`watchbill` is the version of the package** the repository is set up for: the version of the `wb` that wrote the file. A revision is the version and the hash of its files together ([docs/revision.md](docs/revision.md)); the hash is the line `revision`, and is the one `wb revision` prints.
@@ -135,6 +136,7 @@ classed: []
 - **The revision is copied, never edited.** The files under `.watchbill/revision/` are written by `wb` and never by hand. `cd .watchbill && sha256sum -c revision.sha256` checks them without `wb`.
 - **A file that is already there is never changed.** When any file `wb init` would write is there, or a folder on the way to one is a link or not a folder, or `.watchbill/revision` is there, it writes nothing at all and names the path. Bringing a repository to a newer revision is a command of its own, later. A write that fails part way removes what it had written.
 - **The project's own text goes in `.watchbill/project/`.** `all.md` is added to the prompt of every role and `<role>.md` (`build.md`, `review.md`, `fix.md`, `tester.md`) to that of one role. Both are optional. They are the project's files: not part of the revision, not in the manifest, and `wb check` does not fail on them, except for a placeholder that the revision does not know (see `wb check`). A prompt is the role's text of the revision, then one fixed line, then `all.md`, then `<role>.md`. This text says how things are done here: the commands, the board, the words. It never lifts a limit of a role. `wb init` leaves `project/README.md`, which says so. The placeholders of `revision/roles/placeholders.md` (`{issue}`, `{branch}` and the others) are filled in every part, and any other placeholder is refused. A placeholder is a lower-case word in braces: `{`, a letter a to z, letters a to z or `_`, then `}`, with no `$` just before it. Anything else in braces is text and stays as it is, such as `${BUILD_DIR}`, `{Issue}`, `{issue-id}` and `{ issue }`. A value that is filled in is never itself read for placeholders. The command that prints a prompt comes later.
+- **`build_files` is the build** ([The lists checked at acceptance](#the-lists-checked-at-acceptance)). `wb init` writes the file or folder of each CI driver it found in the repository, whatever the answer for the driver: `.github/workflows`, `.gitlab-ci.yml`, `Jenkinsfile`, `azure-pipelines.yml`, `bitbucket-pipelines.yml`, `.circleci`, `.zuul.yaml` and `zuul.d`. Where it found none, it writes no line. The rest of the build, such as `Makefile` or `CMakeLists.txt`, a person adds.
 - **`classed` is the code that is classed** ([Classed code](#classed-code)). `wb init` proposes `[]`, none, and `--yes` takes that. A person who answers gives paths from the root of the repository, separated by commas; a path that starts with `/`, holds `..` or is the root is not taken, and the question is asked again. A repository set up before this has no line `classed`, so every path counts as classed: add the line by hand.
 - **The answers are only written down.** No adapter exists yet, so a git server or a tracker is a name and nothing more. For a GitHub or a GitLab `origin`, `wb init` also writes the patterns that `wb prompt` and `wb <role>` run ([below](#starting-a-session)).
 
@@ -558,7 +560,7 @@ questions: [<what the issue leaves open>]
 - Every key is there, in this order. A list may be empty. A key that is not on the list is refused. A requirement holds `id`, `text`, `source` and, if it has one, `guard`, in that order.
 - `issue` is the name given to `wb accept`. An ID is unique in the file. A path is relative to the root of the repository, has no `..`, and names nothing under `.watchbill/`.
 
-`wb accept <issue>` accepts the file. It reads it, names the first fault of form, and refuses while `questions` holds anything, naming them. Then it says what it will write, and writes `.watchbill/issues/<issue>.accepted`:
+`wb accept <issue>` accepts the file. It reads it, names the first fault of form, and refuses while `questions` holds anything, naming them. It checks the lists ([below](#the-lists-checked-at-acceptance)). Then it says what it will write, and writes `.watchbill/issues/<issue>.accepted`:
 
 ```
 $ wb accept 54
@@ -572,7 +574,7 @@ wb accept: commit the acceptance alone, so the history holds it before any work 
   git add .watchbill/issues/54.accepted && git commit -m "Accept the issue's file (54)" -- .watchbill/issues/54.accepted
 ```
 
-`by` is the `user.name` and `user.email` of git, and `time` is UTC. Without both, `wb accept` refuses. An acceptance that is there is never written over: remove it first. Nothing else is written, and the network is not asked.
+`by` is the `user.name` and `user.email` of git, and `time` is UTC. Without both, `wb accept` refuses. An acceptance that is there is never written over: remove it first. `wb` writes nothing else, and asks nothing of the network; `needs` is the team's own command.
 
 An issue's file counts as accepted only while the SHA-256 in its acceptance is that of the file as it is. The function `watchbill::issue::is_accepted` answers that. One byte changed, and it is not accepted: it is accepted again by removing the `.accepted` and running `wb accept`.
 
@@ -580,10 +582,40 @@ What acceptance cannot stop: the hash stops a change after the acceptance, not a
 
 `wb accept` never follows a link: `.watchbill` or `.watchbill/issues` that is a link, or is not a folder, is refused by name, and nothing is read or written through it. The acceptance is written whole or not at all, to a file of its own in the same folder and then linked to its name. An issue is named by at most 64 letters, digits, `.`, `_` and `-`. A path of the file that names the root (`.`, `./`) is refused. What `wb accept` prints of the file has its control characters escaped. A git name or email that holds `<` or `>` is refused.
 
+### The lists checked at acceptance
+
+A session builds and runs the tests from the files of its lists. So the lists must hold every file that their files need to build: every header, direct or through another header, and the helpers of the tests. And no build script is among the files a change may change. `wb accept` checks both before it writes, from two lines of `watchbill.yml` (#125):
+
+```yaml
+build_files: [Makefile, .gitlab-ci.yml, cmake]
+needs: 'sh tools/needs {file}'
+```
+
+- **`build_files`** is a list of the files and folders the project counts as its build. A path of `changes` that is one of them, lies under one, or is a folder that holds one is named, and the file is refused with 1. A build script is changed by a person, not by a role.
+- **`needs`** is the team's own command, for its own language. Filled with `{file}`, it prints, one to a line, the paths from the root of the repository that the file needs to build. `wb accept` runs it with `/bin/sh -c`, at the root of the checkout, once for each path of `changes` and of the tester's and the build's `reads`. `{file}` is filled with the path in single quotes, as one word of the shell, so it is written in the pattern without quotes. A path it prints must be in `changes` or in the `reads` of each of the two roles that sees the file, or lie under a folder that is. One that is not is named, with the role and the file, and the file is refused with 1. `./` and `..` in a printed path are worked out from the root, as `cc -MM` prints `src/../include/regs.h`. A command that ends with anything but 0 refuses the file, naming the file it was run for. Its standard error is the person's.
+- **Without `needs`**, the lists are not checked, and `wb accept` says so. `build_files` is checked all the same. The lists of the review and the fix are not checked: they read the diff, which the view holds.
+
+For C, `tools/needs` can be built on `cc -MM`, which prints what a file includes, but not the system's headers:
+
+```sh
+#!/bin/sh
+# Prints, one to a line, the files of the repository that the file $1 needs to build.
+# A file that is not C, or is not there yet, needs nothing that can be read.
+case "$1" in
+  *.c|*.h) ;;
+  *) exit 0 ;;
+esac
+[ -f "$1" ] || exit 0
+found=$(cc -MM -Iinclude "$1") || exit 1
+printf '%s\n' "$found" | sed -e 's/^[^:]*://' -e 's/\\$//' | tr -s ' ' '\n' | sed '/^$/d'
+```
+
+A test is linked from what the view holds. A function that the code hides, and that the tests need, is a stub: a file of its own, listed in the tester's and the build's `reads`, and the breakdown lists it there. The breakdown runs `needs` itself before it commits the issue's file, so a list that falls short is found before a person reads it.
+
 The exit status:
 
 - **0**: the file is accepted.
-- **1**: it is refused: no file, a fault of form, a question, an acceptance that is there, no git identity.
+- **1**: it is refused: no file, a fault of form, a question, an acceptance that is there, no git identity, a path of `changes` under `build_files`, a list that leaves out what a file needs to build, `needs` that ends with anything but 0, or a `watchbill.yml` the loader refuses.
 - **2**: `wb accept` was used wrongly (no issue, a word that is not known, a name that is not an issue), the folder is not in a git repository, or Watchbill is not set up.
 
 ## Installing it

@@ -111,13 +111,14 @@ fn classed_answer(answer: &str) -> Result<Vec<String>, &'static str> {
     Ok(paths)
 }
 
-/// The file `wb init` writes, with no classed code.
+/// The file `wb init` writes, with no classed code and no file of the build.
 pub fn render(revision: &str, hash: &str, setup: &Setup) -> String {
-    render_with(revision, hash, setup, &[], "")
+    render_with(revision, hash, setup, &[], &[], "")
 }
 
-/// The file `wb init` writes, with the classed paths given as `classed:` after the CI driver (#84).
-pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String], host: &str) -> String {
+/// The file `wb init` writes, with the classed paths given as `classed:` after the CI driver (#84), and the
+/// files of the build as `build_files:` after them, where there are any (#125).
+pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String], build_files: &[String], host: &str) -> String {
     let rows = [
         ("watchbill", revision),
         ("revision", hash),
@@ -138,6 +139,12 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
     // Which paths are classed (#84): a person says it here. With no line, `wb <role>` takes every path as classed.
     let listed: Vec<String> = classed.iter().map(|path| yaml_value(path)).collect();
     text.push_str(&format!("classed: [{}]\n", listed.join(", ")));
+    // The files of the build (#125): `wb accept` refuses an issue's file whose `changes` holds one. The CI
+    // files found are proposed; a person adds the rest of the build, such as `Makefile`.
+    if !build_files.is_empty() {
+        let listed: Vec<String> = build_files.iter().map(|path| yaml_value(path)).collect();
+        text.push_str(&format!("build_files: [{}]\n", listed.join(", ")));
+    }
     // The patterns `wb prompt` fills (#72). The addresses are known for GitHub only, and only from a
     // repository that is plain text; the branch does not depend on the server.
     let plain = !setup.repository.is_empty()
@@ -447,7 +454,8 @@ pub fn init(
         };
     }
 
-    let text = render_with(revision, &pin.hash, &setup, &classed, &host);
+    let build_files = crate::detect::ci_files(Path::new(root));
+    let text = render_with(revision, &pin.hash, &setup, &classed, &build_files, &host);
     talk.say(&format!("\nAbout to write {}:\n\n{}", file, text));
     talk.say("and these files: those of the revision, byte for byte as the package has them, and the README of the project's own text:\n");
     for path in &targets[..targets.len() - 1] {

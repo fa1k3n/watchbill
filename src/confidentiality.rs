@@ -12,7 +12,7 @@ use crate::yamlfile::{self, Document, Part, YamlError};
 /// The organisation's file. It is laid out by the organisation's own means, outside every repository.
 pub const ORGANISATION_FILE: &str = "/etc/watchbill/organisation.yml";
 
-const RUNNER_FIELDS: [&str; 6] = ["tools", "model", "agreement", "up_to", "breakdown", "start"];
+const RUNNER_FIELDS: [&str; 7] = ["tools", "model", "agreement", "up_to", "breakdown", "start", "binds"];
 const RUNNER_NEEDS: [&str; 4] = ["tools", "model", "agreement", "up_to"];
 const BREAKDOWN_FIELDS: [&str; 3] = ["up_to", "model", "effort"];
 
@@ -39,6 +39,17 @@ pub struct Runner {
     /// The command that starts a session on this runner, as a list of words with `{model}`, `{effort}` and
     /// `{prompt}` to fill (#84). `None` when the runner has none: `wb <role>` then starts nothing on it.
     pub start: Option<Vec<String>>,
+    /// The paths the runner needs for itself in a view (#126): its program, its settings, its login. None
+    /// when the runner has no `binds`.
+    pub binds: Vec<Bind>,
+}
+
+/// A path a runner needs for itself, put in the view at the same path (#126): read-only unless it is marked
+/// writable. It starts with `/`, or with `~/` for the home folder of the person who runs `wb`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Bind {
+    pub path: String,
+    pub writable: bool,
 }
 
 /// The organisation's file: the levels from the least to the most restrictive, the runners, and the runner
@@ -132,7 +143,61 @@ fn read_runner(doc: &Document, name: &str, levels: &[String]) -> Result<Runner, 
     if doc.has(&words) {
         start = Some(read_start(doc, &words)?);
     }
-    Ok(Runner { name: name.to_string(), tools, model, agreement, up_to, breakdown, start })
+    let mut binds = Vec::new();
+    let list = with(&place, "binds");
+    if doc.has(&list) {
+        binds = read_binds(doc, &list)?;
+    }
+    Ok(Runner { name: name.to_string(), tools, model, agreement, up_to, breakdown, start, binds })
+}
+
+/// A runner's `binds` (#126): a list, each a path, read-only, or `{writable: <path>}`. A path starts with `/`,
+/// or with `~/` for the home folder, has no `..` and no control character, and is not the root or the home
+/// folder itself.
+fn read_binds(doc: &Document, place: &[Part]) -> Result<Vec<Bind>, YamlError> {
+    if !doc.has(&with(place, 0)) {
+        // An empty list, or a value that is not a list: the loader refuses it as it refuses any list of texts.
+        doc.texts(place, true)?;
+        return Ok(Vec::new());
+    }
+    let mut binds = Vec::new();
+    let mut index = 0;
+    while doc.has(&with(place, index)) {
+        let here = with(place, index);
+        let (path, at, writable) = if doc.table(&here).is_ok() {
+            doc.only(&here, &["writable"])?;
+            doc.need(&here, &["writable"])?;
+            let at = with(&here, "writable");
+            (doc.text(&at)?, at, true)
+        } else {
+            (doc.text(&here)?, here.clone(), false)
+        };
+        if let Some(why) = bind_fault(&path) {
+            return Err(doc.fail(&at, &format!("the bind '{}' {}", path, why), false));
+        }
+        binds.push(Bind { path, writable });
+        index += 1;
+    }
+    Ok(binds)
+}
+
+/// What is wrong with the path of a bind, if anything.
+fn bind_fault(path: &str) -> Option<&'static str> {
+    if path.chars().any(|c| c.is_control() || c == '\u{2028}' || c == '\u{2029}') {
+        return Some("holds a control character or a line break");
+    }
+    let rest = match (path.strip_prefix("~/"), path.strip_prefix('/')) {
+        (Some(rest), _) | (None, Some(rest)) => rest,
+        _ => return Some("is not a path from the root, `/…`, or from the home folder, `~/…`"),
+    };
+    let parts: Vec<&str> = rest.split('/').filter(|part| !part.is_empty() && *part != ".").collect();
+    if parts.contains(&"..") {
+        return Some("holds `..`");
+    }
+    if parts.is_empty() {
+        return Some("is the root or the home folder itself, and a view holds neither");
+    }
+    None
 }
 
 /// A runner's `start` (#84): a list of one word or more, each a text of one plain line, with no character

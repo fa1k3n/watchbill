@@ -10,5 +10,5 @@ What `wb <role>` leaves on the machine where a session is started or refused. Th
 | WB-MON-4 | The folder shall hold `outcome`: `refused` with the check that refused (`prompt`, `rule`, `class`, `start` or `terminal`), the status and the first line of the message; `not posted`; or `ended` with the session's exit status and the seconds it ran. Issue: #124. | T | Implemented |
 | WB-MON-5 | A folder that cannot be written shall be said on standard error, and shall change neither the status nor whether the session starts. Issue: #124. | T | Implemented |
 | WB-MON-6 | `wb prompt`, `wb check` and `wb <role> --prompt` shall write no folder. Issue: #124. | T | Implemented |
-| WB-MON-7 | The folder of a session started in a view shall hold `view`, the list of its paths, and `back`, what was taken back and what was refused and why. Issue: #126. | T | Draft |
+| WB-MON-7 | The folder of a session started in a view shall hold `view`, the list of its paths, and `back`, what was taken back and what was refused and why. Issue: #126. | T | Implemented |
 | WB-MON-8 | The folder of a review shall hold `ci:` with the word `change_checks` printed. Issue: #127. | T | Draft |

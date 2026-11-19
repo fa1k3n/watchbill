@@ -742,6 +742,8 @@ pub struct Stamp<'a> {
     pub version: &'a str,
     pub revision: &'a str,
     pub time: &'a str,
+    /// The SHA-256 of the list of paths of the view the session runs in, or `none` (#126).
+    pub view: &'a str,
     /// An issue's file is used and the option `--requirements` was given: it won over the file (#76).
     pub requirements_given: bool,
 }
@@ -772,6 +774,7 @@ pub fn stamp(said: &Stamp, values: &[(&str, &str)], prompt: &Prompt) -> String {
     lines.push(("branch", given("branch")));
     lines.push(("checkout", given("checkout")));
     lines.push(("time", said.time));
+    lines.push(("view", said.view));
     let mut text = String::new();
     for (name, value) in lines {
         if value.is_empty() {

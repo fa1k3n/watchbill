@@ -18,7 +18,7 @@ pub fn state_folder() -> Option<PathBuf> {
 
 /// How a start ended.
 pub enum Outcome {
-    /// Refused at a check: `prompt`, `rule`, `class`, `start` or `terminal`.
+    /// Refused at a check: `prompt`, `rule`, `class`, `start`, `terminal` or `view` (#126).
     Refused { check: &'static str, status: i32, message: String },
     /// The stamp was not posted, and no session was started.
     NotPosted { status: i32, message: String },
@@ -122,6 +122,16 @@ impl Lines {
             }
         }
         self.made = Some(folder);
+    }
+
+    /// Writes a file of its own beside the stamp (#126: `view` and `back`), in the folder made, or in a new
+    /// one when none was made yet. A file that cannot be written is said, and nothing else follows from it.
+    pub fn write(&mut self, file: &str, text: &str, err: &mut dyn Write) {
+        self.open(None, err);
+        let Some(folder) = &self.made else { return };
+        if let Err(error) = new_file(&folder.join(file), text) {
+            let _ = writeln!(err, "{}: the lines of this start could not be written in {}: {}", self.name, folder.display(), error);
+        }
     }
 
     /// Writes `outcome`, in the folder made, or in a new one with `stamp` when none was made yet.

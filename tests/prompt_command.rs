@@ -581,7 +581,8 @@ fn test_WB_PROMPT_19_a_stamp_is_the_twelve_lines_in_order_and_the_parts_for_each
         let role_text = fs::read_to_string(package().join("revision/roles").join(format!("{}.md", role))).unwrap();
         for name in ["issue", "change", "round", "branch", "checkout"] {
             let given = ALL_VALUES.iter().find(|(n, _)| *n == name).unwrap().1;
-            let expected = if role_text.contains(&format!("{{{}}}", name)) { given } else { "" };
+            // The round is written where it is given, whatever the text holds (#136).
+            let expected = if name == "round" || role_text.contains(&format!("{{{}}}", name)) { given } else { "" };
             assert_eq!(value(&found, name), expected, "{} {}", role, name);
         }
         assert_eq!(value(&found, "runner"), "", "{}", role);

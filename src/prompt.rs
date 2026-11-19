@@ -747,12 +747,14 @@ pub struct Stamp<'a> {
 }
 
 /// The stamp of an assignment (`docs/revision.md`, point 12): lines of `name: value` in a fixed order,
-/// then one line `part: <sha256>  <path>` for each part, as `--parts` gives it. A value that is empty, or that the prompt does not hold, is
+/// then one line `part: <sha256>  <path>` for each part, as `--parts` gives it. A value that is empty, or that the prompt does not hold
+/// (but the round, #136), is
 /// written as the name and the colon alone. `runner` is empty when no runner is given (#93).
 pub fn stamp(said: &Stamp, values: &[(&str, &str)], prompt: &Prompt) -> String {
     // A value the prompt does not hold was not handed out, and is written empty.
+    // The round is a fact of the start, not only of the prompt: it is written where it is known (#136).
     let given = |name: &str| {
-        if !prompt.used.contains(&name) {
+        if name != "round" && !prompt.used.contains(&name) {
             return "";
         }
         values.iter().find(|(given, _)| *given == name).map(|(_, value)| *value).unwrap_or("")

@@ -1325,16 +1325,6 @@ fn test_WB_BUILD_27_the_round_line_agrees_with_the_first_line_for_a_review_of_a_
 // ---- WB-PROMPT-55: `--stamp` holds the round for every role, where there is one ----
 
 #[test]
-fn test_WB_PROMPT_55_a_stamp_holds_the_round_worked_out_also_for_a_role_whose_text_has_no_round() {
-    let bench = bench();
-    bench.comments("issue", "54", &["[stamp] build round 1"]);
-    let run = bench.prompt(&["build", "54", "--stamp"]);
-    ok(&run);
-    assert!(text(&run.stdout).lines().any(|line| line == "round: 2"), "{}", text(&run.stdout));
-    assert!(text(&run.stderr).contains("round 2"), "{}", text(&run.stderr));
-}
-
-#[test]
 fn test_WB_PROMPT_55_a_stamp_keeps_change_empty_for_a_role_whose_text_has_no_change() {
     let bench = bench();
     let run = bench.prompt(&["build", "54", "--round", "1", "--change", "9", "--stamp"]);

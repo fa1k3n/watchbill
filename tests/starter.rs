@@ -225,7 +225,10 @@ fn same_as_prompt(bench: &Bench, role: &str, words: &[&str]) {
     assert_eq!(code(&by_start), code(&by_prompt), "{:?}: {}", words, text(&by_start.stderr));
     assert_eq!(text(&by_start.stdout), "");
     let said = text(&by_prompt.stderr).replace("wb prompt:", &format!("wb {}:", role));
-    assert_eq!(text(&by_start.stderr), said, "{:?}", words);
+    // The line that names the folder of the start's lines is the one WB-MON-2 asks for, in addition (#124).
+    let folder = format!("wb {}: will write the lines of this start in ", role);
+    let by_start: String = text(&by_start.stderr).lines().filter(|line| !line.starts_with(&folder)).map(|line| format!("{}\n", line)).collect();
+    assert_eq!(by_start, said, "{:?}", words);
     assert!(!bench.any_posted() && !bench.started(), "{:?}: {:?}", words, bench.calls());
 }
 
@@ -893,4 +896,390 @@ fn test_WB_BUILD_25_an_interrupt_and_a_quit_sent_while_the_session_runs_do_not_e
     // Still here, with the session's status.
     assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
     assert!(bench.started());
+}
+
+// ---- WB-MON: the lines a start leaves on the machine (#124) ----
+
+/// Runs `wb <role>` on the bench with `state` as its state folder.
+fn start_at(bench: &Bench, state: &Path, terminal: bool, args: &[&str]) -> Output {
+    start_in(&bench.repo.path, &bench.org, terminal, Some(state), args)
+}
+
+/// The folders of the starts' lines below `state`, by name.
+fn sessions(state: &Path) -> Vec<PathBuf> {
+    let Ok(found) = fs::read_dir(state.join("watchbill/sessions")) else { return Vec::new() };
+    let mut found: Vec<PathBuf> = found.map(|entry| entry.unwrap().path()).collect();
+    found.sort();
+    found
+}
+
+/// The one folder below `state`.
+fn only(state: &Path) -> PathBuf {
+    let found = sessions(state);
+    assert_eq!(found.len(), 1, "{:?}", found);
+    found[0].clone()
+}
+
+/// The lines of a file of a folder of a start.
+fn lines_of(folder: &Path, name: &str) -> Vec<String> {
+    read(&folder.join(name)).lines().map(str::to_string).collect()
+}
+
+/// Everything below a folder, files and folders.
+fn everything(folder: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut open = vec![folder.to_path_buf()];
+    while let Some(at) = open.pop() {
+        for entry in fs::read_dir(&at).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                open.push(path.clone());
+            }
+            found.push(path);
+        }
+    }
+    found
+}
+
+/// The time of a stamp as the name of a folder holds it: the line `time:`, with `:` left out.
+fn time_of(stamp: &str) -> String {
+    let line = stamp.lines().find(|line| line.starts_with("time: ")).expect("the stamp has no time");
+    line["time: ".len()..].replace(':', "")
+}
+
+/// The name of a folder.
+fn name_of(folder: &Path) -> String {
+    folder.file_name().unwrap().to_str().unwrap().to_string()
+}
+
+#[test]
+fn test_WB_MON_1_the_folder_is_below_the_state_folder_named_after_the_time_the_role_and_the_issue() {
+    let bench = bench();
+    let state = folder_named("state");
+    ok(&start_at(&bench, &state.path, true, &["build", "54"]));
+    let folder = only(&state.path);
+    let stamp = read(&folder.join("stamp"));
+    assert_eq!(folder.parent().unwrap(), state.path.join("watchbill/sessions"));
+    assert_eq!(name_of(&folder), format!("{}-build-54", time_of(&stamp)));
+    // UTC, as in the stamp: `2026-11-19T094959Z`.
+    let time = time_of(&stamp);
+    assert_eq!(time.len(), "2026-11-19T094959Z".len(), "{}", time);
+    assert!(time.ends_with('Z') && time.contains('T') && !time.contains(':'), "{}", time);
+}
+
+#[test]
+fn test_WB_MON_1_a_role_started_with_no_issue_has_none_for_its_issue() {
+    let bench = bench();
+    let state = folder_named("state");
+    ok(&start_at(&bench, &state.path, true, &["review", "--change", "174"]));
+    let folder = only(&state.path);
+    assert!(name_of(&folder).ends_with("-review-none"), "{}", folder.display());
+}
+
+#[test]
+fn test_WB_MON_1_two_starts_in_the_same_second_give_two_folders_and_none_is_written_over() {
+    let bench = bench();
+    let state = folder_named("state");
+    // The folders a start could be named for the next seconds are there already, each with a file.
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let below = state.path.join("watchbill/sessions");
+    for second in now..now + 20 {
+        put(&below, &format!("{}-build-54/keep", watchbill::prompt::utc(second).replace(':', "")), "kept\n");
+    }
+    ok(&start_at(&bench, &state.path, true, &["build", "54"]));
+    let new: Vec<PathBuf> = sessions(&state.path).into_iter().filter(|path| !path.join("keep").exists()).collect();
+    assert_eq!(new.len(), 1, "{:?}", sessions(&state.path));
+    assert_eq!(name_of(&new[0]), format!("{}-build-54-2", time_of(&read(&new[0].join("stamp")))));
+    // A second start in the same second as the first is `-3`, or `-2` of the next second.
+    ok(&start_at(&bench, &state.path, true, &["build", "54"]));
+    let new: Vec<PathBuf> = sessions(&state.path).into_iter().filter(|path| !path.join("keep").exists()).collect();
+    assert_eq!(new.len(), 2, "{:?}", sessions(&state.path));
+    for folder in &new {
+        let time = time_of(&read(&folder.join("stamp")));
+        assert!([format!("{}-build-54-2", time), format!("{}-build-54-3", time)].contains(&name_of(folder)), "{}", folder.display());
+    }
+    // Every folder that was there holds what it held.
+    for folder in sessions(&state.path).iter().filter(|path| path.join("keep").exists()) {
+        assert_eq!(read(&folder.join("keep")), "kept\n");
+        assert_eq!(everything(folder).len(), 1, "{}", folder.display());
+    }
+}
+
+#[test]
+fn test_WB_MON_1_two_starts_one_after_the_other_give_two_folders() {
+    let bench = bench();
+    let state = folder_named("state");
+    ok(&start_at(&bench, &state.path, true, &["build", "54"]));
+    ok(&start_at(&bench, &state.path, true, &["build", "54"]));
+    assert_eq!(sessions(&state.path).len(), 2);
+}
+
+/// Runs the program, as a person does, with the environment of the tests and the variables given.
+fn wb_with(folder: &Path, args: &[&str], set: &[(&str, &Path)], unset: &[&str]) -> Output {
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_wb"));
+    command.args(args).current_dir(folder).env_clear().envs(env());
+    for name in unset {
+        command.env_remove(name);
+    }
+    for (name, value) in set {
+        command.env(name, value);
+    }
+    command.stdin(std::process::Stdio::null()).output().expect("wb could not be started")
+}
+
+#[test]
+fn test_WB_MON_1_the_program_writes_below_xdg_state_home_when_it_is_set_and_else_below_the_home_folder() {
+    // Through the program, standard input and output are not a terminal: the start is refused, at the
+    // runner's `start` or at the terminal, and leaves its folder.
+    let bench = bench();
+    let (state, home) = (folder_named("state"), folder_named("home"));
+    let words = ["build", "54", "--runner", "stand-in"];
+    let run = wb_with(&bench.repo.path, &words, &[("XDG_STATE_HOME", &state.path), ("HOME", &home.path)], &[]);
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    assert_eq!(lines_of(&only(&state.path), "outcome")[0], "outcome: refused");
+    assert!(everything(&home.path).is_empty(), "{:?}", everything(&home.path));
+    // With no XDG_STATE_HOME, or one that is not an absolute path, the home folder's `.local/state`.
+    let run = wb_with(&bench.repo.path, &words, &[("HOME", &home.path)], &["XDG_STATE_HOME"]);
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    assert_eq!(sessions(&home.path.join(".local/state")).len(), 1);
+    let run = wb_with(&bench.repo.path, &words, &[("HOME", &home.path), ("XDG_STATE_HOME", Path::new("state"))], &[]);
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    assert_eq!(sessions(&home.path.join(".local/state")).len(), 2);
+    assert!(!bench.repo.path.join("state").exists());
+    assert_eq!(sessions(&state.path).len(), 1);
+}
+
+#[test]
+fn test_WB_MON_2_the_folder_is_said_on_standard_error_before_the_stamp_is_posted() {
+    let bench = bench();
+    let state = folder_named("state");
+    let run = start_at(&bench, &state.path, true, &["build", "54"]);
+    ok(&run);
+    let line = format!("wb build: will write the lines of this start in {}", only(&state.path).display());
+    let err = text(&run.stderr);
+    assert!(err.lines().any(|said| said == line), "{}", err);
+    assert!(err.find(&line).unwrap() < err.find("will post").unwrap(), "{}", err);
+    // And for a start that is refused.
+    let other = folder_named("state");
+    let run = start_at(&bench, &other.path, false, &["build", "54"]);
+    let line = format!("wb build: will write the lines of this start in {}", only(&other.path).display());
+    assert!(text(&run.stderr).lines().any(|said| said == line), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_MON_3_the_stamp_is_byte_for_byte_what_issue_comment_was_given() {
+    let bench = bench();
+    let state = folder_named("state");
+    bench.changes("issue-54", &["174"]);
+    bench.comments("issue", "54", &["[stamp] review round 1"]);
+    ok(&start_at(&bench, &state.path, true, &["fix", "54"]));
+    let posted = fs::read(bench.at("posted-issue-54")).unwrap();
+    assert_eq!(fs::read(only(&state.path).join("stamp")).unwrap(), posted);
+}
+
+#[test]
+fn test_WB_MON_3_a_posting_that_fails_holds_the_stamp_that_was_given() {
+    let bench = bench();
+    let state = folder_named("state");
+    bench.ends_with("post", 1);
+    start_at(&bench, &state.path, true, &["build", "54"]);
+    let posted = fs::read(bench.at("posted-issue-54")).unwrap();
+    assert_eq!(fs::read(only(&state.path).join("stamp")).unwrap(), posted);
+}
+
+#[test]
+fn test_WB_MON_3_a_start_refused_after_the_checks_of_wb_prompt_holds_the_stamp_that_would_have_been_posted() {
+    let bench = bench();
+    let state = folder_named("state");
+    let run = start_at(&bench, &state.path, false, &["build", "54"]);
+    assert_eq!(code(&run), Some(1));
+    let stamp = read(&only(&state.path).join("stamp"));
+    let (first, rest) = stamp.split_once('\n').unwrap();
+    assert_eq!(first, "[stamp] build round 1");
+    let by_prompt = bench.prompt(&["build", "54", "--round", "1", "--runner", "stand-in", "--stamp"]);
+    ok(&by_prompt);
+    assert_eq!(timeless(rest), timeless(&text(&by_prompt.stdout)));
+    assert!(!bench.any_posted());
+}
+
+#[test]
+fn test_WB_MON_3_a_start_refused_at_the_checks_of_wb_prompt_holds_no_stamp() {
+    let bench = bench();
+    let state = folder_named("state");
+    put(&bench.repo.path, ".watchbill/issues/54.yml", &BARE_ISSUE.replace("{issue}", "54"));
+    let run = start_at(&bench, &state.path, true, &["build", "54"]);
+    assert_eq!(code(&run), Some(1));
+    let folder = only(&state.path);
+    assert!(!folder.join("stamp").exists());
+    assert_eq!(lines_of(&folder, "outcome")[..2], ["outcome: refused", "check: prompt"]);
+}
+
+/// The outcome of a start refused at `check`: status 1, and a message that starts with `message`, the first
+/// line of what was said on standard error.
+fn refused_at(bench: &Bench, run: &Output, state: &Path, check: &str, message: &str) {
+    assert_eq!(code(run), Some(1), "{}: {}", check, text(&run.stderr));
+    assert!(!bench.any_posted() && !bench.started(), "{}: {:?}", check, bench.calls());
+    let outcome = lines_of(&only(state), "outcome");
+    assert_eq!(outcome.len(), 4, "{}: {:?}", check, outcome);
+    assert_eq!(outcome[..3], ["outcome: refused".to_string(), format!("check: {}", check), "status: 1".to_string()]);
+    let said = outcome[3].strip_prefix("message: ").unwrap_or_else(|| panic!("{}: {:?}", check, outcome));
+    assert!(said.starts_with(message), "{}: {:?}", check, outcome);
+    let err = text(&run.stderr);
+    assert!(err.lines().any(|line| line.ends_with(&format!(": {}", said))), "{}: {}", check, err);
+}
+
+#[test]
+fn test_WB_MON_4_a_start_refused_at_the_checks_of_wb_prompt_names_prompt() {
+    let bench = bench();
+    let state = folder_named("state");
+    let role = bench.repo.path.join(".watchbill/revision/roles/build.md");
+    let mut changed = read(&role);
+    changed.push_str("\nAnother line.\n");
+    fs::write(&role, changed).unwrap();
+    let run = start_at(&bench, &state.path, true, &["build", "54"]);
+    refused_at(&bench, &run, &state.path, "prompt", "nothing printed, the check of `wb check` does not hold");
+}
+
+#[test]
+fn test_WB_MON_4_a_start_refused_at_the_rule_table_names_rule() {
+    let bench = bench();
+    let state = folder_named("state");
+    bench.changes("issue-54", &["174"]);
+    bench.comments("issue", "54", &["[stamp] build round 1"]);
+    let run = start_at(&bench, &state.path, true, &["fix", "54", "--round", "1"]);
+    refused_at(&bench, &run, &state.path, "rule", "a fix follows a review");
+}
+
+#[test]
+fn test_WB_MON_4_a_start_refused_at_the_class_names_class() {
+    let bench = bench();
+    let state = folder_named("state");
+    issue_file(&bench, "54", "[src/brake/pedal.c]");
+    bench.set("classed", "classed: [src/brake]");
+    let run = start_at(&bench, &state.path, true, &["build", "54"]);
+    refused_at(&bench, &run, &state.path, "class", "the issue's `changes` hold classed code");
+}
+
+#[test]
+fn test_WB_MON_4_a_start_refused_at_the_runner_s_start_names_start() {
+    let bench = bench();
+    let state = folder_named("state");
+    let run = start_at(&bench, &state.path, true, &["build", "54", "--runner", "idle"]);
+    refused_at(&bench, &run, &state.path, "start", "the runner 'idle' has no `start`");
+}
+
+#[test]
+fn test_WB_MON_4_a_start_refused_at_the_terminal_names_terminal() {
+    let bench = bench();
+    let state = folder_named("state");
+    let run = start_at(&bench, &state.path, false, &["build", "54"]);
+    refused_at(&bench, &run, &state.path, "terminal", "standard input or standard output is not a terminal");
+}
+
+#[test]
+fn test_WB_MON_4_a_posting_that_fails_gives_not_posted_and_no_session() {
+    let bench = bench();
+    let state = folder_named("state");
+    bench.ends_with("post", 1);
+    let run = start_at(&bench, &state.path, true, &["build", "54"]);
+    assert_eq!(code(&run), Some(1));
+    assert!(!bench.started(), "{:?}", bench.calls());
+    let outcome = lines_of(&only(&state.path), "outcome");
+    assert_eq!(outcome.len(), 3, "{:?}", outcome);
+    assert_eq!(outcome[..2], ["outcome: not posted", "status: 1"], "{:?}", outcome);
+    assert!(outcome[2].starts_with("message: `issue_comment` of watchbill.yml ended with 1"), "{:?}", outcome);
+}
+
+#[test]
+fn test_WB_MON_4_a_session_that_ends_with_0_or_3_gives_ended_with_that_status_and_its_seconds() {
+    for status in [0, 3] {
+        let bench = bench();
+        let state = folder_named("state");
+        bench.ends_with("start", status);
+        let run = start_at(&bench, &state.path, true, &["build", "54"]);
+        assert_eq!(code(&run), Some(if status == 0 { 0 } else { 1 }));
+        let outcome = lines_of(&only(&state.path), "outcome");
+        assert_eq!(outcome.len(), 3, "{:?}", outcome);
+        assert_eq!(outcome[..2], ["outcome: ended".to_string(), format!("status: {}", status)]);
+        let seconds = outcome[2].strip_prefix("seconds: ").unwrap();
+        assert!(seconds.parse::<u64>().unwrap() < 60, "{:?}", outcome);
+    }
+}
+
+#[test]
+fn test_WB_MON_4_the_seconds_are_those_the_session_ran() {
+    let bench = bench();
+    let state = folder_named("state");
+    let l = bench.log.path.to_str().unwrap();
+    script(&bench.at("start.sh"), &format!("echo start >> {l}/calls\nsleep 2\nexit 0\n"));
+    ok(&start_at(&bench, &state.path, true, &["build", "54"]));
+    let outcome = lines_of(&only(&state.path), "outcome");
+    let seconds: u64 = outcome[2].strip_prefix("seconds: ").unwrap().parse().unwrap();
+    assert!((2..10).contains(&seconds), "{:?}", outcome);
+}
+
+#[test]
+fn test_WB_MON_5_a_state_folder_that_cannot_be_written_changes_neither_the_start_nor_the_status() {
+    for status in [0, 3] {
+        let bench = bench();
+        let place = folder_named("state");
+        // A file where the state folder would be: nothing can be made below it.
+        let state = place.path.join("a-file");
+        fs::write(&state, "").unwrap();
+        bench.ends_with("start", status);
+        let run = start_at(&bench, &state, true, &["build", "54"]);
+        assert_eq!(code(&run), Some(if status == 0 { 0 } else { 1 }), "{}", text(&run.stderr));
+        assert!(bench.any_posted() && bench.started(), "{:?}", bench.calls());
+        let err = text(&run.stderr);
+        assert!(err.contains("could not be written") && err.contains(state.to_str().unwrap()), "{}", err);
+        assert_eq!(read(&state), "");
+    }
+}
+
+#[test]
+fn test_WB_MON_5_a_state_folder_that_cannot_be_written_changes_no_refusal() {
+    let bench = bench();
+    let place = folder_named("state");
+    let state = place.path.join("a-file");
+    fs::write(&state, "").unwrap();
+    let run = start_at(&bench, &state, false, &["build", "54"]);
+    assert_eq!(code(&run), Some(1));
+    assert!(text(&run.stderr).contains("not a terminal"), "{}", text(&run.stderr));
+    assert!(text(&run.stderr).contains("could not be written"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_MON_5_with_no_state_folder_known_the_session_still_starts() {
+    let bench = bench();
+    let run = start_in(&bench.repo.path, &bench.org, true, None, &["build", "54"]);
+    ok(&run);
+    assert!(bench.started());
+    assert!(text(&run.stderr).contains("no lines of this start are written"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_MON_6_wb_role_prompt_stamp_and_parts_write_nothing() {
+    let bench = bench();
+    let state = folder_named("state");
+    for extra in [&["--prompt"][..], &["--stamp"], &["--parts"], &["--prompt", "--stamp"]] {
+        let mut words = vec!["build", "54"];
+        words.extend(extra);
+        ok(&start_at(&bench, &state.path, true, &words));
+        ok(&start_at(&bench, &state.path, false, &words));
+    }
+    assert!(everything(&state.path).is_empty(), "{:?}", everything(&state.path));
+}
+
+#[test]
+fn test_WB_MON_6_the_program_s_wb_prompt_wb_check_and_wb_role_prompt_write_nothing_anywhere() {
+    let bench = bench();
+    let (state, home) = (folder_named("state"), folder_named("home"));
+    let set = [("XDG_STATE_HOME", state.path.as_path()), ("HOME", home.path.as_path())];
+    for words in [&["prompt", "build", "54"][..], &["build", "54", "--prompt"], &["build", "54", "--parts"], &["check"]] {
+        ok(&wb_with(&bench.repo.path, words, &set, &[]));
+    }
+    assert!(everything(&state.path).is_empty(), "{:?}", everything(&state.path));
+    assert!(everything(&home.path).is_empty(), "{:?}", everything(&home.path));
+    ok(&wb_with(&bench.repo.path, &["build", "54", "--prompt"], &[("HOME", home.path.as_path())], &["XDG_STATE_HOME"]));
+    assert!(everything(&home.path).is_empty(), "{:?}", everything(&home.path));
 }

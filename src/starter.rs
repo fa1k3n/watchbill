@@ -211,9 +211,8 @@ pub fn fill(words: &[String], model: &str, effort: &str, prompt: &str) -> Vec<St
 
 /// Starts the session: the words of `start`, filled, with no shell, in `root`, in the foreground, with the
 /// person's standard input, output and error. While it runs, an interrupt or a quit at the terminal goes to
-/// the session and does not end `wb` (`interrupt::hold`). The result is the session's status: 0 when it
-/// ended with 0.
-pub fn session(root: &str, words: &[String]) -> Result<bool, String> {
+/// the session and does not end `wb` (`interrupt::hold`). The result is the session's status.
+pub fn session(root: &str, words: &[String]) -> Result<std::process::ExitStatus, String> {
     let (program, rest) = words.split_first().ok_or_else(|| "`start` holds no word".to_string())?;
     let _held = crate::interrupt::hold();
     let status = Command::new(program)
@@ -224,5 +223,5 @@ pub fn session(root: &str, words: &[String]) -> Result<bool, String> {
         .stderr(Stdio::inherit())
         .status()
         .map_err(|error| format!("the session could not be started: {} could not be run: {}", program, error))?;
-    Ok(status.success())
+    Ok(status)
 }

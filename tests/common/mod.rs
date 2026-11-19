@@ -160,6 +160,10 @@ pub fn issues_ready(folder: &Path, issues: &[&str]) {
     git(folder, &["config", "user.name", "Ada Lovelace"]);
     git(folder, &["config", "user.email", "ada@example.org"]);
     git(folder, &["config", "commit.gpgsign", "false"]);
+    // A commit may start `git maintenance run --auto` in the background, which makes and removes
+    // `.git/objects/maintenance.lock` while a test compares the files of the repository (#135).
+    git(folder, &["config", "gc.auto", "0"]);
+    git(folder, &["config", "maintenance.auto", "false"]);
     let mut added = Vec::new();
     for issue in issues {
         put(folder, &format!(".watchbill/issues/{}.yml", issue), &BARE_ISSUE.replace("{issue}", issue));

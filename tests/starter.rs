@@ -110,6 +110,7 @@ const ORG: &str = "levels: [public, internal, confidential]
       model: claude-opus-5-5
       effort: high
     start: ['{log}/start.sh', '--model={model}', '{effort}', '{prompt}']
+    binds: [{writable: '{log}'}]
   idle:
     tools: this machine
     model: a stand-in
@@ -189,6 +190,19 @@ fn timeless(stamp: &str) -> String {
 
 fn ok(run: &Output) {
     assert_eq!(code(run), Some(0), "{}", text(&run.stderr));
+}
+
+/// A start of an issue with an accepted file, which runs in a view (#126): it ends with 0 where bubblewrap
+/// can make a sandbox, and where it cannot, it is refused at the view, after every check before it.
+fn ok_in_view(run: &Output) {
+    match watchbill::view::works(Path::new(watchbill::view::BWRAP)) {
+        Ok(()) => ok(run),
+        Err(_) => {
+            assert_eq!(code(run), Some(1), "{}", text(&run.stderr));
+            assert!(text(&run.stderr).contains("bubblewrap"), "{}", text(&run.stderr));
+            assert!(!text(&run.stderr).contains("#65"), "{}", text(&run.stderr));
+        }
+    }
 }
 
 /// Refused with `status`, with each of `named` on standard error, and nothing posted or started.
@@ -776,7 +790,7 @@ fn test_WB_BUILD_19_a_path_below_a_classed_folder_or_a_folder_above_a_classed_pa
     assert_eq!(code(&run), Some(1), "docs is above docs/safety.md: {}", text(&run.stderr));
     issue_file(&bench, "71", "[src/brakes.c, src/other/a.c, docs/other.md]");
     git(&bench.repo.path, &["branch", "issue-71"]);
-    ok(&bench.start(true, &["build", "71"]));
+    ok_in_view(&bench.start(true, &["build", "71"]));
 }
 
 #[test]
@@ -789,7 +803,7 @@ fn test_WB_BUILD_19_with_no_classed_every_path_is_classed() {
     // An issue's file that changes nothing touches nothing classed.
     issue_file(&bench, "55", "[]");
     git(&bench.repo.path, &["branch", "issue-55"]);
-    ok(&bench.start(true, &["build", "55"]));
+    ok_in_view(&bench.start(true, &["build", "55"]));
 }
 
 #[test]

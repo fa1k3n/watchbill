@@ -1,0 +1,112 @@
+# A pushed tag <digits>.<digits>.<digits> builds the RPMs on Fedora and on Enterprise Linux 9 and
+# puts them on a GitHub release of the tag. Issue #111.
+name: release
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The tag is the version, is in revisions.txt, and has the hash of the manifest
+        run: sh packaging/check-tag.sh "$GITHUB_REF_NAME"
+
+  build:
+    needs: check
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # The Fedora release is written here and nowhere else. It is 44, not the newest, 45:
+          # Fedora 45 packages rust-cpufeatures-devel 0.3.1 without the README.md the crate includes,
+          # so no build there compiles. Take 45 when that is fixed.
+          - name: fedora
+            image: registry.fedoraproject.org/fedora:44
+            prepare: dnf install -y git-core tar gzip findutils
+          - name: el9
+            image: docker.io/library/almalinux:9
+            prepare: dnf install -y dnf-plugins-core && dnf config-manager --set-enabled crb && dnf install -y epel-release && dnf install -y git-core tar gzip findutils
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - name: Tools that the checkout and the build need
+        run: ${{ matrix.prepare }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The container runs as root, so git is told the folder is safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: The needs of the build, as the top of packaging/rpm.sh lists them
+        run: dnf install -y rpm-build git-core cargo rust cargo-rpm-macros rust-yaml-rust2-devel rust-sha2-devel rust-lexopt-devel
+      - name: Build the RPMs
+        run: packaging/rpm.sh "$GITHUB_WORKSPACE/build/rpm"
+      - name: Install the RPM and ask it for its revision
+        run: |
+          set -eu
+          rpm=$(ls build/rpm/RPMS/*/watchbill-[0-9]*.rpm)
+          dnf install -y $rpm
+          hash=$(awk -v v="$GITHUB_REF_NAME" '$1 == v { print $2 }' share/watchbill/revisions.txt)
+          wb revision | head -2 | tee revision.out
+          test "$(sed -n 1p revision.out)" = "watchbill $GITHUB_REF_NAME"
+          test "$(sed -n 2p revision.out)" = "revision $hash"
+      - name: The binary RPM, with no debug package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rpm-${{ matrix.name }}
+          path: build/rpm/RPMS/*/watchbill-[0-9]*.rpm
+          if-no-files-found: error
+      - name: The source RPM, from Fedora only
+        if: matrix.name == 'fedora'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rpm-source
+          path: build/rpm/SRPMS/watchbill-[0-9]*.src.rpm
+          if-no-files-found: error
+
+  release:
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Stop when the release is already there
+        run: |
+          # A failed look (network, auth) counts as "not there"; that is safe, as gh release create
+          # refuses a release that exists.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "the release $GITHUB_REF_NAME is already there; it is not written over" >&2
+            exit 1
+          fi
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: rpm-*
+          path: files
+          merge-multiple: true
+      - name: The message of the tag and the sums
+        run: |
+          set -eu
+          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$GITHUB_REF_NAME" >notes.md
+          cd files
+          ls watchbill-[0-9]*.src.rpm
+          ls watchbill-[0-9]*.rpm
+          test "$(ls watchbill-[0-9]*.rpm | grep -vc '\.src\.rpm$')" = 2
+          sha256sum watchbill-[0-9]*.rpm >SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - name: Make the release
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md files/watchbill-[0-9]*.rpm files/SHA256SUMS

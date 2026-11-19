@@ -82,3 +82,6 @@ The role prompts: breakdown, tester, build, review and fix. The first revision h
 | WB-ROLE-76 | Every role prompt shall say that the session's model and effort are in its stamp on the issue, the latest `[stamp] <role>` comment, and that the last message gives them from there. Issue: #113. | T | Draft |
 | WB-ROLE-77 | No role file shall hold the line "Draft: this prompt has not yet run on a project." Replaces WB-ROLE-66 when built. Issue: #113. | T | Draft |
 | WB-ROLE-79 | The tester's and the build's prompts shall say that where the issue has no file, they work from the issue's own numbered items. Issue: #116. | T | Implemented |
+| WB-ROLE-80 | The prompts of the tester, the build, the review and the fix shall say that an answer that does not change what the issue's file says is taken by the next session of the same role, which reads the issue with its comments. Issue: #113. | T | Draft |
+| WB-ROLE-81 | The prompts of the tester, the build, the review and the fix shall say that the number of a new question counts on from the highest number of that role's questions already on the issue. Issue: #113. | T | Draft |
+| WB-ROLE-82 | The review's and the fix's prompts shall say that where the issue is none, their questions are posted on the change, with `{change}` in place of `{issue}` in each name. Issue: #113. | T | Draft |

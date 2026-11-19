@@ -516,26 +516,25 @@ pub fn accept(root: &str, issue: &str, out: &mut dyn Write, err: &mut dyn Write)
     0
 }
 
-/// Whether the issue's file is needed before a role is handed out (#97). It is, unless `watchbill.yml`
-/// says `breakdown: none`. Where the key is not written the file is needed. `none` is refused when the
-/// rule table of the revision holds the breakdown, and any other value is refused by its name.
-pub fn file_needed(root: &Path, rules_hold_breakdown: bool) -> Result<bool, String> {
-    let config = root.join(crate::init::CONFIG_FOLDER).join(crate::init::CONFIG_FILE);
-    let document = crate::yamlfile::load(&config).map_err(|why| why.to_string())?;
-    let place = [crate::yamlfile::Part::from("breakdown")];
+/// Refuses the key `breakdown` of `watchbill.yml` by name (#116). Until revision 0.0.8, `breakdown: none`
+/// let a project hand out roles with no issue's file (#97). Since then a role is handed out without one,
+/// and nothing reads the key. The line is named, with the words to remove it. `wb check` and `wb prompt`
+/// both judge `watchbill.yml` with this and no other.
+pub fn no_breakdown(document: &Document) -> Result<(), String> {
+    let place = [Part::from("breakdown")];
     if !document.has(&place) {
-        return Ok(true);
+        return Ok(());
     }
-    let value = document.text(&place).map_err(|why| why.to_string())?;
-    if value != "none" {
-        return Err(document.fail(&place, "the only value of `breakdown` is `none`: write it, or leave the key out", false).to_string());
-    }
-    if rules_hold_breakdown {
-        return Err(
-            "watchbill.yml says `breakdown: none`, and the rule table of the revision holds the breakdown. Take the line out and run the breakdown".to_string(),
-        );
-    }
-    Ok(false)
+    // The line as it is written, where it is one plain text, so that the person finds it.
+    let line = match document.text(&place) {
+        Ok(value) if !value.is_empty() && !value.chars().any(|c| c.is_control() || c == '`') => format!(" `breakdown: {}`", value),
+        _ => String::new(),
+    };
+    let why = format!(
+        "the key `breakdown` is no longer read: since revision 0.0.8 a role is handed out with no issue's file, and a file that is there must be accepted and committed. Remove the line{}.",
+        line
+    );
+    Err(document.fail(&place, &why, true).to_string())
 }
 
 /// What the commit command for the acceptance of an issue is, as `wb accept` says it and as a refusal says it.

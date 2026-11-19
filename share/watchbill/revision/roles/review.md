@@ -31,6 +31,7 @@ Say how sure you are of each finding. A finding that is wrong costs a needless c
 ## What you read
 
 - The issue {issue}, at {issue_address}, and the rows of the requirements {requirements}.
+- Where the issue is none, the change was made with no issue, and its description, at {change_address}, is the spec: read it wherever this prompt says the issue, and the files it names are the files the issue names. Your stamp, where it is given, is on the change. Where the description is empty, there is no spec: say so as a finding, and judge the change against no requirement that is not written.
 - The diff of change {change}, at {change_address}, first. Form your view from the issue, the requirements and the diff.
 - Then its description and its commit messages, as claims to check and not as the account of what was done. Where {change_address} shows no description of the change, say so as a finding: it may be there and hidden from you. Then do not judge the change as if it had none.
 - The result of its checks.

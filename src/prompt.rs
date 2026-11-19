@@ -345,6 +345,46 @@ fn default_requirements(issue: &str) -> String {
     format!("the numbered requirements of issue {}", issue)
 }
 
+/// The roles that may be handed out for a change with no issue (#116): its description is the spec.
+pub const ALONE: [&str; 2] = ["review", "fix"];
+
+/// What `{issue}` and `{issue_address}` are filled with in the text of a review or a fix of a change with
+/// no issue (#116). The role's text says what to do where the issue is this. The stamp's `issue:` is empty.
+pub const NO_ISSUE: &str = "none";
+
+/// The text `requirements` has for a change with no issue (#116).
+fn change_requirements(change: &str) -> String {
+    format!("what the description of change {} says the change does", change)
+}
+
+/// The branch of a change with no issue (#116): the branch checked out, when it can be the change's.
+/// `wb` asks nothing of the network, so it cannot see which branch the change is from. It refuses the
+/// branch that `origin/HEAD` names, where changes go, and a HEAD on no branch; and where `origin/HEAD` is
+/// not there it cannot tell the two apart, so it refuses too.
+fn change_branch(root: &str, change: &str) -> Result<String, String> {
+    let ask = |what: &str| -> Option<String> {
+        let run = crate::detect::git_output(&["-C", root, "symbolic-ref", "-q", "--short", what], None)?;
+        if !run.status.success() {
+            return None;
+        }
+        String::from_utf8(run.stdout).ok().map(|text| text.trim_end_matches('\n').to_string())
+    };
+    let lead = format!("with no issue, the branch of change {} is the branch checked out", change);
+    let Some(head) = ask("HEAD") else {
+        return Err(format!("{}, and no branch is checked out. Give --branch", lead));
+    };
+    let Some(main) = ask("refs/remotes/origin/HEAD") else {
+        return Err(format!(
+            "{}, and origin/HEAD is not there, so {} cannot be told from the branch that changes go into. Give --branch",
+            lead, head
+        ));
+    };
+    if main.strip_prefix("origin/") == Some(head.as_str()) {
+        return Err(format!("{}, and {} is the branch that origin/HEAD names, where changes go. Give --branch", lead, head));
+    }
+    Ok(head)
+}
+
 /// The names of the local branches, from the refs of the repository: nothing is asked of the network.
 fn local_branches(root: &str) -> Result<Vec<String>, PromptError> {
     let run = crate::detect::git_output(&["-C", root, "for-each-ref", "--format=%(refname)", "refs/heads"], None);
@@ -374,7 +414,8 @@ const PATTERNS: [&str; 3] = ["issue_address", "change_address", "branch"];
 
 /// Refuses a `watchbill.yml` that still holds the words from before revision 0.0.6, when the issue was
 /// called the task (#78): the key `task_address`, and `{task}` in a pattern. Each is named, with what to
-/// write in its place. A pattern that is not a text is left to the loader, where it is used.
+/// write in its place. A pattern that is not a text is left to the loader, where it is used. The key
+/// `breakdown`, from before revision 0.0.8, is refused by name too (#116).
 fn old_words(document: &crate::yamlfile::Document) -> Result<(), PromptError> {
     let old = [crate::yamlfile::Part::from("task_address")];
     if document.has(&old) {
@@ -388,7 +429,8 @@ fn old_words(document: &crate::yamlfile::Document) -> Result<(), PromptError> {
             return refuse(document.fail(&place, why, false).to_string());
         }
     }
-    Ok(())
+    // `breakdown:` is from before revision 0.0.8, when a role needed the issue's file (#116).
+    crate::issue::no_breakdown(document).map_err(PromptError)
 }
 
 /// Why a derivation is refused. `Used` is a value the caller gave that is not plain, named by its
@@ -410,7 +452,8 @@ impl From<PromptError> for Derive {
 /// `watchbill.yml` (read through the loader), the addresses and the branch. `requirements` has its
 /// default text. The breakdown takes the branch from the pattern, as it makes the branch; any other
 /// role takes the one local branch that starts with it and a `-`, or is the pattern. None, or more
-/// than one, is refused with the names found.
+/// than one, is refused with the names found. A review or a fix of a change with no issue (#116) takes
+/// the branch checked out, when it can be the change's, and is used wrongly otherwise.
 pub fn derive(
     root: &str,
     role: &str,
@@ -448,8 +491,20 @@ pub fn derive(
     if !has(&values, "checkout") {
         values.push(("checkout", root.to_string()));
     }
-    if let (false, Some(issue)) = (has(&values, "requirements"), &issue) {
-        values.push(("requirements", default_requirements(issue)));
+    // A review or a fix of a change with no issue takes the change's description as the spec (#116).
+    let alone = match (&issue, &change) {
+        (None, Some(change)) if ALONE.contains(&role) => Some(change.clone()),
+        _ => None,
+    };
+    if !has(&values, "requirements") {
+        if let Some(issue) = &issue {
+            values.push(("requirements", default_requirements(issue)));
+        } else if let Some(change) = &alone {
+            values.push(("requirements", change_requirements(change)));
+        }
+    }
+    if let (false, Some(change)) = (has(&values, "branch"), &alone) {
+        values.push(("branch", change_branch(root, change).map_err(Derive::Used)?));
     }
     if let (false, Some(issue)) = (has(&values, "issue_address"), &issue) {
         if let Some(found) = pattern("issue_address")? {

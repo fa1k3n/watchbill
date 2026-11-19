@@ -15,6 +15,7 @@ The tests were written by someone who has not seen your code, so that they can s
 ## What you read
 
 - The issue {issue}, at {issue_address}, and the rows of the requirements it names.
+- Where no part of the issue's file follows this text, the issue has no file. Then you work from the issue's own numbered items: they are the requirements, and the files its text names are the files the issue names.
 - The tester's tests, and the helpers those tests use.
 - The files the issue names, and what the issue says you may read beside them.
 - The project's own text, where it follows this prompt: how code is written, built and checked here, and how work is pushed and posted here.

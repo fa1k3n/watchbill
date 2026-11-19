@@ -20,6 +20,7 @@ You neither built the change nor reviewed it, on purpose. You judge each finding
 ## What you read
 
 - The issue {issue}, at {issue_address}, and the rows of the requirements it names.
+- Where the issue is none, the change was made with no issue, and its description, at {change_address}, is the spec: read it wherever this prompt says the issue, and the files it names are the files the issue names. Your stamp, where it is given, is on the change. Where the description is empty, there is no spec: say so under `seen`, as a fault beside the findings, and check each finding against the code alone.
 - The findings of round {round} on change {change}, at {change_address}.
 - The diff of the change.
 - The files the issue names, and what the issue says you may read beside them. In those: the files and the tests the findings name, and the helpers those tests use.

@@ -51,7 +51,7 @@ A team takes an issue from its text to a merged change, and a person only accept
 
 ### Where it stands
 
-At 0.0.7. An issue that changes a verdict changes its row.
+At 0.0.8. An issue that changes a verdict changes its row.
 
 | Goal | Today | What will hold it |
 |---|---|---|
@@ -62,7 +62,7 @@ At 0.0.7. An issue that changes a verdict changes its row.
 | 5. Duties separated | Partly: the rule table says it, and nothing knows who holds which role | #83 and #88, for work that is handed on. No issue yet for a session a person starts |
 | 6. Sees only the code it needs | Not yet: the lists are in the prompt only | The sandbox, #65 |
 | 7. Code goes only where allowed | Partly: checked for the breakdown | The other roles, #11. No issue yet for a local model for them |
-| 8. Starts small | Not yet: every role needs an issue and its accepted file | #116 |
+| 8. Starts small | Partly: `wb prompt` hands out any role alone, for an issue with no file, and a review or a fix of a change with no issue ([one role at a time](#taking-it-on-one-role-at-a-time)). The person starts the session and posts the stamp by hand | The starter, #84, posts the stamp on the issue or the change and starts the session |
 | 9. Starts strict, opens up | Not yet: one level for the whole repository, and no level given means the strictest | #11, #65, and a level for each path, which has no issue yet |
 | 10. Shown to an assessor | Partly: what the agents are told can be read. The rule table says more than the program enforces | #28 |
 | 11. Needs no other product | Held: one RPM, `git`, and a build with the network off | |
@@ -171,17 +171,21 @@ wb prompt tester 54
 wb prompt build 54
 wb prompt review 54 --change 168 --round 1
 wb prompt fix 54 --change 168 --round 1
+wb prompt review --change 174 --round 1             # a change with no issue
 ```
 
-The issue is the word after the role, or `--issue`; both together end with 2. The placeholders are filled from the options, one for each, and what no option gives is derived. An option given always wins over the derived value, and the stamp holds each value as it was handed out:
+The issue is the word after the role, or `--issue`; both together end with 2. The tester and the build with no issue end with 2 and the usage. Only the review and the fix take a change alone, with no issue (see [Taking it on one role at a time](#taking-it-on-one-role-at-a-time)). The placeholders are filled from the options, one for each, and what no option gives is derived. An option given always wins over the derived value, and the stamp holds each value as it was handed out:
 
 - `--issue <text>`, `--change <text>`, `--requirements <text>`, `--round <text>`, `--checkout <text>`, `--branch <text>`, `--issue_address <text>`, `--change_address <text>`. What each is, is in `.watchbill/revision/roles/placeholders.md`.
 - `checkout` is the root of the repository `wb` runs in.
 - `issue_address` and `change_address` are the patterns of those names in `.watchbill/watchbill.yml`, with `{issue}` and `{change}` filled in. `wb init` proposes them for a GitHub `origin` only (`gh issue view {issue} --repo <repository>; gh issue view {issue} --repo <repository> --comments`, `gh pr view {change} --repo <repository>; gh pr view {change} --repo <repository> --comments`: each shows the text or the description first, then the comments, as `--comments` alone hides the first). For another server, or none, there is no pattern and the option must be given.
 - `branch` is the pattern of that name in `watchbill.yml`, proposed as `issue-{issue}`, with `{issue}` filled in. The breakdown makes the branch, so it gets the pattern as it is. For the tester, the build, the review and the fix it is the one local branch (from the refs of the repository) whose name is the pattern, or starts with it and a `-`. None, or more than one, is refused with 1, the names found are said on standard error, and `--branch` must be given.
-- `requirements` is the text "the numbered requirements of issue {issue}" only when the issue has no file and `watchbill.yml` says `breakdown: none`: without that line an issue with no file is refused. When it has a file, see "An issue with a file" below.
+- For a review or a fix of a change with no issue, `branch` is the branch checked out. `wb` asks nothing of the network, so it cannot see which branch the change is from: it refuses, with 2 and the words to give `--branch`, a HEAD on no branch, the branch that `origin/HEAD` names (where changes go), and any branch where `origin/HEAD` is not there.
+- `requirements` is the text "the numbered requirements of issue {issue}" when the issue has no file, and "what the description of change {change} says the change does" for a review or a fix with no issue. When the issue has a file, see "An issue with a file" below.
+- With no issue, the text of the review and the fix has `none` for `{issue}` and `{issue_address}`, and says what to do where the issue is none. The stamp's `issue:` is empty.
 - A repository set up before these patterns have no lines for them in `watchbill.yml`. It works as it did: the options are needed, and `wb check` does not fail on it. A pattern that is not a text is refused by the loader, and that shows at `wb prompt` when it needs the pattern, not at `wb check`, which does not read the patterns.
 - From revision 0.0.6 the thing at the tracker is an issue, where earlier revisions said task (#78). `--task` and `--task_address` are not known, and end with 2 and the usage. A `watchbill.yml` that still has the key `task_address`, or `{task}` in a pattern, is refused by name with 1, with what to write in its place: `issue_address`, `{issue}`. A repository set up before 0.0.6 is brought to it by hand.
+- From revision 0.0.8 the key `breakdown` of `watchbill.yml` is read by nothing (#116). A `watchbill.yml` that still has it is refused by `wb prompt` and `wb check`, with 1, the line named and the words to remove it.
 - The issue in the branch and in the issue's address, and the change in the change's address, are filled into text that an agent runs, so each must be plain: letters, digits, `.`, `_` and `-`, with no `..`, not starting with `.` or `-`, not ending with `.` or `.lock`. Anything else is refused by its option name, with 2 and nothing on standard output. A value that fills no pattern (the option for it is given) is taken as it is given.
 - A value is taken as it is given, also when it starts with `-` (`--issue -x` or `--issue=-x`) or holds a line break.
 - A placeholder that the prompt uses and that got no value, given or derived, is refused by name. An option for one it does not use is ignored. An empty value (`--issue ""`, or a variable that is not set) is refused by name, as an option with no value is: a prompt is never handed over with a hole in it. Only an empty value is refused: a value of white space is taken as it is given.
@@ -201,9 +205,9 @@ An address that ends in `--comments` alone shows the comments and hides both the
 
 ### An issue with a file
 
-The flow of an issue is: the breakdown reads the issue and writes `.watchbill/issues/<issue>.yml` (the role of the breakdown is added by #75, and until then a person writes the file); a person accepts it with `wb accept <issue>`; then the four roles are handed out: `wb prompt tester <issue>`, `build`, `review` and `fix`. For these four, `wb prompt` looks for the issue's file ([below](#the-issues-file-and-its-acceptance)):
+The flow of an issue is: the breakdown reads the issue and writes `.watchbill/issues/<issue>.yml`; a person accepts it with `wb accept <issue>`; then the four roles are handed out: `wb prompt tester <issue>`, `build`, `review` and `fix`. For these four, `wb prompt` looks for the issue's file ([below](#the-issues-file-and-its-acceptance)):
 
-- **No file:** nothing is printed on standard output, `.watchbill/issues/<issue>.yml` is named on standard error, and the status is 1. Run the breakdown first. A project that has no breakdown writes `breakdown: none` in `.watchbill/watchbill.yml`: then the four roles are handed out with no file. Where `breakdown:` is not written, the file is needed. `breakdown: none` is refused, with 1, by `wb prompt` and by `wb check` when the rule table of the revision holds the breakdown, and any other value of `breakdown` is refused.
+- **No file:** the role is handed out, and works from the issue's own numbered items (#116). A person may start any role alone. The chain's gates bind once a file is there.
 - **A file that is accepted and committed:** the file and its acceptance must both be committed in `HEAD` and be the same in the working tree, or `wb prompt` prints nothing on standard output, names the file, says to commit it, and ends with 1. The history then holds what the issue was read as before the work it allows. `{requirements}` is its IDs and texts, one to a line (`- 54.1: <text>`). Two parts follow the role's text, before the fixed line and the project's own text: the interface, and what the role may change (`changes`) and read (its own list of `reads`). The file is a part of the prompt: `--parts` and `--stamp` give its SHA-256 and path (`.watchbill/issues/<issue>.yml`) as the second part, after the role. Text of the file is put in as it is and is never read for placeholders.
 - **A file that is there and not accepted, or changed since its acceptance:** nothing is printed on standard output, the reason is on standard error, and the status is 1. No prompt of the issue is handed out until a person accepts the file again. The same holds for a file that does not hold to its form, or holds a question.
 - A value of the file that reaches a prompt is refused, by the name of its field and with status 1, before a prompt is handed out, when it holds a control character, a line or paragraph separator (U+2028, U+2029) or a bidirectional control (U+202A to U+202E, among them the right-to-left override, and U+2066 to U+2069). The values are the interface, each requirement ID and text, and the paths. A line break and a tab are allowed in the interface only. The file is read once and is refused when it is over 1 MiB.
@@ -215,10 +219,10 @@ The flow of an issue is: the breakdown reads the issue and writes `.watchbill/is
 The exit status:
 
 - **0**: the prompt, or with `--stamp` the stamp, is printed.
-- **1**: it was refused and nothing is printed: the breakdown's runner is not cleared for it (see [Confidentiality](#confidentiality)), the check does not hold, the clock reads before 1970 (`--stamp`), the role is not one of the revision (the roles it has are named), a project file is not UTF-8, a placeholder is not known or got no value, the branch is not found or not one, the issue's file is there and is not accepted (or changed since), `watchbill.yml` holds `task_address` or `{task}` in a pattern, or a value derived for the stamp (the checkout, the branch) is not one plain line.
-- **2**: `wb prompt` was used wrongly (no role, a third word or an option that is not known, the issue given as a word and as `--issue`, an option given twice, with no value or with an empty one, `--stamp` with `--parts`, an option given twice, a stamped value that is not one plain line, an issue or change that fills a pattern and is not plain, the breakdown with no `--runner`), the folder is not in a git repository, or Watchbill is not set up. The usage or the reason is on standard error.
+- **1**: it was refused and nothing is printed: the breakdown's runner is not cleared for it (see [Confidentiality](#confidentiality)), the check does not hold, the clock reads before 1970 (`--stamp`), the role is not one of the revision (the roles it has are named), a project file is not UTF-8, a placeholder is not known or got no value, the branch is not found or not one, the issue's file is there and is not accepted (or changed since), `watchbill.yml` holds `task_address`, `{task}` in a pattern or the key `breakdown`, or a value derived for the stamp (the checkout, the branch) is not one plain line.
+- **2**: `wb prompt` was used wrongly (no role, a third word or an option that is not known, the issue given as a word and as `--issue`, an option given twice, with no value or with an empty one, `--stamp` with `--parts`, an option given twice, a stamped value that is not one plain line, an issue or change that fills a pattern and is not plain, the breakdown with no `--runner`, the tester or the build with no issue, a review or a fix with no issue whose branch is not given and is not the branch checked out), the folder is not in a git repository, or Watchbill is not set up. The usage or the reason is on standard error.
 
-The one who starts a session posts its stamp on the issue, one comment for each session, the first line `[stamp] <role> round <n>`, and the lines of the stamp after it. Where a session is started by hand, the stamp is posted as it was printed. A session with no stamp on its issue is not taken as the work of a role.
+The one who starts a session posts its stamp on the issue, one comment for each session, the first line `[stamp] <role> round <n>`, and the lines of the stamp after it. A review or a fix with no issue has its stamp posted on the change. Where a session is started by hand, the stamp is posted as it was printed. A session with no stamp on its issue, or on its change where it has no issue, is not taken as the work of a role.
 
 ```
 [stamp] build round 1
@@ -226,7 +230,7 @@ role: build
 model: claude-sonnet-5-5
 effort: medium
 runner:
-version: 0.0.7
+version: 0.0.8
 revision: 3f0c1d9e…
 issue: 12
 change:
@@ -276,6 +280,30 @@ The repository states its own level, as the line `confidentiality:` of `.watchbi
 `wb prompt breakdown <issue> --runner <name>` hands out the prompt only when the organisation's file is there, names the runner, the runner has `breakdown`, and the repository's level is no higher than the breakdown's `up_to`. Otherwise it prints nothing on standard output, names on standard error the file it looked for, the runner, or the level and the `up_to`, and ends with 1. With no `--runner` the breakdown ends with 2 and the usage. Its stamp has `runner: <name>` and the `model` and `effort` of the runner's `breakdown`, and `--parts` adds two lines after the parts: `level: <the repository's level>` and `runner: <name>`.
 
 What it does not do yet (#11): the tester, the build, the review and the fix are not refused on a runner or a missing file, and the level of an issue is not read. It cannot stop a person from pasting code into another tool, or running a session with a prompt that `wb` did not hand out. The stamp on the issue is what shows where the work was handed out.
+
+## Taking it on one role at a time
+
+A team takes Watchbill on one role at a time (#116). A person can start any role alone, with no step before it: no breakdown, no issue's file, and for a review or a fix, no issue.
+
+The first step is reviews only. A person writes a change as before, checks out its branch, and has it reviewed by a fresh session:
+
+```sh
+git switch my-change                              # the change's own branch
+wb prompt review --change 174 --round 1 --stamp   # what is handed out: post it on the change
+wb prompt review --change 174 --round 1           # the prompt, for the session the person starts
+```
+
+- The change's description is the spec. The review reads it at `change_address`, and says so in a finding when it is empty.
+- `requirements` is "what the description of change 174 says the change does", unless `--requirements` is given.
+- The stamp's `issue:` is empty, and the person posts it on the change, with the first line `[stamp] review round 1`.
+- The branch is the one checked out, unless it is the one `origin/HEAD` names. Otherwise give `--branch`.
+
+Then the team adds the rest when it is ready:
+
+- **The fix,** in the same way: `wb prompt fix --change 174 --round 1`.
+- **Issues with no file:** the tester, the build, the review and the fix are handed out for an issue, and work from its own numbered items.
+- **The breakdown and the acceptance:** once an issue has a file, the chain's gates bind. The file must be accepted, and the file and its acceptance committed, before any role of the issue is handed out.
+- **The hand-on** from one role to the next always needs the whole chain: an accepted file for every issue. It is not built yet (#88, and the listener and the officer, #85 and #86).
 
 ## The issue's file and its acceptance
 

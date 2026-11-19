@@ -169,6 +169,31 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
         text.push_str(&format!("issue_address: {}\n", yaml_value(&address("issue", "issue"))));
         text.push_str(&format!("change_address: {}\n", yaml_value(&address("pr", "change"))));
     }
+    if setup.git_server == "gitlab" && plain {
+        // The same patterns for GitLab (#123), with `glab`. `glab api` has no `--jq`, so the comments are
+        // filtered by `jq`, which keeps the notes a person or an account wrote and no system note. The
+        // project is in the path of the API as its repository with `/` written `%2F`.
+        let repository = &setup.repository;
+        let project = repository.replace('/', "%2F");
+        let first_lines = |kind: &str, word: &str| {
+            format!(
+                "glab api projects/{}/{}/{{{}}}/notes --paginate --output ndjson | jq -r 'select(.system == false) | .body | split(\"\\n\")[0]'",
+                project, kind, word
+            )
+        };
+        let patterns = [
+            ("issue_comment", format!("glab issue note {{issue}} --repo {}", repository)),
+            ("issue_comments", first_lines("issues", "issue")),
+            ("change_comment", format!("glab mr note {{change}} --repo {}", repository)),
+            ("change_comments", first_lines("merge_requests", "change")),
+            ("change_of_branch", format!("glab mr list --repo {} --source-branch {{branch}} -F json --jq '.[].iid'", repository)),
+            ("issue_address", format!("glab issue view {{issue}} --repo {} --comments", repository)),
+            ("change_address", format!("glab mr view {{change}} --repo {} --comments", repository)),
+        ];
+        for (key, line) in patterns {
+            text.push_str(&format!("{}: {}\n", key, yaml_value(&line)));
+        }
+    }
     text.push_str(&format!("branch: {}\n", yaml_value("issue-{issue}")));
     text
 }

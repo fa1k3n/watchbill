@@ -55,7 +55,7 @@ At 0.0.8. An issue that changes a verdict changes its row.
 
 | Goal | Today | What will hold it |
 |---|---|---|
-| 1. Fits the workflow | Partly: any tracker and git server with a command line, by a pattern the team writes. `wb init` writes the patterns for GitHub only. The CI and the requirements tool are names and nothing more. `wb` installs on Fedora and Enterprise Linux only | No issue yet for GitLab's patterns |
+| 1. Fits the workflow | Partly: any tracker and git server with a command line, by a pattern the team writes. `wb init` writes the patterns for GitHub and GitLab only. The CI and the requirements tool are names and nothing more. `wb` installs on Fedora and Enterprise Linux only | |
 | 2. What the agents are told | Held for what `wb` hands out: the pinned revision, `wb check`. `wb <role>` posts the stamp and starts the session with that prompt itself. A session started by hand is the word of the one who started it, and so is the effort of a runner whose `start` cannot set it | |
 | 3. Rules enforced | Partly: the pinned revision, the acceptance, the breakdown's runner and the placeholders are checked in code. No limit of the rule table is | #28 names each limit and what holds it; then #65, #88 and the pieces #28 writes |
 | 4. People keep the decisions | Partly: `wb accept` asks for a person's word, but cannot tell a person from an agent under one account. That an agent cannot merge rests on the git server's settings | The roles' accounts, #83, and the acceptance read at the tracker, #88. No issue yet checks that a role's account cannot merge |
@@ -351,6 +351,21 @@ change_of_branch: 'gh pr list --repo example/brake-controller --head {branch} --
 ```
 
 - `issue_comment` and `change_comment` post a comment from standard input. `issue_comments` and `change_comments` print the first line of each comment, one to a line. `change_of_branch` prints the numbers of the open changes from `{branch}`, one to a line. At GitHub the comments of a pull request are those of an issue, so `change_comments` reads them the same way.
+For a GitLab `origin`, `wb init` writes the same patterns with `glab`, here for `brakes/controller`, and `issue_address` and `change_address` besides:
+
+```yaml
+issue_comment: 'glab issue note {issue} --repo brakes/controller'
+issue_comments: 'glab api projects/brakes%2Fcontroller/issues/{issue}/notes --paginate --output ndjson | jq -r ''select(.system == false) | .body | split("\n")[0]'''
+change_comment: 'glab mr note {change} --repo brakes/controller'
+change_comments: 'glab api projects/brakes%2Fcontroller/merge_requests/{change}/notes --paginate --output ndjson | jq -r ''select(.system == false) | .body | split("\n")[0]'''
+change_of_branch: 'glab mr list --repo brakes/controller --source-branch {branch} -F json --jq ''.[].iid'''
+issue_address: 'glab issue view {issue} --repo brakes/controller --comments'
+change_address: 'glab mr view {change} --repo brakes/controller --comments'
+```
+
+- `glab api` has no `--jq`, so `issue_comments` and `change_comments` need `jq` on the machine of the team. `wb` does not. They keep no system note, and print the first line of each other note.
+- The project is written in the path of the API with each `/` as `%2F`.
+
 - Each is one line for `/bin/sh -c`, run in the root of the checkout, as an agent runs the addresses. The values filled in (`{issue}`, `{change}`, `{branch}`) are plain names, as for the addresses. A value given that is not is refused with 2, by its option. A branch worked out that is not is refused with 1, saying to give `--change`.
 - A repository set up before these lines, or with another server, adds them by hand. Without them, `wb prompt` asks for `--change` and `--round` as before, and `wb <role>` is refused, naming the line it needs.
 - `wb <role>` asks nothing of the network but through these lines and the runner's `start`.

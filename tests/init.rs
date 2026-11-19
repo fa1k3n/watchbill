@@ -101,14 +101,14 @@ fn test_WB_INIT_9_an_answer_replaces_what_was_found_and_an_empty_line_keeps_it()
     put(&folder.path, "Jenkinsfile", "");
 
     // project, git server, repository, tracker, requirements, ci, then the question whether it is OK.
-    let run = wb(&folder.path, &["init"], &lines(&["brakes", "", "", "jira", "polarion", "jenkins", "", "yes"]));
+    let run = wb(&folder.path, &["init"], &lines(&["brakes", "gerrit", "", "jira", "polarion", "jenkins", "", "yes"]));
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert_eq!(
         read(&config(&folder.path)),
         expected(&[
             "project: brakes",
-            "git_server: gitlab",
+            "git_server: gerrit",
             "repository: brakes/controller",
             "tracker: jira",
             "requirements: polarion",
@@ -620,7 +620,7 @@ fn test_WB_INIT_43_a_github_origin_gets_the_patterns_of_the_two_addresses_and_th
 #[test]
 fn test_WB_INIT_44_another_server_none_or_a_repository_that_is_not_plain_gets_no_address() {
     for origin in [
-        Some("https://gitlab.example.com/brakes/controller.git"),
+        Some("https://gitlab.example.com/brakes/it's.git"),
         Some("https://git.example.org/brakes/controller.git"),
         Some("git@github.com:example/it's.git"),
         None,
@@ -637,7 +637,7 @@ fn test_WB_INIT_44_another_server_none_or_a_repository_that_is_not_plain_gets_no
 
 #[test]
 fn test_WB_INIT_45_the_branch_pattern_is_proposed_for_every_server() {
-    for origin in [Some("https://gitlab.example.com/brakes/controller.git"), None] {
+    for origin in [Some("https://git.example.org/brakes/controller.git"), None] {
         let folder = repository(origin);
 
         let run = wb(&folder.path, &["init", "--yes"], "");
@@ -745,10 +745,59 @@ fn test_WB_INIT_53_another_server_gets_no_pattern_for_the_comments_of_a_change()
     no_pattern(&["change_comment", "change_comments"]);
 }
 
+// ---- the patterns for a GitLab origin (#123) ----
+
+#[test]
+fn test_WB_INIT_49_a_gitlab_origin_gets_the_glab_commands_with_the_repository_filled_in() {
+    let folder = repository(Some("https://gitlab.example.com/brakes/controller.git"));
+    let run = wb(&folder.path, &["init", "--yes"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let notes = |what: &str, word: &str| {
+        format!(
+            "glab api projects/brakes%2Fcontroller/{}/{{{}}}/notes --paginate --output ndjson | jq -r 'select(.system == false) | .body | split(\"\\n\")[0]'",
+            what, word
+        )
+    };
+    let expected = [
+        ("issue_address", "glab issue view {issue} --repo brakes/controller --comments".to_string()),
+        ("change_address", "glab mr view {change} --repo brakes/controller --comments".to_string()),
+        ("issue_comment", "glab issue note {issue} --repo brakes/controller".to_string()),
+        ("change_comment", "glab mr note {change} --repo brakes/controller".to_string()),
+        ("issue_comments", notes("issues", "issue")),
+        ("change_comments", notes("merge_requests", "change")),
+        ("change_of_branch", "glab mr list --repo brakes/controller --source-branch {branch} -F json --jq '.[].iid'".to_string()),
+    ];
+    for (key, line) in expected {
+        assert_eq!(pattern(&folder.path, key).as_deref(), Some(line.as_str()), "{}", key);
+    }
+    assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
+}
+
+#[test]
+fn test_WB_INIT_49_a_gitlab_origin_in_a_group_is_encoded_and_one_that_is_not_plain_gets_none() {
+    let folder = repository(Some("git@gitlab.example.com:team/brakes/controller.git"));
+    assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+    let line = pattern(&folder.path, "issue_comments").unwrap();
+    assert!(line.contains("projects/team%2Fbrakes%2Fcontroller/issues/{issue}/notes"), "{}", line);
+
+    let folder = repository(Some("https://gitlab.example.com/brakes/it's.git"));
+    assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+    for key in ["issue_address", "change_address", "issue_comment", "issue_comments", "change_comment", "change_comments", "change_of_branch"] {
+        assert_eq!(pattern(&folder.path, key), None, "{}", key);
+    }
+}
+
+#[test]
+fn test_WB_INIT_49_the_github_patterns_are_as_before_for_a_github_origin_only() {
+    let folder = repository(Some("https://git.example.org/brakes/controller.git"));
+    assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+    assert_eq!(pattern(&folder.path, "issue_comment"), None);
+}
+
 /// None of the patterns is written for another server, for none, or for a repository that is not plain.
 fn no_pattern(keys: &[&str]) {
     for origin in [
-        Some("https://gitlab.example.com/brakes/controller.git"),
+        Some("https://gitlab.example.com/brakes/it's.git"),
         Some("https://git.example.org/brakes/controller.git"),
         Some("git@github.com:example/it's.git"),
         None,

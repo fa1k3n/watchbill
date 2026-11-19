@@ -239,10 +239,22 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, out: 
             issues.push((one.to_string(), None));
         }
     }
+    // A line of `open_issues` whose first field is not a plain name cannot fill a pattern: it is not read.
+    let mut failed: Vec<(String, String)> = Vec::new();
+    let (plain, bad): (Vec<_>, Vec<_>) = issues.into_iter().partition(|(number, _)| prompt::is_plain_name(number));
+    {
+        for (number, _) in bad {
+            failed.push((issue::shown(&number), "the first field of this line of `open_issues` is not a plain issue name".to_string()));
+        }
+    }
+    let mut issues = plain;
+    if comments.is_none() {
+        let _ = writeln!(err, "wb status: watchbill.yml has no `issue_comments`, so no stamp, question or answer is read: an issue is at Accepted or below.");
+    }
     issues.sort_by_key(|(number, _)| order(number));
     issues.dedup_by(|a, b| a.0 == b.0);
 
-    let (mut read, mut failed): (Vec<Found>, Vec<(String, String)>) = (Vec::new(), Vec::new());
+    let mut read: Vec<Found> = Vec::new();
     for (number, title) in issues {
         match read_issue(root, &number, title, comments.as_deref(), &branch, &all) {
             Ok(found) => read.push(found),

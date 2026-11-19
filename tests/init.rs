@@ -67,7 +67,7 @@ fn test_WB_INIT_14_yes_writes_what_the_repository_says_and_asks_nothing() {
             "change_comment: 'gh pr comment {change} --repo example/brake-controller --body-file -'",
             "change_comments: 'gh api repos/example/brake-controller/issues/{change}/comments --paginate --jq ''.[].body | split(\"\\n\")[0]'''",
             "change_of_branch: 'gh pr list --repo example/brake-controller --head {branch} --state open --json number --jq ''.[].number'''",
-            r#"open_issues: 'gh issue list --repo example/brake-controller --state open --limit 1000 --json number,title --jq ''.[] | "\(.number)\t\(.title)"'''"#,
+            r#"open_issues: 'gh issue list --repo example/brake-controller --state open --limit 1000 --json number,title --jq ''.[] | "\(.number)\t\(.title | gsub("[\n\r]"; " "))"'''"#,
             "issue_address: 'gh issue view {issue} --repo example/brake-controller; gh issue view {issue} --repo example/brake-controller --comments'",
             "change_address: 'gh pr view {change} --repo example/brake-controller; gh pr view {change} --repo example/brake-controller --comments'",
         ])
@@ -834,7 +834,7 @@ fn test_WB_INIT_56_a_github_origin_gets_open_issues_that_prints_the_number_a_tab
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert_eq!(
         pattern(&folder.path, "open_issues").as_deref(),
-        Some("gh issue list --repo example/brake-controller --state open --limit 1000 --json number,title --jq '.[] | \"\\(.number)\\t\\(.title)\"'")
+        Some("gh issue list --repo example/brake-controller --state open --limit 1000 --json number,title --jq '.[] | \"\\(.number)\\t\\(.title | gsub(\"[\\n\\r]\"; \" \"))\"'")
     );
     assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
 }
@@ -846,7 +846,7 @@ fn test_WB_INIT_56_a_gitlab_origin_gets_open_issues_with_the_host_of_origin() {
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert_eq!(
         pattern(&folder.path, "open_issues").as_deref(),
-        Some("glab api --hostname gitlab.team.example 'projects/brakes%2Fcontroller/issues?state=opened&per_page=100' --paginate --output ndjson | jq -r '\"\\(.iid)\\t\\(.title)\"'")
+        Some("glab api --hostname gitlab.team.example 'projects/brakes%2Fcontroller/issues?state=opened&per_page=100' --paginate --output ndjson | jq -r '\"\\(.iid)\\t\\(.title | gsub(\"[\\n\\r]\"; \" \"))\"'")
     );
     assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
 }

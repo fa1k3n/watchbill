@@ -102,8 +102,8 @@ pub const USAGE: &str = "usage:
   status    list the issues in the flow under headings, as git status lists
             files: each issue under the last step it has done (Not broken
             down, Broken down, Accepted, Tested, Built, Reviewed, Fixed), with
-            its title, and last the issues that have a question no person has
-            answered. The open issues come from open_issues of watchbill.yml,
+            its title, and last the issues that have a question no [answer]
+            line has closed. The open issues come from open_issues of watchbill.yml,
             the comments from issue_comments. <issue> prints that issue and
             what it was worked out from; --stage <heading> prints that heading
             only, whatever its case. Ends with 0 when every issue could be

@@ -157,10 +157,10 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
             ("change_comment", format!("gh pr comment {{change}} --repo {} --body-file -", repository)),
             ("change_comments", first_lines("change")),
             ("change_of_branch", format!("gh pr list --repo {} --head {{branch}} --state open --json number --jq '.[].number'", repository)),
-            // The open issues, for `wb status` (#139): the number, a tab and the title, one issue to a line.
+            // The open issues, for `wb status` (#139): the number, a tab and the title, one issue to a line. A line break in a title is written as a space.
             (
                 "open_issues",
-                format!("gh issue list --repo {} --state open --limit 1000 --json number,title --jq '.[] | \"\\(.number)\\t\\(.title)\"'", repository),
+                format!("gh issue list --repo {} --state open --limit 1000 --json number,title --jq '.[] | \"\\(.number)\\t\\(.title | gsub(\"[\\n\\r]\"; \" \"))\"'", repository),
             ),
         ];
         for (key, line) in patterns {
@@ -203,7 +203,7 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
             (
                 "open_issues",
                 format!(
-                    "{} '{}/issues?state=opened&per_page=100' --paginate --output ndjson | jq -r '\"\\(.iid)\\t\\(.title)\"'",
+                    "{} '{}/issues?state=opened&per_page=100' --paginate --output ndjson | jq -r '\"\\(.iid)\\t\\(.title | gsub(\"[\\n\\r]\"; \" \"))\"'",
                     api, project
                 ),
             ),

@@ -136,7 +136,7 @@ fn test_WB_REVERT_2_the_review_is_round_1_again_and_a_fix_follows_no_review() {
     assert_eq!(round_of_review(&folder.path), "1");
     let branch = git_text(&folder.path, &["rev-parse", "--abbrev-ref", "HEAD"]);
     let run = wb(&folder.path, &["fix", "174", "--change", "9", "--branch", branch.trim(), "--issue_address", "a", "--change_address", "b"], "");
-    assert_eq!(code(&run), Some(1));
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
     assert!(text(&run.stderr).contains("no review stamp"), "{}", text(&run.stderr));
 }
 

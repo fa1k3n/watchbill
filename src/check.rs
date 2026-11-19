@@ -272,12 +272,10 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
                     found.push(about_config(&why));
                     settings += 1;
                 }
-                // `breakdown: none` is refused where the rule table holds the breakdown, as `wb prompt` refuses it (#97).
-                if let Ok(rules) = crate::rules::load_revision() {
-                    if let Err(why) = crate::issue::file_needed(Path::new(root), rules.roles.contains_key("breakdown")) {
-                        found.push(about_config(&why));
-                        settings += 1;
-                    }
+                // The key `breakdown` is refused by name, as `wb prompt` refuses it (#116).
+                if let Err(why) = crate::issue::no_breakdown(&document) {
+                    found.push(about_config(&why));
+                    settings += 1;
                 }
                 let installed = manifest::revision_hash(package);
                 match (&pinned_version, &line, &installed) {

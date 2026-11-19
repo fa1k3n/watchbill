@@ -241,21 +241,20 @@ fn test_WB_PROMPT_40_a_path_with_a_control_character_or_a_line_or_bidi_mark_is_r
 }
 
 #[test]
-fn test_WB_TASK_14_with_no_file_nothing_is_handed_out_and_a_file_of_another_issue_does_not_help() {
-    // Was test_WB_PROMPT_28: with no file the prompt was as before. Since #97 an issue with no file is refused.
+fn test_WB_TASK_17_with_no_file_the_prompt_is_handed_out_and_a_file_of_another_issue_is_not_used() {
+    // Was test_WB_TASK_14_with_no_file_nothing_is_handed_out_and_a_file_of_another_issue_does_not_help, and
+    // before that test_WB_PROMPT_28. Since #116 an issue with no file is handed out again.
     let folder = set_up();
-    let run = prompt(&folder.path, "build", &[]);
-    assert_eq!(code(&run), Some(1));
-    assert_eq!(text(&run.stdout), "");
-    assert!(text(&run.stderr).contains(".watchbill/issues/54.yml"), "{}", text(&run.stderr));
-    // A file for issue 54 does not give issue 55 a prompt.
+    let said = ok(&prompt(&folder.path, "build", &[]));
+    assert!(said.contains("the numbered requirements of issue 54"), "{}", said);
+    assert!(!said.contains("## The interface"), "{}", said);
+    // A file for issue 54 is no part of the prompt of issue 55.
     let other = accepted_with(GOOD);
     let mut args = vec!["prompt", "build", "55"];
     args.extend(REST);
-    let run = wb(&other.path, &args, "");
-    assert_eq!(code(&run), Some(1));
-    assert_eq!(text(&run.stdout), "");
-    assert!(text(&run.stderr).contains(".watchbill/issues/55.yml"), "{}", text(&run.stderr));
+    let said = ok(&wb(&other.path, &args, ""));
+    assert!(said.contains("the numbered requirements of issue 55"), "{}", said);
+    assert!(!said.contains("fn read(path: &str) -> String") && !said.contains("54.1"), "{}", said);
 }
 
 #[test]

@@ -22,3 +22,7 @@ What `wb` reads of an issue's file and how a person accepts it. What the file is
 | WB-TASK-16 | `wb accept` shall end by saying that the acceptance is to be committed alone, with the command. Issue: #97. | T | Implemented |
 | WB-TASK-17 | When an issue has no file, `wb prompt` shall hand out the tester's, the build's, the review's and the fix's prompts, and fill `requirements` with "the numbered requirements of issue {issue}" unless `--requirements` is given. Replaces WB-TASK-14 and WB-PROMPT-50. Issue: #116. | T | Implemented |
 | WB-TASK-18 | `wb check` and `wb prompt` shall refuse a `watchbill.yml` that has the key `breakdown`, name the line, say to remove it, and end with 1. Replaces WB-TASK-15. Issue: #116. | T | Implemented |
+| WB-TASK-19 | Where `watchbill.yml` has `needs`, `wb accept` shall run it for each path of `changes` and of the tester's and the build's `reads`, and refuse with 1 a path it prints that is in neither that role's `reads` nor `changes`, naming the role, the file and the path. Issue: #125. | T | Draft |
+| WB-TASK-20 | `wb accept` shall refuse with 1, naming the file, when the command of `needs` ends with anything but 0. Issue: #125. | T | Draft |
+| WB-TASK-21 | Where `watchbill.yml` has no `needs`, `wb accept` shall say that the lists were not checked. Issue: #125. | T | Draft |
+| WB-TASK-22 | `wb accept` shall refuse with 1 an issue's file whose `changes` holds a path under `build_files` of `watchbill.yml`, naming the path. Issue: #125. | T | Draft |

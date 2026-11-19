@@ -1159,3 +1159,24 @@ fn test_WB_RULE_48_the_breakdown_the_tester_the_build_and_the_fix_may_push_to_th
         assert!(!row.may.join(" ").to_lowercase().contains("push"), "{}: {:?}", name, row.may);
     }
 }
+
+// Every role asks on the issue (#113).
+
+#[test]
+fn test_WB_RULE_49_the_tester_the_build_the_review_and_the_fix_may_post_their_questions_on_the_issue() {
+    let revision = first_revision();
+    for name in ["tester", "build", "review", "fix"] {
+        let row = &revision.roles[name];
+        assert!(row.may.contains(&"Post its questions on the issue, one comment each.".to_string()), "{}: {:?}", name, row.may);
+    }
+}
+
+#[test]
+fn test_WB_RULE_49_the_tester_the_build_the_review_and_the_fix_read_the_issue_with_its_comments() {
+    let revision = first_revision();
+    for name in ["tester", "build", "review", "fix"] {
+        let row = &revision.roles[name];
+        let found = row.reads.iter().any(|each| each.starts_with("The issue with its comments, the answers of a person among them,"));
+        assert!(found, "{}: {:?}", name, row.reads);
+    }
+}

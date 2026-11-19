@@ -57,7 +57,7 @@ roles:
     step: Write the tests from the requirement, before the code exists.
     produces: Tests that each carry a requirement ID and fail for the right reason, in a commit that holds only tests.
     reads:
-      - The issue and the rows of its requirements.
+      - The issue with its comments, the answers of a person among them, and the rows of its requirements.
       - The files the issue names, and the tests among them with their helpers.
       - The interface of what is tested that the issue names, not its body.
     may:
@@ -65,6 +65,7 @@ roles:
       - Commit the tests.
       - Push the commit of the tests to the branch of the issue.
       - Run the tests against a stand-in that gives a wrong answer, in a scratch copy it never commits.
+      - Post its questions on the issue, one comment each.
     may_not_also_hold: [breakdown, build, review, fix, officer]
     prompt: roles/tester.md
 
@@ -72,7 +73,7 @@ roles:
     step: Make the tester's tests pass.
     produces: The smallest change that meets the requirements, opened for review with every check green.
     reads:
-      - The issue and the rows of its requirements.
+      - The issue with its comments, the answers of a person among them, and the rows of its requirements.
       - The tester's tests and their helpers.
       - The files the issue names.
       - The project's instructions for how code is written and checked.
@@ -81,6 +82,7 @@ roles:
       - Run the checks of the project.
       - Push its commits to the branch of the issue.
       - Open the change for review.
+      - Post its questions on the issue, one comment each.
     may_not_also_hold: [breakdown, tester, review, fix, officer]
     prompt: roles/build.md
 
@@ -88,7 +90,7 @@ roles:
     step: Judge the change clause by clause, from outside, and report.
     produces: Numbered findings, each must or note, with for each clause the test that would fail if it were not met.
     reads:
-      - The issue and the rows of its requirements.
+      - The issue with its comments, the answers of a person among them, and the rows of its requirements.
       - The diff of the change first, then its description and commit messages as claims to check.
       - The result of its checks.
       - The files the issue names, and the tests among them with their helpers, the tester's tests too.
@@ -97,6 +99,7 @@ roles:
     may:
       - Break the code in a scratch copy it never commits, to see a test fail on its own.
       - Post its findings on the change.
+      - Post its questions on the issue, one comment each.
     may_not_also_hold: [breakdown, tester, build, fix, officer]
     prompt: roles/review.md
 
@@ -104,7 +107,7 @@ roles:
     step: Answer each must finding with a fix or a reason.
     produces: One answer for each must finding, and a commit for each fix that names the finding and the round.
     reads:
-      - The issue and the rows of its requirements.
+      - The issue with its comments, the answers of a person among them, and the rows of its requirements.
       - The findings of the round and the diff of the change.
       - The files the issue names, and the files and tests the findings name, with the helpers of those tests.
     may:
@@ -112,6 +115,7 @@ roles:
       - Push its fixes to the branch of the issue.
       - Add a test beside a weak one, written first.
       - Post its answers on the change.
+      - Post its questions on the issue, one comment each.
     may_not_also_hold: [breakdown, tester, build, review, officer]
     prompt: roles/fix.md
 

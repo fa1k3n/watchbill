@@ -47,10 +47,18 @@ pub fn folder() -> Folder {
     folder_named("brake-controller")
 }
 
+/// A state folder that cannot be made, below a file that is not a folder: a test that runs the program
+/// writes no lines of a start (#124) in the real home folder. A test of those lines gives its own.
+pub const NO_STATE: &str = "/dev/null/wb-test-state";
+
 /// The environment of the tests. A hook of git hands its children GIT_DIR and the like. With them,
 /// the `git init` of a test would act on the repository the tests are run from, so they never reach a child.
+/// `XDG_STATE_HOME` is `NO_STATE`.
 pub fn env() -> Vec<(String, String)> {
-    std::env::vars().filter(|(name, _)| !name.starts_with("GIT_")).collect()
+    let mut vars: Vec<(String, String)> =
+        std::env::vars().filter(|(name, _)| !name.starts_with("GIT_") && name != "XDG_STATE_HOME").collect();
+    vars.push(("XDG_STATE_HOME".to_string(), NO_STATE.to_string()));
+    vars
 }
 
 pub fn git(folder: &Path, args: &[&str]) {
@@ -179,12 +187,20 @@ pub fn prompt_with(folder: &Path, organisation: &Path, args: &[&str]) -> Output 
 
 /// Runs `wb <role>` in the test process, through `watchbill::start`, with the organisation's file at
 /// `organisation` (#93) and `terminal` as the answer to whether standard input and output are a terminal
-/// (#84). `args` are the role and the words after it. The result is as the program gives it.
+/// (#84). `args` are the role and the words after it. The result is as the program gives it. The lines of
+/// the start (#124) are written in a state folder of the call's own, removed after it.
 pub fn start_with(folder: &Path, organisation: &Path, terminal: bool, args: &[&str]) -> Output {
+    let state = folder_named("state");
+    start_in(folder, organisation, terminal, Some(&state.path), args)
+}
+
+/// Runs `wb <role>` as `start_with` does, with `state` the state folder the lines of the start are written
+/// below (#124), or none.
+pub fn start_in(folder: &Path, organisation: &Path, terminal: bool, state: Option<&Path>, args: &[&str]) -> Output {
     use std::os::unix::process::ExitStatusExt;
     let args: Vec<std::ffi::OsString> = args.iter().map(std::ffi::OsString::from).collect();
     let (mut out, mut err) = (Vec::new(), Vec::new());
-    let status = watchbill::start(&args, folder, organisation, terminal, &mut out, &mut err);
+    let status = watchbill::start(&args, folder, organisation, terminal, state, &mut out, &mut err);
     Output { status: std::process::ExitStatus::from_raw(status << 8), stdout: out, stderr: err }
 }
 

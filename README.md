@@ -508,6 +508,20 @@ Questions open:
 - **The exit status:** 0 when every issue could be read; 1 when a pattern failed for an issue (it is listed last, under `Not read`, with why; the others are printed), or `open_issues` itself failed; 2 when it was used wrongly or Watchbill is not set up.
 - **It is not a dashboard** ([Not goals](#not-goals)): a list in the terminal, of now, for one repository. The sessions that run on this machine are for #140.
 
+## Taking a step back
+
+`wb revert <issue> <role>` takes an issue back to before a step, for example to run review round 1 again. It deletes nothing at the tracker: it posts one marker, and from then on `wb` reads the issue as if that step and every step after it had not been done. Deleting comments would rewrite the history that an assessor reads, and the questions and answers in it are what a person decided.
+
+- **The marker** is one comment whose first line is `[revert] <role> round <n>`. `wb revert` finds the last `[stamp] <role> round <n>` on the issue, says on standard error what it will post, and posts it through `issue_comment` of `watchbill.yml`. `--round <n>` names an earlier round of that role; it is a whole number from 1.
+- **What it means:** the stamp it names, and every `[stamp]`, `[question]` and `[answer]` after it up to the marker, no longer count, whatever their role. Reverting review round 1 after fix round 1 takes the fix back too, since the fix answered that review. A stamp before it counts as before, so the next review after `wb revert 174 review` is round 1 again if it was the first.
+- **Who reads it:** the round that `wb <role>` and `wb prompt` work out ([the round and the change](#the-round-and-the-change)), the check that a fix follows a review, and the step and the open questions of `wb status`. A marker is read only from the first line of a comment, as a stamp is, so a marker quoted in a comment's text counts for nothing, and so does one with no such stamp before it.
+- **A change with no issue:** `wb revert --change <n> <role>` posts the marker on the change, through `change_comment`, and reads the stamps from `change_comments`.
+- **What it does not touch:** the branch, the issue's file and its acceptance, and the change. The commits of the steps taken back stay on the branch, and taking them back is git's; `wb revert` says so on standard error.
+- **The breakdown** is not taken back by a marker. The issue's file and its acceptance are files of the repository, and git takes them back. `wb revert <issue> breakdown` is refused with 1, and says so.
+- **Refused with 1:** a role with no stamp on the issue that still counts (naming the role), a missing `issue_comments` or `issue_comment` (or the change's), a pattern that ends with anything but 0.
+- **The exit status:** 0 when the marker is posted; 1 when it was refused or the posting failed; 2 when it was used wrongly (no issue or role, a role the revision does not have, an option that is not known, `--round` that is not a whole number from 1, an issue and `--change` together) or Watchbill is not set up.
+- **Not yet:** who may revert once the roles have accounts (#83). Until then any person who can post a comment can.
+
 ## Taking it on one role at a time
 
 A team takes Watchbill on one role at a time (#116). A person can start any role alone, with no step before it: no breakdown, no issue's file, and for a review or a fix, no issue.

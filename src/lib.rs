@@ -13,6 +13,7 @@ pub mod init;
 pub mod interrupt;
 pub mod manifest;
 pub mod prompt;
+pub mod revert;
 pub mod rules;
 pub mod issue;
 pub mod sessions;
@@ -40,6 +41,8 @@ pub const USAGE: &str = "usage:
   wb revision
   wb accept <issue>
   wb status [<issue>] [--stage <heading>]
+  wb revert <issue> <role> [--round <n>]
+  wb revert --change <n> <role> [--round <n>]
   wb --version
 
   init      set Watchbill up in the git repository of this folder: propose what
@@ -110,6 +113,18 @@ pub const USAGE: &str = "usage:
             read, 1 when a pattern failed for one (it is listed under Not
             read), 2 when it was used wrongly or the repository is not set up.
             Writes nothing
+  revert    take an issue back to before a step, deleting nothing:
+            wb revert <issue> <role> [--round <n>] posts, by issue_comment of
+            watchbill.yml, one comment whose first line is
+            [revert] <role> round <n>, for the last stamp of the role, or round
+            <n>. From that stamp up to the marker no stamp, question or answer
+            counts, for wb <role>, wb prompt and wb status. wb revert --change
+            <n> <role> posts it on a change with no issue, by change_comment.
+            The branch, the issue's file and its acceptance, and the change are
+            not touched: taking commits back is git's. The breakdown is taken
+            back with git, not by a marker. Ends with 0 when the marker is
+            posted, 1 when it was refused or the posting failed, 2 when it was
+            used wrongly or the repository is not set up
 ";
 
 /// Runs a command so that a fault in `wb` itself is not shown as a panic: the hook prints nothing,
@@ -208,7 +223,7 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
             "version".to_string()
         }
         Ok(Some(Word::Value(value))) => match value.to_str() {
-            Some(name @ ("help" | "init" | "check" | "prompt" | "revision" | "accept" | "status")) => name.to_string(),
+            Some(name @ ("help" | "init" | "check" | "prompt" | "revision" | "accept" | "status" | "revert")) => name.to_string(),
             Some(name) if STARTED.contains(&name) => name.to_string(),
             _ => {
                 let _ = write!(err, "wb: no command '{}'\n\n{}", word(value.as_bytes()), USAGE);
@@ -235,6 +250,7 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
         "prompt" => run_prompt(&mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), out, err),
         "accept" => run_accept(&mut parser, out, err),
         "status" => run_status(&mut parser, out, err),
+        "revert" => run_revert(&mut parser, err),
         role if STARTED.contains(&role) => {
             use std::io::IsTerminal;
             let terminal = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
@@ -1056,6 +1072,81 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
             2
         }
         Ok(Some(root)) => status::status(&root, issue.as_deref(), stage, out, err),
+    }
+}
+
+/// `wb revert <issue> <role> [--round <n>]` and `wb revert --change <n> <role> [--round <n>]` (#142).
+fn run_revert(parser: &mut Parser, err: &mut dyn Write) -> i32 {
+    let used = |err: &mut dyn Write, why: String| {
+        let _ = write!(err, "wb revert: {}\n\n{}", why, USAGE);
+        2
+    };
+    let mut values: Vec<String> = Vec::new();
+    let mut change: Option<String> = None;
+    let mut round: Option<u64> = None;
+    loop {
+        let found = match next(parser) {
+            Ok(None) => break,
+            Ok(Some(found)) => found,
+            Err(refused) => return used(err, format!("'{}' is not known", refused)),
+        };
+        match found {
+            Word::Value(value) if values.len() < 2 => values.push(word(value.as_bytes())),
+            Word::Long(option) if option == "change" && change.is_none() => match parser.value() {
+                Ok(value) => change = Some(word(value.as_bytes())),
+                Err(_) => return used(err, "'--change' needs a change".to_string()),
+            },
+            Word::Long(option) if option == "round" && round.is_none() => {
+                let Ok(value) = parser.value() else {
+                    return used(err, "'--round' needs a round".to_string());
+                };
+                let given = word(value.as_bytes());
+                match given.parse::<u64>() {
+                    Ok(n) if n >= 1 && given.chars().all(|c| c.is_ascii_digit()) => round = Some(n),
+                    _ => return used(err, format!("the value of '--round' is a whole number from 1, not '{}'", given.escape_debug())),
+                }
+            }
+            found => {
+                let refused = named(found, parser);
+                return used(err, format!("'{}' is not known", refused));
+            }
+        }
+    }
+    let (issue, role) = match (&change, values.as_slice()) {
+        (Some(_), [role]) => (None, role.clone()),
+        (Some(_), _) => return used(err, "a change is reverted with a role and no issue".to_string()),
+        (None, [issue, role]) => (Some(issue.clone()), role.clone()),
+        (None, _) => return used(err, "an issue and a role are needed, or --change and a role".to_string()),
+    };
+    if !STARTED.contains(&role.as_str()) {
+        return used(err, format!("'{}' is not a role of the revision: {}", role.escape_debug(), STARTED.join(", ")));
+    }
+    if let Some(issue) = &issue {
+        if !issue::is_name(issue) {
+            return used(err, format!("'{}' is not an issue: an issue is letters, digits, '.', '_' and '-', and does not start with '.'", issue.escape_debug()));
+        }
+    }
+    let on = match (&issue, &change) {
+        (Some(issue), _) => revert::On::Issue(issue),
+        (None, Some(change)) => revert::On::Change(change),
+        (None, None) => return used(err, "an issue and a role are needed, or --change and a role".to_string()),
+    };
+    match init::repository_root(None) {
+        Err(why) => {
+            let _ = writeln!(err, "wb revert: {}.", why);
+            2
+        }
+        Ok(None) => {
+            let _ = writeln!(err, "wb revert: this folder is not in a git repository. Watchbill is set up in one.");
+            2
+        }
+        Ok(Some(root)) => {
+            if !Path::new(&root).join(init::CONFIG_FOLDER).join(init::CONFIG_FILE).is_file() {
+                let _ = writeln!(err, "wb revert: .watchbill/watchbill.yml is not there. Watchbill is not set up in this repository.");
+                return 2;
+            }
+            revert::revert(&root, on, &role, round, err)
+        }
     }
 }
 

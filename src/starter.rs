@@ -94,17 +94,39 @@ pub fn read_stamps(root: &str, key: &str, line: &str, on: &str) -> Result<Stamps
     Ok(Stamps { on: on.to_string(), key: key.to_string(), found })
 }
 
-/// The stamps in the first lines of comments, one to a line: the role and the round of each `[stamp] <role> round <n>`.
-pub fn stamps_in(text: &str) -> Vec<(String, u64)> {
-    text.lines()
-        .filter_map(|line| {
-            let rest = line.trim_end_matches('\r').strip_prefix("[stamp] ")?;
-            match rest.split(' ').collect::<Vec<_>>().as_slice() {
-                [role, "round", n] if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) => Some((role.to_string(), n.parse().ok()?)),
-                _ => None,
+/// The role and the round of a line `<start><role> round <n>`, where `start` is `[stamp] ` or `[revert] `.
+fn role_and_round(start: &str, line: &str) -> Option<(String, u64)> {
+    let rest = line.trim_end_matches('\r').strip_prefix(start)?;
+    match rest.split(' ').collect::<Vec<_>>().as_slice() {
+        [role, "round", n] if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) => Some((role.to_string(), n.parse().ok()?)),
+        _ => None,
+    }
+}
+
+/// The first lines of comments that still count (#142), one to a line. A line `[revert] <role> round <n>` takes
+/// back the last `[stamp] <role> round <n>` before it and every line after that stamp, up to the marker: stamps,
+/// questions and answers, whatever their role. The marker goes too. A marker with no such stamp before it counts
+/// for nothing. A marker is read only as the whole of a first line, as a stamp is.
+pub fn counted(text: &str) -> Vec<String> {
+    let mut kept: Vec<String> = Vec::new();
+    for line in text.lines().map(|line| line.trim_end_matches('\r')) {
+        if line.starts_with("[revert] ") {
+            if let Some(marker) = role_and_round("[revert] ", line) {
+                if let Some(at) = kept.iter().rposition(|held| role_and_round("[stamp] ", held) == Some(marker.clone())) {
+                    kept.truncate(at);
+                }
+                continue;
             }
-        })
-        .collect()
+        }
+        kept.push(line.to_string());
+    }
+    kept
+}
+
+/// The stamps in the first lines of comments, one to a line, that still count (`counted`): the role and the
+/// round of each `[stamp] <role> round <n>`.
+pub fn stamps_in(text: &str) -> Vec<(String, u64)> {
+    counted(text).iter().filter_map(|line| role_and_round("[stamp] ", line)).collect()
 }
 
 /// The open changes that `change_of_branch`, filled as `line`, prints: one to a line, empty lines left out.

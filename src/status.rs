@@ -150,6 +150,8 @@ fn read_issue(root: &str, number: &str, title: Option<String>, comments: Option<
         lines = String::from_utf8_lossy(&printed).lines().map(|line| line.trim_end_matches('\r').to_string()).collect();
     }
     let stamps = starter::stamps_in(&lines.join("\n"));
+    // What a `[revert]` marker took back (#142) counts for no step and no question.
+    let counted = starter::counted(&lines.join("\n"));
     let (file, accepted) = on_branches(root, number, pattern, all, &mut from);
     // A new breakdown takes the issue back: only the stamps after the last `[stamp] breakdown` decide the step.
     let since = stamps.iter().rposition(|(name, _)| name == "breakdown").map_or(0, |at| at + 1);
@@ -165,11 +167,11 @@ fn read_issue(root: &str, number: &str, title: Option<String>, comments: Option<
         _ => "Not broken down",
     };
     for line in &lines {
-        if ["[stamp] ", "[question] ", "[answer] "].iter().any(|start| line.starts_with(start)) {
+        if ["[stamp] ", "[question] ", "[answer] ", "[revert] "].iter().any(|start| line.starts_with(start)) {
             from.push(issue::shown(line));
         }
     }
-    let questions = open_questions(number, &lines);
+    let questions = open_questions(number, &counted);
     Ok(Found { number: number.to_string(), title, step, questions, from })
 }
 

@@ -78,6 +78,10 @@ pub fn git(folder: &Path, args: &[&str]) {
 pub fn repository_named(name: impl AsRef<OsStr>, origin: Option<&str>) -> Folder {
     let folder = folder_named(name);
     git(&folder.path, &["init", "-q"]);
+    // A commit may start `git maintenance run --auto` in the background, which makes and removes
+    // `.git/objects/maintenance.lock` while a test compares the files of the repository (#135).
+    git(&folder.path, &["config", "gc.auto", "0"]);
+    git(&folder.path, &["config", "maintenance.auto", "false"]);
     if let Some(origin) = origin {
         git(&folder.path, &["remote", "add", "origin", origin]);
     }

@@ -398,6 +398,119 @@ fn git_value(root: &str, key: &str) -> Result<String, String> {
     Ok(value.to_string())
 }
 
+/// The roles whose lists are checked by `needs` (#125): they build and run the tests from their view. The
+/// review and the fix read the diff, which the view holds.
+const BUILDING: [&str; 2] = ["tester", "build"];
+
+/// The list `build_files` of `watchbill.yml` (#125), or `None` when it has none. Each is a file or a folder from
+/// the root of the repository, not `/` at its start, with no `..`, and not the root.
+fn build_files_of(settings: &Document) -> Result<Option<Vec<String>>, String> {
+    let place = [Part::from("build_files")];
+    if !settings.has(&place) {
+        return Ok(None);
+    }
+    let paths = settings.texts(&place, true).map_err(fault)?;
+    for (index, path) in paths.iter().enumerate() {
+        let parts = crate::starter::parts(path);
+        if path.starts_with('/') || parts.is_empty() || parts.contains(&"..") {
+            let at = [Part::from("build_files"), Part::Index(index)];
+            let why = "a path of `build_files` is a file or a folder from the root of the repository, not `/` at its start, with no `..`, and not the root";
+            return Err(settings.fail(&at, why, false).to_string());
+        }
+    }
+    Ok(Some(paths))
+}
+
+/// The pattern `needs` of `watchbill.yml` (#125), or `None` when it has none.
+fn needs_of(settings: &Document) -> Result<Option<String>, String> {
+    let place = [Part::from("needs")];
+    if !settings.has(&place) {
+        return Ok(None);
+    }
+    settings.text(&place).map(Some).map_err(fault)
+}
+
+/// Each path of `changes` that is a file of the build, with the path of `build_files` it meets: it is one,
+/// lies under one, or is a folder that holds one.
+fn build_hits<'a>(changes: &'a [String], build_files: &'a [String]) -> Vec<(&'a str, &'a str)> {
+    changes
+        .iter()
+        .filter_map(|path| build_files.iter().find(|build| crate::starter::meet(path, build)).map(|build| (path.as_str(), build.as_str())))
+        .collect()
+}
+
+/// A path as `/bin/sh` reads one word: in single quotes, and a quote in it written `'\''`.
+fn quoted(path: &str) -> String {
+    format!("'{}'", path.replace('\'', "'\\''"))
+}
+
+/// A path that `needs` printed, as its parts from the root: `.` and empty parts left out, and `..` taken back
+/// with the part before it, as `cc -MM` prints `src/../include/brake.h`. `None` for a path that is not below
+/// the root: one that starts with `/`, or goes above the root.
+fn worked_out(path: &str) -> Option<Vec<&str>> {
+    if path.starts_with('/') {
+        return None;
+    }
+    let mut found: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                found.pop()?;
+            }
+            _ => found.push(part),
+        }
+    }
+    (!found.is_empty()).then_some(found)
+}
+
+/// What the check of `needs` found: how many files it was run for, and each path printed that is not in the
+/// view of a role that sees the file, as the role, the file and the path.
+struct Needs {
+    run: usize,
+    missing: Vec<(&'static str, String, String)>,
+}
+
+/// Runs `needs`, filled with each path of `changes` and of the tester's and the build's `reads`, in the root of
+/// the checkout (#125). A path it prints is in the view of a role when it is a path of `changes` or of that
+/// role's `reads`, or lies under one. A command that ends with anything but 0 is refused with the file named.
+fn check_needs(root: &str, pattern: &str, issue: &Issue) -> Result<Needs, String> {
+    let reads_of = |role: &str| issue.reads.iter().find(|(name, _)| name == role).map(|(_, list)| list.as_slice()).unwrap_or(&[]);
+    let mut files: Vec<&String> = Vec::new();
+    for path in issue.changes.iter().chain(BUILDING.iter().flat_map(|role| reads_of(role))) {
+        if !files.contains(&path) {
+            files.push(path);
+        }
+    }
+    let mut missing: Vec<(&'static str, String, String)> = Vec::new();
+    for file in &files {
+        let line = pattern.replace("{file}", &quoted(file));
+        let printed = crate::starter::run(root, "needs", &line, None).map_err(|why| format!("{} for {}", why, shown(file)))?;
+        let printed = String::from_utf8_lossy(&printed);
+        for path in printed.lines().map(str::trim).filter(|line| !line.is_empty()) {
+            for role in BUILDING {
+                let list = reads_of(role);
+                if !issue.changes.contains(file) && !list.contains(file) {
+                    continue;
+                }
+                let held = worked_out(path).map_or(false, |path| {
+                    issue.changes.iter().chain(list).any(|entry| {
+                        let entry = crate::starter::parts(entry);
+                        path.len() >= entry.len() && path[..entry.len()] == entry[..]
+                    })
+                });
+                // The path is named as it is from the root, the way it goes in a list.
+                let named = worked_out(path).map_or(path.to_string(), |parts| parts.join("/"));
+                let miss = (role, file.to_string(), named);
+                if !held && !missing.contains(&miss) {
+                    missing.push(miss);
+                }
+            }
+        }
+    }
+    Ok(Needs { run: files.len(), missing })
+}
+
 /// `wb accept <issue>` in the repository at `root`: 0 it is accepted, 1 it is refused, 2 Watchbill is
 /// not set up here. It says what it will write before it writes, and never writes over an acceptance.
 pub fn accept(root: &str, issue: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
@@ -451,6 +564,36 @@ pub fn accept(root: &str, issue: &str, out: &mut dyn Write, err: &mut dyn Write)
         }
         return 1;
     }
+    // `watchbill.yml`, through the one loader, for the files of the build and the pattern `needs` (#125).
+    let from_root = |why: String| why.replace(&format!("{}/", root.trim_end_matches('/')), "").trim_end_matches('.').to_string();
+    let settings = match crate::yamlfile::load(base.join(".watchbill").join("watchbill.yml")) {
+        Ok(document) => document,
+        Err(why) => {
+            let _ = writeln!(err, "wb accept: {}. Nothing written.", from_root(why.to_string()));
+            return 1;
+        }
+    };
+    let (build_files, needs) = match build_files_of(&settings).and_then(|files| needs_of(&settings).map(|needs| (files, needs))) {
+        Ok(both) => both,
+        Err(why) => {
+            let _ = writeln!(err, "wb accept: {}. Nothing written.", from_root(why));
+            return 1;
+        }
+    };
+    if let Some(build_files) = &build_files {
+        let hits = build_hits(&read.changes, build_files);
+        if !hits.is_empty() {
+            let _ = writeln!(
+                err,
+                "wb accept: `changes` of {} holds a file of the build, and a change never changes the build. Nothing written. Take each out of `changes`:",
+                shown
+            );
+            for (path, build) in hits {
+                let _ = writeln!(err, "  - {} (under `build_files` of watchbill.yml: {})", self::shown(path), self::shown(build));
+            }
+            return 1;
+        }
+    }
     let accepted = accepted_of(base, issue);
     let shown_accepted = format!("{}/{}.accepted", FOLDER, issue);
     if fs::symlink_metadata(&accepted).is_ok() {
@@ -473,6 +616,41 @@ pub fn accept(root: &str, issue: &str, out: &mut dyn Write, err: &mut dyn Write)
         }
     };
     let body = format!("sha256: {}\nby: {} <{}>\ntime: {}\n", hash, name, email, crate::prompt::utc(seconds));
+
+    // What each file needs to build is in the view of each role that sees it (#125), by the project's own command.
+    match &needs {
+        None => {
+            let _ = writeln!(out, "wb accept: watchbill.yml has no `needs`, so the lists were not checked for what each file needs to build.");
+        }
+        Some(pattern) => match check_needs(root, pattern, &read) {
+            Err(why) => {
+                let _ = writeln!(err, "wb accept: {}. Nothing written.", why);
+                return 1;
+            }
+            Ok(Needs { run, missing }) if missing.is_empty() => {
+                let files = if run == 1 { "1 file".to_string() } else { format!("{} files", run) };
+                let _ = writeln!(
+                    out,
+                    "wb accept: the lists were checked by `needs` of watchbill.yml, for {}: each file the tester and the build see has what it needs to build.",
+                    files
+                );
+            }
+            Ok(Needs { missing, .. }) => {
+                let _ = writeln!(
+                    err,
+                    "wb accept: the lists of {} leave out files that are needed to build, by `needs` of watchbill.yml. Nothing written. Add each to `changes` or to the role's `reads`:",
+                    shown
+                );
+                for (role, file, path) in missing {
+                    let _ = writeln!(err, "  - {}: {} needs {}", role, self::shown(&file), self::shown(&path));
+                }
+                return 1;
+            }
+        },
+    }
+    if build_files.is_some() {
+        let _ = writeln!(out, "wb accept: no path of `changes` is under `build_files` of watchbill.yml.");
+    }
 
     // The file is the one that was read and held to its form.
     if fs::read(&file).map(|again| crate::manifest::hash_bytes(&again)).ok().as_deref() != Some(hash.as_str()) {

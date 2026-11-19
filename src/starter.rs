@@ -114,7 +114,7 @@ pub fn open_changes(root: &str, line: &str) -> Result<Vec<String>, String> {
 }
 
 /// A path of `classed` or of `changes`, as its parts: `.` and empty parts left out.
-fn parts(path: &str) -> Vec<&str> {
+pub(crate) fn parts(path: &str) -> Vec<&str> {
     path.split('/').filter(|part| !part.is_empty() && *part != ".").collect()
 }
 
@@ -140,7 +140,7 @@ pub fn classed(root: &str) -> Result<Option<Vec<String>>, String> {
 }
 
 /// Whether two paths meet: one is the other, or lies below it.
-fn meet(one: &str, other: &str) -> bool {
+pub(crate) fn meet(one: &str, other: &str) -> bool {
     let (one, other) = (parts(one), parts(other));
     let shorter = one.len().min(other.len());
     one[..shorter] == other[..shorter]

@@ -212,23 +212,36 @@ fn has(root: &Path, path: &str) -> bool {
     root.join(path).exists()
 }
 
-/// The CI drivers, each with the file or folder it is known by. The first that is found is proposed.
-fn ci_of(root: &Path) -> String {
-    let drivers: [(&str, bool); 7] = [
-        (
-            "github-actions",
-            files_in(&root.join(".github").join("workflows"))
-                .iter()
-                .any(|name| name.ends_with(".yml") || name.ends_with(".yaml")),
-        ),
-        ("gitlab-ci", has(root, ".gitlab-ci.yml")),
-        ("jenkins", has(root, "Jenkinsfile")),
-        ("azure-pipelines", has(root, "azure-pipelines.yml")),
-        ("bitbucket-pipelines", has(root, "bitbucket-pipelines.yml")),
-        ("circleci", has(root, ".circleci/config.yml")),
-        ("zuul", has(root, ".zuul.yaml") || has(root, "zuul.d")),
+/// The CI drivers, each with the files or folders it is known by that were found, in the order of the drivers.
+/// A driver none of whose files was found is left out.
+fn drivers(root: &Path) -> Vec<(&'static str, Vec<&'static str>)> {
+    let workflows = files_in(&root.join(".github").join("workflows")).iter().any(|name| name.ends_with(".yml") || name.ends_with(".yaml"));
+    let drivers: [(&str, Vec<(&str, bool)>); 7] = [
+        ("github-actions", vec![(".github/workflows", workflows)]),
+        ("gitlab-ci", vec![(".gitlab-ci.yml", has(root, ".gitlab-ci.yml"))]),
+        ("jenkins", vec![("Jenkinsfile", has(root, "Jenkinsfile"))]),
+        ("azure-pipelines", vec![("azure-pipelines.yml", has(root, "azure-pipelines.yml"))]),
+        ("bitbucket-pipelines", vec![("bitbucket-pipelines.yml", has(root, "bitbucket-pipelines.yml"))]),
+        // The driver is known by its file, and the folder that holds it is its own.
+        ("circleci", vec![(".circleci", has(root, ".circleci/config.yml"))]),
+        ("zuul", vec![(".zuul.yaml", has(root, ".zuul.yaml")), ("zuul.d", has(root, "zuul.d"))]),
     ];
-    drivers.iter().find(|(_, found)| *found).map_or(NONE, |(name, _)| name).to_string()
+    drivers
+        .into_iter()
+        .map(|(name, files)| (name, files.into_iter().filter(|(_, found)| *found).map(|(path, _)| path).collect::<Vec<_>>()))
+        .filter(|(_, found)| !found.is_empty())
+        .collect()
+}
+
+/// The CI driver: the first that is found is proposed.
+fn ci_of(root: &Path) -> String {
+    drivers(root).first().map_or(NONE, |(name, _)| name).to_string()
+}
+
+/// The files and folders of every CI driver found in the repository at `root` (#125), in the order of the
+/// drivers, as paths from its root. `wb init` proposes them as `build_files`.
+pub fn ci_files(root: &Path) -> Vec<String> {
+    drivers(root).into_iter().flat_map(|(_, found)| found).map(str::to_string).collect()
 }
 
 /// Runs `git` with the given words, with standard error thrown away. `None` when it could not be started.

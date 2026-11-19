@@ -28,9 +28,11 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          # The Fedora release is written here and nowhere else.
+          # The Fedora release is written here and nowhere else. It is 44, not the newest, 45:
+          # Fedora 45 packages rust-cpufeatures-devel 0.3.1 without the README.md the crate includes,
+          # so no build there compiles. Take 45 when that is fixed.
           - name: fedora
-            image: registry.fedoraproject.org/fedora:45
+            image: registry.fedoraproject.org/fedora:44
             prepare: dnf install -y git-core tar gzip findutils
           - name: el9
             image: docker.io/library/almalinux:9

@@ -193,8 +193,12 @@ fn test_WB_PKG_20_the_token_can_write_only_in_the_release_job() {
 }
 
 #[test]
-fn test_WB_PKG_17_the_build_uses_the_newest_stable_fedora() {
-    assert!(workflow().contains("registry.fedoraproject.org/fedora:45"), "{}", workflow());
+fn test_WB_PKG_19_the_fedora_release_is_44_while_45_cannot_build_and_the_workflow_says_why() {
+    // Fedora 45 packages rust-cpufeatures-devel 0.3.1 without its README.md, which the crate
+    // includes with include_str!, so the build stops. Change both when that is fixed.
+    let text = workflow();
+    assert!(text.contains("registry.fedoraproject.org/fedora:44"), "{}", text);
+    assert!(text.contains("rust-cpufeatures-devel"), "the reason for 44 is not written");
 }
 
 /// A scratch checkout with the three files the script reads, the version of this package, and the

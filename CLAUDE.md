@@ -1,6 +1,6 @@
 # Working rules
 
-Watchbill: a harness for AI agents in embedded software development, deployed at a fixed revision onto a project that already exists. The command is `wb`. What it is to be is in [README.md](README.md). What a revision is, with each decision behind it, is in [docs/revision.md](docs/revision.md). How a requirement is written is in [requirements/README.md](requirements/README.md).
+Watchbill: a harness for AI agents in embedded software development, deployed at a fixed revision onto a project that already exists. The command is `wb`. What it is for, and its goals, are in [README.md](README.md). What a revision is, with each decision behind it, is in [docs/revision.md](docs/revision.md). How a requirement is written is in [requirements/README.md](requirements/README.md).
 
 ## The repository
 

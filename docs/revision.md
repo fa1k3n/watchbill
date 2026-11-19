@@ -158,7 +158,7 @@ A level that decides where an assignment may run. It is a second axis beside the
 - **With no organisation's file, no AI is allowed.** `wb` hands out no prompt on that machine and names the file it looked for. Nothing is assumed about where work may run, not even this machine with a local model.
 - **The level of an assignment** is the higher of the level of its issue and the level of everything the session can read. A session reads the whole checkout, so until a runner can limit that, the second is the level of the repository.
 - **The program refuses, never a model.** No level given means the most restrictive. A person sets or lowers a level; an agent may only raise one.
-- **What it does not do:** stop a person from pasting code into another tool. The network rules of a runner do that. Watchbill refuses the handover and leaves a record.
+- **What it does not do:** stop a person from pasting code into another tool. The network rules of a runner do that. Watchbill refuses the handover.
 
 ## 12. The stamp
 
@@ -170,6 +170,7 @@ What a session ran as is said by the one who started it, not by the session. Set
 - **Its form:** lines of `name: value` in a fixed order, the same on every machine, with one line for each part of the prompt in the form `sha256sum` prints. A program can read it and `sha256sum` can check its parts.
 - **Where it is kept:** on the issue, one comment per session, whose first line starts with `[stamp] <role> round <n>`. The tester and the build run before there is a change, so the issue is the one place that holds every session. #30 may move it later.
 - **The agent's own word:** `model` and `effort` stay in the last message, as what the session says of itself (#69). Where they differ from the stamp, that is a finding for a person, and the stamp is what counts. `unknown` is written down, not a finding: a session often cannot see its own effort.
+- **What it is not:** a record kept for an assessment. The stamp is working state: the program reads it to know what was handed out. Keeping a record is for the team's own tools or a recorder (the README, "Not goals").
 - **A session with no stamp:** its work is not taken as the work of a role, and nothing is handed on from it. Until a program hands work on (#66, the officer), a person keeps this rule: no stamp on the issue, no next role.
 
 ## 13. The issue's file

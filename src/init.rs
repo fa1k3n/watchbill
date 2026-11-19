@@ -10,7 +10,7 @@ use std::fs;
 use std::io::{self, BufRead, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
-use crate::detect::{detect, strip, universal_newlines, Setup, NONE};
+use crate::detect::{detect, origin_host, strip, universal_newlines, Setup, NONE};
 use crate::interrupt;
 use crate::manifest;
 
@@ -113,11 +113,11 @@ fn classed_answer(answer: &str) -> Result<Vec<String>, &'static str> {
 
 /// The file `wb init` writes, with no classed code.
 pub fn render(revision: &str, hash: &str, setup: &Setup) -> String {
-    render_with(revision, hash, setup, &[])
+    render_with(revision, hash, setup, &[], "")
 }
 
 /// The file `wb init` writes, with the classed paths given as `classed:` after the CI driver (#84).
-pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]) -> String {
+pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String], host: &str) -> String {
     let rows = [
         ("watchbill", revision),
         ("revision", hash),
@@ -169,26 +169,32 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
         text.push_str(&format!("issue_address: {}\n", yaml_value(&address("issue", "issue"))));
         text.push_str(&format!("change_address: {}\n", yaml_value(&address("pr", "change"))));
     }
-    if setup.git_server == "gitlab" && plain {
-        // The same patterns for GitLab (#123), with `glab`. `glab api` has no `--jq`, so the comments are
-        // filtered by `jq`, which keeps the notes a person or an account wrote and no system note. The
-        // project is in the path of the API as its repository with `/` written `%2F`.
+    if setup.git_server == "gitlab" && plain && !host.is_empty() {
+        // The same patterns for GitLab (#123, #55), with `glab`. They name the host of `origin`: without it
+        // `glab` asks gitlab.com. The comments are posted and read through `glab api`, which reads a whole
+        // text from standard input (`-F body=@-`); `glab issue note` would prompt. `glab api` has no `--jq`,
+        // so the comments are filtered by `jq`, which keeps the notes a person or an account wrote and no
+        // system note. The project is in the path of the API as its repository with `/` written `%2F`.
         let repository = &setup.repository;
-        let project = repository.replace('/', "%2F");
+        let api = format!("glab api --hostname {}", host);
+        let project = format!("projects/{}", repository.replace('/', "%2F"));
+        let url = format!("https://{}/{}", host, repository);
+        let notes = |kind: &str, word: &str| format!("{}/{}/{{{}}}/notes", project, kind, word);
         let first_lines = |kind: &str, word: &str| {
             format!(
-                "glab api projects/{}/{}/{{{}}}/notes --paginate --output ndjson | jq -r 'select(.system == false) | .body | split(\"\\n\")[0]'",
-                project, kind, word
+                "{} {} --paginate --output ndjson | jq -r 'select(.system == false) | .body | split(\"\\n\")[0]'",
+                api,
+                notes(kind, word)
             )
         };
         let patterns = [
-            ("issue_comment", format!("glab issue note {{issue}} --repo {}", repository)),
+            ("issue_comment", format!("{} --method POST {} -F body=@-", api, notes("issues", "issue"))),
             ("issue_comments", first_lines("issues", "issue")),
-            ("change_comment", format!("glab mr note {{change}} --repo {}", repository)),
+            ("change_comment", format!("{} --method POST {} -F body=@-", api, notes("merge_requests", "change"))),
             ("change_comments", first_lines("merge_requests", "change")),
-            ("change_of_branch", format!("glab mr list --repo {} --source-branch {{branch}} -F json --jq '.[].iid'", repository)),
-            ("issue_address", format!("glab issue view {{issue}} --repo {} --comments", repository)),
-            ("change_address", format!("glab mr view {{change}} --repo {} --comments", repository)),
+            ("change_of_branch", format!("glab mr list --repo {} --source-branch {{branch}} -F json --jq '.[].iid'", url)),
+            ("issue_address", format!("glab issue view {{issue}} --repo {} --comments", url)),
+            ("change_address", format!("glab mr view {{change}} --repo {} --comments", url)),
         ];
         for (key, line) in patterns {
             text.push_str(&format!("{}: {}\n", key, yaml_value(&line)));
@@ -404,6 +410,7 @@ pub fn init(
             return 1;
         }
     };
+    let host = origin_host(root, env);
     let mut classed = Vec::new();
     if !yes {
         talk.say(&format!("This sets Watchbill {} up in {}.", revision, root));
@@ -426,7 +433,7 @@ pub fn init(
         };
     }
 
-    let text = render_with(revision, &pin.hash, &setup, &classed);
+    let text = render_with(revision, &pin.hash, &setup, &classed, &host);
     talk.say(&format!("\nAbout to write {}:\n\n{}", file, text));
     talk.say("and these files: those of the revision, byte for byte as the package has them, and the README of the project's own text:\n");
     for path in &targets[..targets.len() - 1] {

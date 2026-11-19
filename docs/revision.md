@@ -234,5 +234,6 @@ The pieces that build this have their requirements reserved as Draft rows in `re
 | `WB-MON` | `requirements/mon.md` | #124, #126, #127 |
 | `WB-VIEW` | `requirements/view.md` | #126 |
 | `WB-STATUS` | `requirements/status.md` | #139 |
+| `WB-REVERT` | `requirements/revert.md` | #142 |
 
 The move to Rust builds no new area. #21 to #25 port what #2 and #4 to #6 built, row by row, and their new rows are reserved in `requirements/pkg.md`, `init.md`, `rule.md` and `rev.md`.

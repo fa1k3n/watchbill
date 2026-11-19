@@ -98,7 +98,8 @@ fn snapshot(folder: &Path) -> Vec<(String, Vec<u8>)> {
             if path.is_dir() {
                 walk(base, &path, found);
             } else {
-                found.push((path.strip_prefix(base).unwrap().to_str().unwrap().to_string(), fs::read(&path).unwrap()));
+                let bytes = fs::read(&path).unwrap_or_else(|error| panic!("{} could not be read: {}", path.display(), error));
+                found.push((path.strip_prefix(base).unwrap().to_str().unwrap().to_string(), bytes));
             }
         }
     }
@@ -109,6 +110,7 @@ fn snapshot(folder: &Path) -> Vec<(String, Vec<u8>)> {
 }
 
 /// Fails, naming each path that was added, removed or changed between two snapshots, and how.
+#[track_caller]
 fn assert_same_snapshot(before: &[(String, Vec<u8>)], after: &[(String, Vec<u8>)], context: &str) {
     let mut differences = Vec::new();
     for (path, bytes) in before {
@@ -1224,12 +1226,12 @@ fn test_WB_PROMPT_39_plain_values_are_filled_and_a_value_that_fills_no_pattern_i
 fn test_WB_PROMPT_17_a_run_that_derives_writes_nothing_under_the_repository() {
     let folder = set_up_github();
     branches(&folder.path, &["issue-54-serve"]);
-    let before = snapshot(&folder.path.join(".watchbill"));
+    let before = snapshot(&folder.path);
 
     let run = wb(&folder.path, &["prompt", "review", "54", "--change", "168", "--round", "1"], "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert_same_snapshot(&before, &snapshot(&folder.path.join(".watchbill")), "a run that derives");
+    assert_same_snapshot(&before, &snapshot(&folder.path), "a run that derives");
 }
 
 #[test]

@@ -24,6 +24,7 @@ const USAGE: &str = "usage:
   wb fix [<issue>] [--runner <name>] [--prompt] [the options of prompt]
   wb revision
   wb accept <issue>
+  wb status [<issue>] [--stage <heading>]
   wb --version
 
   init      set Watchbill up in the git repository of this folder: propose what
@@ -83,6 +84,17 @@ const USAGE: &str = "usage:
             time in UTC. An acceptance that is there is never written over.
             Ends with 0 when it is accepted, 1 when it is refused, 2 when it
             was used wrongly or the repository is not set up
+  status    list the issues in the flow under headings, as git status lists
+            files: each issue under the last step it has done (Not broken
+            down, Broken down, Accepted, Tested, Built, Reviewed, Fixed), with
+            its title, and last the issues that have a question no person has
+            answered. The open issues come from open_issues of watchbill.yml,
+            the comments from issue_comments. <issue> prints that issue and
+            what it was worked out from; --stage <heading> prints that heading
+            only, whatever its case. Ends with 0 when every issue could be
+            read, 1 when a pattern failed for one (it is listed under Not
+            read), 2 when it was used wrongly or the repository is not set up.
+            Writes nothing
 ";
 
 fn root() -> &'static Path {

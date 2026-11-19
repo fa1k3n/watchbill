@@ -60,7 +60,7 @@ pub fn is_name(issue: &str) -> bool {
 
 /// Text of the file as `wb` shows what it did not make: a control character is written escaped, so
 /// that one line stays one line.
-fn shown(text: &str) -> String {
+pub fn shown(text: &str) -> String {
     text.chars().map(|c| if c.is_control() { c.escape_default().to_string() } else { c.to_string() }).collect()
 }
 

@@ -157,6 +157,11 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
             ("change_comment", format!("gh pr comment {{change}} --repo {} --body-file -", repository)),
             ("change_comments", first_lines("change")),
             ("change_of_branch", format!("gh pr list --repo {} --head {{branch}} --state open --json number --jq '.[].number'", repository)),
+            // The open issues, for `wb status` (#139): the number, a tab and the title, one issue to a line.
+            (
+                "open_issues",
+                format!("gh issue list --repo {} --state open --limit 1000 --json number,title --jq '.[] | \"\\(.number)\\t\\(.title)\"'", repository),
+            ),
         ];
         for (key, line) in patterns {
             text.push_str(&format!("{}: {}\n", key, yaml_value(&line)));
@@ -193,6 +198,15 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
             ("change_comment", format!("{} --method POST {} -F body=@-", api, notes("merge_requests", "change"))),
             ("change_comments", first_lines("merge_requests", "change")),
             ("change_of_branch", format!("glab mr list --repo {} --source-branch {{branch}} -F json --jq '.[].iid'", url)),
+            // The open issues, for `wb status` (#139): `glab api` pages them as the comments are paged, and `jq` prints
+            // the number, a tab and the title. The query is quoted: it holds `&`.
+            (
+                "open_issues",
+                format!(
+                    "{} '{}/issues?state=opened&per_page=100' --paginate --output ndjson | jq -r '\"\\(.iid)\\t\\(.title)\"'",
+                    api, project
+                ),
+            ),
             ("issue_address", format!("glab issue view {{issue}} --repo {} --comments", url)),
             ("change_address", format!("glab mr view {{change}} --repo {} --comments", url)),
         ];

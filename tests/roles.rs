@@ -926,3 +926,41 @@ fn test_WB_ROLE_67_where_the_address_shows_no_description_the_review_says_so_as_
     assert!(point.contains("Where {change_address} shows no description of the change, say so as a finding"), "{}", point);
     assert!(point.contains("do not judge the change as if it had none"), "{}", point);
 }
+
+// A role started alone (#116).
+
+/// The point of "## What you read" that starts with `lead`, or a failure that names the role.
+fn read_point(role: &str, lead: &str) -> String {
+    let body = part(role, "## What you read");
+    let point = body.split('\n').find(|line| line.starts_with(lead)).map(String::from);
+    point.unwrap_or_else(|| panic!("{}: no point that starts with {}", role, lead))
+}
+
+#[test]
+fn test_WB_ROLE_75_the_review_and_the_fix_say_that_with_no_issue_the_change_s_description_is_the_spec() {
+    for role in ["review", "fix"] {
+        let point = read_point(role, "- Where the issue is none,");
+        assert!(point.contains("the change was made with no issue, and its description, at {change_address}, is the spec"), "{}: {}", role, point);
+        assert!(point.contains("read it wherever this prompt says the issue"), "{}: {}", role, point);
+        assert!(point.contains("Your stamp, where it is given, is on the change."), "{}: {}", role, point);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_75_the_review_says_an_empty_description_in_a_finding_and_the_fix_under_seen() {
+    let review = read_point("review", "- Where the issue is none,");
+    assert!(review.contains("Where the description is empty, there is no spec: say so as a finding"), "{}", review);
+    let fix = read_point("fix", "- Where the issue is none,");
+    assert!(fix.contains("Where the description is empty, there is no spec: say so under `seen`"), "{}", fix);
+    let seen = part("fix", "## How you end");
+    assert!(seen.contains("- `seen`:"), "{}", seen);
+}
+
+#[test]
+fn test_WB_ROLE_79_the_tester_and_the_build_say_that_with_no_file_they_work_from_the_issue_s_numbered_items() {
+    for role in ["tester", "build"] {
+        let point = read_point(role, "- Where no part of the issue's file follows this text,");
+        assert!(point.contains("the issue has no file"), "{}: {}", role, point);
+        assert!(point.contains("you work from the issue's own numbered items: they are the requirements"), "{}: {}", role, point);
+    }
+}

@@ -752,20 +752,20 @@ fn test_WB_INIT_49_a_gitlab_origin_gets_the_glab_commands_with_the_repository_fi
     let folder = repository(Some("https://gitlab.example.com/brakes/controller.git"));
     let run = wb(&folder.path, &["init", "--yes"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    let notes = |what: &str, word: &str| {
-        format!(
-            "glab api projects/brakes%2Fcontroller/{}/{{{}}}/notes --paginate --output ndjson | jq -r 'select(.system == false) | .body | split(\"\\n\")[0]'",
-            what, word
-        )
-    };
+    let api = "glab api --hostname gitlab.example.com";
+    let filter = "jq -r 'select(.system == false) | .body | split(\"\\n\")[0]'";
     let expected = [
-        ("issue_address", "glab issue view {issue} --repo brakes/controller --comments".to_string()),
-        ("change_address", "glab mr view {change} --repo brakes/controller --comments".to_string()),
-        ("issue_comment", "glab issue note {issue} --repo brakes/controller".to_string()),
-        ("change_comment", "glab mr note {change} --repo brakes/controller".to_string()),
-        ("issue_comments", notes("issues", "issue")),
-        ("change_comments", notes("merge_requests", "change")),
-        ("change_of_branch", "glab mr list --repo brakes/controller --source-branch {branch} -F json --jq '.[].iid'".to_string()),
+        ("issue_address", "glab issue view {issue} --repo https://gitlab.example.com/brakes/controller --comments".to_string()),
+        ("change_address", "glab mr view {change} --repo https://gitlab.example.com/brakes/controller --comments".to_string()),
+        ("issue_comment", format!("{} --method POST projects/brakes%2Fcontroller/issues/{{issue}}/notes -F body=@-", api)),
+        ("change_comment", format!("{} --method POST projects/brakes%2Fcontroller/merge_requests/{{change}}/notes -F body=@-", api)),
+        ("issue_comments", format!("{} projects/brakes%2Fcontroller/issues/{{issue}}/notes --paginate --output ndjson | {}", api, filter)),
+        ("change_comments", format!("{} projects/brakes%2Fcontroller/merge_requests/{{change}}/notes --paginate --output ndjson | {}", api, filter)),
+        (
+            "change_of_branch",
+            "glab mr list --repo https://gitlab.example.com/brakes/controller --source-branch {branch} -F json --jq '.[].iid'".to_string(),
+        ),
+        ("branch", "issue-{issue}".to_string()),
     ];
     for (key, line) in expected {
         assert_eq!(pattern(&folder.path, key).as_deref(), Some(line.as_str()), "{}", key);
@@ -788,10 +788,23 @@ fn test_WB_INIT_49_a_gitlab_origin_in_a_group_is_encoded_and_one_that_is_not_pla
 }
 
 #[test]
-fn test_WB_INIT_49_the_github_patterns_are_as_before_for_a_github_origin_only() {
-    let folder = repository(Some("https://git.example.org/brakes/controller.git"));
+fn test_WB_INIT_55_a_gitlab_origin_keeps_its_host_and_drops_the_user_and_the_token() {
+    let folder = repository(Some("https://oauth2:secret-token@gitlab.team.example/brakes/controller.git"));
+    let run = wb(&folder.path, &["init", "--yes"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let file = read(&config(&folder.path));
+    assert!(file.contains("--hostname gitlab.team.example "), "{}", file);
+    assert!(file.contains("--repo https://gitlab.team.example/brakes/controller "), "{}", file);
+    assert!(!file.contains("secret-token") && !file.contains("oauth2"), "{}", file);
+}
+
+#[test]
+fn test_WB_INIT_55_a_gitlab_origin_with_a_port_gets_none_of_the_commands() {
+    let folder = repository(Some("https://gitlab.example.com:8443/brakes/controller.git"));
     assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
-    assert_eq!(pattern(&folder.path, "issue_comment"), None);
+    for key in ["issue_address", "issue_comment", "issue_comments", "change_of_branch"] {
+        assert_eq!(pattern(&folder.path, key), None, "{}", key);
+    }
 }
 
 /// None of the patterns is written for another server, for none, or for a repository that is not plain.

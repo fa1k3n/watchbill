@@ -169,15 +169,123 @@ fn test_WB_PKG_20_the_release_is_never_written_over_and_its_text_is_the_message_
     assert!(release.contains("gh release view"), "{}", release);
     assert!(release.contains("already"), "{}", release);
     assert!(release.contains("--notes-file"), "{}", release);
-    assert!(release.contains("%(contents)"), "{}", release);
+    assert!(release.contains("%(contents:subject)") && release.contains("%(contents:body)"), "{}", release);
+    assert!(!release.contains("%(contents)"), "a signed tag would put its signature into the notes");
     assert!(release.contains("GH_TOKEN: ${{ github.token }}"), "{}", release);
 }
 
 #[test]
-fn test_WB_PKG_20_the_workflow_asks_for_contents_write_and_nothing_more() {
+fn test_WB_PKG_20_the_token_can_write_only_in_the_release_job() {
     let text = lines().join("\n");
-    assert_eq!(text.matches("permissions:").count(), 1, "one permissions block");
-    let after = text.split("permissions:").nth(1).unwrap();
-    let block: Vec<&str> = after.lines().skip(1).take_while(|l| l.starts_with("  ")).collect();
-    assert_eq!(block, vec!["  contents: write"], "{:?}", block);
+    let top = text.split("\njobs:").next().unwrap();
+    assert!(top.contains("permissions:\n  contents: read\n"), "{}", top);
+    assert!(!top.contains("write"), "{}", top);
+    assert_eq!(text.matches("contents: write").count(), 1, "contents: write once");
+    assert!(job("release").contains("permissions:\n      contents: write"), "{}", job("release"));
+    assert!(!job("check").contains("write") && !job("build").contains("write"));
+    for name in ["check", "build"] {
+        let j = job(name);
+        let checkouts = j.matches("actions/checkout@").count();
+        assert_eq!(checkouts, 1, "{}", name);
+        assert!(j.contains("persist-credentials: false"), "the token stays in .git/config of {}", name);
+    }
+    assert!(!text.contains("permissions:\n      contents: write\n      "), "more than contents: write");
+}
+
+#[test]
+fn test_WB_PKG_17_the_build_uses_the_newest_stable_fedora() {
+    assert!(workflow().contains("registry.fedoraproject.org/fedora:45"), "{}", workflow());
+}
+
+/// A scratch checkout with the three files the script reads, the version of this package, and the
+/// given line of revisions.txt (none when empty).
+fn scratch(name: &str, line: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("wb-check-tag-{}-{}", name, std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    let share = dir.join("share/watchbill");
+    fs::create_dir_all(&share).unwrap();
+    fs::copy(root().join("Cargo.toml"), dir.join("Cargo.toml")).unwrap();
+    fs::copy(root().join("share/watchbill/revision.sha256"), share.join("revision.sha256")).unwrap();
+    fs::write(share.join("revisions.txt"), line).unwrap();
+    dir
+}
+
+fn hash_of_manifest() -> String {
+    let listed = fs::read_to_string(root().join("share/watchbill/revisions.txt")).unwrap();
+    listed
+        .lines()
+        .find(|l| l.starts_with(&format!("{} ", env!("CARGO_PKG_VERSION"))))
+        .unwrap()
+        .split_whitespace()
+        .nth(1)
+        .unwrap()
+        .to_string()
+}
+
+fn run_in(dir: &PathBuf) -> (Option<i32>, String) {
+    let out = Command::new("sh")
+        .arg(root().join("packaging/check-tag.sh"))
+        .arg(env!("CARGO_PKG_VERSION"))
+        .arg(dir)
+        .output()
+        .unwrap();
+    (out.status.code(), String::from_utf8_lossy(&out.stderr).to_string())
+}
+
+fn git_in(dir: &PathBuf, args: &[&str]) {
+    let out = Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@example.org", "-c", "tag.gpgSign=false", "-c", "commit.gpgSign=false"])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("git could not be run");
+    assert!(out.status.success(), "{:?}: {}", args, String::from_utf8_lossy(&out.stderr));
+}
+
+#[test]
+fn test_WB_PKG_18_the_script_fails_for_the_version_of_cargo_toml_that_has_no_line_in_revisions_txt() {
+    let dir = scratch("noline", &format!("0.0.1  {}\n", "0".repeat(64)));
+    let (code, err) = run_in(&dir);
+    let _ = fs::remove_dir_all(&dir);
+    assert_eq!(code, Some(1), "{}", err);
+    assert!(err.contains("revisions.txt has no line"), "{}", err);
+}
+
+#[test]
+fn test_WB_PKG_18_the_script_refuses_a_tag_that_is_not_annotated() {
+    let dir = scratch("light", &format!("{}  {}\n", env!("CARGO_PKG_VERSION"), hash_of_manifest()));
+    git_in(&dir, &["init", "-q"]);
+    git_in(&dir, &["add", "."]);
+    git_in(&dir, &["commit", "-q", "-m", "x"]);
+    git_in(&dir, &["tag", env!("CARGO_PKG_VERSION")]);
+    let (code, err) = run_in(&dir);
+    let _ = fs::remove_dir_all(&dir);
+    assert_eq!(code, Some(1), "{}", err);
+    assert!(err.contains("not annotated"), "{}", err);
+}
+
+#[test]
+fn test_WB_PKG_18_the_script_refuses_an_annotated_tag_whose_message_lacks_the_hash() {
+    let dir = scratch("nomsg", &format!("{}  {}\n", env!("CARGO_PKG_VERSION"), hash_of_manifest()));
+    git_in(&dir, &["init", "-q"]);
+    git_in(&dir, &["add", "."]);
+    git_in(&dir, &["commit", "-q", "-m", "x"]);
+    git_in(&dir, &["tag", "-a", env!("CARGO_PKG_VERSION"), "-m", "a release"]);
+    let (code, err) = run_in(&dir);
+    let _ = fs::remove_dir_all(&dir);
+    assert_eq!(code, Some(1), "{}", err);
+    assert!(err.contains("message of the tag"), "{}", err);
+}
+
+#[test]
+fn test_WB_PKG_18_the_script_passes_for_an_annotated_tag_whose_message_holds_the_hash() {
+    let dir = scratch("good", &format!("{}  {}\n", env!("CARGO_PKG_VERSION"), hash_of_manifest()));
+    git_in(&dir, &["init", "-q"]);
+    git_in(&dir, &["add", "."]);
+    git_in(&dir, &["commit", "-q", "-m", "x"]);
+    let message = format!("{}\n\nrevision {}", env!("CARGO_PKG_VERSION"), hash_of_manifest());
+    git_in(&dir, &["tag", "-a", env!("CARGO_PKG_VERSION"), "-m", &message]);
+    let (code, err) = run_in(&dir);
+    let _ = fs::remove_dir_all(&dir);
+    assert_eq!(code, Some(0), "{}", err);
 }

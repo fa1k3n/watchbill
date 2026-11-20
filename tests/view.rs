@@ -88,11 +88,11 @@ const BUILD_LIST: &str = "src/brake.c\ntests/test_brake.c\nsrc/new.c\nsrc/brake.
 /// committed in two commits (the second changes `src/secret.c`, so that the history holds an older one), and
 /// the accepted file of issue 54 committed on the branch `issue-54`, which is checked out.
 fn bench() -> Bench {
-    bench_of(ISSUE_54)
+    bench_for(ISSUE_54)
 }
 
-/// The same, with `issue_file` as the accepted file of issue 54.
-fn bench_of(issue_file: &str) -> Bench {
+/// The same, with `issue_54` as the text of the issue's file of 54.
+fn bench_for(issue_54: &str) -> Bench {
     let repo = repository(Some("ssh://example.invalid/brakes/controller.git"));
     let log = folder_named("log");
     let org = folder_named("org");
@@ -143,7 +143,7 @@ fn bench_of(issue_file: &str) -> Bench {
     // Issue 99 has no file: its branch is there for a role started alone.
     git(&repo.path, &["branch", "issue-99"]);
     git(&repo.path, &["checkout", "-q", "-b", "issue-54"]);
-    put(&repo.path, ".watchbill/issues/54.yml", issue_file);
+    put(&repo.path, ".watchbill/issues/54.yml", issue_54);
     let run = wb(&repo.path, &["accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     git(&repo.path, &["add", "--", ".watchbill/issues"]);
@@ -1305,7 +1305,7 @@ fn test_WB_BUILD_31_an_untracked_file_under_a_path_of_changes_is_refused_with_1_
     assert!(err.contains("src/new.c"), "{}", err);
     // Under a folder of `changes`, and not under a folder of `reads`.
     let file = ISSUE_54.replace("changes: [src/brake.c, tests/test_brake.c, src/new.c]", "changes: [src/brake.c, tests]");
-    let bench = bench_of(&file);
+    let bench = bench_for(&file);
     put(&bench.repo.path, "tests/test_new.c", "int main(void) { return 1; }\n");
     put(&bench.repo.path, "include/untracked.h", "#define U 1\n");
     let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54", "--ignore-local"]));
@@ -1386,4 +1386,296 @@ fn test_WB_BUILD_35_a_path_with_a_line_break_is_named_escaped() {
     git(&bench.repo.path, &["add", "--", "include/a\nb.h"]);
     let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54"]));
     assert!(err.contains("include/a\\nb.h") && !err.contains("a\nb.h"), "{}", err);
+}
+
+// ---- #192: a commit is taken only as it was made ----
+
+/// A session that commits, by git's plumbing, a tree made of `HEAD`'s with the folder `parent/<name>` holding
+/// the file `x`: `git add` would not take such a path, and a session need not use it.
+fn plumbed(parent: &str, name: &str, message: &str) -> String {
+    let nested = if parent.is_empty() {
+        format!("root=$(git ls-tree HEAD; printf '040000 tree %s\\t{name}\\n' \"$g\" | cat)\n")
+    } else {
+        format!(
+            "top=$(git ls-tree HEAD:{parent}; printf '040000 tree %s\\t{name}\\n' \"$g\" | cat)\n\
+             t=$(printf '%s\\n' \"$top\" | git mktree)\n\
+             root=$(git ls-tree HEAD | sed '/\\t{parent}$/d'; printf '040000 tree %s\\t{parent}\\n' \"$t\")\n"
+        )
+    };
+    format!(
+        "b=$(echo x | git hash-object -w --stdin)\n\
+         g=$(printf '100644 blob %s\\tx\\n' \"$b\" | git mktree)\n\
+         {nested}\
+         tree=$(printf '%s\\n' \"$root\" | git mktree)\n\
+         c=$(git commit-tree \"$tree\" -p HEAD -m '{message}')\n\
+         git update-ref refs/heads/issue-54 \"$c\"\n"
+    )
+}
+
+#[test]
+fn test_WB_VIEW_33_a_path_under_a_file_entry_of_changes_is_refused_named_and_nothing_is_put_on_the_branch() {
+    if !sandbox("test_WB_VIEW_33") {
+        return;
+    }
+    // `src/new.c` is not in HEAD and does not end with `/`: a file.
+    let bench = bench();
+    let head = bench.head();
+    bench.session("mkdir src/new.c && echo x > src/new.c/x && git add src/new.c/x && git commit -q -m 'Under a new file'\n");
+    let run = bench.start(&["start", "build", "54"]);
+    refused_back(&bench, &run, &head, &["src/new.c/x", "Under a new file", "outside `changes`"]);
+
+    // `src/brake.c` is a file in HEAD: it is taken out and a folder put in its place.
+    let bench = self::bench();
+    let head = bench.head();
+    bench.session("git rm -q src/brake.c && mkdir src/brake.c && echo x > src/brake.c/x && git add src/brake.c/x && git commit -q -m 'A folder for a file'\n");
+    let run = bench.start(&["start", "build", "54"]);
+    refused_back(&bench, &run, &head, &["src/brake.c/x", "A folder for a file"]);
+}
+
+const FOLDERS: &str = "issue: '54'
+from: 3f0c1d9e
+requirements: []
+interface: |
+  none
+changes: [src, tests/test_brake.c, docs/, notes]
+reads:
+  tester: [src/brake.h, include]
+  build: [src/brake.h, include]
+  review: [src/brake.h]
+  fix: [src/brake.h]
+existing_tests_changed: []
+questions: []
+";
+
+#[test]
+fn test_WB_VIEW_33_a_folder_in_head_and_a_new_path_ending_in_a_slash_cover_the_paths_under_them() {
+    if !sandbox("test_WB_VIEW_33") {
+        return;
+    }
+    let bench = bench_for(FOLDERS);
+    let head = bench.head();
+    bench.session(
+        "mkdir -p src/a docs/deep && echo 'int b;' > src/a/b.c && echo x > docs/deep/y.md\n\
+         git add src/a/b.c docs/deep/y.md && git commit -q -m 'Under folders'\n",
+    );
+    ok(&bench.start(&["start", "build", "54"]));
+    assert_eq!(bench.git_text(&["log", "--format=%s", &format!("{}..HEAD", head)]), "Under folders\n");
+    assert_eq!(read(&bench.repo.path.join("src/a/b.c")), "int b;\n");
+    assert_eq!(read(&bench.repo.path.join("docs/deep/y.md")), "x\n");
+}
+
+#[test]
+fn test_WB_VIEW_33_a_new_path_without_a_slash_is_a_file_and_covers_itself_only() {
+    if !sandbox("test_WB_VIEW_33") {
+        return;
+    }
+    let bench = bench_for(FOLDERS);
+    let head = bench.head();
+    bench.session("echo x > notes && git add notes && git commit -q -m 'The file'\nmkdir -p other && echo y > other/z && git add other/z && git commit -q -m 'Elsewhere'\n");
+    let run = bench.start(&["start", "build", "54"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert_eq!(bench.git_text(&["log", "--format=%s", &format!("{}..HEAD", head)]), "The file\n");
+
+    let bench = bench_for(FOLDERS);
+    let head = bench.head();
+    bench.session("rm -f notes && mkdir notes && echo x > notes/z && git add notes/z && git commit -q -m 'Below a new file'\n");
+    let run = bench.start(&["start", "build", "54"]);
+    refused_back(&bench, &run, &head, &["notes/z", "Below a new file"]);
+}
+
+#[test]
+fn test_WB_VIEW_34_a_path_with_a_part_dot_git_in_any_case_is_refused_named_and_nothing_is_put_on_the_branch() {
+    if !sandbox("test_WB_VIEW_34") {
+        return;
+    }
+    for (parent, name, path) in [("src", "new.c", "src/new.c/.git/x"), ("", ".GIT", ".GIT/x"), ("src", ".Git", "src/.Git/x")] {
+        let bench = bench_for(FOLDERS);
+        let head = bench.head();
+        let body = if parent == "src" && name == "new.c" {
+            // `.git` below the new file `src/new.c`, built by hand: a folder `src/new.c` with a folder `.git`.
+            "b=$(echo x | git hash-object -w --stdin)\n\
+             g=$(printf '100644 blob %s\\tx\\n' \"$b\" | git mktree)\n\
+             n=$(printf '040000 tree %s\\t.git\\n' \"$g\" | git mktree)\n\
+             top=$(git ls-tree HEAD:src; printf '040000 tree %s\\tnew.c\\n' \"$n\")\n\
+             t=$(printf '%s\\n' \"$top\" | git mktree)\n\
+             root=$(git ls-tree HEAD | sed '/\\tsrc$/d'; printf '040000 tree %s\\tsrc\\n' \"$t\")\n\
+             tree=$(printf '%s\\n' \"$root\" | git mktree)\n\
+             c=$(git commit-tree \"$tree\" -p HEAD -m 'A git folder')\n\
+             git update-ref refs/heads/issue-54 \"$c\"\n"
+                .to_string()
+        } else {
+            plumbed(parent, name, "A git folder")
+        };
+        bench.session(&body);
+        let run = bench.start(&["start", "build", "54"]);
+        refused_back(&bench, &run, &head, &[path, "A git folder", "git does not take"]);
+    }
+}
+
+#[test]
+fn test_WB_VIEW_34_a_path_git_refuses_is_said_escaped_and_the_rest_is_decided_by_one_rule() {
+    use watchbill::view::refused_by_git as refused;
+    for path in [
+        ".git",
+        "a/.git",
+        "a/.git/b",
+        ".GIT/x",
+        "a/.Git/x",
+        "a/.gIT",
+        // NTFS forms: trailing dots and spaces, the short name, a stream, a backslash as a separator.
+        "a/.git./x",
+        "a/.git /x",
+        "a/.git. ./x",
+        "a/git~1/x",
+        "a/GIT~1",
+        "a/.git::$INDEX_ALLOCATION/x",
+        "a\\.git\\x",
+        // HFS forms: ignorable code points inside the name.
+        "a/.g\u{200c}it/x",
+        "a/.git\u{feff}/x",
+        "a/.\u{202e}git/x",
+        // Not a path at all.
+        "a//b",
+        "/a",
+        "a/",
+        "a/./b",
+        "a/../b",
+        "..",
+    ] {
+        assert!(refused(path, "100644").is_some(), "{:?} is taken", path);
+    }
+    for path in ["a/.gitignore", "a/.github/x", "a/git/x", "a/git~2/x", "a/.gi/x", "a/x.git/y", "a/b.git", ".gitattributes", "a/.gitmodules", "a/.git-keep", "a/gitmod~1/x"] {
+        assert!(refused(path, "100644").is_none(), "{:?} is refused", path);
+    }
+    // `.gitmodules` as a link, in the forms git knows.
+    for path in [".gitmodules", "a/.GITMODULES", "a/gitmod~1", "a/GI7EBA~1", "a/.gitmodules ", "a/.git\u{200d}modules"] {
+        assert!(refused(path, "120000").is_some(), "{:?} is taken as a link", path);
+        assert!(refused(path, "100644").is_none() || path.contains('\u{200d}'), "{:?} is refused as a file", path);
+    }
+    assert!(refused("a/.gitmodules", "100644").is_none());
+    assert!(refused("a/.gitmodules", "120000").is_some());
+}
+
+#[test]
+fn test_WB_VIEW_35_a_commit_whose_taken_tree_differs_from_the_view_s_is_refused_named_and_not_put_on_the_branch() {
+    if !sandbox("test_WB_VIEW_35") {
+        return;
+    }
+    // A tree that names `src/new.c` twice, as git allows in a tree and never in an index: put on the branch,
+    // the commit would hold one of the two, and so not be the one made.
+    let odd = "b=$(echo 'int fresh;' | git hash-object -w --stdin)\n\
+               d=$(echo 'int other;' | git hash-object -w --stdin)\n\
+               one=$(git ls-tree HEAD:src; printf '100644 blob %s\\tnew.c\\n' \"$b\")\n\
+               one=$(printf '%s\\n' \"$one\" | git mktree)\n\
+               two=$(printf '100644 blob %s\\tnew.c\\n' \"$d\" | git mktree)\n\
+               s=$( { git cat-file tree \"$one\"; git cat-file tree \"$two\"; } | git hash-object -t tree -w --literally --stdin)\n\
+               root=$(git ls-tree HEAD | sed '/\\tsrc$/d'; printf '040000 tree %s\\tsrc\\n' \"$s\")\n\
+               tree=$(printf '%s\\n' \"$root\" | git mktree)\n\
+               c=$(git commit-tree \"$tree\" -p HEAD -m 'A name twice')\n\
+               git update-ref refs/heads/issue-54 \"$c\"\n";
+    let bench = bench();
+    let head = bench.head();
+    bench.session(odd);
+    let run = bench.start(&["start", "build", "54"]);
+    refused_back(&bench, &run, &head, &["A name twice"]);
+
+    // The commits before it are taken, as before a commit refused for its paths.
+    let bench = self::bench();
+    let head = bench.head();
+    bench.session(&format!("echo 'int a;' > src/brake.c && git commit -q -a -m 'First, kept'\n{}", odd));
+    let run = bench.start(&["start", "build", "54"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("A name twice"), "{}", text_of(&run.stderr));
+    assert_eq!(bench.git_text(&["log", "--format=%s", &format!("{}..HEAD", head)]), "First, kept\n");
+}
+
+// ---- #192, after the review ----
+
+const SLASHED: &str = "issue: '54'
+from: 3f0c1d9e
+requirements: []
+interface: |
+  none
+changes: [src/brake.c/, tests/test_brake.c]
+reads:
+  tester: [src/brake.h, include]
+  build: [src/brake.h, include]
+  review: [src/brake.h]
+  fix: [src/brake.h]
+existing_tests_changed: []
+questions: []
+";
+
+#[test]
+fn test_WB_VIEW_33_an_entry_that_is_a_file_in_head_covers_that_path_only_also_when_written_with_a_slash() {
+    if !sandbox("test_WB_VIEW_33") {
+        return;
+    }
+    let bench = bench_for(SLASHED);
+    let head = bench.head();
+    bench.session("git rm -q src/brake.c && mkdir src/brake.c && echo x > src/brake.c/x && git add src/brake.c/x && git commit -q -m 'A folder for a file'\n");
+    let run = bench.start(&["start", "build", "54"]);
+    refused_back(&bench, &run, &head, &["src/brake.c/x", "A folder for a file"]);
+}
+
+/// A session that commits the tree of `HEAD` with the tree `src` made by `body` (a shell text that sets `s`).
+fn odd_src(body: &str, message: &str) -> String {
+    format!(
+        "{body}root=$(git ls-tree HEAD | sed '/\\tsrc$/d'; printf '040000 tree %s\\tsrc\\n' \"$s\")\n\
+         tree=$(printf '%s\\n' \"$root\" | git mktree)\n\
+         c=$(git commit-tree \"$tree\" -p HEAD -m '{message}')\n\
+         git update-ref refs/heads/issue-54 \"$c\"\n"
+    )
+}
+
+#[test]
+fn test_WB_VIEW_35_a_tree_with_a_name_twice_one_copy_as_in_head_is_refused_named_and_not_put_on_the_branch() {
+    if !sandbox("test_WB_VIEW_35") {
+        return;
+    }
+    // `brake.c` twice: the first as it is in HEAD, the second new. `diff-tree` shows one change.
+    let body = "b=$(echo 'int other;' | git hash-object -w --stdin)\n\
+                one=$(git ls-tree HEAD:src)\n\
+                one=$(printf '%s\\n' \"$one\" | git mktree)\n\
+                two=$(printf '100644 blob %s\\tbrake.c\\n' \"$b\" | git mktree)\n\
+                s=$( { git cat-file tree \"$one\"; git cat-file tree \"$two\"; } | git hash-object -t tree -w --literally --stdin)\n";
+    let bench = bench();
+    let head = bench.head();
+    bench.session(&odd_src(body, "Brake twice"));
+    let run = bench.start(&["start", "build", "54"]);
+    refused_back(&bench, &run, &head, &["Brake twice"]);
+}
+
+#[test]
+fn test_WB_VIEW_35_a_tree_with_a_mode_git_rewrites_is_refused_named_and_not_put_on_the_branch() {
+    if !sandbox("test_WB_VIEW_35") {
+        return;
+    }
+    let body = "b=$(echo 'int fresh;' | git hash-object -w --stdin)\n\
+                s=$(git ls-tree HEAD:src; printf '100644 blob %s\\tnew.c\\n' \"$b\")\n\
+                s=$(printf '%s\\n' \"$s\" | git mktree)\n\
+                s=$(git cat-file tree \"$s\" | LC_ALL=C sed 's/100644 new\\.c/100664 new.c/' | git hash-object -t tree -w --literally --stdin)\n";
+    let bench = bench();
+    let head = bench.head();
+    bench.session(&odd_src(body, "A mode git rewrites"));
+    let run = bench.start(&["start", "build", "54"]);
+    refused_back(&bench, &run, &head, &["A mode git rewrites"]);
+}
+
+#[test]
+fn test_WB_VIEW_34_the_short_forms_ntfs_gives_gitmodules_are_refused_as_a_link() {
+    use watchbill::view::refused_by_git as refused;
+    for name in [
+        "gitmod~1", "GITMOD~2", "gitmod~3", "gitmod~4", "gitmod~1 ", "gitmod~1.", "gitmod~1::$DATA",
+        // The fall-back short names, 8 characters with the prefix `gi7eba`.
+        "gi7eba~1", "gi7eba~9", "gi7eb~12", "gi7e~123", "gi7~1234", "gi~12345", "g~123456", "~1234567", "GI7EB~12", "g~123456 ",
+    ] {
+        let path = format!("a/{}", name);
+        assert!(refused(&path, "120000").is_some(), "{:?} is taken as a link", path);
+        assert!(refused(&path, "100644").is_none(), "{:?} is refused as a file", path);
+    }
+    for name in ["gitmod~5", "gitmod~0", "gitmod~10", "gi7eba~", "gi7eba~a", "gi7ebb~1", "gi7eb~1a", "g~12345", "g~1234567", "~12345678x", "gitmo~12", "gi7eba~12"] {
+        let path = format!("a/{}", name);
+        assert!(refused(&path, "120000").is_none(), "{:?} is refused as a link", path);
+    }
 }

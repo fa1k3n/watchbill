@@ -64,7 +64,7 @@ pub fn help() -> String {
         text.push_str(&format!("\n{}\n", group));
         for command in COMMANDS.iter().filter(|command| command.group == group) {
             let line = match PLANNED.iter().find(|row| row.0 == command.name) {
-                Some((_, release, issue)) => format!("{} (planned for {} (#{}))", command.summary, release, issue),
+                Some((_, release, issue)) => format!("{} (planned for {}, #{})", command.summary, release, issue),
                 None => command.summary.to_string(),
             };
             text.push_str(&format!("  {:<9} {}\n", command.name, line));
@@ -77,6 +77,9 @@ pub fn help() -> String {
 /// What `wb help <command>` prints, or none when the command is not in the layout. A built command
 /// has its usage lines and its paragraph from `usage`; a planned one says what it is planned for.
 pub fn help_of(name: &str, usage: &str) -> Option<String> {
+    if name == "help" {
+        return Some("usage:\n  wb help [<command>]\n\n  help      print the commands by group, or what one command does\n".to_string());
+    }
     let command = COMMANDS.iter().find(|command| command.name == name)?;
     if let Some(line) = planned(name) {
         return Some(format!("{}\n\n  {}\n", line, command.summary));

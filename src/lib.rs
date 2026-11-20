@@ -262,7 +262,9 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
             return 2;
         }
     };
-    // Words after `--help` and `--version` change nothing, as in the Python `wb`.
+    // `--help` and `-h` are the command `help`, so a word after them is read as `wb help` reads it
+    // (`wb -h init` prints the help of `init`, as git does), and one that is not a command ends with 2.
+    // Words after `--version` change nothing.
     match command.as_str() {
         "help" => run_help(&mut parser, out, err),
         name if layout::planned(name).is_some() => {
@@ -296,11 +298,22 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
         }
         // `wb <role>` was the form before `wb start <role>` (#175).
         _ if STARTED.contains(&command.as_str()) => old_form(args, err),
-        _ => run_revision(&mut parser, Path::new(manifest::PACKAGE_FOLDER), out, err),
+        "revision" => run_revision(&mut parser, Path::new(manifest::PACKAGE_FOLDER), out, err),
+        // A command of the layout that left `layout::PLANNED` and has no arm yet is refused, not run as another.
+        other => {
+            let _ = writeln!(err, "wb: the command '{}' has no arm in the dispatch", other);
+            2
+        }
     }
 }
 
-/// `wb help`, and `wb help <command>`. Only `help` as a word reads what follows; `--help` ignores it.
+/// The commands of the layout that are built, each with an arm in `run`. A test holds that it is the
+/// layout without `layout::PLANNED`, so a piece that builds a command adds it here with its arm.
+pub const ARMS: [&str; 9] =
+    ["init", "check", "accept", "start", "status", "answer", "revert", "prompt", "revision"];
+
+/// `wb help`, and `wb help <command>`. `--help` and `-h` are this command too, and read the words after them.
+/// A word after the command is refused with 2.
 fn run_help(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let name = match next(parser) {
         Ok(None) => {
@@ -311,6 +324,18 @@ fn run_help(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i3
         Ok(Some(other)) => named(other, parser),
         Err(refused) => refused,
     };
+    match next(parser) {
+        Ok(None) => {}
+        Ok(Some(found)) => {
+            let extra = named(found, parser);
+            let _ = write!(err, "wb help: no word is taken after '{}': '{}'\n\n{}", name, extra, layout::help());
+            return 2;
+        }
+        Err(refused) => {
+            let _ = write!(err, "wb help: no word is taken after '{}': '{}'\n\n{}", name, refused, layout::help());
+            return 2;
+        }
+    }
     match layout::help_of(&name, USAGE) {
         Some(text) => {
             let _ = out.write_all(text.as_bytes());

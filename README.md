@@ -667,7 +667,7 @@ questions: [<what the issue leaves open>]
 - Every key is there, in this order. A list may be empty. A key that is not on the list is refused. A requirement holds `id`, `text`, `source` and, if it has one, `guard`, in that order.
 - `issue` is the name given to `wb accept`. An ID is unique in the file. A path is relative to the root of the repository, has no `..`, and names nothing under `.watchbill/`.
 
-`wb accept <issue>` accepts the file. It reads it, names the first fault of form, and refuses while `questions` holds anything, naming them. It checks the lists ([below](#the-lists-checked-at-acceptance)). Then it says what it will write, and writes `.watchbill/issues/<issue>.accepted`:
+`wb accept <issue>` accepts the file. It reads it, names the first fault of form, and refuses while `questions` holds anything, naming them. It checks the lists ([below](#the-lists-checked-at-acceptance)). Then it says what it will write, writes `.watchbill/issues/<issue>.accepted`, and commits it:
 
 ```
 $ wb accept 54
@@ -677,9 +677,12 @@ by: Ada Lovelace <ada@example.org>
 time: 2026-11-18T09:30:00Z
 
 wb accept: .watchbill/issues/54.yml is accepted.
-wb accept: commit the acceptance alone, so the history holds it before any work it allows:
-  git add .watchbill/issues/54.accepted && git commit -m "Accept the issue's file (54)" -- .watchbill/issues/54.accepted
+wb accept: will commit .watchbill/issues/54.accepted alone, with the message "Accept the issue's file (54)", as Ada Lovelace <ada@example.org>.
+wb accept: committed .watchbill/issues/54.accepted alone (3f9a1c2). What was staged before stays staged.
+wb accept: wb pushes nothing. Push the branch issue-54 so that the history elsewhere holds the acceptance.
 ```
+
+The commit is made by `wb accept`, alone, so the history holds the acceptance before any work it allows. Only that one file is committed: whatever else is staged stays staged. It is made as the `user.name` and `user.email` of git, on the issue's branch. Before it writes anything, `wb accept` refuses with 1 when the checkout is not on that branch (the pattern `branch` of `watchbill.yml`, naming both), or when the issue's file is not committed in `HEAD` or differs from it: the acceptance holds for the file as the history has it. When the commit fails (a hook, a signing key), the acceptance stays written, `wb accept` says so and ends with 1, and the person commits it with the command it prints. `wb` pushes nothing. `wb accept --no-commit` keeps the form of 0.0.9: it writes the acceptance and prints the command, and makes none of those refusals.
 
 `by` is the `user.name` and `user.email` of git, and `time` is UTC. Without both, `wb accept` refuses. An acceptance that is there is never written over: remove it first. `wb` writes nothing else, and asks nothing of the network; `needs` is the team's own command.
 

@@ -1554,3 +1554,50 @@ fn test_WB_BUILD_14_the_prompt_of_a_started_review_carries_nothing_of_the_ci() {
     ok(&bench.start(true, &["review", "54"]));
     assert_eq!(read(&bench.at("start.prompt")), text(&printed.stdout));
 }
+
+// ---- WB-BUILD-28 and 29: the change is said, and from where (#162) ----
+
+#[test]
+fn test_WB_BUILD_28_a_review_says_the_issue_and_the_change_found_from_the_branch_before_the_stamp() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    let run = bench.start(true, &["review", "54"]);
+    ok(&run);
+    let err = text(&run.stderr);
+    let said = err.find("issue 54, change 174 (from the branch issue-54)").unwrap_or_else(|| panic!("{}", err));
+    assert!(said < err.find("will post").unwrap(), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_28_a_change_given_is_said_as_given() {
+    let bench = bench();
+    let run = bench.start(true, &["review", "54", "--change", "178"]);
+    ok(&run);
+    let err = text(&run.stderr);
+    let said = err.find("issue 54, change 178 (given)").unwrap_or_else(|| panic!("{}", err));
+    assert!(said < err.find("will post").unwrap(), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_28_a_fix_says_the_same() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    bench.comments("issue", "54", &["[stamp] review round 1"]);
+    let run = bench.start(true, &["fix", "54"]);
+    ok(&run);
+    assert!(text(&run.stderr).contains("issue 54, change 174 (from the branch issue-54)"), "{}", text(&run.stderr));
+    let run = bench.start(true, &["fix", "54", "--change", "178"]);
+    ok(&run);
+    assert!(text(&run.stderr).contains("issue 54, change 178 (given)"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_29_a_review_with_no_issue_says_the_change_before_the_stamp() {
+    let bench = bench();
+    let run = bench.start(true, &["review", "--change", "178"]);
+    ok(&run);
+    let err = text(&run.stderr);
+    let said = err.find("change 178\n").unwrap_or_else(|| panic!("{}", err));
+    assert!(said < err.find("will post").unwrap(), "{}", err);
+    assert!(!err.contains("issue 54"), "{}", err);
+}

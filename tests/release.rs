@@ -193,12 +193,23 @@ fn test_WB_PKG_20_the_token_can_write_only_in_the_release_job() {
 }
 
 #[test]
-fn test_WB_PKG_19_the_fedora_release_is_44_while_45_cannot_build_and_the_workflow_says_why() {
-    // Fedora 45 packages rust-cpufeatures-devel 0.3.1 without its README.md, which the crate
-    // includes with include_str!, so the build stops. Change both when that is fixed.
+fn test_WB_PKG_19_the_fedora_release_is_45_and_the_documents_are_kept_for_the_crates() {
+    // Changed from the test that pinned 44 (#120): with the documents kept, 45 builds.
     let text = workflow();
-    assert!(text.contains("registry.fedoraproject.org/fedora:44"), "{}", text);
-    assert!(text.contains("rust-cpufeatures-devel"), "the reason for 44 is not written");
+    assert!(text.contains("registry.fedoraproject.org/fedora:45"), "{}", text);
+    assert!(text.contains("tsflags="), "the reason for the flag is not written");
+}
+
+#[test]
+fn test_WB_PKG_21_the_build_installs_its_packages_with_the_documents() {
+    // The container images of Fedora set tsflags=nodocs, so dnf leaves out README.md of
+    // rust-cpufeatures-devel, which the crate includes. The install keeps the documents.
+    let build = job("build");
+    let line = build
+        .lines()
+        .find(|l| l.contains("dnf install") && l.contains("rpm-build"))
+        .expect("the install of the build's packages");
+    assert!(line.contains("--setopt=tsflags= "), "{}", line);
 }
 
 /// A scratch checkout with the three files the script reads, the version of this package, and the

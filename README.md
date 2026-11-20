@@ -342,6 +342,7 @@ They are worked out, never asked. `--round` and `--change` are still taken, and 
 - **The round** of the breakdown, the tester, the build and the review is one more than the stamps of that role. The fix takes the number of review stamps: it answers the last review.
 - **The change** of a review or a fix of an issue is the one open change from its branch, as `change_of_branch` prints it. None, or more than one, is refused with 1, naming what was found and `--change`.
 - **What was worked out is said** on standard error, before the stamp: `wb review: round 2 (1 review stamp on issue 41), change 174 (the one open change from issue-41)`.
+- **Which change, and from where** (a review or a fix) is said too, before the stamp: `wb review: issue 41, change 174 (from the branch issue-41)`, or `(given)` where `--change` gave it, and `change 174` where there is no issue. `wb prompt` says nothing more.
 - `wb <role>` always needs the round, for the stamp's first line. With no `--round`, and no `issue_comments` (or `change_comments`), it is refused with 1. A `--round` given is a whole number from 1, or the command was used wrongly (2).
 
 `wb prompt` works out the same, by the same function, where the role's text holds `{round}` or `{change}` and the patterns are there.

@@ -1062,6 +1062,20 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     if let Some(paths) = &paths {
         lines.write("view", &view::list(paths), err);
     }
+    // The change of a review or a fix, and where it came from (#162): shown to the person, never asked of them.
+    if role == "review" || role == "fix" {
+        let value = |key: &str| handed.values.iter().find(|(given, _)| *given == key).map(|(_, value)| value.clone());
+        if let Some(change) = value("change") {
+            let from = match (words.get("change"), value("branch")) {
+                (None, Some(branch)) => format!("from the branch {}", branch),
+                _ => "given".to_string(),
+            };
+            let _ = match words.get("issue") {
+                Some(issue) => writeln!(err, "{}: issue {}, change {} ({})", name, issue, change, from),
+                None => writeln!(err, "{}: change {}", name, change),
+            };
+        }
+    }
     let _ = write!(err, "{}: will post on {} {}, by `{}` of watchbill.yml:\n{}", name, word, on, post, stamp);
     match starter::run(root, post, &line.replace(&format!("{{{}}}", word), &on), Some(stamp.as_bytes())) {
         Ok(said) => {

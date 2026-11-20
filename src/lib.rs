@@ -975,7 +975,31 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
             "standard input or standard output is not a terminal, and no session is started out of a person's sight before a session sees only its files (#65). Use --prompt.",
         );
     }
-    // 6. The view (#126): a session of an issue with an accepted file runs in one, in bubblewrap. Its binds, the
+    // 6. The CI (#127): a review starts only on a change whose CI is green. The word is kept in the lines of the
+    // start, whatever it is. The review's prompt does not get it, and never the CI's log.
+    if role == "review" {
+        let change = handed.values.iter().find(|(given, _)| *given == "change").map(|(_, value)| value.as_str());
+        let found = starter::ci(root, change);
+        lines.open(stamp.as_deref().ok(), err);
+        let kept = match &found {
+            Ok(Some(ci)) => ci.word(),
+            Ok(None) => "not read",
+            Err(_) => "unread",
+        };
+        lines.write("ci", &format!("ci: {}\n", kept), err);
+        match found {
+            Err(why) => return refused(&mut lines, err, "ci", &why),
+            Ok(None) => {
+                let _ = writeln!(err, "{}: watchbill.yml has no `change_checks`, so the CI was not read. The review starts on a change whose CI nobody has looked at.", name);
+            }
+            Ok(Some(ci)) => {
+                if let Some(why) = ci.refusal(change.unwrap_or_default()) {
+                    return refused(&mut lines, err, "ci", &why);
+                }
+            }
+        }
+    }
+    // 7. The view (#126): a session of an issue with an accepted file runs in one, in bubblewrap. Its binds, the
     // sandbox and the view itself are made sure of before anything is posted.
     let paths = view_paths(role, &handed);
     let mut prepared: Option<Prepared> = None;

@@ -18,7 +18,7 @@ pub fn state_folder() -> Option<PathBuf> {
 
 /// How a start ended.
 pub enum Outcome {
-    /// Refused at a check: `prompt`, `rule`, `class`, `start`, `terminal` or `view` (#126).
+    /// Refused at a check: `prompt`, `rule`, `class`, `start`, `ci` (#127), `terminal` or `view` (#126).
     Refused { check: &'static str, status: i32, message: String },
     /// The stamp was not posted, and no session was started.
     NotPosted { status: i32, message: String },

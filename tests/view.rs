@@ -1443,3 +1443,94 @@ fn test_WB_VIEW_35_a_commit_whose_taken_tree_differs_from_the_view_s_is_refused_
     assert!(text_of(&run.stderr).contains("A name twice"), "{}", text_of(&run.stderr));
     assert_eq!(bench.git_text(&["log", "--format=%s", &format!("{}..HEAD", head)]), "First, kept\n");
 }
+
+// ---- #192, after the review ----
+
+const SLASHED: &str = "issue: '54'
+from: 3f0c1d9e
+requirements: []
+interface: |
+  none
+changes: [src/brake.c/, tests/test_brake.c]
+reads:
+  tester: [src/brake.h, include]
+  build: [src/brake.h, include]
+  review: [src/brake.h]
+  fix: [src/brake.h]
+existing_tests_changed: []
+questions: []
+";
+
+#[test]
+fn test_WB_VIEW_33_an_entry_that_is_a_file_in_head_covers_that_path_only_also_when_written_with_a_slash() {
+    if !sandbox("test_WB_VIEW_33") {
+        return;
+    }
+    let bench = bench_for(SLASHED);
+    let head = bench.head();
+    bench.session("git rm -q src/brake.c && mkdir src/brake.c && echo x > src/brake.c/x && git add src/brake.c/x && git commit -q -m 'A folder for a file'\n");
+    let run = bench.start(&["build", "54"]);
+    refused_back(&bench, &run, &head, &["src/brake.c/x", "A folder for a file"]);
+}
+
+/// A session that commits the tree of `HEAD` with the tree `src` made by `body` (a shell text that sets `s`).
+fn odd_src(body: &str, message: &str) -> String {
+    format!(
+        "{body}root=$(git ls-tree HEAD | sed '/\\tsrc$/d'; printf '040000 tree %s\\tsrc\\n' \"$s\")\n\
+         tree=$(printf '%s\\n' \"$root\" | git mktree)\n\
+         c=$(git commit-tree \"$tree\" -p HEAD -m '{message}')\n\
+         git update-ref refs/heads/issue-54 \"$c\"\n"
+    )
+}
+
+#[test]
+fn test_WB_VIEW_35_a_tree_with_a_name_twice_one_copy_as_in_head_is_refused_named_and_not_put_on_the_branch() {
+    if !sandbox("test_WB_VIEW_35") {
+        return;
+    }
+    // `brake.c` twice: the first as it is in HEAD, the second new. `diff-tree` shows one change.
+    let body = "b=$(echo 'int other;' | git hash-object -w --stdin)\n\
+                one=$(git ls-tree HEAD:src)\n\
+                one=$(printf '%s\\n' \"$one\" | git mktree)\n\
+                two=$(printf '100644 blob %s\\tbrake.c\\n' \"$b\" | git mktree)\n\
+                s=$( { git cat-file tree \"$one\"; git cat-file tree \"$two\"; } | git hash-object -t tree -w --literally --stdin)\n";
+    let bench = bench();
+    let head = bench.head();
+    bench.session(&odd_src(body, "Brake twice"));
+    let run = bench.start(&["build", "54"]);
+    refused_back(&bench, &run, &head, &["Brake twice"]);
+}
+
+#[test]
+fn test_WB_VIEW_35_a_tree_with_a_mode_git_rewrites_is_refused_named_and_not_put_on_the_branch() {
+    if !sandbox("test_WB_VIEW_35") {
+        return;
+    }
+    let body = "b=$(echo 'int fresh;' | git hash-object -w --stdin)\n\
+                s=$(git ls-tree HEAD:src; printf '100644 blob %s\\tnew.c\\n' \"$b\")\n\
+                s=$(printf '%s\\n' \"$s\" | git mktree)\n\
+                s=$(git cat-file tree \"$s\" | LC_ALL=C sed 's/100644 new\\.c/100664 new.c/' | git hash-object -t tree -w --literally --stdin)\n";
+    let bench = bench();
+    let head = bench.head();
+    bench.session(&odd_src(body, "A mode git rewrites"));
+    let run = bench.start(&["build", "54"]);
+    refused_back(&bench, &run, &head, &["A mode git rewrites"]);
+}
+
+#[test]
+fn test_WB_VIEW_34_the_short_forms_ntfs_gives_gitmodules_are_refused_as_a_link() {
+    use watchbill::view::refused_by_git as refused;
+    for name in [
+        "gitmod~1", "GITMOD~2", "gitmod~3", "gitmod~4", "gitmod~1 ", "gitmod~1.", "gitmod~1::$DATA",
+        // The fall-back short names, 8 characters with the prefix `gi7eba`.
+        "gi7eba~1", "gi7eba~9", "gi7eb~12", "gi7e~123", "gi7~1234", "gi~12345", "g~123456", "~1234567", "GI7EB~12", "g~123456 ",
+    ] {
+        let path = format!("a/{}", name);
+        assert!(refused(&path, "120000").is_some(), "{:?} is taken as a link", path);
+        assert!(refused(&path, "100644").is_none(), "{:?} is refused as a file", path);
+    }
+    for name in ["gitmod~5", "gitmod~0", "gitmod~10", "gi7eba~", "gi7eba~a", "gi7ebb~1", "gi7eb~1a", "g~12345", "g~1234567", "~12345678x", "gitmo~12", "gi7eba~12"] {
+        let path = format!("a/{}", name);
+        assert!(refused(&path, "120000").is_none(), "{:?} is refused as a link", path);
+    }
+}

@@ -1622,6 +1622,8 @@ fn test_WB_BUILD_38_a_role_that_is_not_known_after_start_ends_with_2_and_names_t
         }
         assert!(!bench.any_posted() && !bench.started(), "{:?}", bench.calls());
     }
+}
+
 // ---- WB-BUILD-28 and 29: the change is said, and from where (#162) ----
 
 /// The lines of standard error that say a change: `wb start <role>: ` and then `issue ` or `change ` and a number.

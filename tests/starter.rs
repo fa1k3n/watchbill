@@ -815,9 +815,6 @@ fn test_WB_BUILD_19_with_no_classed_every_path_is_classed() {
     // An issue's file that changes nothing touches nothing classed.
     issue_file(&bench, "55", "[]");
     git(&bench.repo.path, &["branch", "issue-55"]);
-    // The build reads watchbill.yml, which `set` changed: a local change stops the start (#172), so it is committed.
-    git(&bench.repo.path, &["add", "--", ".watchbill/watchbill.yml"]);
-    git(&bench.repo.path, &["commit", "-q", "-m", "The classed line"]);
     ok_in_view(&bench.start(true, &["start", "build", "55"]));
 }
 

@@ -1757,3 +1757,20 @@ fn test_WB_BUILD_35_a_long_list_is_said_as_the_first_20_and_a_count() {
     let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54"]));
     assert!(err.contains("include/f19.h") && !err.contains("include/f20.h") && err.contains("5 more"), "{}", err);
 }
+
+// ---- #172, second look: an empty view has no paths to guard ----
+
+#[test]
+fn test_WB_BUILD_30_a_view_with_no_paths_checks_nothing_and_a_changed_file_elsewhere_does_not_stop_it() {
+    let file = ISSUE_54
+        .replace("changes: [src/brake.c, tests/test_brake.c, src/new.c]", "changes: []")
+        .replace("  tester: [src/brake.h, include]\n  build: [src/brake.h, include]\n  review: [src/brake.h]\n  fix: [src/brake.h]\n", "  tester: []\n  build: []\n  review: []\n  fix: []\n");
+    let bench = bench_for(&file);
+    put(&bench.repo.path, "src/secret.c", "changed here\n");
+    put(&bench.repo.path, "src/untracked.c", "int u;\n");
+    // It goes on to the view, which is where no bubblewrap is; with the flag too, and nothing is counted.
+    for words in [&["start", "build", "54"][..], &["start", "build", "54", "--ignore-local"][..]] {
+        let err = text_of(&start_unsandboxed(&bench, words).stderr);
+        assert!(!err.contains("guard") && !err.contains("src/secret.c") && err.contains("bubblewrap"), "{}", err);
+    }
+}

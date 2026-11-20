@@ -1164,3 +1164,76 @@ fn test_WB_VIEW_21_a_commit_refused_for_a_path_with_a_line_break_names_the_path_
     assert!(back.contains("docs/a\\nrefused: forged is outside `changes`"), "{}", back);
     assert!(back.lines().all(|line| !line.starts_with("refused: forged")), "{}", back);
 }
+
+// ---- #167, after the review: more to escape, and a test for the subject ----
+
+#[test]
+fn test_WB_VIEW_21_a_line_separator_and_a_bidi_control_in_a_path_are_escaped() {
+    if !sandbox("test_WB_VIEW_21") {
+        return;
+    }
+    let bench = bench();
+    bench.session("printf x > \"$(printf 'src/s\\342\\200\\250view: removed')\"\nprintf x > \"$(printf 'src/b\\342\\200\\256gpj.c')\"\n");
+
+    let run = bench.start(&["build", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    let back = read(&bench.lines().join("back"));
+    for text in [&err, &back] {
+        assert!(!text.contains('\u{2028}') && !text.contains('\u{202e}'), "{:?}", text);
+        assert!(text.contains("src/s\\u{2028}view: removed") && text.contains("src/b\\u{202e}gpj.c"), "{:?}", text);
+    }
+}
+
+#[test]
+fn test_WB_VIEW_21_a_backslash_in_a_path_is_escaped_so_it_differs_from_a_line_break() {
+    if !sandbox("test_WB_VIEW_21") {
+        return;
+    }
+    let bench = bench();
+    bench.session("printf x > 'src/c\\nview'\nprintf x > \"$(printf 'src/c\\nview')\"\n");
+
+    let run = bench.start(&["build", "54"]);
+
+    ok(&run);
+    let back = read(&bench.lines().join("back"));
+    assert!(back.lines().any(|line| line == "uncommitted: src/c\\\\nview"), "{}", back);
+    assert!(back.lines().any(|line| line == "uncommitted: src/c\\nview"), "{}", back);
+}
+
+#[test]
+fn test_WB_VIEW_21_the_failed_line_is_written_escaped() {
+    let back = watchbill::view::Back { failed: Some("it said\u{1b}[2J\rview: removed\u{2028}x".to_string()), ..Default::default() };
+    let text = back.text(None);
+    assert!(text.lines().any(|line| line == "failed: it said\\u{1b}[2J\\rview: removed\\u{2028}x"), "{:?}", text);
+    assert_eq!(text.lines().filter(|line| *line == "view: removed").count(), 1, "{:?}", text);
+}
+
+#[test]
+fn test_WB_VIEW_21_a_commit_subject_with_control_characters_is_escaped_taken_and_refused() {
+    if !sandbox("test_WB_VIEW_21") {
+        return;
+    }
+    let bench = bench();
+    bench.session("echo 'int a;' > src/brake.c && git commit -q -a -m \"$(printf 'Sub\\033[2J\\rview: removed')\"\n");
+    let run = bench.start(&["build", "54"]);
+    ok(&run);
+    let err = text_of(&run.stderr);
+    let back = read(&bench.lines().join("back"));
+    for text in [&err, &back] {
+        assert!(!text.contains('\u{1b}') && !text.contains('\r'), "{:?}", text);
+        assert!(text.contains("Sub\\u{1b}[2J\\rview: removed"), "{:?}", text);
+    }
+
+    let bench = self::bench();
+    bench.session("echo 'int b;' > src/brake.h && git commit -q -a -m \"$(printf 'Ref\\033[31m\\rX')\"\n");
+    let run = bench.start(&["build", "54"]);
+    assert_eq!(run.status.code(), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    let back = read(&bench.lines().join("back"));
+    for text in [&err, &back] {
+        assert!(!text.contains('\u{1b}') && !text.contains('\r'), "{:?}", text);
+        assert!(text.contains("Ref\\u{1b}[31m\\rX"), "{:?}", text);
+    }
+}

@@ -797,22 +797,8 @@ fn test_WB_ROLE_68_the_fix_reads_a_finding_by_its_number_and_its_level() {
     assert!(body.contains("A finding starts with its number and its level: `<n>. must` or `<n>. note`."), "{}", body);
 }
 
-// The breakdown asks its questions on the issue, and a second session folds the answers in (#95).
-
-#[test]
-fn test_WB_ROLE_60_each_question_is_posted_as_its_own_comment_and_never_twice() {
-    let point = breakdown_point("## What you produce", "- Each question is also posted as its own comment on the issue.");
-    assert!(point.contains("Its first line is `[question] {issue}.q<n>`"), "{}", point);
-    assert!(point.contains("with the place in the code or the issue it is about"), "{}", point);
-    assert!(point.contains("You post no question twice"), "{}", point);
-}
-
-#[test]
-fn test_WB_ROLE_61_a_person_answers_in_a_comment_that_names_the_question_or_in_its_thread() {
-    let point = breakdown_point("## What you produce", "- A person answers in a comment whose first line is `[answer] {issue}.q<n>`,");
-    assert!(point.contains("or in the question's thread where the tracker has threads"), "{}", point);
-    assert!(point.contains("An answer counts only from a person"), "{}", point);
-}
+// The breakdown asks its questions on the issue, and a second session folds the answers in (#95). From
+// revision 0.0.9 it asks in one comment for the session, and a person answers with `wb answer` (#145).
 
 #[test]
 fn test_WB_ROLE_62_a_second_fresh_session_folds_the_answers_into_the_file_and_commits_it_alone() {
@@ -840,45 +826,89 @@ fn test_WB_ROLE_63_the_last_message_of_the_breakdown_names_the_comments_it_poste
     assert!(questions.contains("open"), "{}", questions);
 }
 
-// The prompts after the second run (#98).
+// The prompts after the second run (#98). From revision 0.0.9 the breakdown alone pushes: the tester, the
+// build and the fix run in a view with no remote (#126), and a person pushes their commits (#145).
 
-// The roles that commit their work on the branch of the issue.
-const COMMITTERS: [&str; 4] = ["breakdown", "tester", "build", "fix"];
-
-#[test]
-fn test_WB_ROLE_64_the_breakdown_the_tester_the_build_and_the_fix_say_to_commit_and_then_push_to_the_branch() {
-    for role in COMMITTERS {
-        let body = part(role, "## What you produce");
-        let found = body.split('\n').any(|line| {
-            let lower = line.to_lowercase();
-            match (lower.find("commit"), lower.find("push")) {
-                (Some(commit), Some(push)) => commit < push && lower[push..].contains("to {branch}"),
-                _ => false,
-            }
-        });
-        assert!(found, "{}: no point says to commit and then push to {{branch}}: {}", role, body);
-    }
+/// The line of a part of a role's prompt that starts with "Stop when".
+fn stop_line(role: &str) -> String {
+    let body = part(role, "## How you end");
+    let stop = body.split('\n').find(|line| line.starts_with("Stop when")).map(String::from);
+    stop.unwrap_or_else(|| panic!("{}: no line that starts with Stop when", role))
 }
 
 #[test]
-fn test_WB_ROLE_64_the_breakdown_the_tester_the_build_and_the_fix_stop_when_the_work_is_pushed() {
-    for role in COMMITTERS {
-        let body = part(role, "## How you end");
-        let stop = body.split('\n').find(|line| line.starts_with("Stop when"));
-        let stop = stop.unwrap_or_else(|| panic!("{}: no line that starts with Stop when", role));
-        assert!(stop.contains("pushed to {branch}"), "{}: {}", role, stop);
-    }
+fn test_WB_ROLE_91_the_breakdown_says_to_commit_and_then_push_to_the_branch() {
+    let body = part("breakdown", "## What you produce");
+    let found = body.split('\n').any(|line| {
+        let lower = line.to_lowercase();
+        match (lower.find("commit"), lower.find("push")) {
+            (Some(commit), Some(push)) => commit < push && lower[push..].contains("to {branch}"),
+            _ => false,
+        }
+    });
+    assert!(found, "no point says to commit and then push to {{branch}}: {}", body);
+    assert!(stop_line("breakdown").contains("pushed to {branch}"), "{}", stop_line("breakdown"));
 }
 
 #[test]
-fn test_WB_ROLE_64_the_last_message_names_the_commit_that_was_pushed() {
+fn test_WB_ROLE_91_the_last_message_of_the_breakdown_names_the_commit_that_was_pushed() {
     let file = field_line("breakdown", "file");
     assert!(file.contains("the commit that holds it, as pushed to {branch}"), "{}", file);
-    for role in ["tester", "build", "fix"] {
-        let pushed = field_line(role, "pushed");
-        assert!(pushed.contains("commit"), "{}: {}", role, pushed);
-        assert!(pushed.contains("pushed to {branch}"), "{}: {}", role, pushed);
+}
+
+// The roles that commit in a view, and push nothing (#145).
+const COMMITTERS: [&str; 3] = ["tester", "build", "fix"];
+
+#[test]
+fn test_WB_ROLE_88_the_tester_the_build_and_the_fix_commit_on_the_branch_and_push_nothing() {
+    for role in COMMITTERS {
+        let body = part(role, "## What you produce");
+        let point = body.split('\n').find(|line| line.contains("You push nothing and open no change: a person pushes the branch."));
+        let point = point.unwrap_or_else(|| panic!("{}: no point says that a person pushes: {}", role, body));
+        assert!(point.to_lowercase().contains("commit") && point.contains("{branch}"), "{}: {}", role, point);
+        let never = part(role, "## What you never do");
+        assert!(never.contains("- You never push, and never open a change."), "{}: {}", role, never);
+        let stop = stop_line(role);
+        assert!(stop.contains("committed on {branch}"), "{}: {}", role, stop);
+        assert!(!stop.contains("push"), "{}: {}", role, stop);
     }
+}
+
+#[test]
+fn test_WB_ROLE_88_the_tester_the_build_and_the_fix_are_not_told_to_push_anywhere() {
+    for role in COMMITTERS {
+        for line in prompt(role).split('\n') {
+            let lower = line.to_lowercase();
+            // What the project's own text says about pushing is read (WB-ROLE-20), and a person pushes.
+            let allowed = ["how work is pushed and posted here", "you push nothing", "you never push", "a person pushes"];
+            let rest = allowed.iter().fold(lower.clone(), |text, phrase| text.replace(phrase, ""));
+            assert!(!rest.contains("push"), "{}: {}", role, line);
+        }
+    }
+}
+
+#[test]
+fn test_WB_ROLE_89_the_last_message_names_the_last_commit_made() {
+    for role in COMMITTERS {
+        let found = fields(&part(role, "## How you end"));
+        assert!(found.iter().any(|name| name == "committed"), "{}: {:?}", role, found);
+        assert!(!found.iter().any(|name| name == "pushed"), "{}: {:?}", role, found);
+        let committed = field_line(role, "committed");
+        assert!(committed.contains("your last commit") || committed.contains("the commit of your tests"), "{}: {}", role, committed);
+        assert!(committed.contains("on {branch}"), "{}: {}", role, committed);
+    }
+    let found = fields(&part("build", "## How you end"));
+    assert!(!found.iter().any(|name| name == "change"), "{:?}", found);
+}
+
+#[test]
+fn test_WB_ROLE_90_the_message_of_the_build_s_last_commit_is_the_description_of_the_change() {
+    let body = part("build", "## What you produce");
+    assert!(
+        body.contains("The message of your last commit names the issue {issue}, the requirements {requirements}, and anything in the change that a reviewer would not expect: the change is opened from your commits."),
+        "{}",
+        body
+    );
 }
 
 #[test]
@@ -997,35 +1027,106 @@ fn line_of(role: &str, lead: &str) -> String {
     line.unwrap_or_else(|| panic!("{}: no line that starts with {:?}", role, lead))
 }
 
-/// The point that says each point of `needs_person` is posted on the issue.
+/// The point that says the points of `needs_person` are posted on the issue, in one comment (#145).
 fn asking_point(role: &str) -> String {
-    line_of(role, "- Each point of `needs_person` is also posted as its own comment on the issue.")
+    line_of(role, "- The points of `needs_person` are also posted on the issue, in one comment for the session,")
+}
+
+/// The first words of a role's comments of questions and answers: `{issue}` for the breakdown, which keeps the
+/// names #95 gave its questions, and `{issue}.<role>` for the others (#145).
+fn questions_of(role: &str) -> String {
+    if role == "breakdown" {
+        "{issue}".to_string()
+    } else {
+        format!("{{issue}}.{}", role)
+    }
+}
+
+/// The block of a role's prompt that shows the form of its comment of questions.
+fn questions_form(role: &str) -> String {
+    let text = prompt(role);
+    let start = format!("```text\n[questions] {} q1 q2\n", questions_of(role));
+    let (_, rest) = text.split_once(&start).unwrap_or_else(|| panic!("{}: no block that starts with {:?}", role, start));
+    format!("[questions] {} q1 q2\n{}", questions_of(role), rest.split_once("```").unwrap_or_else(|| panic!("{}: the block does not end", role)).0)
 }
 
 #[test]
-fn test_WB_ROLE_69_each_point_of_needs_person_is_posted_as_its_own_comment_with_its_name() {
+fn test_WB_ANSWER_9_the_four_post_their_questions_in_one_comment_whose_first_line_names_them() {
     for role in ASKERS {
         let point = asking_point(role);
-        let first = format!("Its first line is `[question] {}<n>`", question_name(role));
+        let first = format!("Its first line is `[questions] {}` and the name of each question it holds, as `[questions] {} q1 q2`.", questions_of(role), questions_of(role));
         assert!(point.contains(&first), "{}: {}", role, point);
-        assert!(point.contains("and the question follows, with the place in the issue, the file or the code it is about."), "{}: {}", role, point);
+        assert!(point.contains("before your last message"), "{}: {}", role, point);
     }
 }
 
 #[test]
-fn test_WB_ROLE_69_a_question_is_never_posted_twice() {
-    for role in ASKERS {
-        let point = asking_point(role);
-        assert!(point.contains("You post no question twice: a question that stands on the issue already is not posted again."), "{}: {}", role, point);
+fn test_WB_ANSWER_9_the_breakdown_posts_its_questions_in_one_comment_whose_first_line_names_them() {
+    let point = breakdown_point("## What you produce", "- The new questions are also posted on the issue, in one comment for the session,");
+    assert!(point.contains("Its first line is `[questions] {issue}` and the name of each question it holds, as `[questions] {issue} q1 q2`."), "{}", point);
+    assert!(point.contains("a question named `{issue}.q<n>` under `questions` is `q<n>` in the comment"), "{}", point);
+}
+
+#[test]
+fn test_WB_ANSWER_9_each_question_is_one_line_and_the_rest_is_folded_under_details() {
+    for role in ROLES {
+        let text = prompt(role);
+        assert!(text.contains("- Each question is one line, its name and what is unclear. The rest is folded under `<details>`, which the tracker shows closed. The comment is in this form:"), "{}", role);
+        let form = questions_form(role);
+        let lines: Vec<&str> = form.split('\n').collect();
+        assert_eq!(lines[1], "q1: <what is unclear>", "{}: {}", role, form);
+        assert_eq!(lines[2], "<details>", "{}: {}", role, form);
+        for line in ["Why it matters: <one or two sentences>", "1. <the first choice>", "2. <the second choice>", "Suggested: 1, because <the reason>", "</details>", "q2: <what is unclear>"] {
+            assert!(lines.contains(&line), "{}: {}: {}", role, line, form);
+        }
+        // The details end before the next question starts.
+        let end = lines.iter().position(|line| *line == "</details>").unwrap();
+        let next = lines.iter().position(|line| *line == "q2: <what is unclear>").unwrap();
+        assert!(end < next, "{}: {}", role, form);
     }
 }
 
 #[test]
-fn test_WB_ROLE_81_the_number_of_a_question_counts_on_from_the_highest_of_the_role_on_the_issue() {
+fn test_WB_ANSWER_9_each_question_says_whether_it_changes_the_issue_s_file() {
+    for role in ROLES {
+        let form = questions_form(role);
+        let said: Vec<&str> = form.split('\n').filter(|line| line.starts_with("changes the issue's file: ")).collect();
+        assert!(!said.is_empty(), "{}: {}", role, form);
+        for line in said {
+            assert!(["changes the issue's file: yes", "changes the issue's file: no"].contains(&line), "{}: {}", role, line);
+        }
+        let point = line_of(role, "  - Whether the answer changes the issue's file:");
+        assert!(point.contains("`changes the issue's file: yes`"), "{}: {}", role, point);
+    }
+    // A second breakdown folds every answer of the breakdown into the file.
+    let point = line_of("breakdown", "  - Whether the answer changes the issue's file:");
+    assert!(point.contains("always `changes the issue's file: yes`"), "{}", point);
     for role in ASKERS {
-        let point = asking_point(role);
-        let counts = format!("`<n>` counts on from the highest number of `{}` already on the issue, so that no name is used twice.", question_name(role));
-        assert!(point.contains(&counts), "{}: {}", role, point);
+        let point = line_of(role, "  - Whether the answer changes the issue's file:");
+        assert!(point.contains("and `no` where it may not"), "{}: {}", role, point);
+    }
+}
+
+#[test]
+fn test_WB_ANSWER_10_the_number_of_a_question_counts_on_within_the_role_from_the_highest_on_the_issue() {
+    for role in ROLES {
+        let text = prompt(role);
+        let counts = format!(
+            "`<n>` counts on from the highest number of the {}'s questions already on the issue, in `[questions] {}` and `[question] {}<n>` comments,",
+            role,
+            questions_of(role),
+            question_name(role)
+        );
+        assert!(text.contains(&counts), "{}: {}", role, counts);
+        assert!(text.contains("so that no name is used twice."), "{}", role);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_83_a_question_is_never_posted_twice() {
+    for role in ROLES {
+        let text = prompt(role);
+        assert!(text.contains("You post no question twice: a question that stands on the issue already is not posted again."), "{}", role);
     }
 }
 
@@ -1037,22 +1138,26 @@ fn test_WB_ROLE_82_with_no_issue_the_review_and_the_fix_post_their_questions_on_
     }
 }
 
+/// The point that says how a person answers.
+fn answering_point(role: &str) -> String {
+    let lead = format!("- A person answers with `wb answer`, in one comment whose first line is `[answers] {}` and the names of the questions it answers,", questions_of(role));
+    line_of(role, &lead)
+}
+
 #[test]
-fn test_WB_ROLE_70_a_person_answers_in_a_comment_that_names_the_question_or_in_its_thread() {
-    for role in ASKERS {
-        let lead = format!("- A person answers in a comment whose first line is `[answer] {}<n>`,", question_name(role));
-        let point = line_of(role, &lead);
-        assert!(point.contains("or in the question's thread where the tracker has threads."), "{}: {}", role, point);
+fn test_WB_ROLE_84_a_person_answers_with_wb_answer_in_one_comment_a_line_for_each_question() {
+    for role in ROLES {
+        let point = answering_point(role);
+        assert!(point.contains("then one line for each: `q1: 2`, or `q1: <words>`."), "{}: {}", role, point);
     }
 }
 
 #[test]
-fn test_WB_ROLE_70_an_answer_counts_only_from_a_person() {
-    for role in ASKERS {
-        let lead = format!("- A person answers in a comment whose first line is `[answer] {}<n>`,", question_name(role));
-        let point = line_of(role, &lead);
+fn test_WB_ROLE_84_an_answer_counts_only_from_a_person() {
+    for role in ROLES {
+        let point = answering_point(role);
         assert!(point.contains("An answer counts only from a person."), "{}: {}", role, point);
-        assert!(point.contains("a comment that starts with `[question]` is never an answer"), "{}: {}", role, point);
+        assert!(point.contains("a comment that starts with `[question]` or `[questions]` is never an answer"), "{}: {}", role, point);
     }
 }
 
@@ -1098,15 +1203,16 @@ fn test_WB_ROLE_72_the_last_messages_of_the_four_end_with_needs_person_and_then_
 }
 
 #[test]
-fn test_WB_ROLE_73_a_question_holds_what_is_unclear_why_it_matters_the_choices_and_a_suggestion_and_nothing_else() {
+fn test_WB_ROLE_87_a_question_holds_what_is_unclear_why_it_matters_the_choices_a_suggestion_and_whether_it_changes_the_file() {
     for role in ROLES {
         let text = prompt(role);
         for what in [
-            "A question is written so that a person can answer it without opening the code. In plain words, it holds what is unclear, why it matters, the choices and a suggested answer, and nothing else:",
+            "A question is written so that a person can answer it without opening the code. In plain words, it holds what is unclear, why it matters, the choices, a suggested answer and whether the answer changes the issue's file, and nothing else:",
             "  - What is unclear: one sentence, in the issue's own words where it has them.",
             "  - Why it matters: what the change does differently by the answer, in one or two sentences, without the code's names unless the person needs them to answer.",
             "  - The choices, numbered from 1, where there are any.",
             "  - A suggested answer, marked as a suggestion, with its reason in one sentence: `Suggested: 1, because …`. It names its choice by number. You never act on it before a person answers.",
+            "  - Whether the answer changes the issue's file: ",
             "  - Nothing else: no recap of the issue, and no list of what you read.",
         ] {
             assert!(text.contains(what), "{}: {}", role, what);
@@ -1115,7 +1221,7 @@ fn test_WB_ROLE_73_a_question_holds_what_is_unclear_why_it_matters_the_choices_a
 }
 
 #[test]
-fn test_WB_ROLE_73_a_question_is_never_edited_once_posted() {
+fn test_WB_ROLE_87_a_question_is_never_edited_once_posted() {
     for role in ROLES {
         let point = line_of(role, "- A question is never edited once posted,");
         assert!(point.contains("so that a number always means what it meant when the person answered."), "{}: {}", role, point);
@@ -1124,16 +1230,13 @@ fn test_WB_ROLE_73_a_question_is_never_edited_once_posted() {
 }
 
 #[test]
-fn test_WB_ROLE_74_an_answer_is_read_by_number_in_words_several_in_one_comment_or_every_suggestion_at_once() {
+fn test_WB_ROLE_85_an_answer_is_read_by_number_or_in_words() {
     for role in ROLES {
         let text = prompt(role);
-        let by_number = format!("  - By number: `[answer] {}1 2` takes choice 2 of that question, in its words.", question_name(role));
         for what in [
             "- An answer is read so:",
-            by_number.as_str(),
+            "  - By number: `q1: 2` takes choice 2 of that question, in its words.",
             "  - In words: any other text after the name is the answer, such as \"2, but only for the first command\", or plain words.",
-            "  - Several in one comment: each on a line of its own that starts `[answer]`.",
-            "  - Every suggestion at once: a comment whose first line is `[answer] {issue} suggested` takes the suggested answer of every question on the issue that was posted before that comment and has no answer yet. A question with no suggested answer stays open.",
         ] {
             assert!(text.contains(what), "{}: {}", role, what);
         }
@@ -1141,10 +1244,28 @@ fn test_WB_ROLE_74_an_answer_is_read_by_number_in_words_several_in_one_comment_o
 }
 
 #[test]
-fn test_WB_ROLE_74_a_number_that_is_not_a_choice_leaves_the_question_open() {
+fn test_WB_ROLE_85_a_number_that_is_not_a_choice_leaves_the_question_open() {
     for role in ROLES {
         let point = line_of(role, "  - In words:");
         assert!(point.contains("A number that is not one of the question's choices is no answer, and the question stays open."), "{}: {}", role, point);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_86_the_forms_of_revision_0_0_8_are_still_read_and_not_posted() {
+    for role in ROLES {
+        let point = line_of(role, "- An issue begun under revision 0.0.8 holds the forms of that revision.");
+        let question = format!("`[question] {}<n>`", question_name(role));
+        let answer = format!("`[answer] {}<n>`", question_name(role));
+        for what in [
+            "Read them, and do not post them:",
+            question.as_str(),
+            answer.as_str(),
+            "several in one comment, each on a line of its own",
+            "`[answer] {issue} suggested`, which takes the suggested answer of every question posted before it that has no answer yet",
+        ] {
+            assert!(point.contains(what), "{}: {}: {}", role, what, point);
+        }
     }
 }
 

@@ -1133,46 +1133,57 @@ fn test_WB_RULE_46_a_model_table_with_something_under_local_models_is_refused() 
     }
 }
 
-// The breakdown asks its questions on the issue (#95).
+// The breakdown asks its questions on the issue (#95), in one comment for the session from revision 0.0.9 (#145).
+
+/// What a row of the rule table says each role may do about its questions (#145).
+const ASKS: &str = "Post its questions on the issue, in one comment per session.";
 
 #[test]
-fn test_WB_RULE_47_the_breakdown_may_post_its_questions_on_the_issue_and_nothing_else() {
+fn test_WB_RULE_50_the_breakdown_may_post_its_questions_on_the_issue_in_one_comment_and_nothing_else() {
     let row = &first_revision().roles["breakdown"];
-    assert!(row.may.contains(&"Post its questions on the issue, one comment each.".to_string()), "{:?}", row.may);
+    assert!(row.may.contains(&ASKS.to_string()), "{:?}", row.may);
     let posts: Vec<&String> = row.may.iter().filter(|each| each.to_lowercase().contains("post")).collect();
     assert_eq!(posts.len(), 1, "{:?}", row.may);
     assert!(row.reads.contains(&"The issue with its comments, the answers of a person among them.".to_string()), "{:?}", row.reads);
 }
 
-// Work is pushed (#98).
+// Work is pushed by the breakdown (#98). The tester, the build and the fix run in a view with no remote, and a
+// person pushes their commits (#145).
 
 #[test]
-fn test_WB_RULE_48_the_breakdown_the_tester_the_build_and_the_fix_may_push_to_the_branch_of_the_issue() {
+fn test_WB_RULE_51_the_breakdown_alone_may_push_to_the_branch_of_the_issue() {
     let revision = first_revision();
-    for name in ["breakdown", "tester", "build", "fix"] {
-        let row = &revision.roles[name];
-        let pushes: Vec<&String> = row.may.iter().filter(|each| each.starts_with("Push") && each.contains("to the branch of the issue")).collect();
-        assert_eq!(pushes.len(), 1, "{}: {:?}", name, row.may);
-    }
-    for name in ["review", "officer"] {
+    let row = &revision.roles["breakdown"];
+    let pushes: Vec<&String> = row.may.iter().filter(|each| each.starts_with("Push") && each.contains("to the branch of the issue")).collect();
+    assert_eq!(pushes.len(), 1, "breakdown: {:?}", row.may);
+    for name in ["tester", "build", "review", "fix", "officer"] {
         let row = &revision.roles[name];
         assert!(!row.may.join(" ").to_lowercase().contains("push"), "{}: {:?}", name, row.may);
     }
 }
 
-// Every role asks on the issue (#113).
+#[test]
+fn test_WB_RULE_52_no_role_may_open_the_change() {
+    let revision = first_revision();
+    for (name, row) in &revision.roles {
+        let may = row.may.join(" ").to_lowercase();
+        assert!(!may.contains("open the change") && !may.contains("open a change"), "{}: {:?}", name, row.may);
+    }
+}
+
+// Every role asks on the issue (#113), in one comment for the session (#145).
 
 #[test]
-fn test_WB_RULE_49_the_tester_the_build_the_review_and_the_fix_may_post_their_questions_on_the_issue() {
+fn test_WB_RULE_53_the_tester_the_build_the_review_and_the_fix_may_post_their_questions_on_the_issue_in_one_comment() {
     let revision = first_revision();
     for name in ["tester", "build", "review", "fix"] {
         let row = &revision.roles[name];
-        assert!(row.may.contains(&"Post its questions on the issue, one comment each.".to_string()), "{}: {:?}", name, row.may);
+        assert!(row.may.contains(&ASKS.to_string()), "{}: {:?}", name, row.may);
     }
 }
 
 #[test]
-fn test_WB_RULE_49_the_tester_the_build_the_review_and_the_fix_read_the_issue_with_its_comments() {
+fn test_WB_RULE_53_the_tester_the_build_the_review_and_the_fix_read_the_issue_with_its_comments() {
     let revision = first_revision();
     for name in ["tester", "build", "review", "fix"] {
         let row = &revision.roles[name];

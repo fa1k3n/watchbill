@@ -70,7 +70,11 @@ fn test_WB_INIT_14_yes_writes_what_the_repository_says_and_asks_nothing() {
             "change_comments: 'gh api repos/example/brake-controller/issues/{change}/comments --paginate --jq ''.[].body | split(\"\\n\")[0]'''",
             "change_of_branch: 'gh pr list --repo example/brake-controller --head {branch} --state open --json number --jq ''.[].number'''",
             r#"open_issues: 'gh issue list --repo example/brake-controller --state open --limit 1000 --json number,title --jq ''.[] | "\(.number)\t\(.title | gsub("[\n\r]"; " "))"'''"#,
-            "issue_address: 'gh issue view {issue} --repo example/brake-controller; gh issue view {issue} --repo example/brake-controller --comments'",
+            // The whole comments, for `wb answer` (#145), and the command that opens the change as a draft.
+            r#"issue_comment_bodies: 'gh api repos/example/brake-controller/issues/{issue}/comments --paginate --jq ''.[] | .body + "\u0000"'''"#,
+            r#"change_comment_bodies: 'gh api repos/example/brake-controller/issues/{change}/comments --paginate --jq ''.[] | .body + "\u0000"'''"#,
+            "draft_change: 'gh pr create --repo example/brake-controller --head {branch} --draft --fill-verbose'",
+            "issue_address:'gh issue view {issue} --repo example/brake-controller; gh issue view {issue} --repo example/brake-controller --comments'",
             "change_address: 'gh pr view {change} --repo example/brake-controller; gh pr view {change} --repo example/brake-controller --comments'",
         ])
     );
@@ -1015,3 +1019,106 @@ fn test_WB_INIT_51_build_files_is_shown_before_it_is_written_after_classed() {
     let file = read(&config(&folder.path));
     assert!(file.contains("\nclassed: []\nbuild_files: ['.gitlab-ci.yml']\n"), "{}", file);
 }
+
+// ---- the whole comments, for `wb answer`, and the command that opens the change as a draft (#145) ----
+
+/// What `jq` prints for the JSON with the program of a pattern, as bytes, or `None` when `jq` is not here.
+fn jq_bytes(program: &str, json: &str) -> Option<Vec<u8>> {
+    if !std::process::Command::new("jq").arg("--version").output().map(|run| run.status.success()).unwrap_or(false) {
+        eprintln!("jq is not installed: not checked");
+        return None;
+    }
+    let mut child = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(program)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    std::io::Write::write_all(&mut child.stdin.take().unwrap(), json.as_bytes()).unwrap();
+    Some(child.wait_with_output().unwrap().stdout)
+}
+
+#[test]
+fn test_WB_ANSWER_12_a_github_origin_gets_issue_comment_bodies() {
+    let folder = repository(Some("https://github.com/example/brake-controller.git"));
+    let run = wb(&folder.path, &["init", "--yes"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(
+        pattern(&folder.path, "issue_comment_bodies").as_deref(),
+        Some("gh api repos/example/brake-controller/issues/{issue}/comments --paginate --jq '.[] | .body + \"\\u0000\"'")
+    );
+    assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
+    // And none for another server.
+    no_pattern(&["issue_comment_bodies"]);
+}
+
+#[test]
+fn test_WB_ANSWER_12_the_github_pattern_prints_each_whole_body_and_a_nul_byte() {
+    let folder = repository(Some("https://github.com/example/brake-controller.git"));
+    assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+    let line = pattern(&folder.path, "issue_comment_bodies").unwrap();
+    // Only what `gh` prints is stood in for: the jq of the pattern is run on its JSON, as `gh --jq` runs it.
+    let jq = line.split_once("--jq ").unwrap().1;
+    let json = "[{\"body\":\"[questions] 7.tester q1\\nq1: what\\n\"},{\"body\":\"plain\"}]";
+    if let Some(printed) = jq_bytes(&format!("jq -r {}", jq), json) {
+        assert_eq!(printed, b"[questions] 7.tester q1\nq1: what\n\0\nplain\0\n".to_vec());
+    }
+}
+
+#[test]
+fn test_WB_ANSWER_12_a_gitlab_origin_gets_issue_comment_bodies_with_the_host_of_origin() {
+    let folder = repository(Some("https://gitlab.team.example/brakes/controller.git"));
+    let run = wb(&folder.path, &["init", "--yes"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(
+        pattern(&folder.path, "issue_comment_bodies").as_deref(),
+        Some("glab api --hostname gitlab.team.example 'projects/brakes%2Fcontroller/issues/{issue}/notes?sort=asc&order_by=created_at' --paginate --output ndjson | jq -j 'select(.system == false) | .body + \"\\u0000\"'")
+    );
+    assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
+}
+
+#[test]
+fn test_WB_ANSWER_12_the_gitlab_pattern_prints_each_whole_body_of_no_system_note_and_a_nul_byte() {
+    let folder = repository(Some("https://gitlab.example.com/brakes/controller.git"));
+    assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+    let line = pattern(&folder.path, "issue_comment_bodies").unwrap();
+    let jq = line.split_once(" | ").unwrap().1;
+    let json = "{\"system\":false,\"body\":\"[questions] 7 q1\\nq1: what\"}\n{\"system\":true,\"body\":\"assigned\"}\n{\"system\":false,\"body\":\"plain\"}\n";
+    if let Some(printed) = jq_bytes(jq, json) {
+        assert_eq!(printed, b"[questions] 7 q1\nq1: what\0plain\0".to_vec());
+    }
+}
+
+#[test]
+fn test_WB_ANSWER_14_a_github_and_a_gitlab_origin_get_change_comment_bodies() {
+    let folder = repository(Some("https://github.com/example/brake-controller.git"));
+    assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+    assert_eq!(
+        pattern(&folder.path, "change_comment_bodies").as_deref(),
+        Some("gh api repos/example/brake-controller/issues/{change}/comments --paginate --jq '.[] | .body + \"\\u0000\"'")
+    );
+    let folder = repository(Some("https://gitlab.team.example/brakes/controller.git"));
+    assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+    assert_eq!(
+        pattern(&folder.path, "change_comment_bodies").as_deref(),
+        Some("glab api --hostname gitlab.team.example 'projects/brakes%2Fcontroller/merge_requests/{change}/notes?sort=asc&order_by=created_at' --paginate --output ndjson | jq -j 'select(.system == false) | .body + \"\\u0000\"'")
+    );
+    no_pattern(&["change_comment_bodies"]);
+}
+
+#[test]
+fn test_WB_INIT_58_a_github_and_a_gitlab_origin_get_draft_change() {
+    let folder = repository(Some("https://github.com/example/brake-controller.git"));
+    assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+    assert_eq!(pattern(&folder.path, "draft_change").as_deref(), Some("gh pr create --repo example/brake-controller --head {branch} --draft --fill-verbose"));
+    let folder = repository(Some("https://gitlab.team.example/brakes/controller.git"));
+    assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+    assert_eq!(
+        pattern(&folder.path, "draft_change").as_deref(),
+        Some("glab mr create --repo https://gitlab.team.example/brakes/controller --source-branch {branch} --draft --fill --fill-commit-body --yes")
+    );
+    assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
+    no_pattern(&["draft_change"]);
+}
+

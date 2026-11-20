@@ -1,4 +1,4 @@
-//! The lines a start leaves (#124): for each start of `wb <role>`, a folder
+//! The lines a start leaves (#124): for each start of `wb start <role>`, a folder
 //! `<state>/watchbill/sessions/<time>-<role>-<issue>/` with the stamp and the outcome, on the machine where
 //! it ran. They are diagnostics, not a record: `wb` never reads them back. A folder that cannot be written
 //! is said, and changes neither the status nor whether the session starts.
@@ -50,7 +50,7 @@ fn first_line(message: &str) -> &str {
 
 /// The folder of one start, made when it is first written.
 pub struct Lines {
-    /// What starts each line said: `wb <role>`.
+    /// What starts each line said: `wb start <role>`.
     name: String,
     /// The folder the start's folder goes below, `<state>/watchbill/sessions`, or why there is none.
     below: Result<PathBuf, String>,

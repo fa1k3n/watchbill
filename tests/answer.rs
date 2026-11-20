@@ -377,7 +377,7 @@ fn test_WB_ANSWER_8_after_posting_it_says_the_issue_s_file_is_to_be_changed_and_
     let after = &err[said..];
     assert!(after.contains(".watchbill/issues/175.yml"), "{}", err);
     assert!(after.contains("wb accept 175"), "{}", err);
-    assert!(after.contains("wb tester 175"), "{}", err);
+    assert!(after.contains("wb start tester 175"), "{}", err);
 }
 
 #[test]

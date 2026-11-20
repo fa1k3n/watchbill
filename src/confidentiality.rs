@@ -16,7 +16,7 @@ const RUNNER_FIELDS: [&str; 7] = ["tools", "model", "agreement", "up_to", "break
 const RUNNER_NEEDS: [&str; 4] = ["tools", "model", "agreement", "up_to"];
 const BREAKDOWN_FIELDS: [&str; 3] = ["up_to", "model", "effort"];
 
-/// The placeholders of a runner's `start` (#84): what `wb <role>` fills in each word.
+/// The placeholders of a runner's `start` (#84): what `wb start <role>` fills in each word.
 pub const START_PLACEHOLDERS: [&str; 3] = ["model", "effort", "prompt"];
 
 /// What a runner is cleared for in the breakdown: the highest level and the model and effort it runs with.
@@ -37,7 +37,7 @@ pub struct Runner {
     pub up_to: String,
     pub breakdown: Option<Breakdown>,
     /// The command that starts a session on this runner, as a list of words with `{model}`, `{effort}` and
-    /// `{prompt}` to fill (#84). `None` when the runner has none: `wb <role>` then starts nothing on it.
+    /// `{prompt}` to fill (#84). `None` when the runner has none: `wb start <role>` then starts nothing on it.
     pub start: Option<Vec<String>>,
     /// The paths the runner needs for itself in a view (#126): its program, its settings, its login. None
     /// when the runner has no `binds`.
@@ -53,7 +53,7 @@ pub struct Bind {
 }
 
 /// The organisation's file: the levels from the least to the most restrictive, the runners, and the runner
-/// `wb <role>` takes when none is given.
+/// `wb start <role>` takes when none is given.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Organisation {
     pub levels: Vec<String>,
@@ -263,7 +263,7 @@ fn read_document(doc: &Document) -> Result<Organisation, YamlError> {
     for name in doc.table(&at(&["runners"]))? {
         runners.push(read_runner(doc, &name, &levels)?);
     }
-    // The runner `wb <role>` takes when none is given (#84): one of the runners of the file.
+    // The runner `wb start <role>` takes when none is given (#84): one of the runners of the file.
     let mut default = None;
     let place = at(&["default"]);
     if doc.has(&place) {

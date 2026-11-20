@@ -349,6 +349,8 @@ pub struct Back {
     pub refused: Option<(String, String, String)>,
     /// The commits after the one refused, not taken: each its name in the view and its subject.
     pub after: Vec<(String, String)>,
+    /// What `wb` passed over in reading the rules, said on standard error.
+    pub notes: Vec<String>,
     /// The paths left uncommitted in the view.
     pub uncommitted: Vec<String>,
     /// Why nothing of the view could be taken back, when it could not.
@@ -504,20 +506,20 @@ fn short(commit: &str) -> &str {
 
 /// Takes the work of the session back from `view` to the checkout at `root`: each commit, in order, while it
 /// keeps to `changes`, then the paths left uncommitted. A commit that does not is refused, and none after it is
-/// taken. What is said goes to `err`, after `name`.
-pub fn take_back(name: &str, root: &str, view: &View, changes: &[String], build_files: &[String], err: &mut dyn Write) -> Back {
+/// taken. What is said goes to `err`, after `name`; `list` is where the whole list of paths left is written.
+pub fn take_back(name: &str, root: &str, view: &View, changes: &[String], build_files: &[String], list: Option<&Path>, err: &mut dyn Write) -> Back {
     let mut back = Back::default();
     let store = match Store::new(view) {
         Ok(store) => store,
         Err(why) => {
             back.failed = Some(why);
-            return said(name, view, back, err);
+            return said(name, view, back, list, err);
         }
     };
     if let Err(why) = commits(root, view, &store.path, changes, build_files, &mut back) {
         back.failed = Some(why);
     }
-    match uncommitted(&store.path, &view.folder) {
+    match uncommitted(root, &store.path, &view.folder, &view.head, &mut back.notes) {
         Ok(found) => back.uncommitted = found,
         Err(why) => {
             if back.failed.is_none() {
@@ -526,7 +528,7 @@ pub fn take_back(name: &str, root: &str, view: &View, changes: &[String], build_
         }
     }
     drop(store);
-    said(name, view, back, err)
+    said(name, view, back, list, err)
 }
 
 /// A repository of `wb`'s own, through which the objects of a view are read, and removed when it is dropped.
@@ -661,8 +663,88 @@ fn commits(root: &str, view: &View, store: &Path, changes: &[String], build_file
     Ok(())
 }
 
-/// The paths of the view that differ from its `HEAD`, or are not in it and not ignored: work not committed.
-fn uncommitted(store: &Path, view: &Path) -> Result<Vec<String>, String> {
+/// The ignore rules of the checkout, written in a folder of `wb`'s own below `store`: every `.gitignore` of `head`
+/// at its place, and the checkout's `.git/info/exclude`. They are read from the checkout, never from the view, so
+/// that a session cannot widen them. The result is the folder to take as a work tree of the store.
+fn rules(root: &str, store: &Path, head: &str, notes: &mut Vec<String>) -> Result<PathBuf, String> {
+    let root = Path::new(root);
+    let tree = store.join("rules");
+    fs::create_dir_all(&tree).map_err(|error| error.to_string())?;
+    let listed = git(root, &["ls-tree", "-r", "-z", "--full-tree", head], &[], None)?;
+    for entry in listed.split(|byte| *byte == 0).filter(|entry| !entry.is_empty()) {
+        let text = String::from_utf8_lossy(entry);
+        let Some((meta, path)) = text.split_once('\t') else { continue };
+        let words: Vec<&str> = meta.split(' ').collect();
+        let [mode, kind, object] = words.as_slice() else { continue };
+        let found = parts(path);
+        // A link is not read as a `.gitignore`, as git does not.
+        if *kind != "blob" || *mode == "120000" || found.last() != Some(&".gitignore") || found.iter().any(|part| *part == ".git" || *part == "..") {
+            continue;
+        }
+        let blob = git(root, &["cat-file", "blob", object], &[], None)?;
+        let at = found.iter().fold(tree.clone(), |at, part| at.join(part));
+        if let Some(folder) = at.parent() {
+            fs::create_dir_all(folder).map_err(|error| error.to_string())?;
+        }
+        fs::write(&at, blob).map_err(|error| error.to_string())?;
+    }
+    let exclude = line(&git(root, &["rev-parse", "--git-path", "info/exclude"], &[], None)?);
+    let exclude = if Path::new(&exclude).is_absolute() { PathBuf::from(exclude) } else { root.join(exclude) };
+    let info = store.join("info");
+    fs::create_dir_all(&info).map_err(|error| error.to_string())?;
+    let said = exclude.display();
+    let text = match fs::symlink_metadata(&exclude) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => {
+            notes.push(format!("the checkout's {} was not read, and its rules are not applied: {}", said, error));
+            String::new()
+        }
+        Ok(found) if found.file_type().is_symlink() => {
+            notes.push(format!("the checkout's {} was not read, and its rules are not applied: it is a link", said));
+            String::new()
+        }
+        Ok(found) if !found.is_file() || found.len() > 64 * 1024 * 1024 => {
+            notes.push(format!("the checkout's {} was not read, and its rules are not applied: it is not a plain file of 64 MiB or less", said));
+            String::new()
+        }
+        Ok(_) => fs::read_to_string(&exclude).unwrap_or_else(|error| {
+            notes.push(format!("the checkout's {} was not read, and its rules are not applied: {}", said, error));
+            String::new()
+        }),
+    };
+    fs::write(info.join("exclude"), text).map_err(|error| error.to_string())?;
+    Ok(tree)
+}
+
+/// Of `paths`, those the ignore rules of the checkout ignore, by `check-ignore` in the store with `tree` as its
+/// work tree. The global rules of the person are not read.
+fn ignored(store: &Path, tree: &Path, paths: &[String]) -> Result<Vec<String>, String> {
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+    let nowhere = store.join("nowhere");
+    let env = [
+        ("GIT_DIR", store),
+        ("GIT_WORK_TREE", tree),
+        ("GIT_CONFIG_GLOBAL", Path::new("/dev/null")),
+        ("GIT_CONFIG_NOSYSTEM", Path::new("1")),
+        ("XDG_CONFIG_HOME", nowhere.as_path()),
+        ("HOME", nowhere.as_path()),
+    ];
+    let input: Vec<u8> = paths.iter().flat_map(|path| path.bytes().chain(std::iter::once(0))).collect();
+    let args = ["check-ignore", "--no-index", "-z", "--stdin"];
+    let found = match git(tree, &args, &env, Some(&input)) {
+        Ok(found) => found,
+        // git ends with 1 where nothing is ignored.
+        Err(why) if why == "`git check-ignore` ended with 1" => Vec::new(),
+        Err(why) => return Err(why),
+    };
+    Ok(found.split(|byte| *byte == 0).filter(|path| !path.is_empty()).map(|path| String::from_utf8_lossy(path).to_string()).collect())
+}
+
+/// The paths of the view that differ from its `HEAD`, or are not in it and not ignored by the rules of the
+/// checkout (`head` is the commit of the checkout the view was made from): work not committed.
+fn uncommitted(root: &str, store: &Path, view: &Path, head_of_checkout: &str, notes: &mut Vec<String>) -> Result<Vec<String>, String> {
     let head = head_of(&view.join(".git"))?;
     let index = store.join("index-of-the-view");
     let env = [("GIT_INDEX_FILE", index.as_path()), ("GIT_WORK_TREE", view)];
@@ -676,22 +758,30 @@ fn uncommitted(store: &Path, view: &Path) -> Result<Vec<String>, String> {
     run(&["read-tree", &head])?;
     // `--refresh` ends with 1 where a file needs it; what differs is read next.
     let _ = run(&["update-index", "-q", "--refresh"]);
-    let mut found: Vec<String> = Vec::new();
-    for listed in [run(&["diff-files", "--name-only", "-z"])?, run(&["ls-files", "--others", "--exclude-standard", "-z"])?] {
-        for path in listed.split(|byte| *byte == 0).filter(|path| !path.is_empty()) {
-            let path = String::from_utf8_lossy(path).to_string();
-            if !found.contains(&path) {
-                found.push(path);
-            }
-        }
-    }
+    let names = |listed: Vec<u8>| -> Vec<String> {
+        listed.split(|byte| *byte == 0).filter(|path| !path.is_empty()).map(|path| String::from_utf8_lossy(path).to_string()).collect()
+    };
+    let changed = names(run(&["diff-files", "--name-only", "-z"])?);
+    // No `--exclude-standard`: the view's own `.gitignore` is the session's, and is not read.
+    let others = names(run(&["ls-files", "--others", "-z"])?);
+    let tree = rules(root, store, head_of_checkout, notes)?;
+    let ignored: std::collections::HashSet<String> = ignored(store, &tree, &others)?.into_iter().collect();
+    let mut found: Vec<String> = changed;
+    found.extend(others.into_iter().filter(|path| !ignored.contains(path)));
     found.sort();
+    found.dedup();
     Ok(found)
 }
 
+/// How many paths left uncommitted are named on the terminal; the whole list is in the file `back`.
+const SHOWN: usize = 20;
+
 /// Says what was taken back and what was not, and removes the view when all of it was taken; else it is kept,
 /// and named.
-fn said(name: &str, view: &View, back: Back, err: &mut dyn Write) -> Back {
+fn said(name: &str, view: &View, back: Back, list: Option<&Path>, err: &mut dyn Write) -> Back {
+    for note in &back.notes {
+        let _ = writeln!(err, "{}: {}", name, note);
+    }
     for (commit, subject) in &back.taken {
         let _ = writeln!(err, "{}: taken onto {}: {} {}", name, view.branch_name(), short(commit), subject);
     }
@@ -701,7 +791,18 @@ fn said(name: &str, view: &View, back: Back, err: &mut dyn Write) -> Back {
     for (commit, subject) in &back.after {
         let _ = writeln!(err, "{}: not taken: the commit {} \"{}\" of the view", name, short(commit), subject);
     }
-    if !back.uncommitted.is_empty() {
+    if back.uncommitted.len() > SHOWN {
+        let place = list.map(|file| file.display().to_string()).unwrap_or_else(|| "the file `back` of the session's folder".to_string());
+        let _ = writeln!(
+            err,
+            "{}: {} paths left uncommitted in the view, and not taken; the first {}: {}. The whole list is in {}",
+            name,
+            back.uncommitted.len(),
+            SHOWN,
+            back.uncommitted[..SHOWN].join(", "),
+            place
+        );
+    } else if !back.uncommitted.is_empty() {
         let _ = writeln!(err, "{}: left uncommitted in the view, and not taken: {}", name, back.uncommitted.join(", "));
     }
     if let Some(why) = &back.failed {

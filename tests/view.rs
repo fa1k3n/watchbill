@@ -888,3 +888,222 @@ fn test_WB_VIEW_16_without_a_view_new_commits_on_the_branch_get_the_same_command
     assert!(!text_of(&run.stderr).contains("git push"), "{}", text_of(&run.stderr));
 }
 
+
+// ---- WB-VIEW-17 to 19: the ignore rules of the checkout, and a long list left ----
+
+/// Commits `text` as `path` on the branch of the bench, before a view is made from it.
+fn commit_file(bench: &Bench, path: &str, text: &str) {
+    let full = bench.repo.path.join(path);
+    fs::create_dir_all(full.parent().unwrap()).unwrap();
+    fs::write(&full, text).unwrap();
+    git(&bench.repo.path, &["add", path]);
+    git(&bench.repo.path, &["commit", "-q", "-m", &format!("Add {}", path)]);
+}
+
+#[test]
+fn test_WB_VIEW_17_a_path_the_checkout_ignores_is_not_work_left_and_the_view_is_removed() {
+    if !sandbox("test_WB_VIEW_17") {
+        return;
+    }
+    let bench = bench();
+    commit_file(&bench, ".gitignore", "node_modules/\n*.o\n");
+    bench.session("mkdir -p src/node_modules/pkg && echo x > src/node_modules/pkg/index.js && echo y > src/brake.o\n");
+
+    let run = bench.start(&["build", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    assert!(!err.contains("node_modules") && !err.contains("brake.o") && !err.contains("uncommitted"), "{}", err);
+    assert!(bench.below("views").is_empty(), "{:?}", bench.below("views"));
+    let back = read(&bench.lines().join("back"));
+    assert!(!back.contains("uncommitted") && back.lines().any(|line| line == "view: removed"), "{}", back);
+}
+
+#[test]
+fn test_WB_VIEW_18_a_gitignore_written_in_the_view_does_not_hide_a_path_the_checkout_does_not_ignore() {
+    if !sandbox("test_WB_VIEW_18") {
+        return;
+    }
+    let bench = bench();
+    commit_file(&bench, ".gitignore", "node_modules/\n");
+    bench.session("echo '*' > .gitignore\necho '*' > src/.gitignore\necho 'int fresh;' > src/new.c\nmkdir src/node_modules && echo x > src/node_modules/a\n");
+
+    let run = bench.start(&["build", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    assert!(err.contains("src/new.c") && err.contains("uncommitted"), "{}", err);
+    assert!(!err.contains("node_modules"), "{}", err);
+    assert_eq!(bench.below("views").len(), 1);
+}
+
+#[test]
+fn test_WB_VIEW_18_the_exclude_file_of_the_checkout_is_read_too() {
+    if !sandbox("test_WB_VIEW_18") {
+        return;
+    }
+    let bench = bench();
+    fs::write(bench.repo.path.join(".git/info/exclude"), "scratch/\n").unwrap();
+    bench.session("mkdir -p src/scratch && echo x > src/scratch/a\necho y > src/kept.txt\n");
+
+    let run = bench.start(&["build", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    assert!(err.contains("src/kept.txt") && !err.contains("scratch"), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_19_more_than_20_paths_left_are_said_as_a_count_20_paths_and_the_place_of_the_list() {
+    if !sandbox("test_WB_VIEW_19") {
+        return;
+    }
+    let bench = bench();
+    bench.session("mkdir src/many\ni=1\nwhile [ $i -le 25 ]; do echo $i > src/many/f$(printf %02d $i); i=$((i+1)); done\n");
+
+    let run = bench.start(&["build", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    assert!(err.contains("25 paths"), "{}", err);
+    assert!(err.contains("src/many/f01") && err.contains("src/many/f20"), "{}", err);
+    assert!(!err.contains("src/many/f21") && !err.contains("src/many/f25"), "{}", err);
+    let back = bench.lines().join("back");
+    assert!(err.contains(back.to_str().unwrap()), "{}", err);
+    let all = read(&back);
+    assert_eq!(all.lines().filter(|line| line.starts_with("uncommitted: ")).count(), 25, "{}", all);
+    assert!(all.contains("uncommitted: src/many/f25"), "{}", all);
+}
+
+// ---- WB-VIEW-20: how to look at the commits taken ----
+
+#[test]
+fn test_WB_VIEW_20_after_the_commits_are_taken_back_git_show_stat_is_said_for_each() {
+    if !sandbox("test_WB_VIEW_20") {
+        return;
+    }
+    let bench = bench();
+    bench.session(
+        "echo 'int a;' > src/brake.c && git commit -q -a -m 'First'\n\
+         echo 'int b;' > src/new.c && git add src/new.c && git commit -q -m 'Second'\n",
+    );
+
+    let run = bench.start(&["build", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    let made = bench.git_text(&["rev-list", "--reverse", "HEAD~2..HEAD"]);
+    let made: Vec<&str> = made.lines().collect();
+    assert_eq!(made.len(), 2);
+    for commit in made {
+        assert!(err.contains(&format!("git show --stat {}", commit)), "{}", err);
+    }
+    let show = err.find("git show --stat").unwrap();
+    let push = err.find("git push origin issue-54").unwrap();
+    assert!(show < push, "{}", err);
+
+    // A session that commits nothing gets none.
+    let bench = self::bench();
+    let run = bench.start(&["build", "54"]);
+    ok(&run);
+    assert!(!text_of(&run.stderr).contains("git show"), "{}", text_of(&run.stderr));
+}
+
+// ---- WB-VIEW-18 (review of #166): rules only from the checkout's HEAD and exclude, and a notice ----
+
+#[test]
+fn test_WB_VIEW_18_the_view_s_own_exclude_and_excludesfile_do_not_hide_a_path() {
+    if !sandbox("test_WB_VIEW_18") {
+        return;
+    }
+    let bench = bench();
+    bench.session(
+        "echo 'int fresh;' > src/new.c\n\
+         echo '*' > /tmp/all\n\
+         echo 'src/new.c' >> .git/info/exclude\n\
+         git config core.excludesFile /tmp/all\n",
+    );
+
+    let run = bench.start(&["build", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    assert!(err.contains("src/new.c") && err.contains("uncommitted"), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_18_the_person_s_global_ignore_file_is_not_read() {
+    if !sandbox("test_WB_VIEW_18") {
+        return;
+    }
+    let name = "test_WB_VIEW_18_the_person_s_global_ignore_file_is_not_read";
+    // The variables of a process are the process's: the check runs in a child of this test binary, so that
+    // no other test of it sees the person's files.
+    let Some(person) = std::env::var_os("WB_TEST_GLOBAL_IGNORE") else {
+        let person = folder_named("person");
+        fs::create_dir_all(person.path.join(".config/git")).unwrap();
+        fs::write(person.path.join(".config/git/ignore"), "*\n").unwrap();
+        fs::write(person.path.join(".gitconfig"), "[core]\n\texcludesFile = ~/ignore-all\n").unwrap();
+        fs::write(person.path.join("ignore-all"), "*\n").unwrap();
+        let run = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", name, "--nocapture", "--test-threads=1"])
+            .env("WB_TEST_GLOBAL_IGNORE", &person.path)
+            .output()
+            .unwrap();
+        assert!(run.status.success(), "{}{}", text(&run.stdout), text(&run.stderr));
+        return;
+    };
+    let bench = bench();
+    bench.session("echo 'int fresh;' > src/new.c\n");
+    std::env::set_var("HOME", &person);
+    std::env::set_var("XDG_CONFIG_HOME", Path::new(&person).join(".config"));
+
+    let run = bench.start(&["build", "54"]);
+
+    ok(&run);
+    assert!(text_of(&run.stderr).contains("src/new.c"), "{}", text_of(&run.stderr));
+}
+
+#[test]
+fn test_WB_VIEW_18_the_rules_are_those_of_head_not_of_the_working_tree_of_the_checkout() {
+    if !sandbox("test_WB_VIEW_18") {
+        return;
+    }
+    let bench = bench();
+    commit_file(&bench, ".gitignore", "node_modules/\n");
+    fs::write(bench.repo.path.join(".gitignore"), "*\n").unwrap();
+    bench.session("echo 'int fresh;' > src/new.c\nmkdir src/node_modules && echo x > src/node_modules/a\n");
+
+    let run = bench.start(&["build", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    assert!(err.contains("src/new.c") && !err.contains("node_modules"), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_18_an_exclude_file_that_is_passed_over_is_said_and_why() {
+    if !sandbox("test_WB_VIEW_18") {
+        return;
+    }
+    let bench = bench();
+    let exclude = bench.repo.path.join(".git/info/exclude");
+    fs::write(bench.repo.path.join(".git/elsewhere"), "scratch/\n").unwrap();
+    let _ = fs::remove_file(&exclude);
+    std::os::unix::fs::symlink("../elsewhere", &exclude).unwrap();
+    bench.session("mkdir -p src/scratch && echo x > src/scratch/a\n");
+
+    let run = bench.start(&["build", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    assert!(err.contains("info/exclude") && err.contains("not read") && err.contains("link"), "{}", err);
+
+    // An exclude file that is not there is not said.
+    let bench = self::bench();
+    let _ = fs::remove_file(bench.repo.path.join(".git/info/exclude"));
+    bench.session("echo x > src/kept.txt\n");
+    let run = bench.start(&["build", "54"]);
+    ok(&run);
+    assert!(!text_of(&run.stderr).contains("info/exclude"), "{}", text_of(&run.stderr));
+}

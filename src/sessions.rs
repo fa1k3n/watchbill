@@ -124,6 +124,11 @@ impl Lines {
         self.made = Some(folder);
     }
 
+    /// The path of a file of the folder made, or none when no folder was made.
+    pub fn file(&self, file: &str) -> Option<PathBuf> {
+        self.made.as_ref().map(|folder| folder.join(file))
+    }
+
     /// Writes a file of its own beside the stamp (#126: `view` and `back`), in the folder made, or in a new
     /// one when none was made yet. A file that cannot be written is said, and nothing else follows from it.
     pub fn write(&mut self, file: &str, text: &str, err: &mut dyn Write) {

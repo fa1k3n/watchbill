@@ -368,6 +368,10 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
         On::Issue(issue) => ("issue", issue, "issue_comment_bodies", "issue_comment"),
         On::Change(change) => ("change", change, "change_comment_bodies", "change_comment"),
     };
+    if let Err(why) = starter::held(root) {
+        let _ = writeln!(err, "wb answer: {}.", why);
+        return 1;
+    }
     let mut commands = Vec::new();
     for key in [read, post] {
         match prompt::pattern_of(root, key) {

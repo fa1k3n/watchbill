@@ -528,6 +528,10 @@ pub fn accept(root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &
         let _ = writeln!(err, "wb accept: .watchbill/watchbill.yml is not there. Watchbill is not set up in this repository.");
         return 2;
     }
+    if let Err(why) = crate::starter::held(root) {
+        let _ = writeln!(err, "wb accept: {}. Nothing read, nothing written.", why);
+        return 1;
+    }
     let file = file_of(base, issue);
     let shown = format!("{}/{}.yml", FOLDER, issue);
     match fs::symlink_metadata(&file) {

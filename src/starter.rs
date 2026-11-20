@@ -9,6 +9,7 @@
 //! `start` is a list of words, and is run with no shell.
 
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use crate::yamlfile::{self, Part};
@@ -19,10 +20,44 @@ const ROUNDS_OF_THEIR_OWN: [&str; 4] = ["breakdown", "tester", "build", "review"
 /// The longest word, with its closing zero byte, that Linux hands a program (`MAX_ARG_STRLEN`).
 pub const LONGEST_WORD: usize = 128 * 1024;
 
+/// The limit of #186: `watchbill.yml` at `root` is held as `HEAD` has it. A pattern of the file is run as the
+/// person, so a file that a session changed and nobody committed is never run. `Ok` where the file in the
+/// working tree is the file of `HEAD` byte for byte, and where there is no file (the commands say that
+/// themselves); otherwise the refusal, which names the file. No flag lifts it: every command that runs a
+/// pattern, or reads `needs` or `build_files`, asks it here, and `run` asks it before any pattern runs.
+pub fn held(root: &str) -> Result<(), String> {
+    let place = format!("{}/{}", crate::init::CONFIG_FOLDER, crate::init::CONFIG_FILE);
+    let Ok(now) = std::fs::read(Path::new(root).join(&place)) else {
+        return Ok(());
+    };
+    let head = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("show")
+        .arg(format!("HEAD:{}", place))
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+    let said = match head {
+        Ok(output) if output.status.success() => {
+            if output.stdout == now {
+                return Ok(());
+            }
+            "differs from HEAD"
+        }
+        _ => "is not in HEAD",
+    };
+    Err(format!(
+        "{} {}, and a pattern of it is run as the person: a person reads the change and commits it, or takes it back with git, before the next command. Nothing is run and nothing is posted",
+        place, said
+    ))
+}
+
 /// Runs one pattern, filled, as one line of `/bin/sh -c` in `root`, with `input` on standard input or
 /// nothing. Standard error is the person's. The result is what it printed on standard output; a command
 /// that cannot be run, or ends with anything but 0, is refused with the key of the pattern named.
 pub fn run(root: &str, key: &str, line: &str, input: Option<&[u8]>) -> Result<Vec<u8>, String> {
+    held(root)?;
     let mut command = Command::new("/bin/sh");
     command.arg("-c").arg(line).current_dir(root).stdout(Stdio::piped()).stderr(Stdio::inherit());
     command.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() });

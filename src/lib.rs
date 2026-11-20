@@ -649,6 +649,13 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
         let _ = writeln!(err, "{}: {}", name, why);
         1
     };
+    // A start runs patterns as the person, and only while `watchbill.yml` is as `HEAD` has it (#186). `wb prompt`
+    // runs a pattern only to work out a round or a change, and `run` holds it there.
+    if starting {
+        if let Err(why) = starter::held(&root) {
+            return Err(refused(err, &format!("{}.", why)));
+        }
+    }
     // What `wb check` says is for standard error here: standard output holds the prompt or nothing.
     let (mut said, mut why) = (Vec::new(), Vec::new());
     let status = check::check(&root, VERSION, Path::new(manifest::PACKAGE_FOLDER), &mut said, &mut why);

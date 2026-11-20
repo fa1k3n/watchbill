@@ -347,6 +347,11 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, out: 
             return 2;
         }
     };
+    // Before any pattern runs: only the file of `HEAD` is run (#186). A refs listing that fails ends with 2 above.
+    if let Err(why) = starter::held(root) {
+        let _ = writeln!(err, "wb status: {}.", why);
+        return 1;
+    }
     let mut issues: Vec<String> = match only {
         Some(one) => vec![one.to_string()],
         None => flow.iter().filter_map(|full| full.strip_prefix("refs/heads/").or_else(|| full.strip_prefix("refs/remotes/origin/"))).filter_map(|name| issue_of(&patterns.branch, name)).collect(),

@@ -667,7 +667,6 @@ pub fn derive_with(
                 let open = crate::starter::open_changes(root, &found.replace("{branch}", &branch)).map_err(PromptError)?;
                 match open.as_slice() {
                     [one] if is_plain_name(one) => {
-                        worked.said.push(format!("change {} (the one open change from {})", one, branch));
                         values.push(("change", one.clone()));
                         if let (false, Some(found)) = (has(&values, "change_address"), pattern("change_address")?) {
                             values.push(("change_address", found.replace("{change}", one)));

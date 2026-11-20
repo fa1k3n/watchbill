@@ -20,9 +20,19 @@ What a session of the tester, the build, the review or the fix sees when `wb <ro
 | WB-VIEW-14 | After the commits of a session in a view are taken onto the branch, `wb <role>` shall say on standard error the command that pushes the branch, `git push origin <branch>`, and shall not run it. Issue: #145. | T | Implemented |
 | WB-VIEW-15 | After a session of the build whose commits were taken onto the branch, `wb build` shall also say on standard error the command that opens the change as a draft, the pattern `draft_change` of `watchbill.yml` with `{branch}` filled, and shall not run it; without the pattern, it shall say that the line is not there. Issue: #145. | T | Implemented |
 | WB-VIEW-16 | After a session of the tester, the build or the fix without a view, where the branch checked out has new commits, `wb <role>` shall say the same commands as after a view. Issue: #145. | T | Implemented |
-| WB-VIEW-17 | `wb` shall not count as work left in a view a path that the ignore rules of the checkout ignore: every `.gitignore` of `HEAD` and the checkout's `.git/info/exclude`. Issue: #159. | T | Draft |
-| WB-VIEW-18 | `wb` shall read those ignore rules from the checkout, and never from the view. Issue: #159. | T | Draft |
-| WB-VIEW-19 | Where more than 20 paths are left in a view, `wb` shall say how many, the first 20, and that the whole list is in the file `back` of the session's folder. Issue: #159. | T | Draft |
-| WB-VIEW-20 | After the commits of a view are taken back, `wb` shall say on standard error `git show --stat <commit>` for each commit taken. Issue: #159. | T | Draft |
+| WB-VIEW-17 | `wb` shall not count as work left in a view a path that the ignore rules of the checkout ignore: every `.gitignore` of `HEAD` and the checkout's `.git/info/exclude`. Issue: #159. | T | Implemented |
+| WB-VIEW-18 | `wb` shall read those ignore rules from the checkout, and never from the view. Issue: #159. | T | Implemented |
+| WB-VIEW-19 | Where more than 20 paths are left in a view, `wb` shall say how many, the first 20, and that the whole list is in the file `back` of the session's folder. Issue: #159. | T | Implemented |
+| WB-VIEW-20 | After the commits of a view are taken back, `wb` shall say on standard error `git show --stat <commit>` for each commit taken. Issue: #159. | T | Implemented |
 | WB-VIEW-21 | `wb` shall say on standard error, and write into `back`, each path from a view with its control characters escaped. Issue: #167. | T | Draft |
 | WB-VIEW-22 | `back` shall hold one line for each path from a view, whatever its name holds. Issue: #167. | T | Draft |
+| WB-VIEW-23 | `wb view <issue> <role>` shall print the paths of that role's view, one to a line, the same list its start makes the view from. Issue: #173. | T | Draft |
+| WB-VIEW-24 | `wb view <issue> <role>` shall print the level and the line `view: <hash>` that the role's stamp would hold. Issue: #173. | T | Draft |
+| WB-VIEW-25 | `wb view <issue> <role> --out` shall print the folders of `HEAD` that the view leaves out, each with a count of its paths. Issue: #173. | T | Draft |
+| WB-VIEW-26 | `wb view` with both `--in` and `--out` shall end with 2. Issue: #173. | T | Draft |
+| WB-VIEW-27 | `wb view <issue> <path>` shall say, for each role, whether the path is in its view, and when in, the list and the line of the issue's file that holds it. Issue: #173. | T | Draft |
+| WB-VIEW-28 | `wb view <issue> <path>` shall say, for a role whose view leaves the path out, why: not listed, under `.watchbill/`, under `build_files`, ignored by the checkout, or not in `HEAD`. Issue: #173. | T | Draft |
+| WB-VIEW-29 | `wb view <issue> <path>` shall end with 0 when the path is in the view of at least one role, and 1 when in none. Issue: #173. | T | Draft |
+| WB-VIEW-30 | `wb view <issue> <role>` shall print the local changes that the guard of the start would name. Issue: #173. | T | Draft |
+| WB-VIEW-31 | `wb view` shall make no view, post nothing, write nothing, and ask nothing of the network. Issue: #173. | T | Draft |
+| WB-VIEW-32 | `wb view <issue> <role>` for an issue with no accepted, committed file shall end with 1, saying the role would run without a view. Issue: #173. | T | Draft |

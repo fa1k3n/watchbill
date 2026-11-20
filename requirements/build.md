@@ -33,3 +33,12 @@ What `wb <role> <issue>` checks, posts and starts. One path for a person and, af
 | WB-BUILD-27 | The stamp that `wb <role>` posts shall hold on its line `round:` the round of its first line, for every role, also where the text of the role has no `{round}`. Issue: #136. | T | Implemented |
 | WB-BUILD-28 | `wb review <issue>` and `wb fix <issue>` shall say on standard error, before the stamp is posted, the issue, the change, and whether the change was found from the branch, naming it, or given. Issue: #162. | T | Draft |
 | WB-BUILD-29 | `wb review --change <n>` and `wb fix --change <n>` with no issue shall say the change on standard error before the stamp is posted. Issue: #162. | T | Draft |
+| WB-BUILD-30 | Before the stamp is posted, for a role that runs in a view, `wb` shall name each path of the view whose file in the working tree differs from `HEAD`, and end with 1. Issue: #172. | T | Draft |
+| WB-BUILD-31 | Before the stamp is posted, for a role that runs in a view, `wb` shall name each untracked file under a path of `changes`, and end with 1. Issue: #172. | T | Draft |
+| WB-BUILD-32 | `--ignore-local` shall let the start go on when every local change is under the role's `reads` only. Issue: #172. | T | Draft |
+| WB-BUILD-33 | A local change under `changes` shall be refused with 1 also with `--ignore-local`, saying that it cannot be overridden. Issue: #172. | T | Draft |
+| WB-BUILD-34 | A start that `--ignore-local` let go on shall have the line `local: ignored <n>` in its stamp, after `view:`, and the file `local` with the paths in its session's folder. Issue: #172. | T | Draft |
+| WB-BUILD-35 | The refusal of a local change shall say that it is a guard, name the paths and their list, and name `--ignore-local`. Issue: #172. | T | Draft |
+| WB-BUILD-36 | `wb start <role> <issue>` shall do what `wb <role> <issue>` did, with the same options. Issue: #175. | T | Draft |
+| WB-BUILD-37 | `wb <role> …` for a role of the revision shall end with 2 and say the form `wb start <role> …` with the same words. Issue: #175. | T | Draft |
+| WB-BUILD-38 | `wb start` with a role that is not known shall end with 2 and name the roles. Issue: #175. | T | Draft |

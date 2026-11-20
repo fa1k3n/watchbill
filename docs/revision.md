@@ -231,15 +231,17 @@ The pieces that build this have their requirements reserved as Draft rows in `re
 | `WB-CONF` | `requirements/conf.md` | #11 |
 | `WB-TASK` | `requirements/task.md` | #74, #78, #116, #157: the area keeps its name, and its rows say issue |
 | `WB-ACCT` | `requirements/acct.md` | #83 |
-| `WB-BUILD` | `requirements/build.md` | #84, #162 |
+| `WB-BUILD` | `requirements/build.md` | #84, #162, #172, #175 |
 | `WB-LISTEN` | `requirements/listen.md` | #85 |
 | `WB-OFFICER` | `requirements/officer.md` | #86 |
 | `WB-HAND` | `requirements/hand.md` | #88 |
 | `WB-MON` | `requirements/mon.md` | #124, #126, #127 |
-| `WB-VIEW` | `requirements/view.md` | #126, #145, #159, #167 |
+| `WB-VIEW` | `requirements/view.md` | #126, #145, #159, #167, #173 |
 | `WB-ANSWER` | `requirements/answer.md` | #145 |
 | `WB-STATUS` | `requirements/status.md` | #139, #155 |
 | `WB-REVERT` | `requirements/revert.md` | #142 |
 | `WB-PUSH` | `requirements/push.md` | #151 |
+| `WB-CMD` | `requirements/cmd.md` | #171 |
+| `WB-UPGRADE` | `requirements/upgrade.md` | #174 |
 
 The move to Rust builds no new area. #21 to #25 port what #2 and #4 to #6 built, row by row, and their new rows are reserved in `requirements/pkg.md`, `init.md`, `rule.md` and `rev.md`.

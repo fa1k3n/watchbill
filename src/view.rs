@@ -55,22 +55,71 @@ fn under(path: &str, listed: &str) -> bool {
     path == listed || path.strip_prefix(listed).is_some_and(|rest| rest.starts_with('/'))
 }
 
-/// The local changes the view of `role` would miss, sorted: a view is made from `HEAD`, so a file of its paths that
-/// is changed, staged or deleted in the working tree, and an untracked file under a path of `changes`, would
-/// not be in it. Reads only. Each path is as the working tree says it, not escaped.
+/// The local changes the view of `role` would miss, sorted: a view is made from `HEAD`, so a path of its paths that
+/// differs from `HEAD` in the index or in the working tree (changed, staged, deleted, a rename as both its
+/// paths), a file marked `assume-unchanged` or `skip-worktree` that is changed, and any untracked file under a path
+/// of `changes`, would not be in it. An untracked file is named whatever ignores it, by the rules of the checkout
+/// or of the person's global file: the fast-forward at the end writes over an ignored file without a word. Reads
+/// only: git is told not to take its optional locks. Each path is as the working tree says it, not escaped.
 pub fn local_changes(root: &str, issue: &crate::issue::Issue, role: &str) -> Result<Vec<Local>, String> {
     let listed = paths(issue, role);
-    let root = Path::new(root);
+    let root_path = Path::new(root);
     let split = |output: Vec<u8>| -> Vec<String> {
         output.split(|byte| *byte == 0).filter(|name| !name.is_empty()).map(|name| String::from_utf8_lossy(name).to_string()).collect()
     };
-    let mut command: Vec<&str> = vec!["--literal-pathspecs", "diff", "HEAD", "--name-only", "-z", "--"];
-    command.extend(listed.iter().map(String::as_str));
-    let mut names = split(git(root, &command, &[], None)?);
+    let with = |first: &[&'static str], paths: &[String]| -> Result<Vec<u8>, String> {
+        let mut command: Vec<&str> = vec!["--no-optional-locks", "--literal-pathspecs"];
+        command.extend(first);
+        command.push("--");
+        command.extend(paths.iter().map(String::as_str));
+        git(root_path, &command, &[], None)
+    };
+    // Index and working tree against `HEAD`, both columns; a rename is two entries.
+    let status = with(&["status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=no"], &listed)?;
+    let mut names: Vec<String> = split(status).into_iter().filter_map(|entry| entry.get(3..).map(str::to_string)).collect();
+    // A file marked as unchanged is not looked at by status: compare it with `HEAD` here.
+    let marked: Vec<(char, String)> = split(with(&["ls-files", "-v", "-z"], &listed)?)
+        .into_iter()
+        .filter_map(|entry| {
+            let tag = entry.chars().next()?;
+            (tag.is_ascii_lowercase() || tag == 'S').then(|| (tag, entry.get(2..).unwrap_or_default().to_string()))
+        })
+        .collect();
+    if !marked.is_empty() {
+        let names_marked: Vec<String> = marked.iter().map(|(_, path)| path.clone()).collect();
+        let tree = split(with(&["ls-tree", "-r", "-z", "HEAD"], &names_marked)?);
+        for (tag, path) in &marked {
+            let at_head = tree.iter().find_map(|entry| {
+                let (meta, name) = entry.split_once('\t')?;
+                (name == path).then(|| meta.split(' ').collect::<Vec<_>>())
+            });
+            let in_tree = root_path.join(path);
+            let now = match fs::symlink_metadata(&in_tree) {
+                // A path the sparse checkout leaves out is not a change.
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    if matches!(tag, 'S' | 's') && at_head.is_some() {
+                        continue;
+                    }
+                    None
+                }
+                Err(_) => None,
+                Ok(found) if found.file_type().is_symlink() => {
+                    let target = fs::read_link(&in_tree).map(|target| target.into_os_string().into_encoded_bytes()).unwrap_or_default();
+                    git(root_path, &["hash-object", "--stdin"], &[], Some(&target)).ok().map(|oid| line(&oid))
+                }
+                Ok(_) => git(root_path, &["hash-object", "--", path], &[], None).ok().map(|oid| line(&oid)),
+            };
+            let same = match (&at_head, &now) {
+                (Some(meta), Some(now)) => meta.get(2) == Some(&now.as_str()),
+                _ => false,
+            };
+            if !same {
+                names.push(path.clone());
+            }
+        }
+    }
     if !issue.changes.is_empty() {
-        let mut command: Vec<&str> = vec!["--literal-pathspecs", "ls-files", "--others", "--exclude-standard", "-z", "--"];
-        command.extend(issue.changes.iter().map(String::as_str));
-        names.extend(split(git(root, &command, &[], None)?));
+        names.extend(split(with(&["ls-files", "--others", "-z"], &issue.changes)?));
     }
     names.sort();
     names.dedup();
@@ -87,7 +136,12 @@ pub fn local_changes(root: &str, issue: &crate::issue::Issue, role: &str) -> Res
 /// `--ignore-local` was given.
 pub fn local_message(found: &[Local], ignore: bool) -> String {
     let list = |changes: bool| -> String {
-        found.iter().filter(|local| local.changes == changes).map(|local| crate::issue::shown(&local.path)).collect::<Vec<_>>().join(", ")
+        let of: Vec<&Local> = found.iter().filter(|local| local.changes == changes).collect();
+        let mut named: Vec<String> = of.iter().take(SHOWN).map(|local| crate::issue::shown(&local.path)).collect();
+        if of.len() > SHOWN {
+            named.push(format!("and {} more", of.len() - SHOWN));
+        }
+        named.join(", ")
     };
     let (changes, reads) = (list(true), list(false));
     let mut text = String::from(

@@ -507,8 +507,7 @@ pub fn not_plain(option: &str) -> String {
 
 /// A pattern of `watchbill.yml` at `root`, read through the loader, or `None` when the file has none.
 pub fn pattern_of(root: &str, key: &str) -> Result<Option<String>, PromptError> {
-    let config = Path::new(root).join(crate::init::CONFIG_FOLDER).join(crate::init::CONFIG_FILE);
-    let document = crate::yamlfile::load(&config).map_err(|why| PromptError(why.to_string()))?;
+    let document = crate::starter::settings(root).map_err(PromptError)?;
     let place = [crate::yamlfile::Part::from(key)];
     if !document.has(&place) {
         return Ok(None);
@@ -538,9 +537,8 @@ pub fn derive_with(
     let get = |values: &[(&'static str, String)], name: &str| {
         values.iter().find(|(given, _)| *given == name).map(|(_, value)| value.clone())
     };
-    let config = Path::new(root).join(crate::init::CONFIG_FOLDER).join(crate::init::CONFIG_FILE);
     // The file is read first, so that the words from before the issue are refused whatever is given (#78).
-    let document = crate::yamlfile::load(&config).map_err(|why| PromptError(why.to_string()))?;
+    let document = crate::starter::settings(root).map_err(PromptError)?;
     old_words(&document)?;
     // A pattern of `watchbill.yml`, `None` when the file has none.
     let pattern = |key: &str| -> Result<Option<String>, PromptError> {

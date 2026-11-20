@@ -323,7 +323,10 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, out: 
         let _ = writeln!(err, "wb status: .watchbill/watchbill.yml is not there. Watchbill is not set up in this repository.");
         return 2;
     }
-    let pattern = |key: &str| prompt::pattern_of(root, key);
+    // A file that is not as `HEAD` has it is refused (#186) after the refs are listed, so that a listing that fails
+    // still ends with 2: no pattern is read or run until then.
+    let held = starter::held(root);
+    let pattern = |key: &str| if held.is_ok() { prompt::pattern_of(root, key) } else { Ok(None) };
     // `issue_address` is read for one issue only: the list never runs it.
     let address = if only.is_some() { pattern("issue_address") } else { Ok(None) };
     let patterns = match (pattern("branch"), pattern("issue_comments"), pattern("change_of_branch"), address) {
@@ -347,8 +350,7 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, out: 
             return 2;
         }
     };
-    // Before any pattern runs: only the file of `HEAD` is run (#186). A refs listing that fails ends with 2 above.
-    if let Err(why) = starter::held(root) {
+    if let Err(why) = held {
         let _ = writeln!(err, "wb status: {}.", why);
         return 1;
     }

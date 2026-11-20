@@ -229,7 +229,7 @@ The pieces that build this have their requirements reserved as Draft rows in `re
 | `WB-CHECK` | `requirements/check.md` | #8 |
 | `WB-PROMPT` | `requirements/prompt.md` | #9, #10, #68, #76, #78, #116 |
 | `WB-CONF` | `requirements/conf.md` | #11 |
-| `WB-TASK` | `requirements/task.md` | #74, #78, #116: the area keeps its name, and its rows say issue |
+| `WB-TASK` | `requirements/task.md` | #74, #78, #116, #157: the area keeps its name, and its rows say issue |
 | `WB-ACCT` | `requirements/acct.md` | #83 |
 | `WB-BUILD` | `requirements/build.md` | #84 |
 | `WB-LISTEN` | `requirements/listen.md` | #85 |

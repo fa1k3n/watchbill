@@ -1457,6 +1457,7 @@ fn test_WB_BUILD_15_a_word_with_spaces_or_a_line_end_around_it_is_read() {
     bench.changes("issue-54", &["174"]);
     bench.checks(" green \r\n", 0);
     ok(&bench.start(true, &["review", "54"]));
+    assert_eq!(bench.checks_read(), ["checks 174"]);
 }
 
 #[test]
@@ -1515,4 +1516,41 @@ fn test_WB_MON_8_a_check_that_fails_leaves_ci_with_the_fault() {
     bench.checks("passed\n", 0);
     assert_eq!(code(&start_at(&bench, &state.path, true, &["review", "54"])), Some(1));
     assert_eq!(read(&only(&state.path).join("ci")), "ci: unread\n");
+}
+
+#[test]
+fn test_WB_MON_4_a_review_refused_at_the_ci_leaves_check_ci_and_status_1_in_outcome() {
+    let bench = bench();
+    let state = folder_named("state");
+    bench.changes("issue-54", &["174"]);
+    bench.checks("red\n", 0);
+    assert_eq!(code(&start_at(&bench, &state.path, true, &["review", "54"])), Some(1));
+    let lines = lines_of(&only(&state.path), "outcome");
+    assert_eq!(&lines[..3], ["outcome: refused", "check: ci", "status: 1"]);
+    assert!(lines[3].starts_with("message: the CI of change 174 is red"), "{:?}", lines);
+}
+
+#[test]
+fn test_WB_BUILD_14_a_review_refused_at_the_ci_makes_no_view() {
+    let bench = bench();
+    let state = folder_named("state");
+    issue_file(&bench, "54", "[]");
+    bench.changes("issue-54", &["174"]);
+    bench.checks("red\n", 0);
+    let run = start_at(&bench, &state.path, true, &["review", "54"]);
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    let folder = only(&state.path);
+    assert!(!folder.join("view").exists() && !folder.join("back").exists(), "{:?}", everything(&folder));
+    assert!(!text(&run.stderr).contains("bubblewrap"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_14_the_prompt_of_a_started_review_carries_nothing_of_the_ci() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    bench.checks("green\n", 0);
+    let printed = bench.start(true, &["review", "54", "--prompt"]);
+    ok(&printed);
+    ok(&bench.start(true, &["review", "54"]));
+    assert_eq!(read(&bench.at("start.prompt")), text(&printed.stdout));
 }

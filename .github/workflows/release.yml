@@ -28,11 +28,10 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          # The Fedora release is written here and nowhere else. It is 44, not the newest, 45:
-          # Fedora 45 packages rust-cpufeatures-devel 0.3.1 without the README.md the crate includes,
-          # so no build there compiles. Take 45 when that is fixed.
+          # The Fedora release is written here and nowhere else. The install of the build's packages keeps
+          # the documents (--setopt=tsflags=): the container images leave them out, and a crate includes one.
           - name: fedora
-            image: registry.fedoraproject.org/fedora:44
+            image: registry.fedoraproject.org/fedora:45
             prepare: dnf install -y git-core tar gzip findutils
           - name: el9
             image: docker.io/library/almalinux:9
@@ -49,7 +48,7 @@ jobs:
       - name: The container runs as root, so git is told the folder is safe
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: The needs of the build, as the top of packaging/rpm.sh lists them
-        run: dnf install -y rpm-build git-core cargo rust cargo-rpm-macros rust-yaml-rust2-devel rust-sha2-devel rust-lexopt-devel
+        run: dnf install -y --setopt=tsflags= rpm-build git-core cargo rust cargo-rpm-macros rust-yaml-rust2-devel rust-sha2-devel rust-lexopt-devel
       - name: Build the RPMs
         run: packaging/rpm.sh "$GITHUB_WORKSPACE/build/rpm"
       - name: Install the RPM and ask it for its revision

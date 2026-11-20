@@ -1008,3 +1008,102 @@ fn test_WB_VIEW_20_after_the_commits_are_taken_back_git_show_stat_is_said_for_ea
     ok(&run);
     assert!(!text_of(&run.stderr).contains("git show"), "{}", text_of(&run.stderr));
 }
+
+// ---- WB-VIEW-18 (review of #166): rules only from the checkout's HEAD and exclude, and a notice ----
+
+#[test]
+fn test_WB_VIEW_18_the_view_s_own_exclude_and_excludesfile_do_not_hide_a_path() {
+    if !sandbox("test_WB_VIEW_18") {
+        return;
+    }
+    let bench = bench();
+    bench.session(
+        "echo 'int fresh;' > src/new.c\n\
+         echo '*' > /tmp/all\n\
+         echo 'src/new.c' >> .git/info/exclude\n\
+         git config core.excludesFile /tmp/all\n",
+    );
+
+    let run = bench.start(&["build", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    assert!(err.contains("src/new.c") && err.contains("uncommitted"), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_18_the_person_s_global_ignore_file_is_not_read() {
+    if !sandbox("test_WB_VIEW_18") {
+        return;
+    }
+    let name = "test_WB_VIEW_18_the_person_s_global_ignore_file_is_not_read";
+    // The variables of a process are the process's: the check runs in a child of this test binary, so that
+    // no other test of it sees the person's files.
+    let Some(person) = std::env::var_os("WB_TEST_GLOBAL_IGNORE") else {
+        let person = folder_named("person");
+        fs::create_dir_all(person.path.join(".config/git")).unwrap();
+        fs::write(person.path.join(".config/git/ignore"), "*\n").unwrap();
+        fs::write(person.path.join(".gitconfig"), "[core]\n\texcludesFile = ~/ignore-all\n").unwrap();
+        fs::write(person.path.join("ignore-all"), "*\n").unwrap();
+        let run = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", name, "--nocapture", "--test-threads=1"])
+            .env("WB_TEST_GLOBAL_IGNORE", &person.path)
+            .output()
+            .unwrap();
+        assert!(run.status.success(), "{}{}", text(&run.stdout), text(&run.stderr));
+        return;
+    };
+    let bench = bench();
+    bench.session("echo 'int fresh;' > src/new.c\n");
+    std::env::set_var("HOME", &person);
+    std::env::set_var("XDG_CONFIG_HOME", Path::new(&person).join(".config"));
+
+    let run = bench.start(&["build", "54"]);
+
+    ok(&run);
+    assert!(text_of(&run.stderr).contains("src/new.c"), "{}", text_of(&run.stderr));
+}
+
+#[test]
+fn test_WB_VIEW_18_the_rules_are_those_of_head_not_of_the_working_tree_of_the_checkout() {
+    if !sandbox("test_WB_VIEW_18") {
+        return;
+    }
+    let bench = bench();
+    commit_file(&bench, ".gitignore", "node_modules/\n");
+    fs::write(bench.repo.path.join(".gitignore"), "*\n").unwrap();
+    bench.session("echo 'int fresh;' > src/new.c\nmkdir src/node_modules && echo x > src/node_modules/a\n");
+
+    let run = bench.start(&["build", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    assert!(err.contains("src/new.c") && !err.contains("node_modules"), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_18_an_exclude_file_that_is_passed_over_is_said_and_why() {
+    if !sandbox("test_WB_VIEW_18") {
+        return;
+    }
+    let bench = bench();
+    let exclude = bench.repo.path.join(".git/info/exclude");
+    fs::write(bench.repo.path.join(".git/elsewhere"), "scratch/\n").unwrap();
+    let _ = fs::remove_file(&exclude);
+    std::os::unix::fs::symlink("../elsewhere", &exclude).unwrap();
+    bench.session("mkdir -p src/scratch && echo x > src/scratch/a\n");
+
+    let run = bench.start(&["build", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    assert!(err.contains("info/exclude") && err.contains("not read") && err.contains("link"), "{}", err);
+
+    // An exclude file that is not there is not said.
+    let bench = self::bench();
+    let _ = fs::remove_file(bench.repo.path.join(".git/info/exclude"));
+    bench.session("echo x > src/kept.txt\n");
+    let run = bench.start(&["build", "54"]);
+    ok(&run);
+    assert!(!text_of(&run.stderr).contains("info/exclude"), "{}", text_of(&run.stderr));
+}

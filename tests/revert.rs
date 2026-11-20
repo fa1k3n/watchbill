@@ -83,14 +83,11 @@ fn revert_review(folder: &Path) -> Output {
 // ---- WB-REVERT-1: the marker is posted, after it is said ----
 
 #[test]
-fn test_WB_REVERT_1_it_posts_the_marker_for_the_last_round_after_saying_so() {
+fn test_WB_REVERT_1_it_posts_the_marker_for_the_last_round() {
     let folder = set_up();
     comments(&folder.path, "174", &["[stamp] review round 1", "[stamp] fix round 1", "[stamp] review round 2"]);
     let run = revert_review(&folder.path);
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    let said = text(&run.stderr);
-    assert!(said.contains("[revert] review round 2"), "{}", said);
-    assert!(said.contains("issue_comment"), "{}", said);
     assert!(tracker(&folder.path, "174.bodies").starts_with("[revert] review round 2\n"), "{}", tracker(&folder.path, "174.bodies"));
 }
 
@@ -223,7 +220,7 @@ fn test_WB_REVERT_5_a_role_with_no_stamp_is_refused_by_name() {
 }
 
 #[test]
-fn test_WB_REVERT_5_a_role_the_revision_does_not_have_ends_with_2() {
+fn test_WB_REVERT_9_a_role_the_revision_does_not_have_ends_with_2() {
     let folder = set_up();
     comments(&folder.path, "174", &["[stamp] review round 1"]);
     let run = wb(&folder.path, &["revert", "174", "captain"], "");
@@ -275,4 +272,80 @@ fn test_WB_REVERT_7_change_posts_the_marker_on_the_change_by_change_comment() {
     assert!(text(&run.stderr).contains("change_comment"), "{}", text(&run.stderr));
     assert!(tracker(&folder.path, "change-9.bodies").starts_with("[revert] review round 1\n"));
     assert_eq!(tracker(&folder.path, "174.bodies"), "");
+}
+
+// ---- WB-REVERT-8: it says what it will post, before it posts ----
+
+#[test]
+fn test_WB_REVERT_8_it_says_what_it_will_post_and_by_which_pattern_before_posting() {
+    let folder = set_up_with("cat > /dev/null; exit 3");
+    comments(&folder.path, "174", &["[stamp] review round 1", "[stamp] fix round 1", "[stamp] review round 2"]);
+    let run = revert_review(&folder.path);
+    let said = text(&run.stderr);
+    // The posting fails here, and what was to be posted was said all the same.
+    assert!(said.contains("will post") && said.contains("[revert] review round 2") && said.contains("`issue_comment`"), "{}", said);
+}
+
+// ---- WB-REVERT-10: a later breakdown took the issue back ----
+
+#[test]
+fn test_WB_REVERT_10_a_stamp_before_a_later_breakdown_is_refused_and_nothing_is_posted() {
+    let folder = set_up();
+    comments(&folder.path, "174", &["[stamp] breakdown round 1", "[stamp] tester round 1", "[stamp] build round 1", "[stamp] review round 1", "[stamp] breakdown round 2"]);
+    let run = revert_review(&folder.path);
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    let said = text(&run.stderr);
+    assert!(said.contains("later breakdown") && said.contains("took the issue back"), "{}", said);
+    assert_eq!(tracker(&folder.path, "174.bodies"), "");
+}
+
+#[test]
+fn test_WB_REVERT_10_a_stamp_after_the_last_breakdown_is_taken_back() {
+    let folder = set_up();
+    comments(&folder.path, "174", &["[stamp] breakdown round 1", "[stamp] review round 1", "[stamp] breakdown round 2", "[stamp] tester round 1", "[stamp] review round 2"]);
+    let run = wb(&folder.path, &["revert", "174", "review", "--round", "2"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+}
+
+// ---- WB-REVERT-11: a change that is not a plain name is used wrongly ----
+
+#[test]
+fn test_WB_REVERT_11_a_change_that_is_not_a_plain_name_ends_with_2() {
+    let folder = set_up();
+    let run = wb(&folder.path, &["revert", "--change", "a;b", "review"], "");
+    assert_eq!(code(&run), Some(2), "{}", text(&run.stderr));
+    assert!(text(&run.stderr).contains("not a change"), "{}", text(&run.stderr));
+}
+
+// ---- WB-REVERT-12: a marker of the breakdown counts for nothing ----
+
+#[test]
+fn test_WB_REVERT_12_a_marker_of_the_breakdown_posted_by_hand_counts_for_nothing() {
+    let folder = set_up();
+    comments(&folder.path, "174", &["[stamp] breakdown round 1", "[stamp] review round 1", "[revert] breakdown round 1"]);
+    assert_eq!(round_of_review(&folder.path), "2");
+}
+
+// ---- WB-REVERT-13: status shows what a marker took back ----
+
+#[test]
+fn test_WB_REVERT_13_status_of_one_issue_marks_the_lines_that_were_taken_back() {
+    let folder = set_up();
+    comments(&folder.path, "174", &["[stamp] tester round 1", "[stamp] review round 1", "[revert] review round 1"]);
+    let out = text(&wb(&folder.path, &["status", "174"], "").stdout);
+    let line = |what: &str| out.lines().find(|line| line.contains(what)).unwrap_or_else(|| panic!("{}", out)).to_string();
+    assert!(line("[stamp] review round 1").contains("taken back"), "{}", out);
+    assert!(!line("[stamp] tester round 1").contains("taken back"), "{}", out);
+    assert!(!line("[revert] review round 1").contains("taken back"), "{}", out);
+}
+
+// ---- WB-REVERT-5: the second revert of one round ----
+
+#[test]
+fn test_WB_REVERT_5_a_second_revert_of_the_same_round_finds_no_stamp_that_counts() {
+    let folder = set_up();
+    comments(&folder.path, "174", &["[stamp] review round 1"]);
+    assert_eq!(code(&revert_review(&folder.path)), Some(0));
+    let run = revert_review(&folder.path);
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
 }

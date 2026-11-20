@@ -349,6 +349,8 @@ pub struct Back {
     pub refused: Option<(String, String, String)>,
     /// The commits after the one refused, not taken: each its name in the view and its subject.
     pub after: Vec<(String, String)>,
+    /// What `wb` passed over in reading the rules, said on standard error.
+    pub notes: Vec<String>,
     /// The paths left uncommitted in the view.
     pub uncommitted: Vec<String>,
     /// Why nothing of the view could be taken back, when it could not.
@@ -517,7 +519,7 @@ pub fn take_back(name: &str, root: &str, view: &View, changes: &[String], build_
     if let Err(why) = commits(root, view, &store.path, changes, build_files, &mut back) {
         back.failed = Some(why);
     }
-    match uncommitted(root, &store.path, &view.folder, &view.head) {
+    match uncommitted(root, &store.path, &view.folder, &view.head, &mut back.notes) {
         Ok(found) => back.uncommitted = found,
         Err(why) => {
             if back.failed.is_none() {
@@ -664,7 +666,7 @@ fn commits(root: &str, view: &View, store: &Path, changes: &[String], build_file
 /// The ignore rules of the checkout, written in a folder of `wb`'s own below `store`: every `.gitignore` of `head`
 /// at its place, and the checkout's `.git/info/exclude`. They are read from the checkout, never from the view, so
 /// that a session cannot widen them. The result is the folder to take as a work tree of the store.
-fn rules(root: &str, store: &Path, head: &str) -> Result<PathBuf, String> {
+fn rules(root: &str, store: &Path, head: &str, notes: &mut Vec<String>) -> Result<PathBuf, String> {
     let root = Path::new(root);
     let tree = store.join("rules");
     fs::create_dir_all(&tree).map_err(|error| error.to_string())?;
@@ -690,7 +692,27 @@ fn rules(root: &str, store: &Path, head: &str) -> Result<PathBuf, String> {
     let exclude = if Path::new(&exclude).is_absolute() { PathBuf::from(exclude) } else { root.join(exclude) };
     let info = store.join("info");
     fs::create_dir_all(&info).map_err(|error| error.to_string())?;
-    fs::write(info.join("exclude"), small_file(&exclude).unwrap_or_default()).map_err(|error| error.to_string())?;
+    let said = exclude.display();
+    let text = match fs::symlink_metadata(&exclude) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => {
+            notes.push(format!("the checkout's {} was not read, and its rules are not applied: {}", said, error));
+            String::new()
+        }
+        Ok(found) if found.file_type().is_symlink() => {
+            notes.push(format!("the checkout's {} was not read, and its rules are not applied: it is a link", said));
+            String::new()
+        }
+        Ok(found) if !found.is_file() || found.len() > 64 * 1024 * 1024 => {
+            notes.push(format!("the checkout's {} was not read, and its rules are not applied: it is not a plain file of 64 MiB or less", said));
+            String::new()
+        }
+        Ok(_) => fs::read_to_string(&exclude).unwrap_or_else(|error| {
+            notes.push(format!("the checkout's {} was not read, and its rules are not applied: {}", said, error));
+            String::new()
+        }),
+    };
+    fs::write(info.join("exclude"), text).map_err(|error| error.to_string())?;
     Ok(tree)
 }
 
@@ -722,7 +744,7 @@ fn ignored(store: &Path, tree: &Path, paths: &[String]) -> Result<Vec<String>, S
 
 /// The paths of the view that differ from its `HEAD`, or are not in it and not ignored by the rules of the
 /// checkout (`head` is the commit of the checkout the view was made from): work not committed.
-fn uncommitted(root: &str, store: &Path, view: &Path, head_of_checkout: &str) -> Result<Vec<String>, String> {
+fn uncommitted(root: &str, store: &Path, view: &Path, head_of_checkout: &str, notes: &mut Vec<String>) -> Result<Vec<String>, String> {
     let head = head_of(&view.join(".git"))?;
     let index = store.join("index-of-the-view");
     let env = [("GIT_INDEX_FILE", index.as_path()), ("GIT_WORK_TREE", view)];
@@ -742,14 +764,10 @@ fn uncommitted(root: &str, store: &Path, view: &Path, head_of_checkout: &str) ->
     let changed = names(run(&["diff-files", "--name-only", "-z"])?);
     // No `--exclude-standard`: the view's own `.gitignore` is the session's, and is not read.
     let others = names(run(&["ls-files", "--others", "-z"])?);
-    let tree = rules(root, store, head_of_checkout)?;
-    let ignored = ignored(store, &tree, &others)?;
+    let tree = rules(root, store, head_of_checkout, notes)?;
+    let ignored: std::collections::HashSet<String> = ignored(store, &tree, &others)?.into_iter().collect();
     let mut found: Vec<String> = changed;
-    for path in others.into_iter().filter(|path| !ignored.contains(path)) {
-        if !found.contains(&path) {
-            found.push(path);
-        }
-    }
+    found.extend(others.into_iter().filter(|path| !ignored.contains(path)));
     found.sort();
     found.dedup();
     Ok(found)
@@ -761,6 +779,9 @@ const SHOWN: usize = 20;
 /// Says what was taken back and what was not, and removes the view when all of it was taken; else it is kept,
 /// and named.
 fn said(name: &str, view: &View, back: Back, list: Option<&Path>, err: &mut dyn Write) -> Back {
+    for note in &back.notes {
+        let _ = writeln!(err, "{}: {}", name, note);
+    }
     for (commit, subject) in &back.taken {
         let _ = writeln!(err, "{}: taken onto {}: {} {}", name, view.branch_name(), short(commit), subject);
     }

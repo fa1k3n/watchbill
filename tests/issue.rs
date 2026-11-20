@@ -77,7 +77,7 @@ fn snapshot(folder: &Path) -> Vec<(String, Vec<u8>)> {
 fn refused(folder: &Folder, issue_file: &str) -> String {
     put(&folder.path, ".watchbill/issues/54.yml", issue_file);
     let before = snapshot(&folder.path);
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
     assert_eq!(snapshot(&folder.path), before, "something was written");
     assert!(!accepted(folder).exists());
@@ -107,7 +107,7 @@ fn test_WB_TASK_1_a_good_file_is_accepted_and_the_acceptance_is_written() {
     let folder = set_up();
     with_good(&folder);
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(accepted(&folder).is_file());
@@ -117,7 +117,7 @@ fn test_WB_TASK_1_a_good_file_is_accepted_and_the_acceptance_is_written() {
 fn test_WB_TASK_1_an_issue_that_has_no_file_ends_with_1() {
     let folder = set_up();
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
 
     assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
     assert!(text(&run.stderr).contains("54.yml"), "{}", text(&run.stderr));
@@ -157,7 +157,7 @@ fn test_WB_TASK_1_the_issue_of_the_file_is_the_issue_asked_for() {
 fn test_WB_TASK_1_the_usage_names_accept() {
     let run = wb(&folder().path, &["--help"], "");
 
-    assert!(text(&run.stdout).contains("  wb accept <issue>\n"), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains("  wb accept <issue> [--no-commit]\n"), "{}", text(&run.stdout));
 }
 
 #[test]
@@ -185,12 +185,12 @@ fn test_WB_TASK_1_a_wrong_use_ends_with_2_and_the_usage() {
 #[test]
 fn test_WB_TASK_1_outside_a_repository_and_where_watchbill_is_not_set_up_ends_with_2() {
     let outside = folder();
-    let run = wb(&outside.path, &["accept", "54"], "");
+    let run = wb(&outside.path, &["accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(2), "{}", text(&run.stderr));
 
     let plain = repository(None);
     put(&plain.path, ".watchbill/issues/54.yml", GOOD);
-    let run = wb(&plain.path, &["accept", "54"], "");
+    let run = wb(&plain.path, &["accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(2), "{}", text(&run.stderr));
     assert!(!plain.path.join(".watchbill/issues/54.accepted").exists());
 }
@@ -294,7 +294,7 @@ fn test_WB_TASK_6_it_says_what_it_will_write_before_it_writes() {
     let folder = set_up();
     with_good(&folder);
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
 
     let out = text(&run.stdout);
     assert!(out.contains(".watchbill/issues/54.accepted"), "{}", out);
@@ -308,7 +308,7 @@ fn test_WB_TASK_6_a_refusal_says_nothing_of_a_write() {
     let folder = set_up();
     put(&folder.path, ".watchbill/issues/54.yml", &GOOD.replace("questions: []", "questions: [x]"));
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
 
     assert!(!text(&run.stdout).contains("54.accepted"), "{}", text(&run.stdout));
 }
@@ -318,7 +318,7 @@ fn test_WB_TASK_7_the_acceptance_holds_the_hash_the_identity_and_the_time() {
     let folder = set_up();
     with_good(&folder);
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let lines: Vec<String> = read(&accepted(&folder)).lines().map(String::from).collect();
@@ -340,7 +340,7 @@ fn test_WB_TASK_8_an_acceptance_that_is_there_is_never_written_over() {
     with_good(&folder);
     put(&folder.path, ".watchbill/issues/54.accepted", "an old one\n");
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
 
     assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
     assert_eq!(read(&accepted(&folder)), "an old one\n");
@@ -352,10 +352,10 @@ fn test_WB_TASK_8_an_acceptance_that_is_there_is_never_written_over() {
 fn test_WB_TASK_8_a_second_accept_does_not_change_the_first() {
     let folder = set_up();
     with_good(&folder);
-    assert_eq!(code(&wb(&folder.path, &["accept", "54"], "")), Some(0));
+    assert_eq!(code(&wb(&folder.path, &["accept", "54", "--no-commit"], "")), Some(0));
     let first = read(&accepted(&folder));
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
 
     assert_eq!(code(&run), Some(1));
     assert_eq!(read(&accepted(&folder)), first);
@@ -368,7 +368,7 @@ fn test_WB_TASK_8_a_link_in_the_place_of_the_acceptance_is_not_written_through()
     let target = folder.path.join("elsewhere");
     std::os::unix::fs::symlink(&target, accepted(&folder)).unwrap();
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
 
     assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
     assert!(!target.exists());
@@ -383,7 +383,7 @@ fn test_WB_TASK_9_no_git_name_or_no_git_email_refuses_with_1() {
         with_good(&folder);
         let before = snapshot(&folder.path);
 
-        let run = wb_without_identity(&folder.path, &["accept", "54"]);
+        let run = wb_without_identity(&folder.path, &["accept", "54", "--no-commit"]);
 
         assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
         assert!(text(&run.stderr).contains(key), "{}", text(&run.stderr));
@@ -397,7 +397,7 @@ fn test_WB_TASK_9_no_identity_at_all_refuses_with_1() {
     assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
     with_good(&folder);
 
-    let run = wb_without_identity(&folder.path, &["accept", "54"]);
+    let run = wb_without_identity(&folder.path, &["accept", "54", "--no-commit"]);
 
     assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
     assert!(!accepted(&folder).exists());
@@ -408,7 +408,7 @@ fn test_WB_TASK_10_a_file_counts_as_accepted_while_its_hash_is_that_of_the_accep
     let folder = set_up();
     with_good(&folder);
     assert!(!is_accepted(&folder.path, "54"), "no acceptance yet");
-    assert_eq!(code(&wb(&folder.path, &["accept", "54"], "")), Some(0));
+    assert_eq!(code(&wb(&folder.path, &["accept", "54", "--no-commit"], "")), Some(0));
 
     assert!(is_accepted(&folder.path, "54"));
 }
@@ -417,7 +417,7 @@ fn test_WB_TASK_10_a_file_counts_as_accepted_while_its_hash_is_that_of_the_accep
 fn test_WB_TASK_10_one_byte_changed_and_the_file_is_not_accepted() {
     let folder = set_up();
     with_good(&folder);
-    assert_eq!(code(&wb(&folder.path, &["accept", "54"], "")), Some(0));
+    assert_eq!(code(&wb(&folder.path, &["accept", "54", "--no-commit"], "")), Some(0));
     let file = folder.path.join(".watchbill/issues/54.yml");
 
     fs::write(&file, GOOD.replace("reads the file", "reads the files")).unwrap();
@@ -445,7 +445,7 @@ fn test_WB_TASK_11_wb_check_does_not_fail_on_the_files_under_issues() {
     let folder = set_up();
     with_good(&folder);
     put(&folder.path, ".watchbill/issues/other.txt", "x\n");
-    assert_eq!(code(&wb(&folder.path, &["accept", "54"], "")), Some(0));
+    assert_eq!(code(&wb(&folder.path, &["accept", "54", "--no-commit"], "")), Some(0));
 
     let run = wb(&folder.path, &["check"], "");
 
@@ -458,7 +458,7 @@ fn test_WB_TASK_12_nothing_but_the_acceptance_is_written() {
     with_good(&folder);
     let before = snapshot(&folder.path);
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let after = snapshot(&folder.path);
@@ -473,7 +473,7 @@ fn test_WB_TASK_12_a_refusal_writes_nothing() {
     put(&folder.path, ".watchbill/issues/54.yml", "issue: '54'\n");
     let before = snapshot(&folder.path);
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
 
     assert_eq!(code(&run), Some(1));
     assert_eq!(snapshot(&folder.path), before);
@@ -488,7 +488,7 @@ fn test_WB_TASK_1_a_watchbill_folder_that_is_a_link_is_refused_by_name_and_not_w
     fs::rename(folder.path.join(".watchbill"), folder.path.join("real")).unwrap();
     std::os::unix::fs::symlink("real", folder.path.join(".watchbill")).unwrap();
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
 
     assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
     let err = text(&run.stderr);
@@ -504,7 +504,7 @@ fn test_WB_TASK_1_the_issues_folder_that_is_a_link_is_refused_by_name_and_not_wr
     fs::rename(folder.path.join(".watchbill/issues"), folder.path.join("elsewhere")).unwrap();
     std::os::unix::fs::symlink("../elsewhere", folder.path.join(".watchbill/issues")).unwrap();
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
 
     assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
     let err = text(&run.stderr);
@@ -518,7 +518,7 @@ fn test_WB_TASK_1_an_issues_path_that_is_not_a_folder_is_refused_by_name() {
     let folder = set_up();
     put(&folder.path, ".watchbill/issues", "not a folder\n");
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
 
     assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
     assert!(text(&run.stderr).contains(".watchbill/issues"), "{}", text(&run.stderr));
@@ -563,12 +563,12 @@ fn test_WB_TASK_1_the_issue_of_the_file_is_escaped_when_it_is_named() {
 fn test_WB_TASK_1_a_name_of_more_than_64_characters_is_used_wrongly() {
     let folder = set_up();
     let long = "a".repeat(65);
-    let run = wb(&folder.path, &["accept", &long], "");
+    let run = wb(&folder.path, &["accept", "--no-commit", &long], "");
     assert_eq!(code(&run), Some(2), "{}", text(&run.stderr));
     assert!(text(&run.stderr).contains("usage:"));
 
     // 64 is a name: it has no file, which is a refusal of the file, not a wrong use.
-    let run = wb(&folder.path, &["accept", &"a".repeat(64)], "");
+    let run = wb(&folder.path, &["accept", "--no-commit", &"a".repeat(64)], "");
     assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
 }
 
@@ -580,7 +580,7 @@ fn test_WB_TASK_8_a_temporary_file_left_behind_does_not_block_a_later_accept() {
         put(&folder.path, &format!(".watchbill/issues/{}", name), "half");
     }
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(is_accepted(&folder.path, "54"));
@@ -595,7 +595,7 @@ fn test_WB_TASK_8_a_part_file_under_the_name_is_not_taken_as_accepted_and_not_wr
     with_good(&folder);
     put(&folder.path, ".watchbill/issues/54.accepted", "sha256: ");
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
 
     assert_eq!(code(&run), Some(1));
     assert!(!is_accepted(&folder.path, "54"));
@@ -616,7 +616,7 @@ fn test_WB_TASK_9_a_git_name_or_email_with_angle_brackets_is_refused() {
         git(&folder.path, &["config", key, value]);
         let before = snapshot(&folder.path);
 
-        let run = wb(&folder.path, &["accept", "54"], "");
+        let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
 
         assert_eq!(code(&run), Some(1), "{} {}: {}", key, value, text(&run.stderr));
         assert!(text(&run.stderr).contains(key), "{}", text(&run.stderr));

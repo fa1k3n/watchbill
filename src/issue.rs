@@ -513,7 +513,10 @@ fn check_needs(root: &str, pattern: &str, issue: &Issue) -> Result<Needs, String
 
 /// `wb accept <issue>` in the repository at `root`: 0 it is accepted, 1 it is refused, 2 Watchbill is
 /// not set up here. It says what it will write before it writes, and never writes over an acceptance.
-pub fn accept(root: &str, issue: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+/// With `commit` it also commits the acceptance alone, on the issue's branch (#157), and refuses before it
+/// writes when the checkout is not on that branch or the issue's file is not as `HEAD` has it. Without
+/// `commit` (`--no-commit`) it keeps the form of 0.0.9: it writes the acceptance and says the commit.
+pub fn accept(root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let base = Path::new(root);
     if let Some(why) = way_fault(base) {
         let _ = writeln!(err, "wb accept: {}. Nothing read, nothing written.", why);
@@ -599,6 +602,12 @@ pub fn accept(root: &str, issue: &str, out: &mut dyn Write, err: &mut dyn Write)
     if fs::symlink_metadata(&accepted).is_ok() {
         let _ = writeln!(err, "wb accept: {} is there already, and is never written over. To accept the file again, remove it first. Nothing written.", shown_accepted);
         return 1;
+    }
+    if commit {
+        if let Err(why) = ready_to_commit(root, issue) {
+            let _ = writeln!(err, "wb accept: {} Nothing written.", why);
+            return 1;
+        }
     }
     let identity = git_value(root, "user.name").and_then(|name| git_value(root, "user.email").map(|email| (name, email)));
     let (name, email) = match identity {
@@ -690,8 +699,113 @@ pub fn accept(root: &str, issue: &str, out: &mut dyn Write, err: &mut dyn Write)
         return 1;
     }
     let _ = writeln!(out, "wb accept: {} is accepted.", shown);
-    let _ = writeln!(out, "wb accept: commit the acceptance alone, so the history holds it before any work it allows:\n  {}", commit_command(issue));
-    0
+    if !commit {
+        let _ = writeln!(out, "wb accept: commit the acceptance alone, so the history holds it before any work it allows:\n  {}", commit_command(issue));
+        return 0;
+    }
+    let _ = writeln!(out, "wb accept: will commit {} alone, with the message \"{}\", as {} <{}>.", shown_accepted, commit_message(issue), name, email);
+    let _ = out.flush();
+    match commit_alone(root, issue) {
+        Ok(()) => {
+            let short = crate::detect::git_output(&["-C", root, "rev-parse", "--short", "HEAD"], None)
+                .filter(|run| run.status.success())
+                .map(|run| String::from_utf8_lossy(&run.stdout).trim().to_string())
+                .unwrap_or_default();
+            let branch = current_branch(root).unwrap_or_default();
+            let _ = writeln!(out, "wb accept: committed {} alone ({}). What was staged before stays staged.", shown_accepted, short);
+            let _ = writeln!(out, "wb accept: wb pushes nothing. Push the branch {} so that the history elsewhere holds the acceptance.", branch);
+            0
+        }
+        Err(why) => {
+            let _ = writeln!(err, "wb accept: the commit failed: {}", why);
+            let _ = writeln!(
+                err,
+                "wb accept: {} is written and stays. Commit it alone, so the history holds it before any work it allows:\n  {}",
+                shown_accepted,
+                commit_command(issue)
+            );
+            1
+        }
+    }
+}
+
+/// The message of the commit of an acceptance.
+fn commit_message(issue: &str) -> String {
+    format!("Accept the issue's file ({})", issue)
+}
+
+/// The branch the checkout is on, or none when it is detached or git could not be run.
+fn current_branch(root: &str) -> Option<String> {
+    let run = crate::detect::git_output(&["-C", root, "symbolic-ref", "--short", "-q", "HEAD"], None)?;
+    if !run.status.success() {
+        return None;
+    }
+    let name = String::from_utf8(run.stdout).ok()?;
+    let name = name.trim();
+    (!name.is_empty()).then(|| name.to_string())
+}
+
+/// What must hold before the acceptance is written, when it is to be committed (#157): the checkout is on
+/// the branch of the issue, by the pattern `branch`, and the issue's file is committed in `HEAD` and the
+/// same in the working tree.
+fn ready_to_commit(root: &str, issue: &str) -> Result<(), String> {
+    let pattern = crate::prompt::pattern_of(root, "branch")
+        .map_err(|why| why.to_string().replace(&format!("{}/", root.trim_end_matches('/')), ""))?
+        .filter(|pattern| pattern.contains("{issue}"))
+        .ok_or_else(|| "watchbill.yml has no pattern `branch` with {issue}, so the branch of the issue is not known.".to_string())?;
+    let expected = pattern.replace("{issue}", issue);
+    match current_branch(root) {
+        Some(branch) if crate::status::is_of(&pattern, issue, &branch) => {}
+        Some(branch) => {
+            return Err(format!(
+                "the checkout is on the branch {}, not on the branch of the issue, {} (the pattern `branch`: {}). Switch to it first.",
+                shown(&branch),
+                expected,
+                pattern
+            ))
+        }
+        None => {
+            return Err(format!("the checkout is on no branch, not on the branch of the issue, {} (the pattern `branch`: {}). Switch to it first.", expected, pattern))
+        }
+    }
+    let path = format!("{}/{}.yml", FOLDER, issue);
+    let ask = |args: &[&str]| -> Result<bool, String> {
+        let mut all = vec!["-C", root];
+        all.extend(args);
+        crate::detect::git_output(&all, None).map(|run| run.status.success()).ok_or_else(|| "git could not be run.".to_string())
+    };
+    let todo = format!("Commit it alone on the branch of the issue first: git add {} && git commit -m \"The issue's file ({})\" -- {}.", path, issue, path);
+    if !ask(&["cat-file", "-e", &format!("HEAD:{}", path)])? {
+        return Err(format!("the issue's file {} is not committed in HEAD. {} The acceptance holds for the file as the history has it.", path, todo));
+    }
+    if !ask(&["diff", "--quiet", "HEAD", "--", &path])? {
+        return Err(format!("the issue's file {} differs from HEAD. {} The acceptance holds for the file as the history has it.", path, todo));
+    }
+    Ok(())
+}
+
+/// Commits the acceptance of the issue alone: `git add` of the one file, then `git commit --only` of it,
+/// so what else is staged stays staged and out of the commit. The author is git's own `user.name` and
+/// `user.email`. Err holds what git said.
+fn commit_alone(root: &str, issue: &str) -> Result<(), String> {
+    let path = format!("{}/{}.accepted", FOLDER, issue);
+    let run = |args: &[&str]| -> Result<(), String> {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .map_err(|error| format!("git could not be run ({})", error))?;
+        if output.status.success() {
+            return Ok(());
+        }
+        let said = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        let said: String = said.trim().chars().filter(|c| !c.is_control() || *c == '\n').collect();
+        Err(if said.is_empty() { format!("git ended with {}", output.status) } else { said })
+    };
+    run(&["add", "--", &path])?;
+    run(&["commit", "-q", "-m", &commit_message(issue), "--only", "--", &path])
 }
 
 /// Refuses the key `breakdown` of `watchbill.yml` by name (#116). Until revision 0.0.8, `breakdown: none`

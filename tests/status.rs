@@ -67,7 +67,7 @@ fn branch(folder: &Path, issue: &str, accepted: bool) {
     put(folder, &format!(".watchbill/issues/{}.yml", issue), &BARE_ISSUE.replace("{issue}", issue));
     let mut added = vec![format!(".watchbill/issues/{}.yml", issue)];
     if accepted {
-        let run = wb(folder, &["accept", "--", issue], "");
+        let run = wb(folder, &["accept", "--no-commit", "--", issue], "");
         assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
         added.push(format!(".watchbill/issues/{}.accepted", issue));
     }
@@ -244,7 +244,7 @@ fn test_WB_STATUS_18_an_acceptance_that_is_written_and_not_committed_gives_broke
     comments(&folder.path, "2", &[]);
     branch(&folder.path, "2", false);
     git(&folder.path, &["checkout", "-q", "issue-2-work"]);
-    let run = wb(&folder.path, &["accept", "--", "2"], "");
+    let run = wb(&folder.path, &["accept", "--no-commit", "--", "2"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(folder.path.join(".watchbill/issues/2.accepted").exists());
     git(&folder.path, &["checkout", "-q", "-"]);

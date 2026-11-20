@@ -36,3 +36,6 @@ What a session of the tester, the build, the review or the fix sees when `wb sta
 | WB-VIEW-30 | `wb view <issue> <role>` shall print the local changes that the guard of the start would name. Issue: #173. | T | Draft |
 | WB-VIEW-31 | `wb view` shall make no view, post nothing, write nothing, and ask nothing of the network. Issue: #173. | T | Draft |
 | WB-VIEW-32 | `wb view <issue> <role>` for an issue with no accepted, committed file shall end with 1, saying the role would run without a view. Issue: #173. | T | Draft |
+| WB-VIEW-33 | An entry of `changes` that is a file shall cover that path only, and never a path under it; a folder shall cover the paths under it. Issue: #192. | T | Draft |
+| WB-VIEW-34 | `wb` shall refuse with 1, naming the path, a commit of a view that holds a path with a part `.git` in any case, or a path git refuses to check out. Issue: #192. | T | Draft |
+| WB-VIEW-35 | After it puts a commit of a view on the branch, `wb` shall compare its tree with the view's commit, and where they differ stop, name the commit and end with 1. Issue: #192. | T | Draft |

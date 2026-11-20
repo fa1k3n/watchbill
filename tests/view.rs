@@ -1118,7 +1118,7 @@ fn test_WB_VIEW_22_a_path_with_a_line_break_is_one_escaped_line_of_back_and_the_
     let bench = bench();
     bench.session("printf x > \"$(printf 'src/a\\nview: removed')\"\n");
 
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
 
     ok(&run);
     let back = read(&bench.lines().join("back"));
@@ -1136,7 +1136,7 @@ fn test_WB_VIEW_21_a_path_with_an_escape_code_is_said_on_standard_error_escaped(
     let bench = bench();
     bench.session("printf x > \"$(printf 'src/e\\033[31mred')\"\n");
 
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
 
     ok(&run);
     let err = text_of(&run.stderr);
@@ -1154,7 +1154,7 @@ fn test_WB_VIEW_21_a_commit_refused_for_a_path_with_a_line_break_names_the_path_
     let bench = bench();
     bench.session("mkdir docs\nf=\"$(printf 'docs/a\\nrefused: forged')\"\nprintf x > \"$f\" && git add -A && git commit -q -m 'Outside'\n");
 
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
 
     assert_eq!(run.status.code(), Some(1), "{}", text_of(&run.stderr));
     let err = text_of(&run.stderr);
@@ -1175,7 +1175,7 @@ fn test_WB_VIEW_21_a_line_separator_and_a_bidi_control_in_a_path_are_escaped() {
     let bench = bench();
     bench.session("printf x > \"$(printf 'src/s\\342\\200\\250view: removed')\"\nprintf x > \"$(printf 'src/b\\342\\200\\256gpj.c')\"\n");
 
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
 
     ok(&run);
     let err = text_of(&run.stderr);
@@ -1194,7 +1194,7 @@ fn test_WB_VIEW_21_a_backslash_in_a_path_is_escaped_so_it_differs_from_a_line_br
     let bench = bench();
     bench.session("printf x > 'src/c\\nview'\nprintf x > \"$(printf 'src/c\\nview')\"\n");
 
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
 
     ok(&run);
     let back = read(&bench.lines().join("back"));
@@ -1217,7 +1217,7 @@ fn test_WB_VIEW_21_a_commit_subject_with_control_characters_is_escaped_taken_and
     }
     let bench = bench();
     bench.session("echo 'int a;' > src/brake.c && git commit -q -a -m \"$(printf 'Sub\\033[2J\\rview: removed')\"\n");
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
     ok(&run);
     let err = text_of(&run.stderr);
     let back = read(&bench.lines().join("back"));
@@ -1228,7 +1228,7 @@ fn test_WB_VIEW_21_a_commit_subject_with_control_characters_is_escaped_taken_and
 
     let bench = self::bench();
     bench.session("echo 'int b;' > src/brake.h && git commit -q -a -m \"$(printf 'Ref\\033[31m\\rX')\"\n");
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
     assert_eq!(run.status.code(), Some(1), "{}", text_of(&run.stderr));
     let err = text_of(&run.stderr);
     let back = read(&bench.lines().join("back"));

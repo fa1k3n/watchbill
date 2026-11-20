@@ -520,7 +520,7 @@ fn test_WB_ANSWER_19_it_used_wrongly_ends_with_2_and_posts_nothing() {
 #[test]
 fn test_WB_ANSWER_19_help_names_answer() {
     let folder = set_up();
-    let run = wb(&folder.path, &["--help"], "");
+    let run = wb(&folder.path, &["help", "answer"], "");
     assert!(text(&run.stdout).contains("wb answer <issue>"), "{}", text(&run.stdout));
 }
 

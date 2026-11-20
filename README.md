@@ -79,6 +79,20 @@ At 0.0.9. An issue that changes a verdict changes its row.
 - Agents handing work to each other without a person starting each step. A convenience on top of the goals, not a goal.
 - Hardware in the loop: tests that run on the real device.
 
+## The commands
+
+`wb` works as git does: run in the folder, one command per job, an exit status that scripts read. `wb help` lists the commands by group, and `wb help <command>` says more of one. A command that is not built yet is in the layout from 0.0.10: it ends with 2, writes nothing, asks nothing of the network, and says on standard error the release it is planned for and the issue that builds it (#171).
+
+| Group | Commands |
+|---|---|
+| set up | `init`, `check`, `doctor` (planned for 0.0.11, #178), `upgrade` (planned for 0.0.10, #174) |
+| work | `accept`, `start`, `run` (planned for 0.0.12, #183) |
+| see | `status`, `view` (planned for 0.0.10, #173), `log` (planned for 0.0.11, #177), `answer` |
+| take back | `revert`, `clean` (planned for 0.0.11, #176) |
+| plumbing | `prompt`, `revision`, `compare` (planned for 0.0.11, #179) |
+
+A man page for each command is planned for 0.0.11.
+
 ## Setting it up in a repository
 
 The command is `wb`. Watchbill is set up in a repository the way `git init` starts one: a single command, run in the folder.

@@ -519,7 +519,7 @@ fn test_WB_STATUS_28_it_runs_from_a_folder_below_the_root() {
 #[test]
 fn test_WB_STATUS_27_help_names_status() {
     let folder = set_up();
-    let (out, _) = stdout(&folder.path, &["--help"]);
+    let (out, _) = stdout(&folder.path, &["help", "status"]);
     assert!(out.contains("wb status [<issue>] [--stage <heading>]"), "{}", out);
 }
 

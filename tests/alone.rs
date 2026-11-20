@@ -58,6 +58,7 @@ fn add_line(folder: &Path, line: &str) -> usize {
     let mut yml = read(&config(folder));
     yml.push_str(line);
     put(folder, ".watchbill/watchbill.yml", &yml);
+    commit_config(folder);
     yml.lines().count()
 }
 

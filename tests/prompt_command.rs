@@ -203,6 +203,7 @@ fn test_WB_PROMPT_12_one_changed_byte_of_a_prompt_ends_with_1_prints_nothing_and
     let mut bytes = fs::read(&file).unwrap();
     bytes.insert(0, b'x');
     fs::write(&file, bytes).unwrap();
+    commit_config(&folder.path);
 
     let run = wb(&folder.path, &["prompt", "build", "--issue", "1", "--requirements", "R"], "");
 
@@ -220,6 +221,7 @@ fn test_WB_PROMPT_12_a_changed_file_of_another_role_fails_the_check_too() {
     let mut bytes = fs::read(&file).unwrap();
     bytes.insert(0, b'x');
     fs::write(&file, bytes).unwrap();
+    commit_config(&folder.path);
 
     let run = wb(&folder.path, &["prompt", "build", "--issue", "1", "--requirements", "R"], "");
 
@@ -264,6 +266,7 @@ fn test_WB_PROMPT_12_a_repository_pinned_to_another_revision_than_the_installed_
         })
         .collect();
     fs::write(&file, changed).unwrap();
+    commit_config(&folder.path);
 
     let run = wb(&folder.path, &["prompt", "build", "--issue", "1", "--requirements", "R"], "");
 
@@ -1106,6 +1109,7 @@ fn without_patterns() -> Folder {
         .map(|line| format!("{}\n", line))
         .collect();
     fs::write(&file, kept).unwrap();
+    commit_config(&folder.path);
     folder
 }
 
@@ -1139,6 +1143,7 @@ fn test_WB_PROMPT_37_a_pattern_that_is_not_a_text_is_refused_by_the_loader() {
     let file = config(&folder.path);
     let changed = read(&file).replace("branch: 'issue-{issue}'", "branch:\n  - a");
     fs::write(&file, changed).unwrap();
+    commit_config(&folder.path);
 
     let run = wb(&folder.path, &["prompt", "tester", "54"], "");
 
@@ -1291,6 +1296,7 @@ fn with_old_config(old: &str, new: &str) -> std::process::Output {
     let before = read(&file);
     assert!(before.contains(new), "{}", before);
     fs::write(&file, before.replace(new, old)).unwrap();
+    commit_config(&folder.path);
     wb(&folder.path, &["prompt", "tester", "54"], "")
 }
 
@@ -1311,6 +1317,7 @@ fn test_WB_PROMPT_46_the_key_task_address_is_refused_also_when_the_address_is_gi
     let folder = set_up_github();
     let file = config(&folder.path);
     fs::write(&file, format!("{}task_address: 'x {{issue}}'\n", read(&file))).unwrap();
+    commit_config(&folder.path);
 
     let run = wb(&folder.path, &["prompt", "tester", "54", "--issue_address", "at 54"], "");
 

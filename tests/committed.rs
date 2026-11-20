@@ -225,6 +225,7 @@ fn test_WB_TASK_18_a_breakdown_that_is_not_none_is_refused_by_its_name() {
     let mut yml = read(&config(&folder.path));
     yml.push_str("breakdown: sometimes\n");
     put(&folder.path, ".watchbill/watchbill.yml", &yml);
+    commit_config(&folder.path);
     let run = prompt(&folder.path, "build", &[]);
     refused(&run, "breakdown: sometimes");
     assert!(text(&run.stderr).contains("Remove the line"), "{}", text(&run.stderr));
@@ -239,6 +240,7 @@ fn test_WB_TASK_18_breakdown_none_is_refused_for_each_role() {
     let mut yml = read(&config(&folder.path));
     yml.push_str("breakdown: none\n");
     put(&folder.path, ".watchbill/watchbill.yml", &yml);
+    commit_config(&folder.path);
     for role in ROLES {
         let run = prompt(&folder.path, role, &[]);
         refused(&run, "breakdown: none");
@@ -267,6 +269,7 @@ fn test_WB_TASK_18_wb_check_refuses_breakdown_none_and_any_other_value() {
     let mut yml = read(&config(&folder.path));
     yml.push_str("breakdown: none\n");
     put(&folder.path, ".watchbill/watchbill.yml", &yml);
+    commit_config(&folder.path);
     let run = wb(&folder.path, &["check"], "");
     assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
     let said = text(&run.stdout) + &text(&run.stderr);

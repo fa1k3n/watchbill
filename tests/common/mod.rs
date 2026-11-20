@@ -273,5 +273,6 @@ pub fn cleared(repository: &Path) -> (Folder, PathBuf) {
     let mut yml = read(&config(repository));
     yml.push_str("confidentiality: public\n");
     fs::write(config(repository), yml).expect("watchbill.yml could not be written");
+    commit_config(repository);
     (place, path)
 }

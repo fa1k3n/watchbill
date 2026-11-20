@@ -46,6 +46,8 @@ fn test_WB_CMD_2_a_planned_command_ends_with_2_and_writes_nothing() {
             assert_eq!(code(&run), Some(2), "{:?}", args);
             assert_eq!(text(&run.stdout), "", "{:?}", args);
             assert_eq!(fs::read_dir(&folder.path).unwrap().count(), 0, "{:?}", args);
+            // Nor the state folder.
+            assert!(!std::path::Path::new(NO_STATE).exists(), "{:?}", args);
         }
     }
 }
@@ -104,7 +106,8 @@ fn test_WB_CMD_5_help_names_the_release_of_each_planned_command() {
 
     for (name, release, issue) in PLANNED {
         let line = line_of(name);
-        assert!(line.contains(&format!("planned for {} ({})", release, issue)), "{}", line);
+        assert!(line.contains(&format!("planned for {}, {})", release, issue)), "{}", line);
+        assert!(!line.contains("(planned for") || !line.contains("))"), "nested parentheses: {}", line);
     }
     for name in built() {
         let line = line_of(name);
@@ -144,7 +147,7 @@ fn test_WB_CMD_6_help_of_a_planned_command_prints_its_release() {
 #[test]
 fn test_WB_CMD_7_help_of_a_command_that_is_not_known_ends_with_2() {
     let folder = folder();
-    for word in ["nothing", "Init", "--version", "help"] {
+    for word in ["nothing", "Init", "--version"] {
         let run = wb(&folder.path, &["help", word], "");
 
         assert_eq!(code(&run), Some(2), "{}", word);
@@ -189,4 +192,64 @@ fn test_WB_CMD_9_the_usage_the_help_and_the_commands_come_from_one_list() {
         .collect();
     let expected: Vec<(&str, Vec<&str>)> = GROUPS.iter().map(|group| (group.0, group.1.to_vec())).collect();
     assert_eq!(layout, expected);
+}
+
+#[test]
+fn test_WB_CMD_9_each_command_of_the_layout_that_is_built_has_an_arm_in_the_dispatch() {
+    // A command that leaves the planned list without an arm must be seen here, not run another command.
+    let planned: Vec<&str> = PLANNED.iter().map(|row| row.0).collect();
+    for command in watchbill::layout::COMMANDS.iter() {
+        let built = !watchbill::layout::PLANNED.iter().any(|row| row.0 == command.name);
+        assert_eq!(built, watchbill::ARMS.contains(&command.name), "{}", command.name);
+        assert_eq!(built, !planned.contains(&command.name), "{}", command.name);
+    }
+}
+
+#[test]
+fn test_WB_CMD_11_help_with_a_word_more_ends_with_2_and_names_it() {
+    let folder = folder();
+    for args in [&["help", "init", "extra"][..], &["help", "init", "--yes"][..], &["help", "nothing", "extra"][..]] {
+        let run = wb(&folder.path, args, "");
+
+        assert_eq!(code(&run), Some(2), "{:?}", args);
+        assert_eq!(text(&run.stdout), "", "{:?}", args);
+        let named = args[2];
+        assert!(text(&run.stderr).contains(named), "{:?}: {}", args, text(&run.stderr));
+    }
+}
+
+#[test]
+fn test_WB_CMD_12_dash_dash_help_reads_the_word_after_it_as_help_does() {
+    let folder = folder();
+    let of_init = wb(&folder.path, &["help", "init"], "");
+    for args in [&["--help", "init"][..], &["-h", "init"][..]] {
+        let run = wb(&folder.path, args, "");
+        assert_eq!(code(&run), Some(0), "{:?}", args);
+        assert_eq!(text(&run.stdout), text(&of_init.stdout), "{:?}", args);
+    }
+    let run = wb(&folder.path, &["--help", "nothing"], "");
+    assert_eq!(code(&run), Some(2));
+    assert!(text(&run.stderr).starts_with("wb help: no command 'nothing'\n"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_CMD_13_help_of_help_prints_its_usage() {
+    let folder = folder();
+    let run = wb(&folder.path, &["help", "help"], "");
+
+    assert_eq!(code(&run), Some(0));
+    assert!(text(&run.stdout).starts_with("usage:\n  wb help"), "{}", text(&run.stdout));
+    assert_eq!(text(&run.stderr), "");
+}
+
+#[test]
+fn test_WB_CMD_10_help_lists_status_in_the_group_see_and_help_status_prints_its_usage() {
+    let folder = folder();
+    let help = text(&wb(&folder.path, &["help"], "").stdout);
+    let see = help.split("\nsee\n").nth(1).unwrap().split("\n\n").next().unwrap();
+    assert!(see.lines().any(|line| line.split_whitespace().next() == Some("status")), "{}", see);
+
+    let run = wb(&folder.path, &["help", "status"], "");
+    assert_eq!(code(&run), Some(0));
+    assert!(text(&run.stdout).contains("wb status [<issue>] [--stage <heading>]"), "{}", text(&run.stdout));
 }

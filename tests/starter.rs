@@ -548,8 +548,14 @@ fn test_WB_BUILD_8_the_program_takes_each_role_as_a_command() {
 #[test]
 fn test_WB_BUILD_8_the_usage_names_the_commands_of_the_roles() {
     assert!(USAGE.contains("wb start <role> "), "{}", USAGE);
+    // The paragraph of `start` names the five roles, and no line of the usage is left with the old form.
+    let paragraph = USAGE.split("\n  start ").nth(1).unwrap_or_else(|| panic!("{}", USAGE));
+    let paragraph = paragraph.split("\n  revision ").next().unwrap();
     for role in ["breakdown", "tester", "build", "review", "fix"] {
-        assert!(USAGE.contains(role), "{}", role);
+        assert!(paragraph.contains(role), "{}", role);
+    }
+    assert!(!USAGE.contains("wb <role>"), "{}", USAGE);
+    for role in ["breakdown", "tester", "build", "review", "fix"] {
         assert!(!USAGE.contains(&format!("wb {} ", role)), "{}", role);
     }
 }
@@ -1565,7 +1571,11 @@ fn test_WB_BUILD_36_wb_start_build_does_what_wb_build_did_the_stamp_and_the_star
     let bench = bench();
     bench.changes("issue-54", &["174"]);
     ok(&bench.start(true, &["start", "build", "54"]));
-    assert!(bench.any_posted() && bench.started(), "{:?}", bench.calls());
+    // The checks read the comments and the changes, then the stamp is posted, then the session starts.
+    assert_eq!(bench.calls(), ["comments issue 54", "post issue 54", "start"]);
+    let posted = read(&bench.at("posted-issue-54"));
+    assert!(posted.starts_with("[stamp] build round 1\n"), "{}", posted);
+    assert!(posted.contains("\nrole: build\n"), "{}", posted);
 }
 
 #[test]
@@ -1592,6 +1602,7 @@ fn test_WB_BUILD_37_the_old_form_ends_with_2_and_says_the_new_form_with_the_same
         (&["breakdown", "54"], "use: wb start breakdown 54"),
         (&["tester", "54", "--runner", "stand-in"], "use: wb start tester 54 --runner stand-in"),
         (&["review", "--change", "178"], "use: wb start review --change 178"),
+        (&["build", "a b", "it's"], "use: wb start build 'a b' 'it'\\''s'"),
         (&["fix", "54", "--prompt"], "use: wb start fix 54 --prompt"),
     ] {
         let run = bench.start(true, words);

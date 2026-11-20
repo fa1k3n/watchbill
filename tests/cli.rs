@@ -106,8 +106,9 @@ const USAGE: &str = "usage:
             watchbill.yml, one comment whose first line is
             [revert] <role> round <n>, for the last stamp of the role, or round
             <n>. From that stamp up to the marker no stamp, question or answer
-            counts, for wb <role>, wb prompt and wb status. wb revert --change
-            <n> <role> posts it on a change with no issue, by change_comment.
+            counts, for wb start <role>, wb prompt and wb status. wb revert
+            --change <n> <role> posts it on a change with no issue, by
+            change_comment.
             The branch, the issue's file and its acceptance, and the change are
             not touched: taking commits back is git's. The breakdown is taken
             back with git, not by a marker. Ends with 0 when the marker is

@@ -193,11 +193,12 @@ fn test_WB_PKG_20_the_token_can_write_only_in_the_release_job() {
 }
 
 #[test]
-fn test_WB_PKG_19_the_fedora_release_is_45_and_the_documents_are_kept_for_the_crates() {
+fn test_WB_PKG_19_the_fedora_release_is_45_and_the_workflow_says_why_the_install_keeps_the_documents() {
     // Changed from the test that pinned 44 (#120): with the documents kept, 45 builds.
     let text = workflow();
     assert!(text.contains("registry.fedoraproject.org/fedora:45"), "{}", text);
-    assert!(text.contains("tsflags="), "the reason for the flag is not written");
+    let reason = workflow().lines().filter(|l| l.trim_start().starts_with('#')).collect::<Vec<_>>().join("\n");
+    assert!(reason.contains("tsflags") && reason.contains("documents"), "the reason is not in a comment: {}", reason);
 }
 
 #[test]

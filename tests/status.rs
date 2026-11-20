@@ -630,3 +630,60 @@ fn test_WB_STATUS_31_stamps_before_the_last_breakdown_stamp_no_longer_decide_the
     let (out, _) = stdout(&folder.path, &["status"]);
     assert_eq!(out, "Broken down:\n  2  Taken back, not accepted\n\nAccepted:\n  1  Taken back, accepted\n\nBuilt:\n  3  Built after the breakdown\n");
 }
+
+// ---- The questions folded into one comment per session, and the answers in one (#145) ----
+
+/// The open questions `wb status --stage "questions open"` prints for issue 1, with these first lines.
+fn open_of(lines: &[&str]) -> String {
+    let folder = set_up();
+    open(&folder.path, &[("1", "A")]);
+    comments(&folder.path, "1", lines);
+    let (out, status) = stdout(&folder.path, &["status", "--stage", "questions open"]);
+    assert_eq!(status, Some(0), "{}", out);
+    out
+}
+
+#[test]
+fn test_WB_ANSWER_11_a_question_of_a_questions_comment_is_open_until_an_answers_comment_names_it() {
+    assert_eq!(open_of(&["[questions] 1.tester q1 q2"]), "Questions open:\n  1  1.tester.q1, 1.tester.q2\n");
+    assert_eq!(open_of(&["[questions] 1.tester q1 q2", "[answers] 1.tester q1"]), "Questions open:\n  1  1.tester.q2\n");
+    assert_eq!(open_of(&["[questions] 1.tester q1 q2", "[answers] 1.tester q1 q2"]), "");
+    // The breakdown names its questions with the issue alone.
+    assert_eq!(open_of(&["[questions] 1 q1 q2", "[answers] 1 q2"]), "Questions open:\n  1  1.q1\n");
+}
+
+#[test]
+fn test_WB_ANSWER_11_an_answers_comment_closes_only_the_questions_of_its_own_role_and_issue() {
+    let out = open_of(&["[questions] 1.tester q1", "[questions] 1.build q1", "[questions] 1 q1", "[answers] 1.build q1", "[answers] 2.tester q1"]);
+    assert_eq!(out, "Questions open:\n  1  1.tester.q1, 1.q1\n");
+}
+
+#[test]
+fn test_WB_ANSWER_11_words_after_the_role_that_are_no_question_name_close_nothing() {
+    // The form the owner wrote in the trial of 0.0.8, which no prompt gives.
+    assert_eq!(open_of(&["[questions] 1 q1", "[answers] 1 as you suggested"]), "Questions open:\n  1  1.q1\n");
+    // A line that only names the form is no answer.
+    assert_eq!(open_of(&["[questions] 1 q1", "[comment] [answers] 1 q1", "[questions] [answers] 1 q1"]), "Questions open:\n  1  1.q1\n");
+}
+
+// The forms of revision 0.0.8 alone are read as #139 read them: the tests of WB-STATUS-3, 9, 14, 29 and 30 keep them.
+
+#[test]
+fn test_WB_ANSWER_11_the_old_and_the_new_forms_answer_each_other() {
+    let out = open_of(&["[question] 1.tester.q1", "[questions] 1.tester q2 q3", "[answers] 1.tester q1", "[answer] 1.tester.q2 1"]);
+    assert_eq!(out, "Questions open:\n  1  1.tester.q3\n");
+    // `[answer] <issue> suggested` closes the questions of a `[questions]` comment before it.
+    assert_eq!(open_of(&["[questions] 1.tester q1", "[answer] 1 suggested"]), "");
+}
+
+#[test]
+fn test_WB_ANSWER_16_a_questions_comment_from_a_reverted_stamp_up_to_its_marker_does_not_count() {
+    let out = open_of(&["[questions] 1 q1", "[stamp] tester round 1", "[questions] 1.tester q1", "[revert] tester round 1"]);
+    assert_eq!(out, "Questions open:\n  1  1.q1\n");
+}
+
+#[test]
+fn test_WB_ANSWER_16_an_answers_comment_from_a_reverted_stamp_up_to_its_marker_does_not_count() {
+    let out = open_of(&["[questions] 1 q1", "[stamp] tester round 1", "[answers] 1 q1", "[revert] tester round 1"]);
+    assert_eq!(out, "Questions open:\n  1  1.q1\n");
+}

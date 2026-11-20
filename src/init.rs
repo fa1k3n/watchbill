@@ -158,6 +158,7 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
         let first_lines = |word: &str| {
             format!("gh api repos/{}/issues/{{{}}}/comments --paginate --jq '.[].body | split(\"\\n\")[0]'", repository, word)
         };
+        let whole = |word: &str| format!("gh api repos/{}/issues/{{{}}}/comments --paginate --jq '.[] | .body + \"\\u0000\"'", repository, word);
         let patterns = [
             ("issue_comment", format!("gh issue comment {{issue}} --repo {} --body-file -", repository)),
             ("issue_comments", first_lines("issue")),
@@ -178,6 +179,13 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
                 "open_issues",
                 format!("gh issue list --repo {} --state open --limit 1000 --json number,title --jq '.[] | \"\\(.number)\\t\\(.title | gsub(\"[\\n\\r]\"; \" \"))\"'", repository),
             ),
+            // The whole comments, for `wb answer` (#145): each body and a NUL byte. `gh --jq` prints a line break
+            // after each, which `wb` does not read as part of the next body.
+            ("issue_comment_bodies", whole("issue")),
+            ("change_comment_bodies", whole("change")),
+            // The command that opens the change as a draft, which `wb build` says and a person runs (#145). The
+            // description is filled from the commits: the build writes it in the message of its last commit.
+            ("draft_change", format!("gh pr create --repo {} --head {{branch}} --draft --fill-verbose", repository)),
         ];
         for (key, line) in patterns {
             text.push_str(&format!("{}: {}\n", key, yaml_value(&line)));
@@ -208,6 +216,13 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
                 notes(kind, word)
             )
         };
+        let whole = |kind: &str, word: &str| {
+            format!(
+                "{} '{}?sort=asc&order_by=created_at' --paginate --output ndjson | jq -j 'select(.system == false) | .body + \"\\u0000\"'",
+                api,
+                notes(kind, word)
+            )
+        };
         let patterns = [
             ("issue_comment", format!("{} --method POST {} -F body=@-", api, notes("issues", "issue"))),
             ("issue_comments", first_lines("issues", "issue")),
@@ -234,6 +249,12 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
             ),
             ("issue_address", format!("glab issue view {{issue}} --repo {} --comments", url)),
             ("change_address", format!("glab mr view {{change}} --repo {} --comments", url)),
+            // The whole comments, for `wb answer` (#145): each body of a note that is no system note, and a NUL
+            // byte, oldest first. The query is quoted: it holds `&`.
+            ("issue_comment_bodies", whole("issues", "issue")),
+            ("change_comment_bodies", whole("merge_requests", "change")),
+            // The command that opens the change as a draft, which `wb build` says and a person runs (#145).
+            ("draft_change", format!("glab mr create --repo {} --source-branch {{branch}} --draft --fill --fill-commit-body --yes", url)),
         ];
         for (key, line) in patterns {
             text.push_str(&format!("{}: {}\n", key, yaml_value(&line)));

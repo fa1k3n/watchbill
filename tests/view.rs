@@ -790,3 +790,101 @@ fn test_WB_MON_7_the_folder_of_a_session_in_a_view_holds_view_and_back() {
     assert!(back.lines().any(|line| line.starts_with("refused: ") && line.contains("Change a read") && line.contains("src/brake.h")), "{}", back);
     assert!(back.lines().any(|line| line.starts_with("view: kept ")), "{}", back);
 }
+
+// ---- WB-VIEW-14 to 16: the commands that push the branch and open the change are said, not run (#145) ----
+
+/// Adds a line to `watchbill.yml` of the bench.
+fn with_line(bench: &Bench, line: &str) {
+    let mut yml = read(&config(&bench.repo.path));
+    yml.push_str(line);
+    yml.push('\n');
+    fs::write(config(&bench.repo.path), yml).unwrap();
+}
+
+#[test]
+fn test_WB_VIEW_14_after_the_commits_are_taken_back_the_push_command_is_said_and_not_run() {
+    if !sandbox("test_WB_VIEW_14") {
+        return;
+    }
+    let bench = bench();
+    bench.session("echo 'int main(void) { return 1; }' > tests/test_brake.c && git commit -q -a -m 'A test'\n");
+
+    let run = bench.start(&["tester", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    let taken = err.find("taken onto issue-54").unwrap_or_else(|| panic!("{}", err));
+    let push = err.find("git push origin issue-54").unwrap_or_else(|| panic!("{}", err));
+    assert!(taken < push, "{}", err);
+    // Not run: nothing reached the remote, and no branch of it was made.
+    assert!(!bench.at("network").exists());
+    assert_eq!(bench.git_text(&["for-each-ref", "--format=%(refname)", "refs/remotes/origin/issue-54"]), "");
+    // The tester opens no change.
+    assert!(!err.contains("draft_change") && !err.contains("as a draft"), "{}", err);
+
+    // A session that commits nothing gets no push command.
+    let bench = self::bench();
+    let run = bench.start(&["tester", "54"]);
+    ok(&run);
+    assert!(!text_of(&run.stderr).contains("git push"), "{}", text_of(&run.stderr));
+}
+
+#[test]
+fn test_WB_VIEW_15_after_a_build_the_command_that_opens_the_change_as_a_draft_is_said_and_not_run() {
+    if !sandbox("test_WB_VIEW_15") {
+        return;
+    }
+    let bench = bench();
+    with_line(&bench, "draft_change: 'draft-stand-in --head {branch}'");
+    bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\n");
+
+    let run = bench.start(&["build", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    let push = err.find("git push origin issue-54").unwrap_or_else(|| panic!("{}", err));
+    let draft = err.find("draft-stand-in --head issue-54").unwrap_or_else(|| panic!("{}", err));
+    assert!(push < draft, "{}", err);
+    // A command that is not there would have failed the start, had it been run.
+    assert!(!err.contains("not found"), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_15_without_draft_change_it_says_the_line_is_not_there() {
+    if !sandbox("test_WB_VIEW_15") {
+        return;
+    }
+    let bench = bench();
+    bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\n");
+
+    let run = bench.start(&["build", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    assert!(err.contains("git push origin issue-54"), "{}", err);
+    assert!(err.contains("`draft_change`"), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_16_without_a_view_new_commits_on_the_branch_get_the_same_commands() {
+    let bench = bench();
+    with_line(&bench, "draft_change: 'draft-stand-in --head {branch}'");
+    git(&bench.repo.path, &["checkout", "-q", "issue-99"]);
+    bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\n");
+
+    let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["build", "99"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    assert!(err.contains("git push origin issue-99"), "{}", err);
+    assert!(err.contains("draft-stand-in --head issue-99"), "{}", err);
+    assert!(!bench.at("network").exists());
+
+    // A session that commits nothing gets no command.
+    let bench = self::bench();
+    git(&bench.repo.path, &["checkout", "-q", "issue-99"]);
+    let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["build", "99"]);
+    ok(&run);
+    assert!(!text_of(&run.stderr).contains("git push"), "{}", text_of(&run.stderr));
+}
+

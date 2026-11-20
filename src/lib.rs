@@ -6,6 +6,7 @@ use std::io::{BufRead, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
+pub mod answer;
 pub mod check;
 pub mod confidentiality;
 pub mod detect;
@@ -44,6 +45,8 @@ pub const USAGE: &str = "usage:
   wb status [<issue>] [--stage <heading>]
   wb revert <issue> <role> [--round <n>]
   wb revert --change <n> <role> [--round <n>]
+  wb answer <issue> [--suggested | <question> <answer>]
+  wb answer --change <n> [--suggested | <question> <answer>]
   wb --version
 
   init      set Watchbill up in the git repository of this folder: propose what
@@ -106,8 +109,8 @@ pub const USAGE: &str = "usage:
   status    list the issues in the flow under headings, as git status lists
             files: each issue under the last step it has done (Not broken
             down, Broken down, Accepted, Tested, Built, Reviewed, Fixed), with
-            its title, and last the issues that have a question no [answer]
-            line has closed. The open issues come from open_issues of watchbill.yml,
+            its title, and last the issues that have a question no [answers]
+            or [answer] line has closed. The open issues come from open_issues of watchbill.yml,
             the comments from issue_comments. <issue> prints that issue and
             what it was worked out from; --stage <heading> prints that heading
             only, whatever its case. Ends with 0 when every issue could be
@@ -126,6 +129,22 @@ pub const USAGE: &str = "usage:
             back with git, not by a marker. Ends with 0 when the marker is
             posted, 1 when it was refused or the posting failed, 2 when it was
             used wrongly or the repository is not set up
+  answer    answer the open questions of an issue: wb answer <issue> reads
+            the whole comments by issue_comment_bodies of watchbill.yml, shows
+            each open question in full, one at a time, and asks: Enter takes
+            the suggestion, a number takes that choice, other text is the
+            answer in words; a number that is not a choice is asked again.
+            Then it says what it will post and posts one [answers] comment per
+            role by issue_comment. Nothing is posted before every question is
+            answered, and nothing after Ctrl-C. --suggested takes every
+            suggestion and names the questions with none. <question> <answer>,
+            as tester.q1 2 (q1 for the breakdown), answers one question without
+            asking. --change <n> answers on a change with no issue, by
+            change_comment_bodies and change_comment. It never changes the
+            issue's file: where an answer does, it says so. Ends with 0 when
+            the answers are posted or no question is open, 1 when it was
+            refused, the input ended or a pattern failed, 2 when it was used
+            wrongly or the repository is not set up
 ";
 
 /// Runs a command so that a fault in `wb` itself is not shown as a panic: the hook prints nothing,
@@ -224,7 +243,7 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
             "version".to_string()
         }
         Ok(Some(Word::Value(value))) => match value.to_str() {
-            Some(name @ ("help" | "init" | "check" | "prompt" | "revision" | "accept" | "status" | "revert")) => name.to_string(),
+            Some(name @ ("help" | "init" | "check" | "prompt" | "revision" | "accept" | "status" | "revert" | "answer")) => name.to_string(),
             Some(name) if STARTED.contains(&name) => name.to_string(),
             _ => {
                 let _ = write!(err, "wb: no command '{}'\n\n{}", word(value.as_bytes()), USAGE);
@@ -252,6 +271,7 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
         "accept" => run_accept(&mut parser, out, err),
         "status" => run_status(&mut parser, out, err),
         "revert" => run_revert(&mut parser, err),
+        "answer" => run_answer(&mut parser, input, out, err),
         role if STARTED.contains(&role) => {
             use std::io::IsTerminal;
             let terminal = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
@@ -1051,6 +1071,8 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
             return 1;
         }
     }
+    // Where the checkout's branch stands, to see after a session with no view whether it committed (#145).
+    let before = if prepared.is_none() { view::branch_of(root).ok() } else { None };
     let began = std::time::Instant::now();
     let ran = match &prepared {
         None => {
@@ -1114,9 +1136,47 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         if back.refused_any() {
             code = 1;
         }
+        if !back.taken.is_empty() {
+            say_push(name, role, root, prepared.view.branch_name(), err);
+        }
+    }
+    // Without a view (#116), the tester, the build and the fix commit in the checkout: the same commands are said
+    // when the branch checked out has new commits (#145).
+    if let (None, Some((branch, head)), true) = (&prepared, &before, COMMITTED.contains(&role)) {
+        if let Ok((now_branch, now)) = view::branch_of(root) {
+            if now_branch == *branch && now != *head {
+                say_push(name, role, root, branch.strip_prefix("refs/heads/").unwrap_or(branch), err);
+            }
+        }
     }
     lines.close(None, sessions::Outcome::Ended { status, seconds }, err);
     code
+}
+
+/// The roles whose sessions commit on the branch, and push nothing (#145).
+const COMMITTED: [&str; 3] = ["tester", "build", "fix"];
+
+/// Says the command that pushes `branch` and, after a build, the command that opens the change as a draft: the
+/// pattern `draft_change` of `watchbill.yml`, filled. `wb` runs neither (#145): a person does.
+fn say_push(name: &str, role: &str, root: &str, branch: &str, err: &mut dyn Write) {
+    let _ = writeln!(err, "{}: nothing is pushed. To push the branch, run:\n  git push origin {}", name, branch);
+    if role != "build" {
+        return;
+    }
+    match prompt::pattern_of(root, "draft_change") {
+        Ok(Some(line)) if prompt::is_plain_name(branch) => {
+            let _ = writeln!(err, "{}: to open the change as a draft, where none is open yet, run:\n  {}", name, line.replace("{branch}", branch));
+        }
+        Ok(Some(_)) => {
+            let _ = writeln!(err, "{}: the branch '{}' is not a plain name that fills `draft_change`: open the change as a draft at the git server.", name, branch.escape_debug());
+        }
+        Ok(None) => {
+            let _ = writeln!(err, "{}: watchbill.yml has no `draft_change`, so the command that opens the change is not known: open it as a draft at the git server, where none is open yet.", name);
+        }
+        Err(why) => {
+            let _ = writeln!(err, "{}: {}", name, why);
+        }
+    }
 }
 
 /// A view made for a session, before it is posted: the view, the runner's binds as paths, and `build_files` of
@@ -1283,6 +1343,81 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
             2
         }
         Ok(Some(root)) => status::status(&root, issue.as_deref(), stage, out, err),
+    }
+}
+
+/// `wb answer <issue> [--suggested | <question> <answer>]` and `wb answer --change <n> […]` (#145).
+fn run_answer(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let used = |err: &mut dyn Write, why: String| {
+        let _ = write!(err, "wb answer: {}\n\n{}", why, USAGE);
+        2
+    };
+    let mut values: Vec<String> = Vec::new();
+    let mut change: Option<String> = None;
+    let mut suggested = false;
+    loop {
+        let found = match next(parser) {
+            Ok(None) => break,
+            Ok(Some(found)) => found,
+            Err(refused) => return used(err, format!("'{}' is not known", refused)),
+        };
+        match found {
+            Word::Value(value) if values.len() < 3 => values.push(word(value.as_bytes())),
+            Word::Long(option) if option == "change" && change.is_none() => match parser.value() {
+                Ok(value) => change = Some(word(value.as_bytes())),
+                Err(_) => return used(err, "'--change' needs a change".to_string()),
+            },
+            Word::Long(option) if option == "suggested" && !suggested => suggested = true,
+            found => {
+                let refused = named(found, parser);
+                return used(err, format!("'{}' is not known", refused));
+            }
+        }
+    }
+    let (on_value, rest) = match (&change, values.as_slice()) {
+        (Some(change), rest) => (change.clone(), rest.to_vec()),
+        (None, [issue, rest @ ..]) => (issue.clone(), rest.to_vec()),
+        (None, []) => return used(err, "an issue is needed, or --change and a change".to_string()),
+    };
+    let asked = match (suggested, rest.as_slice()) {
+        (false, []) => answer::Asked::Each,
+        (true, []) => answer::Asked::Suggested,
+        (false, [question, text]) => {
+            if text.chars().any(char::is_control) {
+                return used(err, "an answer is one line, with no control character".to_string());
+            }
+            answer::Asked::One(question.clone(), text.clone())
+        }
+        (true, _) => return used(err, "--suggested answers every question, and takes no question".to_string()),
+        (false, [_]) => return used(err, "a question is named with its answer: wb answer <issue> <question> <answer>".to_string()),
+        (false, _) => return used(err, "a question and its answer are two words: put the answer in quotes".to_string()),
+    };
+    if change.is_none() && !issue::is_name(&on_value) {
+        return used(err, format!("'{}' is not an issue: an issue is letters, digits, '.', '_' and '-', and does not start with '.'", on_value.escape_debug()));
+    }
+    if change.is_some() && !prompt::is_plain_name(&on_value) {
+        return used(err, format!("'{}' is not a change: a change is letters, digits, '.', '_' and '-', and does not start with '.' or '-'", on_value.escape_debug()));
+    }
+    let on = match &change {
+        Some(change) => answer::On::Change(change),
+        None => answer::On::Issue(&on_value),
+    };
+    match init::repository_root(None) {
+        Err(why) => {
+            let _ = writeln!(err, "wb answer: {}.", why);
+            2
+        }
+        Ok(None) => {
+            let _ = writeln!(err, "wb answer: this folder is not in a git repository. Watchbill is set up in one.");
+            2
+        }
+        Ok(Some(root)) => {
+            if !Path::new(&root).join(init::CONFIG_FOLDER).join(init::CONFIG_FILE).is_file() {
+                let _ = writeln!(err, "wb answer: .watchbill/watchbill.yml is not there. Watchbill is not set up in this repository.");
+                return 2;
+            }
+            answer::answer(&root, on, &asked, input, out, err)
+        }
     }
 }
 

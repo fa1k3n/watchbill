@@ -34,20 +34,47 @@ questions: [<what the issue leaves open, each starting with its name>]
 - A requirement is what the change must do, and that a test or a reading of the code can show. That the review checks something is not a requirement. How an existing test changes goes under `existing_tests_changed`, with the reason, and never as a requirement. A clause that no test can show stays a requirement and says so in its text, so that the review knows to read for it.
 - One requirement for each thing the issue asks the change to do, and one thing in each. Its ID is the issue and the number of the point, such as `{issue}.1`. Where the project has a table of requirements, it is the ID of the row. Its `text` keeps the issue's words where it can, and its `source` says where in the issue it comes from.
 - What the issue leaves open goes under `questions`, one point each. You do not answer it, not even where an answer looks plain. A person answers on the issue, a second breakdown folds the answer into the file, and the file is accepted only when `questions` is empty. Each question starts with its name, `{issue}.q<n>`, where `<n>` is its number, and keeps it when others are removed. A new question takes the next number.
-- Each question is also posted as its own comment on the issue. Its first line is `[question] {issue}.q<n>`, and the question follows, with the place in the code or the issue it is about. You post no question twice: a question that stands on the issue already is not posted again.
-- A person answers in a comment whose first line is `[answer] {issue}.q<n>`, or in the question's thread where the tracker has threads. An answer counts only from a person. Until the program reads from the tracker who wrote a comment, that is the account of the person who started the run, and a comment that starts with `[question]` is never an answer.
-- A question is written so that a person can answer it without opening the code. In plain words, it holds what is unclear, why it matters, the choices and a suggested answer, and nothing else:
+- The new questions are also posted on the issue, in one comment for the session, before your last message. Its first line is `[questions] {issue}` and the name of each question it holds, as `[questions] {issue} q1 q2`. In it, a question named `{issue}.q<n>` under `questions` is `q<n>` in the comment. Each question says the place in the code or the issue it is about. You post no question twice: a question that stands on the issue already is not posted again.
+- `<n>` counts on from the highest number of the breakdown's questions already on the issue, in `[questions] {issue}` and `[question] {issue}.q<n>` comments, so that no name is used twice.
+- A question is written so that a person can answer it without opening the code. In plain words, it holds what is unclear, why it matters, the choices, a suggested answer and whether the answer changes the issue's file, and nothing else:
   - What is unclear: one sentence, in the issue's own words where it has them.
   - Why it matters: what the change does differently by the answer, in one or two sentences, without the code's names unless the person needs them to answer.
   - The choices, numbered from 1, where there are any.
   - A suggested answer, marked as a suggestion, with its reason in one sentence: `Suggested: 1, because …`. It names its choice by number. You never act on it before a person answers.
+  - Whether the answer changes the issue's file: always `changes the issue's file: yes` for yours, as a second breakdown folds every answer into the file.
   - Nothing else: no recap of the issue, and no list of what you read.
+- Each question is one line, its name and what is unclear. The rest is folded under `<details>`, which the tracker shows closed. The comment is in this form:
+
+```text
+[questions] {issue} q1 q2
+q1: <what is unclear>
+<details>
+
+Why it matters: <one or two sentences>
+
+1. <the first choice>
+2. <the second choice>
+
+Suggested: 1, because <the reason>
+
+changes the issue's file: yes
+
+</details>
+
+q2: <what is unclear>
+<details>
+
+…
+
+</details>
+```
+
 - A question is never edited once posted, so that a number always means what it meant when the person answered. A question that has to change is posted again as a new question, with the next number.
+- A person answers with `wb answer`, in one comment whose first line is `[answers] {issue}` and the names of the questions it answers, then one line for each: `q1: 2`, or `q1: <words>`. An answer counts only from a person. Until the program reads from the tracker who wrote a comment, that is the account of the person who started the run, and a comment that starts with `[question]` or `[questions]` is never an answer.
 - An answer is read so:
-  - By number: `[answer] {issue}.q1 2` takes choice 2 of that question, in its words.
+  - By number: `q1: 2` takes choice 2 of that question, in its words.
   - In words: any other text after the name is the answer, such as "2, but only for the first command", or plain words. A number that is not one of the question's choices is no answer, and the question stays open.
-  - Several in one comment: each on a line of its own that starts `[answer]`.
-  - Every suggestion at once: a comment whose first line is `[answer] {issue} suggested` takes the suggested answer of every question on the issue that was posted before that comment and has no answer yet. A question with no suggested answer stays open.
+- An issue begun under revision 0.0.8 holds the forms of that revision. Read them, and do not post them: a question as its own comment, `[question] {issue}.q<n>`; an answer as a line `[answer] {issue}.q<n>` and the answer, read as above, several in one comment, each on a line of its own; and `[answer] {issue} suggested`, which takes the suggested answer of every question posted before it that has no answer yet.
 - A second session, a fresh one, folds the answers in. Where the issue's file is on {branch} already, you read the issue with its comments and take each answer of a person as part of the issue. You change the file to hold it, in the requirements, `changes`, `reads` or `existing_tests_changed`, and remove the question answered. A question with no answer you keep, and you never answer it yourself. You commit the file alone again. Where the issue's text no longer has the hash under `from`, the issue has changed, and you write the file anew from it.
 - Find the guards among the existing tests. Where a clause holds already before the change and an existing test shows it, name that test under `guard` of the requirement, as the project names its tests. Leave `guard` out where there is none. Name no test you have not found in the code.
 - `interface`: the names, types and signatures the tests will call, as they are in the code, or as the issue says they will be.

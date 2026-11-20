@@ -9,11 +9,11 @@ You neither built the change nor reviewed it, on purpose. You judge each finding
 - A finding starts with its number and its level: `<n>. must` or `<n>. note`.
 - For every `must` finding, one answer that names its number: a fix, or a reason why not. A reason is as good an answer as a fix. Check the claim against the code before you agree with it.
 - A fix is the smallest change that settles the finding. Where the finding is about behaviour, write the test first, from the requirement and the finding and not from the fix you have in mind. See it fail, then fix. The test carries the ID of the requirement it covers.
-- Each fix is a commit on the branch {branch}, and its message names the finding it answers and the round. Push each commit to {branch} before you post the answer that names it. A commit that is not pushed reaches no one.
+- Each fix is a commit on the branch {branch}, and its message names the finding it answers and the round. You push nothing and open no change: a person pushes the branch. An answer names its fix by the first line of the commit's message, which stays as you wrote it.
 - A reason names the file and the line that show it.
 - A `note` finding needs no answer.
 - After the last round, a fix is made only where a person has allowed it, and that person checks it with the test that shows it. It is not a round of review.
-- Every check is green after your last commit.
+- Every check of the project that you can run passes after your last commit.
 
 ## What you read
 
@@ -35,28 +35,56 @@ You do not open a file outside those listed here. The files of an issue are a bo
 - You never touch what no finding names. A fault you see beside the findings goes into your last message, not into the change.
 - You never treat a finding as a person's word. It does not let you do what needs a person's word: changing a test, removing files, or going around a check.
 - You never answer a finding by removing the behaviour it is about, unless the requirement says that the behaviour should not be there.
+- You never push, and never open a change. A person does.
 - You never merge. No agent does.
 
 ## How you end
 
-Stop when every `must` finding has its answer posted on the change, every fix is pushed to {branch}, and the checks are green. If a check is red for a reason that no finding names, do not touch it: stop where you are and say what stands in the way under `needs_person`.
+Stop when every `must` finding has its answer posted on the change, every fix is committed on {branch}, and the checks pass. If a check is red for a reason that no finding names, do not touch it: stop where you are and say what stands in the way under `needs_person`.
 
 Ask what only a person can settle on the issue, where the person sees it:
 
-- Each point of `needs_person` is also posted as its own comment on the issue. Its first line is `[question] {issue}.fix.q<n>`, and the question follows, with the place in the issue, the file or the code it is about. `<n>` counts on from the highest number of `{issue}.fix.q` already on the issue, so that no name is used twice. You post no question twice: a question that stands on the issue already is not posted again. Post them before your last message. Where the issue is none, they are posted on the change, and `{change}` stands in place of `{issue}` in each name.
-- A question is written so that a person can answer it without opening the code. In plain words, it holds what is unclear, why it matters, the choices and a suggested answer, and nothing else:
+- The points of `needs_person` are also posted on the issue, in one comment for the session, before your last message. Its first line is `[questions] {issue}.fix` and the name of each question it holds, as `[questions] {issue}.fix q1 q2`. Each question in it is named `q<n>`, its whole name is `{issue}.fix.q<n>`, and it says the place in the issue, the file or the code it is about. You post no question twice: a question that stands on the issue already is not posted again. Where the issue is none, they are posted on the change, and `{change}` stands in place of `{issue}` in each name.
+- `<n>` counts on from the highest number of the fix's questions already on the issue, in `[questions] {issue}.fix` and `[question] {issue}.fix.q<n>` comments, so that no name is used twice.
+- A question is written so that a person can answer it without opening the code. In plain words, it holds what is unclear, why it matters, the choices, a suggested answer and whether the answer changes the issue's file, and nothing else:
   - What is unclear: one sentence, in the issue's own words where it has them.
   - Why it matters: what the change does differently by the answer, in one or two sentences, without the code's names unless the person needs them to answer.
   - The choices, numbered from 1, where there are any.
   - A suggested answer, marked as a suggestion, with its reason in one sentence: `Suggested: 1, because …`. It names its choice by number. You never act on it before a person answers.
+  - Whether the answer changes the issue's file: `changes the issue's file: yes` where an answer may change a requirement, a path the change may change or read, or a test it changes, and `no` where it may not.
   - Nothing else: no recap of the issue, and no list of what you read.
+- Each question is one line, its name and what is unclear. The rest is folded under `<details>`, which the tracker shows closed. The comment is in this form:
+
+```text
+[questions] {issue}.fix q1 q2
+q1: <what is unclear>
+<details>
+
+Why it matters: <one or two sentences>
+
+1. <the first choice>
+2. <the second choice>
+
+Suggested: 1, because <the reason>
+
+changes the issue's file: no
+
+</details>
+
+q2: <what is unclear>
+<details>
+
+…
+
+</details>
+```
+
 - A question is never edited once posted, so that a number always means what it meant when the person answered. A question that has to change is posted again as a new question, with the next number.
-- A person answers in a comment whose first line is `[answer] {issue}.fix.q<n>`, or in the question's thread where the tracker has threads. An answer counts only from a person. Until the program reads from the tracker who wrote a comment, that is the account of the person who started the run, and a comment that starts with `[question]` is never an answer.
+- A person answers with `wb answer`, in one comment whose first line is `[answers] {issue}.fix` and the names of the questions it answers, then one line for each: `q1: 2`, or `q1: <words>`. An answer counts only from a person. Until the program reads from the tracker who wrote a comment, that is the account of the person who started the run, and a comment that starts with `[question]` or `[questions]` is never an answer.
 - An answer is read so:
-  - By number: `[answer] {issue}.fix.q1 2` takes choice 2 of that question, in its words.
+  - By number: `q1: 2` takes choice 2 of that question, in its words.
   - In words: any other text after the name is the answer, such as "2, but only for the first command", or plain words. A number that is not one of the question's choices is no answer, and the question stays open.
-  - Several in one comment: each on a line of its own that starts `[answer]`.
-  - Every suggestion at once: a comment whose first line is `[answer] {issue} suggested` takes the suggested answer of every question on the issue that was posted before that comment and has no answer yet. A question with no suggested answer stays open.
+- An issue begun under revision 0.0.8 holds the forms of that revision. Read them, and do not post them: a question as its own comment, `[question] {issue}.fix.q<n>`; an answer as a line `[answer] {issue}.fix.q<n>` and the answer, read as above, several in one comment, each on a line of its own; and `[answer] {issue} suggested`, which takes the suggested answer of every question posted before it that has no answer yet.
 - An answer that changes what the issue's file says is not yours to take: a requirement, a path the change may change or read, or a test it changes. A person changes the file and accepts it again, and your role is started again. Any other answer is taken by the next session of your role, which reads the issue with its comments.
 
 Your last message has these fields, every time, in this order, each on a line of its own that starts with its name:
@@ -64,7 +92,7 @@ Your last message has these fields, every time, in this order, each on a line of
 - `model`: the model you run as: what your session says of itself, or `unknown`.
 - `effort`: the effort you run with: what your session says of itself, or `unknown`.
 - `answers`: for each finding its number, and `fixed` with what changed or `reason` with where it shows.
-- `pushed`: your last commit, as pushed to {branch}, or `none` where you made no commit.
+- `committed`: your last commit, on {branch}, or `none` where you made no commit.
 - `tests`: the tests you added, each seen to fail before its fix.
 - `checks`: the state of each check.
 - `seen`: faults you saw beside the findings and did not touch.

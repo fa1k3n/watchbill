@@ -107,6 +107,60 @@ pub fn stamps_in(text: &str) -> Vec<(String, u64)> {
         .collect()
 }
 
+/// What the CI of a change says (#127): the word that `change_checks` prints.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ci {
+    Green,
+    Red,
+    Pending,
+}
+
+impl Ci {
+    /// The word as `change_checks` prints it.
+    pub fn word(self) -> &'static str {
+        match self {
+            Ci::Green => "green",
+            Ci::Red => "red",
+            Ci::Pending => "pending",
+        }
+    }
+
+    /// Why a review is not started on a change with this CI, or none for green.
+    pub fn refusal(self, change: &str) -> Option<String> {
+        match self {
+            Ci::Green => None,
+            Ci::Pending => Some(format!("the CI of change {} is pending: wait for it to end, then start the review again.", change)),
+            Ci::Red => Some(format!(
+                "the CI of change {} is red, so no review is started: the change goes to a person. The CI builds the whole tree and runs every test after a change built in a view, so the lists or the stubs of the breakdown may be wrong.",
+                change
+            )),
+        }
+    }
+}
+
+/// Reads the CI of `change` by `change_checks` of `watchbill.yml` at `root`, run for the change: `None` when the
+/// file has no `change_checks`. What it prints must be one word, `green`, `red` or `pending`, around which space
+/// and a line end are left out; any other text, or a status but 0, is refused with the key named.
+pub fn ci(root: &str, change: Option<&str>) -> Result<Option<Ci>, String> {
+    let Some(line) = crate::prompt::pattern_of(root, "change_checks").map_err(|why| why.to_string())? else {
+        return Ok(None);
+    };
+    let Some(change) = change.filter(|change| crate::prompt::is_plain_name(change)) else {
+        return Err("the CI is read by `change_checks` of watchbill.yml for a change, and there is none. Give --change".to_string());
+    };
+    let printed = run(root, "change_checks", &line.replace("{change}", change), None)?;
+    let printed = String::from_utf8_lossy(&printed);
+    match printed.trim() {
+        "green" => Ok(Some(Ci::Green)),
+        "red" => Ok(Some(Ci::Red)),
+        "pending" => Ok(Some(Ci::Pending)),
+        other => {
+            let shown: String = other.chars().take(80).collect();
+            Err(format!("`change_checks` of watchbill.yml printed \"{}\", and it must print one word: green, red or pending", shown.escape_debug()))
+        }
+    }
+}
+
 /// The open changes that `change_of_branch`, filled as `line`, prints: one to a line, empty lines left out.
 pub fn open_changes(root: &str, line: &str) -> Result<Vec<String>, String> {
     let printed = run(root, "change_of_branch", line, None)?;

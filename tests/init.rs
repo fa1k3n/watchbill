@@ -69,6 +69,7 @@ fn test_WB_INIT_14_yes_writes_what_the_repository_says_and_asks_nothing() {
             "change_comment: 'gh pr comment {change} --repo example/brake-controller --body-file -'",
             "change_comments: 'gh api repos/example/brake-controller/issues/{change}/comments --paginate --jq ''.[].body | split(\"\\n\")[0]'''",
             "change_of_branch: 'gh pr list --repo example/brake-controller --head {branch} --state open --json number --jq ''.[].number'''",
+            r#"change_checks: 'gh pr checks {change} --repo example/brake-controller --json bucket --jq ''[.[].bucket] | if length == 0 then "pending" elif any(. == "fail" or . == "cancel") then "red" elif any(. == "pending") then "pending" else "green" end'''"#,
             r#"open_issues: 'gh issue list --repo example/brake-controller --state open --limit 1000 --json number,title --jq ''.[] | "\(.number)\t\(.title | gsub("[\n\r]"; " "))"'''"#,
             "issue_address: 'gh issue view {issue} --repo example/brake-controller; gh issue view {issue} --repo example/brake-controller --comments'",
             "change_address: 'gh pr view {change} --repo example/brake-controller; gh pr view {change} --repo example/brake-controller --comments'",

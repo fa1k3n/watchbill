@@ -381,7 +381,8 @@ Each start of `wb <role>`, started or refused, leaves a few plain lines on the m
   message: …
   ```
 
-  `check` is the one that refused: `prompt`, `rule`, `class`, `start`, `terminal` or `view`. `message` is the first line of what was said. `not posted` is a stamp that was not posted, and no session was started. `ended` gives the session's own status (or `signal:` when a signal ended it) and the seconds it ran. A `wb` killed while the session runs leaves no `outcome`.
+  `check` is the one that refused: `prompt`, `rule`, `class`, `start`, `terminal`, `ci` or `view`. `message` is the first line of what was said. `not posted` is a stamp that was not posted, and no session was started. `ended` gives the session's own status (or `signal:` when a signal ended it) and the seconds it ran. A `wb` killed while the session runs leaves no `outcome`.
+- **`ci`,** for a review: `ci: green`, `ci: red` or `ci: pending`, the word `change_checks` printed; `ci: not read` where there is no `change_checks`, and `ci: unread` where it printed something else or failed. It is kept whether or not the review started, so that a count of views that were green and CIs that were not can be made.
 - **`view` and `back`,** for a session in a view: the list of its paths, one to a line, whose SHA-256 is the stamp's `view:`; and what came back, a line each: `taken: <commit on the branch> <subject>`, `refused: <commit of the view> <subject>: <why>`, `not taken: …`, `uncommitted: <path>`, `failed: <why>`, and last `view: removed` or `view: kept <folder>`.
 - **Not in the way:** a folder that cannot be written is said on standard error. It changes neither the status nor whether the session starts.
 - **What writes none:** `--prompt`, `--stamp` and `--parts`, and `wb prompt` and `wb check`. Nor does a command used wrongly (status 2 before the checks begin): no start was tried.
@@ -398,6 +399,7 @@ change_comment: 'gh pr comment {change} --repo example/brake-controller --body-f
 change_comments: 'gh api repos/example/brake-controller/issues/{change}/comments --paginate --jq ''.[].body | split("\n")[0]'''
 change_of_branch: 'gh pr list --repo example/brake-controller --head {branch} --state open --json number --jq ''.[].number'''
 open_issues: 'gh issue list --repo example/brake-controller --state open --limit 1000 --json number,title --jq ''.[] | "\(.number)\t\(.title | gsub("[\n\r]"; " "))"'''
+change_checks: 'gh pr checks {change} --repo example/brake-controller --json bucket --jq ''[.[].bucket] | if length == 0 then "pending" elif any(. == "fail" or . == "cancel") then "red" elif any(. == "pending") then "pending" else "green" end'''
 ```
 
 - `issue_comment` and `change_comment` post a comment from standard input. `issue_comments` and `change_comments` print the first line of each comment, one to a line. `change_of_branch` prints the numbers of the open changes from `{branch}`, one to a line. At GitHub the comments of a pull request are those of an issue, so `change_comments` reads them the same way.
@@ -417,11 +419,20 @@ change_of_branch: 'glab mr list --repo https://gitlab.example.com/brakes/control
 open_issues: 'glab api --hostname gitlab.example.com ''projects/brakes%2Fcontroller/issues?state=opened&per_page=100'' --paginate --output ndjson | jq -r ''"\(.iid)\t\(.title | gsub("[\n\r]"; " "))"'''
 issue_address: 'glab issue view {issue} --repo https://gitlab.example.com/brakes/controller --comments'
 change_address: 'glab mr view {change} --repo https://gitlab.example.com/brakes/controller --comments'
+change_checks: 'glab api --hostname gitlab.example.com projects/brakes%2Fcontroller/merge_requests/{change} | jq -r ''(.head_pipeline.status // "none") as $s | if $s == "success" then "green" elif $s == "failed" or $s == "canceled" then "red" else "pending" end'''
 ```
 
 - The host is that of `origin`, without a user name or a token; without it `glab` asks gitlab.com. An `origin` with a port gets none of these lines.
 - The comments are posted through `glab api`, which reads the whole text from standard input; `glab issue note` would ask for it at a prompt. `glab api` has no `--jq`, so `issue_comments` and `change_comments` need `jq` on the machine of the team. `wb` does not. They keep no system note, and print the first line of each other note.
 - The project is written in the path of the API with each `/` as `%2F`.
+
+`change_checks` is read by `wb review` before it posts the stamp (#127). It prints one word for the change, `green`, `red` or `pending`, and ends with 0.
+
+- `wb review` starts on `green`. On `pending` it is refused with 1, saying to wait. On `red` it is refused with 1, saying that the change goes to a person, and that the lists or the stubs of the breakdown may be wrong: the CI builds the whole tree and runs every test, and the session saw only its view. A word that is not one of the three, or a status but 0, is refused with 1, naming `change_checks`.
+- The review's prompt gets nothing of it: not the word, and never the CI's log. Only `wb` reads the word.
+- For GitHub the word comes from the `bucket` of `gh pr checks`: `red` where a check failed or was cancelled, `pending` where one has not ended or none is reported yet, else `green`. A pull request with no check at all ends `gh` with 1, and `wb review` is refused. A repository with no CI has no `change_checks` line.
+- For GitLab the word comes from the status of the merge request's head pipeline, through `glab api`: only `success` is `green`, `failed` and `canceled` are `red`, and anything else, a merge request with no pipeline too, is `pending`. This line was written from the documentation of `glab` and has not been run against a GitLab server.
+- With no `change_checks`, the review starts, and `wb` says on standard error that the CI was not read.
 
 ### Classed code
 

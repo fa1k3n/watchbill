@@ -26,8 +26,7 @@ fn set_up_with(post: &str) -> Folder {
     let run = wb(&folder.path, &["init", "--yes"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let patterns = format!(
-        "open_issues: \"cat .tracker/open\"
-issue_comments: \"cat .tracker/{{issue}}.comments\"
+        "issue_comments: \"cat .tracker/{{issue}}.comments\"
 issue_comment: \"{}\"
 change_comments: \"cat .tracker/change-{{change}}.comments\"
 change_comment: \"tee -a .tracker/change-{{change}}.bodies | head -n 1 >> .tracker/change-{{change}}.comments\"
@@ -37,7 +36,6 @@ change_comment: \"tee -a .tracker/change-{{change}}.bodies | head -n 1 >> .track
     let mut file = fs::OpenOptions::new().append(true).open(config(&folder.path)).unwrap();
     file.write_all(patterns.as_bytes()).unwrap();
     put(&folder.path, ".git/info/exclude", ".tracker/\n");
-    put(&folder.path, ".tracker/open", "");
     git(&folder.path, &["add", "--", ".watchbill"]);
     git(&folder.path, &["commit", "-q", "-m", "Set up"]);
     issues_ready(&folder.path, &["174", "175"]);

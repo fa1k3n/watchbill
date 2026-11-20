@@ -87,7 +87,7 @@ pub fn yaml_value(value: &str) -> String {
 const CLASSED_QUESTION: &str = "classed code (paths from the root, separated by commas, or [] for none)";
 
 /// The classed paths of an answer, or why it is not taken. `[]`, `none` and nothing are no classed code. The
-/// paths are separated by commas, in brackets or not, and each is one that `wb <role>` takes: from the root of
+/// paths are separated by commas, in brackets or not, and each is one that `wb start <role>` takes: from the root of
 /// the repository, not starting with `/`, with no `..`, and not the root.
 fn classed_answer(answer: &str) -> Result<Vec<String>, &'static str> {
     let inner = answer.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')).unwrap_or(answer).trim();
@@ -136,7 +136,7 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
     for (key, value) in rows {
         text.push_str(&format!("{}: {}\n", key, yaml_value(value)));
     }
-    // Which paths are classed (#84): a person says it here. With no line, `wb <role>` takes every path as classed.
+    // Which paths are classed (#84): a person says it here. With no line, `wb start <role>` takes every path as classed.
     let listed: Vec<String> = classed.iter().map(|path| yaml_value(path)).collect();
     text.push_str(&format!("classed: [{}]\n", listed.join(", ")));
     // The files of the build (#125): `wb accept` refuses an issue's file whose `changes` holds one. The CI

@@ -124,8 +124,9 @@ pub const USAGE: &str = "usage:
             watchbill.yml, one comment whose first line is
             [revert] <role> round <n>, for the last stamp of the role, or round
             <n>. From that stamp up to the marker no stamp, question or answer
-            counts, for wb <role>, wb prompt and wb status. wb revert --change
-            <n> <role> posts it on a change with no issue, by change_comment.
+            counts, for wb start <role>, wb prompt and wb status. wb revert
+            --change <n> <role> posts it on a change with no issue, by
+            change_comment.
             The branch, the issue's file and its acceptance, and the change are
             not touched: taking commits back is git's. The breakdown is taken
             back with git, not by a marker. Ends with 0 when the marker is
@@ -362,7 +363,7 @@ pub fn prompt(args: &[OsString], folder: &Path, organisation: &Path, out: &mut d
     run_prompt(&mut Parser::from_args(args.iter().cloned()), Some(folder), organisation, out, err)
 }
 
-/// `wb <role>`, with the role and the words after it, in the repository of `folder`, with the organisation's
+/// `wb start <role>`, with the role and the words after it, in the repository of `folder`, with the organisation's
 /// file at `organisation`, and `terminal` the answer to whether standard input and output are a terminal
 /// (#84), and `state` the state folder the lines of the start are written below, or none (#124). `run` gives
 /// the folder it runs in, the path fixed in `wb`, what the terminal says, and `sessions::state_folder`; this
@@ -381,7 +382,7 @@ pub fn start(
     start_on(args, folder, &machine, out, err)
 }
 
-/// What `wb <role>` takes from the machine it runs on. `run` gives the path of the organisation's file fixed in
+/// What `wb start <role>` takes from the machine it runs on. `run` gives the path of the organisation's file fixed in
 /// `wb`, what the terminal says, `sessions::state_folder`, bubblewrap at `view::BWRAP` and `$HOME`; a test gives
 /// its own.
 pub struct Machine<'a> {
@@ -432,10 +433,20 @@ fn run_start_word(parser: &mut Parser, folder: Option<&Path>, machine: &Machine,
     }
 }
 
-/// `wb <role> …`, which `wb start <role> …` replaced (#175): ends with 2 and says the new form, with the words
+/// A word as a shell takes it back as one word: as it is where it holds only plain characters, else in single quotes.
+fn quoted(word: &str) -> String {
+    let plain = |c: char| c.is_ascii_alphanumeric() || "_@%+=:,./-".contains(c);
+    if !word.is_empty() && word.chars().all(plain) {
+        word.to_string()
+    } else {
+        format!("'{}'", word.replace('\'', "'\\''"))
+    }
+}
+
+/// `wb start <role> …`, which `wb start <role> …` replaced (#175): ends with 2 and says the new form, with the words
 /// as they were given.
 fn old_form(args: &[OsString], err: &mut dyn Write) -> i32 {
-    let words: Vec<String> = args.iter().map(|arg| word(arg.as_bytes())).collect();
+    let words: Vec<String> = args.iter().map(|arg| quoted(&word(arg.as_bytes()))).collect();
     let _ = writeln!(err, "wb: {} is not a command any more: use: wb start {}", words[0], words.join(" "));
     2
 }
@@ -454,14 +465,14 @@ fn value_of<'a>(values: &'a [(&'static str, String)], name: &str) -> Option<&'a 
     values.iter().find(|(given, _)| *given == name).map(|(_, value)| value.as_str())
 }
 
-/// What `wb prompt <role> …` or `wb <role> …` was given.
+/// What `wb prompt <role> …` or `wb start <role> …` was given.
 struct Words {
     role: String,
     /// The value of each placeholder given, the issue word among them as `issue`.
     values: Vec<(&'static str, String)>,
     parts: bool,
     stamp: bool,
-    /// `--prompt` of `wb <role>`: print the prompt, as `wb prompt` does.
+    /// `--prompt` of `wb start <role>`: print the prompt, as `wb prompt` does.
     print: bool,
     runner: Option<String>,
 }
@@ -482,7 +493,7 @@ impl Words {
     }
 }
 
-/// Reads the words of `wb prompt`, where the first word is the role, or of `wb <role>`, where `role` is given
+/// Reads the words of `wb prompt`, where the first word is the role, or of `wb start <role>`, where `role` is given
 /// and `--prompt` is taken too. What `wb prompt` refuses as used wrongly is refused here, in its order, with
 /// its words after `name`. The status of a refusal is the error.
 fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn Write) -> Result<Words, i32> {
@@ -564,7 +575,7 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
     if stamp && parts {
         return Err(used(err, name, "'--stamp' and '--parts' are not used together"));
     }
-    // A session that `wb <role>` starts takes the organisation's default runner, when none is given (#84).
+    // A session that `wb start <role>` starts takes the organisation's default runner, when none is given (#84).
     let prints = !starter || print || stamp || parts;
     if role == "breakdown" && runner.is_none() && prints {
         return Err(used(
@@ -588,7 +599,7 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
     if !has_issue && (role == "tester" || role == "build") {
         return Err(used(err, name, &format!("the {} is handed out for an issue: give it as the word after the role, or as '--issue'", role)));
     }
-    // A stamp printed, or posted by `wb <role>`, holds each value as one line.
+    // A stamp printed, or posted by `wb start <role>`, holds each value as one line.
     if stamp || !prints {
         if let Some(why) = stamp_fault(&values) {
             return Err(used(err, name, &why));
@@ -610,7 +621,7 @@ struct Handed {
 
 /// Everything `wb prompt` checks and does before it prints, for the words given: the check of `wb check`,
 /// the role, the breakdown's runner (#93), the issue's file (#76, #97), the values derived (#72) and those
-/// worked out from the patterns (#84), and the prompt put together. `starting` is `wb <role>` that starts a
+/// worked out from the patterns (#84), and the prompt put together. `starting` is `wb start <role>` that starts a
 /// session: it always needs the round, and a pattern it needs that is not there is refused. What is
 /// refused is said after `name`, and its status is the error.
 fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Path, starting: bool, err: &mut dyn Write) -> Result<Handed, i32> {
@@ -673,7 +684,7 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
         }
     }
     // The round and the change are worked out where the prompt holds them, and the round always for a
-    // session that `wb <role>` starts: its stamp's first line holds it (#84).
+    // session that `wb start <role>` starts: its stamp's first line holds it (#84).
     let holds = prompt::used_by(Path::new(&root), role);
     let need = prompt::Need { round: starting || holds.contains(&"round"), change: holds.contains(&"change"), strict: starting };
     let before = values.len();
@@ -837,7 +848,7 @@ fn run_prompt(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, o
     }
 }
 
-/// Whether a round given to `wb <role>` can stand in the first line of a stamp, to be read back: a whole
+/// Whether a round given to `wb start <role>` can stand in the first line of a stamp, to be read back: a whole
 /// number from 1, with no leading zero.
 fn is_round(value: &str) -> bool {
     !value.is_empty() && value.chars().all(|c| c.is_ascii_digit()) && !value.starts_with('0')
@@ -870,7 +881,7 @@ fn refusal_in(name: &str, said: &[u8]) -> String {
     said.lines().filter_map(|line| line.strip_prefix(&start)).last().or_else(|| said.lines().next()).unwrap_or_default().to_string()
 }
 
-/// `wb <role> [<issue>] [--runner <name>] [--prompt] …` (#84): the checks of `wb prompt`, then that the rule
+/// `wb start <role> [<issue>] [--runner <name>] [--prompt] …` (#84): the checks of `wb prompt`, then that the rule
 /// table lets the role start, that no classed code is in its way, that the runner has `start`, and that it
 /// runs at a terminal, and for an issue with an accepted file that its view can be made (#126); then the stamp
 /// is posted by `issue_comment` (or `change_comment`), and the session is started by the runner's `start`, in

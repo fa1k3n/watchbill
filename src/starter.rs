@@ -1,4 +1,4 @@
-//! The starter (#84): what `wb <role>` does after the checks of `wb prompt`. It reads the stamps on the issue,
+//! The starter (#84): what `wb start <role>` does after the checks of `wb prompt`. It reads the stamps on the issue,
 //! finds the change of a branch, checks the class of the paths a session may change, posts the stamp and
 //! starts the session with the runner's `start`.
 //!

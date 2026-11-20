@@ -1,4 +1,4 @@
-//! `wb <role>`: the starter (#84). It checks what `wb prompt` checks, then the rule table, the class, the
+//! `wb start <role>`: the starter (#84). It checks what `wb prompt` checks, then the rule table, the class, the
 //! runner's `start` and the terminal; it posts the stamp by `issue_comment` and starts the session by `start`.
 //!
 //! The commands it runs are stand-ins: small scripts the tests write, which put what they were given in a
@@ -229,7 +229,7 @@ fn issue_file(bench: &Bench, issue: &str, changes: &str) {
     git(&bench.repo.path, &["commit", "-q", "-m", "The issue's file"]);
 }
 
-// ---- WB-BUILD-1: what `wb prompt` refuses, `wb <role>` refuses with the same message and status ----
+// ---- WB-BUILD-1: what `wb prompt` refuses, `wb start <role>` refuses with the same message and status ----
 
 fn same_as_prompt(bench: &Bench, role: &str, words: &[&str]) {
     let mut started = vec!["start", role];
@@ -926,7 +926,7 @@ fn test_WB_BUILD_25_an_interrupt_and_a_quit_sent_while_the_session_runs_do_not_e
 
 // ---- WB-MON: the lines a start leaves on the machine (#124) ----
 
-/// Runs `wb <role>` on the bench with `state` as its state folder.
+/// Runs `wb start <role>` on the bench with `state` as its state folder.
 fn start_at(bench: &Bench, state: &Path, terminal: bool, args: &[&str]) -> Output {
     start_in(&bench.repo.path, &bench.org, terminal, Some(state), args)
 }

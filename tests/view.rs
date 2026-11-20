@@ -1,4 +1,4 @@
-//! The view (#126): `wb <role>` runs a session of an issue with an accepted file in bubblewrap, in a new
+//! The view (#126): `wb start <role>` runs a session of an issue with an accepted file in bubblewrap, in a new
 //! repository that holds only the paths of `changes` and of the role's `reads`, and takes its commits back.
 //!
 //! The session is a stand-in: a script the test writes in its own folder, which the organisation's file of the

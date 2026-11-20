@@ -1,5 +1,5 @@
 //! An interrupt (Ctrl-C) while `wb init` asks: it says `Nothing written.` and ends with 1. While a session
-//! that `wb <role>` started runs, an interrupt and a quit go to the session, and `wb` waits for it (`hold`).
+//! that `wb start <role>` started runs, an interrupt and a quit go to the session, and `wb` waits for it (`hold`).
 //!
 //! A Rust program is ended by SIGINT unless it handles the signal. The handler uses only what a
 //! handler may: `write(2)` and `_exit(2)`. They are declared here, for the C library that the

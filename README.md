@@ -317,7 +317,7 @@ wb start review --change 174        # a change with no issue
 
 Each takes the words `wb prompt` takes for its role, `--runner <name>`, and `--prompt`. Run it anywhere inside the repository.
 
-The role is a word after `start`, never a command of its own. The old form, `wb start build 54`, ends with 2 and says the new one with the same words: `use: wb start build 54`. A word after `start` that is no role of the revision ends with 2 and names the roles.
+The role is a word after `start`, never a command of its own. The old form, `wb build 54`, ends with 2 and says the new one with the same words: `use: wb start build 54`. A word after `start` that is no role of the revision ends with 2 and names the roles.
 
 ### What it checks
 

@@ -189,7 +189,7 @@ pub fn prompt_with(folder: &Path, organisation: &Path, args: &[&str]) -> Output 
     Output { status: std::process::ExitStatus::from_raw(status << 8), stdout: out, stderr: err }
 }
 
-/// Runs `wb <role>` in the test process, through `watchbill::start`, with the organisation's file at
+/// Runs `wb start <role>` in the test process, through `watchbill::start`, with the organisation's file at
 /// `organisation` (#93) and `terminal` as the answer to whether standard input and output are a terminal
 /// (#84). `args` are the role and the words after it. The result is as the program gives it. The lines of
 /// the start (#124) are written in a state folder of the call's own, removed after it.
@@ -198,7 +198,7 @@ pub fn start_with(folder: &Path, organisation: &Path, terminal: bool, args: &[&s
     start_in(folder, organisation, terminal, Some(&state.path), args)
 }
 
-/// Runs `wb <role>` as `start_with` does, with `state` the state folder the lines of the start are written
+/// Runs `wb start <role>` as `start_with` does, with `state` the state folder the lines of the start are written
 /// below (#124), or none.
 pub fn start_in(folder: &Path, organisation: &Path, terminal: bool, state: Option<&Path>, args: &[&str]) -> Output {
     use std::os::unix::process::ExitStatusExt;

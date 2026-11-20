@@ -5,7 +5,7 @@ What `wb revert` posts, and how `wb` reads the marker. Nothing at the tracker is
 | ID | Requirement | Ver | Status |
 |---|---|---|---|
 | WB-REVERT-1 | `wb revert <issue> <role>` shall post, through `issue_comment`, one comment whose first line is `[revert] <role> round <n>`, for the last round of that role, or the round of `--round`. Issue: #142. | T | Implemented |
-| WB-REVERT-2 | A `[stamp]`, `[question]` or `[answer]` from the reverted stamp up to the marker shall not count for the round that `wb <role>` and `wb prompt` work out, nor for `wb status`. Issue: #142. | T | Implemented |
+| WB-REVERT-2 | A `[stamp]`, `[question]` or `[answer]` from the reverted stamp up to the marker shall not count for the round that `wb start <role>` and `wb prompt` work out, nor for `wb status`. Issue: #142. | T | Implemented |
 | WB-REVERT-3 | `wb revert` shall leave the branch, the issue's file, its acceptance and the change as they are, and say on standard error that taking commits back is git's. Issue: #142. | T | Implemented |
 | WB-REVERT-4 | `wb revert <issue> breakdown` shall be refused with 1, saying that the issue's file and its acceptance are taken back with git. Issue: #142. | T | Implemented |
 | WB-REVERT-5 | `wb revert` shall refuse with 1 a role that has no stamp on the issue that still counts. Issue: #142. | T | Implemented |

@@ -519,14 +519,14 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
                 value
             ),
             (On::Issue(_), "breakdown") => format!(
-                "the answer to {} changes the issue's file: start `wb breakdown {}` again to fold it into {}, and accept the file with `wb accept {}`. wb answer does not change the file.",
+                "the answer to {} changes the issue's file: start `wb start breakdown {}` again to fold it into {}, and accept the file with `wb accept {}`. wb answer does not change the file.",
                 changing.join(", "),
                 value,
                 file,
                 value
             ),
             (On::Issue(_), _) => format!(
-                "the answer to {} changes the issue's file: change {} to hold it and accept it again with `wb accept {}`, before `wb {} {}` is started again. wb answer does not change the file.",
+                "the answer to {} changes the issue's file: change {} to hold it and accept it again with `wb accept {}`, before `wb start {} {}` is started again. wb answer does not change the file.",
                 changing.join(", "),
                 file,
                 value,

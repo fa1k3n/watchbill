@@ -87,7 +87,7 @@ pub fn yaml_value(value: &str) -> String {
 const CLASSED_QUESTION: &str = "classed code (paths from the root, separated by commas, or [] for none)";
 
 /// The classed paths of an answer, or why it is not taken. `[]`, `none` and nothing are no classed code. The
-/// paths are separated by commas, in brackets or not, and each is one that `wb <role>` takes: from the root of
+/// paths are separated by commas, in brackets or not, and each is one that `wb start <role>` takes: from the root of
 /// the repository, not starting with `/`, with no `..`, and not the root.
 fn classed_answer(answer: &str) -> Result<Vec<String>, &'static str> {
     let inner = answer.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')).unwrap_or(answer).trim();
@@ -136,7 +136,7 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
     for (key, value) in rows {
         text.push_str(&format!("{}: {}\n", key, yaml_value(value)));
     }
-    // Which paths are classed (#84): a person says it here. With no line, `wb <role>` takes every path as classed.
+    // Which paths are classed (#84): a person says it here. With no line, `wb start <role>` takes every path as classed.
     let listed: Vec<String> = classed.iter().map(|path| yaml_value(path)).collect();
     text.push_str(&format!("classed: [{}]\n", listed.join(", ")));
     // The files of the build (#125): `wb accept` refuses an issue's file whose `changes` holds one. The CI
@@ -178,7 +178,7 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
             // after each, which `wb` does not read as part of the next body.
             ("issue_comment_bodies", whole("issue")),
             ("change_comment_bodies", whole("change")),
-            // The command that opens the change as a draft, which `wb build` says and a person runs (#145). The
+            // The command that opens the change as a draft, which `wb start build` says and a person runs (#145). The
             // description is filled from the commits: the build writes it in the message of its last commit.
             ("draft_change", format!("gh pr create --repo {} --head {{branch}} --draft --fill-verbose", repository)),
         ];
@@ -239,7 +239,7 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
             // byte, oldest first. The query is quoted: it holds `&`.
             ("issue_comment_bodies", whole("issues", "issue")),
             ("change_comment_bodies", whole("merge_requests", "change")),
-            // The command that opens the change as a draft, which `wb build` says and a person runs (#145).
+            // The command that opens the change as a draft, which `wb start build` says and a person runs (#145).
             ("draft_change", format!("glab mr create --repo {} --source-branch {{branch}} --draft --fill --fill-commit-body --yes", url)),
         ];
         for (key, line) in patterns {

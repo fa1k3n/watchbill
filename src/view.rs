@@ -7,7 +7,7 @@
 //!   and `/run` of its own; the home folder empty but for the runner's `binds`; the folder of the organisation's
 //!   file covered. The network stays as the runner needs it.
 //! - **What comes back**: each commit of the view, in order, put on the checkout's branch when it keeps to
-//!   `changes`, and refused, with every commit after it, when it does not. `wb` pushes nothing: `wb <role>` says
+//!   `changes`, and refused, with every commit after it, when it does not. `wb` pushes nothing: `wb start <role>` says
 //!   the command that pushes, and a person runs it (#145).
 //!
 //! Once the session has run, what is in the view is the session's. `wb` never runs git with the view's own

@@ -9,7 +9,7 @@
 
 A harness for AI agents in embedded software development, deployed at a fixed revision onto a project that already exists.
 
-**Status: an idea, written down 2026-11-16. Built: `wb init`, `wb check`, `wb prompt`, `wb accept`, `wb revision`, and `wb <role>`, which starts a session of a role at a person's terminal. Nothing hands work from one role to the next yet.**
+**Status: an idea, written down 2026-11-16. Built: `wb init`, `wb check`, `wb prompt`, `wb accept`, `wb revision`, and `wb start <role>`, which starts a session of a role at a person's terminal. Nothing hands work from one role to the next yet.**
 
 ## What Watchbill is for
 
@@ -56,13 +56,13 @@ At 0.0.9. An issue that changes a verdict changes its row.
 | Goal | Today | What will hold it |
 |---|---|---|
 | 1. Fits the workflow | Partly: any tracker and git server with a command line, by a pattern the team writes. `wb init` writes the patterns for GitHub and GitLab only. The CI and the requirements tool are names and nothing more. `wb` installs on Fedora and Enterprise Linux only | |
-| 2. What the agents are told | Held for what `wb` hands out: the pinned revision, `wb check`. `wb <role>` posts the stamp and starts the session with that prompt itself. A session started by hand is the word of the one who started it, and so is the effort of a runner whose `start` cannot set it | |
+| 2. What the agents are told | Held for what `wb` hands out: the pinned revision, `wb check`. `wb start <role>` posts the stamp and starts the session with that prompt itself. A session started by hand is the word of the one who started it, and so is the effort of a runner whose `start` cannot set it | |
 | 3. Rules enforced | Partly: the pinned revision, the acceptance, the breakdown's runner and the placeholders are checked in code. What a session of an issue with an accepted file reads and changes is held by its view. No other limit of the rule table is | #28 names each limit and what holds it; then #88 and the pieces #28 writes |
 | 4. People keep the decisions | Partly: `wb accept` asks for a person's word, but cannot tell a person from an agent under one account. That an agent cannot merge rests on the git server's settings | The roles' accounts, #83, and the acceptance read at the tracker, #88. No issue yet checks that a role's account cannot merge |
 | 5. Duties separated | Partly: the rule table says it, and nothing knows who holds which role | #83 and #88, for work that is handed on. No issue yet for a session a person starts |
-| 6. Sees only the code it needs | Partly: a session that `wb <role>` starts for an issue with an accepted file runs in a view, in bubblewrap. It sees the paths of its lists and no history, and its commits come back only where `changes` allows ([The view](#the-view)). `wb accept` checks that the lists hold what each file needs to build, by the team's own command `needs` ([below](#the-lists-checked-at-acceptance)). A session started by hand, for an issue with no file, or as the breakdown sees the whole checkout. What still leaks is [said below](#what-still-leaks) | No issue yet for a session started by hand |
+| 6. Sees only the code it needs | Partly: a session that `wb start <role>` starts for an issue with an accepted file runs in a view, in bubblewrap. It sees the paths of its lists and no history, and its commits come back only where `changes` allows ([The view](#the-view)). `wb accept` checks that the lists hold what each file needs to build, by the team's own command `needs` ([below](#the-lists-checked-at-acceptance)). A session started by hand, for an issue with no file, or as the breakdown sees the whole checkout. What still leaks is [said below](#what-still-leaks) | No issue yet for a session started by hand |
 | 7. Code goes only where allowed | Partly: checked for the breakdown | The other roles, #11. No issue yet for a local model for them |
-| 8. Starts small | Held: `wb <role>` starts any role alone, for an issue with no file, and a review or a fix of a change with no issue, and posts the stamp on the issue or the change ([one role at a time](#taking-it-on-one-role-at-a-time)) | |
+| 8. Starts small | Held: `wb start <role>` starts any role alone, for an issue with no file, and a review or a fix of a change with no issue, and posts the stamp on the issue or the change ([one role at a time](#taking-it-on-one-role-at-a-time)) | |
 | 9. Starts strict, opens up | Not yet: one level for the whole repository, and no level given means the strictest | #11, #65, and a level for each path, which has no issue yet |
 | 10. Shown to an assessor | Partly: what the agents are told can be read. The rule table says more than the program enforces | #28 |
 | 11. Needs no other product | Held: one RPM, `git`, and a build with the network off | |
@@ -138,7 +138,7 @@ build_files: ['.gitlab-ci.yml']
 - **The project's own text goes in `.watchbill/project/`.** `all.md` is added to the prompt of every role and `<role>.md` (`build.md`, `review.md`, `fix.md`, `tester.md`) to that of one role. Both are optional. They are the project's files: not part of the revision, not in the manifest, and `wb check` does not fail on them, except for a placeholder that the revision does not know (see `wb check`). A prompt is the role's text of the revision, then one fixed line, then `all.md`, then `<role>.md`. This text says how things are done here: the commands, the board, the words. It never lifts a limit of a role. `wb init` leaves `project/README.md`, which says so. The placeholders of `revision/roles/placeholders.md` (`{issue}`, `{branch}` and the others) are filled in every part, and any other placeholder is refused. A placeholder is a lower-case word in braces: `{`, a letter a to z, letters a to z or `_`, then `}`, with no `$` just before it. Anything else in braces is text and stays as it is, such as `${BUILD_DIR}`, `{Issue}`, `{issue-id}` and `{ issue }`. A value that is filled in is never itself read for placeholders. The command that prints a prompt comes later.
 - **`build_files` is the build** ([The lists checked at acceptance](#the-lists-checked-at-acceptance)). `wb init` writes the file or folder of each CI driver it found in the repository, whatever the answer for the driver: `.github/workflows`, `.gitlab-ci.yml`, `Jenkinsfile`, `azure-pipelines.yml`, `bitbucket-pipelines.yml`, `.circleci`, `.zuul.yaml` and `zuul.d`. Where it found none, it writes no line. The rest of the build, such as `Makefile` or `CMakeLists.txt`, a person adds.
 - **`classed` is the code that is classed** ([Classed code](#classed-code)). `wb init` proposes `[]`, none, and `--yes` takes that. A person who answers gives paths from the root of the repository, separated by commas; a path that starts with `/`, holds `..` or is the root is not taken, and the question is asked again. A repository set up before this has no line `classed`, so every path counts as classed: add the line by hand.
-- **The answers are only written down.** No adapter exists yet, so a git server or a tracker is a name and nothing more. For a GitHub or a GitLab `origin`, `wb init` also writes the patterns that `wb prompt` and `wb <role>` run ([below](#starting-a-session)).
+- **The answers are only written down.** No adapter exists yet, so a git server or a tracker is a name and nothing more. For a GitHub or a GitLab `origin`, `wb init` also writes the patterns that `wb prompt` and `wb start <role>` run ([below](#starting-a-session)).
 
 ## Checking it
 
@@ -167,7 +167,7 @@ The exit status:
 
 ## The prompt of an assignment
 
-`wb prompt <role>` prints the prompt of a role on standard output, and nothing else. Whatever starts an agent's session, in any language, calls it as a process. Run it anywhere inside the repository. It writes nothing. `wb <role>` ([below](#starting-a-session)) does all that `wb prompt` does, then posts the stamp and starts the session.
+`wb prompt <role>` prints the prompt of a role on standard output, and nothing else. Whatever starts an agent's session, in any language, calls it as a process. Run it anywhere inside the repository. It writes nothing. `wb start <role>` ([below](#starting-a-session)) does all that `wb prompt` does, then posts the stamp and starts the session.
 
 The prompt is the role's text of the pinned revision, then the project's own text (`.watchbill/project/all.md` and `.watchbill/project/<role>.md`, where they are). A call asks only for what `wb` cannot know on the machine: the issue, and for the review and the fix the change and the round. The change and the round live at the tracker and the git server. Where `watchbill.yml` has the patterns for them, `wb prompt` works them out by running those (#84); otherwise they are given.
 
@@ -186,7 +186,7 @@ The issue is the word after the role, or `--issue`; both together end with 2. Th
 - `issue_address` and `change_address` are the patterns of those names in `.watchbill/watchbill.yml`, with `{issue}` and `{change}` filled in. `wb init` proposes them for a GitHub `origin` (`gh issue view {issue} --repo <repository>; gh issue view {issue} --repo <repository> --comments`, `gh pr view {change} --repo <repository>; gh pr view {change} --repo <repository> --comments`: each shows the text or the description first, then the comments, as `--comments` alone hides the first). For a GitLab `origin` it writes one command each, with `--comments`. For another server, or none, there is no pattern and the option must be given.
 - `branch` is the pattern of that name in `watchbill.yml`, proposed as `issue-{issue}`, with `{issue}` filled in. The breakdown makes the branch, so it gets the pattern as it is. For the tester, the build, the review and the fix it is the one local branch (from the refs of the repository) whose name is the pattern, or starts with it and a `-`. None, or more than one, is refused with 1, the names found are said on standard error, and `--branch` must be given.
 - For a review or a fix of a change with no issue, `branch` is the branch checked out. `wb` asks nothing of the network, so it cannot see which branch the change is from: it refuses, with 2 and the words to give `--branch`, a HEAD on no branch, the branch that `origin/HEAD` names (where changes go), and any branch where `origin/HEAD` is not there.
-- `round` and `change`, where the role's text holds them (the review and the fix) and they are not given, are worked out as `wb <role>` works them out ([the round and the change](#the-round-and-the-change)), when `watchbill.yml` has the patterns. Without them the options are needed, as before. What was worked out is said on standard error, for example `wb prompt: round 2 (1 review stamp on issue 41)`, then `wb prompt: issue 41, change 174 (from the branch issue-41)`. This, and nothing else of `wb prompt`, asks the network, through the team's own patterns. The tester and the build ask nothing.
+- `round` and `change`, where the role's text holds them (the review and the fix) and they are not given, are worked out as `wb start <role>` works them out ([the round and the change](#the-round-and-the-change)), when `watchbill.yml` has the patterns. Without them the options are needed, as before. What was worked out is said on standard error, for example `wb prompt: round 2 (1 review stamp on issue 41)`, then `wb prompt: issue 41, change 174 (from the branch issue-41)`. This, and nothing else of `wb prompt`, asks the network, through the team's own patterns. The tester and the build ask nothing.
 - `requirements` is the text "the numbered requirements of issue {issue}" when the issue has no file, and "what the description of change {change} says the change does" for a review or a fix with no issue. When the issue has a file, see "An issue with a file" below.
 - With no issue, the text of the review and the fix has `none` for `{issue}` and `{issue_address}`, and says what to do where the issue is none. The stamp's `issue:` is empty.
 - A repository set up before these patterns have no lines for them in `watchbill.yml`. It works as it did: the options are needed, and `wb check` does not fail on it. A pattern that is not a text is refused by the loader, and that shows at `wb prompt` when it needs the pattern, not at `wb check`, which does not read the patterns.
@@ -197,7 +197,7 @@ The issue is the word after the role, or `--issue`; both together end with 2. Th
 - A placeholder that the prompt uses and that got no value, given or derived, is refused by name. An option for one it does not use is ignored. An empty value (`--issue ""`, or a variable that is not set) is refused by name, as an option with no value is: a prompt is never handed over with a hole in it. Only an empty value is refused: a value of white space is taken as it is given.
 - `--parts` prints, in place of the text, the SHA-256 and the path of each part, one line each, in the form `sha256sum` prints. Run `sha256sum -c` on them at the root of the repository to see that the files are as they were.
 - `--runner <name>` names the runner the prompt is handed to. The breakdown needs it: see [Confidentiality](#confidentiality). For the tester, the build, the review and the fix it is taken without a check in this revision, and the stamp names it. A value that is empty, given twice, or not one plain line is used wrongly.
-- `--stamp` prints, in place of the text, the stamp of the assignment: what was handed out ([docs/revision.md](docs/revision.md), point 12). It is lines of `name: value` in this order: `role`, `model`, `effort`, `runner`, `version`, `revision`, `issue`, `change`, `round`, `branch`, `checkout`, `time`, then one line `part: <sha256>  <path>` for each part. `model` and `effort` are those of the model table for the role, and for the breakdown those its runner is cleared with. `runner` is the value of `--runner`, and empty when none is given. `version` and `revision` are those of the pinned revision. `time` is UTC, as `2026-11-17T18:04:05Z`. A value that is empty, or that the prompt of the role does not hold (`--change` for `build`), is written as its name and the colon alone: it was not handed out. The round is the exception: `round:` holds the round that `--round` gives, for every role. Where it is not given, it is worked out only for a role whose text holds `{round}`, as above; for the tester and the build `round:` is then empty, because `wb prompt` asks nothing of the network for them. `wb <role>` always fills it, and it agrees with the first line it posts (#136). A value of `--issue`, `--change`, `--round`, `--branch` or `--checkout` that holds a control character, a line or paragraph separator, or white space at its start or end is refused by name, as one field must stay one line that a comment can trim. `--stamp` with `--parts`, and either given twice, are used wrongly.
+- `--stamp` prints, in place of the text, the stamp of the assignment: what was handed out ([docs/revision.md](docs/revision.md), point 12). It is lines of `name: value` in this order: `role`, `model`, `effort`, `runner`, `version`, `revision`, `issue`, `change`, `round`, `branch`, `checkout`, `time`, then one line `part: <sha256>  <path>` for each part. `model` and `effort` are those of the model table for the role, and for the breakdown those its runner is cleared with. `runner` is the value of `--runner`, and empty when none is given. `version` and `revision` are those of the pinned revision. `time` is UTC, as `2026-11-17T18:04:05Z`. A value that is empty, or that the prompt of the role does not hold (`--change` for `build`), is written as its name and the colon alone: it was not handed out. The round is the exception: `round:` holds the round that `--round` gives, for every role. Where it is not given, it is worked out only for a role whose text holds `{round}`, as above; for the tester and the build `round:` is then empty, because `wb prompt` asks nothing of the network for them. `wb start <role>` always fills it, and it agrees with the first line it posts (#136). A value of `--issue`, `--change`, `--round`, `--branch` or `--checkout` that holds a control character, a line or paragraph separator, or white space at its start or end is refused by name, as one field must stay one line that a comment can trim. `--stamp` with `--parts`, and either given twice, are used wrongly.
 
 For a GitHub `origin`, `wb init` writes the addresses so that each shows the issue's text or the change's description first, then the comments. Here for `example/brake-controller`:
 
@@ -228,7 +228,7 @@ The exit status:
 - **1**: it was refused and nothing is printed: the breakdown's runner is not cleared for it (see [Confidentiality](#confidentiality)), the check does not hold, the clock reads before 1970 (`--stamp`), the role is not one of the revision (the roles it has are named), a project file is not UTF-8, a placeholder is not known or got no value, the branch is not found or not one, the issue's file is there and is not accepted (or changed since), `watchbill.yml` holds `task_address`, `{task}` in a pattern or the key `breakdown`, a value derived for the stamp (the checkout, the branch) is not one plain line, a pattern run to work out the round or the change ends with anything but 0, a fix has no review stamp to answer, or the branch has no open change or more than one.
 - **2**: `wb prompt` was used wrongly (no role, a third word or an option that is not known, the issue given as a word and as `--issue`, an option given twice, with no value or with an empty one, `--stamp` with `--parts`, an option given twice, a stamped value that is not one plain line, an issue or change that fills a pattern and is not plain, the breakdown with no `--runner`, the tester or the build with no issue, a review or a fix with no issue whose branch is not given and is not the branch checked out), the folder is not in a git repository, or Watchbill is not set up. The usage or the reason is on standard error.
 
-Each session has its stamp on the issue, one comment for each session, the first line `[stamp] <role> round <n>`, and the lines of the stamp after it. A review or a fix with no issue has its stamp on the change. `wb <role>` posts it ([below](#starting-a-session)). Where a session is started by hand, the person posts the stamp as it was printed. A session with no stamp on its issue, or on its change where it has no issue, is not taken as the work of a role.
+Each session has its stamp on the issue, one comment for each session, the first line `[stamp] <role> round <n>`, and the lines of the stamp after it. A review or a fix with no issue has its stamp on the change. `wb start <role>` posts it ([below](#starting-a-session)). Where a session is started by hand, the person posts the stamp as it was printed. A session with no stamp on its issue, or on its change where it has no issue, is not taken as the work of a role.
 
 ```
 [stamp] build round 1
@@ -265,7 +265,7 @@ The organisation lays out one file on each machine, by its own means: `/etc/watc
 
 ```yaml
 levels: [public, internal, confidential]   # from the least to the most restrictive
-default: claude-code                       # the runner `wb <role>` takes when none is given
+default: claude-code                       # the runner `wb start <role>` takes when none is given
 runners:
   claude-code:
     tools: this machine
@@ -276,13 +276,13 @@ runners:
       up_to: public                        # the highest level of an assignment it may break down
       model: claude-opus-5-5
       effort: high
-    start: [claude, --model, '{model}', --effort, '{effort}', '{prompt}']   # how `wb <role>` starts a session
+    start: [claude, --model, '{model}', --effort, '{effort}', '{prompt}']   # how `wb start <role>` starts a session
     binds: ['~/.local/bin/claude', '~/.local/share/claude', {writable: '~/.claude'}, {writable: '~/.claude.json'}]
 ```
 
 - `levels` is at least one name, each once, from the least to the most restrictive.
 - A runner has `tools`, `model`, `agreement` and `up_to`, which is one of the levels. `breakdown` is there only when the runner is cleared for the breakdown: its `up_to` is no higher than the runner's own, its `model` is an exact model ID and its `effort` is one of the model table's.
-- `start` is there only when `wb <role>` may start sessions on the runner ([Starting a session](#starting-a-session)). It is a list of one word or more, each a text of one line. `{model}`, `{effort}` and `{prompt}` are the only placeholders, and the first word, the program, holds none.
+- `start` is there only when `wb start <role>` may start sessions on the runner ([Starting a session](#starting-a-session)). It is a list of one word or more, each a text of one line. `{model}`, `{effort}` and `{prompt}` are the only placeholders, and the first word, the program, holds none.
 - `binds` is there only when the runner needs paths of its own in a view ([The view](#the-view)): its program, its settings, its login. Each is a path from the root, `/…`, or from the home folder of the person who runs `wb`, `~/…`, with no `..`, and not the root or the home folder itself. It is read-only, unless it is written `{writable: <path>}`. A path that is not there is left out. The paths above are where Claude Code keeps itself on one machine; they are an example, not a promise.
 - `default` is the name of one of the runners.
 - A key that is not known, at any depth, a level written twice, a field missing or a value of the wrong type is refused, with the file and the place named.
@@ -304,24 +304,26 @@ A view ([below](#the-view)) keeps the rest of the code and the history away from
 
 ## Starting a session
 
-`wb <role>` starts a session of a role in the person's terminal (#84). One command checks what `wb prompt` checks, posts the stamp, and starts the session with the model and the effort of the stamp. A person writes no stamp, no shell and no model name.
+`wb start <role>` starts a session of a role in the person's terminal (#84). One command checks what `wb prompt` checks, posts the stamp, and starts the session with the model and the effort of the stamp. A person writes no stamp, no shell and no model name.
 
 ```sh
-wb breakdown 54
-wb tester 54
-wb build 54
-wb review 54
-wb fix 54
-wb review --change 174        # a change with no issue
+wb start breakdown 54
+wb start tester 54
+wb start build 54
+wb start review 54
+wb start fix 54
+wb start review --change 174        # a change with no issue
 ```
 
 Each takes the words `wb prompt` takes for its role, `--runner <name>`, and `--prompt`. Run it anywhere inside the repository.
+
+The role is a word after `start`, never a command of its own. The old form, `wb build 54`, ends with 2 and says the new one with the same words: `use: wb start build 54`. A word after `start` that is no role of the revision ends with 2 and names the roles.
 
 ### What it checks
 
 In this order. The first fault ends it, before anything is posted or started:
 
-1. Everything `wb prompt` checks for the same words. The message is the same, after the command's name (`wb build:` where `wb prompt` says `wb prompt:`), and so is the status.
+1. Everything `wb prompt` checks for the same words. The message is the same, after the command's name (`wb start build:` where `wb prompt` says `wb prompt:`), and so is the status.
 2. The rule table: a fix follows a review. A fix with no review stamp before it is refused with 1, also when `--round` is given, and also when the stamps cannot be read. The number of review rounds is not checked: a person who starts one more review has decided to. That limit is held where roles are handed on without a person (#88).
 3. The class: no classed code is worked on by a session started here until a session sees only its files (#65). See [Classed code](#classed-code).
 4. The runner has `start`, and no word of it is 128 KiB or more once filled: Linux hands a program no longer word. Otherwise 1, saying to use `--prompt`.
@@ -341,8 +343,8 @@ They are worked out, never asked. `--round` and `--change` are still taken, and 
 - **The stamps** are the lines `[stamp] <role> round <n>` that `issue_comments` prints: the first line of each comment on the issue, one to a line. Every stamp is posted by `wb`, so their form is known. For a review or a fix with no issue, they are those `change_comments` prints, on the change.
 - **The round** of the breakdown, the tester, the build and the review is one more than the stamps of that role. The fix takes the number of review stamps: it answers the last review.
 - **The change** of a review or a fix of an issue is the one open change from its branch, as `change_of_branch` prints it. None, or more than one, is refused with 1, naming what was found and `--change`.
-- **What was worked out is said** on standard error, before the checks: `wb review: round 2 (1 review stamp on issue 41)`, and for a review or a fix of an issue the change, once, on a line of its own: `wb review: issue 41, change 174 (from the branch issue-41)`, or `(given)` where `--change` gave it. A review or a fix with no issue says `wb review: change 174`. `wb prompt` says the line only for a change it worked out, and prints the prompt alone on standard output.
-- `wb <role>` always needs the round, for the stamp's first line. With no `--round`, and no `issue_comments` (or `change_comments`), it is refused with 1. A `--round` given is a whole number from 1, or the command was used wrongly (2).
+- **What was worked out is said** on standard error, before the checks: `wb start review: round 2 (1 review stamp on issue 41)`, and for a review or a fix of an issue the change, once, on a line of its own: `wb start review: issue 41, change 174 (from the branch issue-41)`, or `(given)` where `--change` gave it. A review or a fix with no issue says `wb start review: change 174`. `wb prompt` says the line only for a change it worked out, and prints the prompt alone on standard output.
+- `wb start <role>` always needs the round, for the stamp's first line. With no `--round`, and no `issue_comments` (or `change_comments`), it is refused with 1. A `--round` given is a whole number from 1, or the command was used wrongly (2).
 
 `wb prompt` works out the same, by the same function, where the role's text holds `{round}` or `{change}` and the patterns are there.
 
@@ -368,10 +370,10 @@ A session of the tester, the build, the review or the fix of an issue with an ac
 
 ### The lines it leaves
 
-Each start of `wb <role>`, started or refused, leaves a few plain lines on the machine where it ran (#124). When a run does not work, a person reads them and sees why, without the session's transcript.
+Each start of `wb start <role>`, started or refused, leaves a few plain lines on the machine where it ran (#124). When a run does not work, a person reads them and sees why, without the session's transcript.
 
 - **Where:** a new folder `<state>/watchbill/sessions/<time>-<role>-<issue>/`. `<state>` is `$XDG_STATE_HOME` when it is an absolute path, else `~/.local/state`. `<time>` is the stamp's, in UTC, with `:` left out, as `2026-11-19T094959Z`. `<issue>` is `none` for a role started with no issue. A folder that is there is never written over: a second start in the same second gets `-2`, a third `-3`.
-- **Said first:** `wb build: will write the lines of this start in <folder>`, on standard error, before it is written.
+- **Said first:** `wb start build: will write the lines of this start in <folder>`, on standard error, before it is written.
 - **`stamp`:** byte for byte the stamp posted, or the one that would have been posted. A start refused by the checks of `wb prompt` has none.
 - **`outcome`:** lines of `name: value`, in this order:
 
@@ -391,7 +393,7 @@ Each start of `wb <role>`, started or refused, leaves a few plain lines on the m
 
 ### The patterns
 
-`wb prompt` and `wb <role>` ask the tracker and the git server only through lines of `watchbill.yml`, the team's own commands. For a GitHub `origin`, `wb init` writes them, here for `example/brake-controller`:
+`wb prompt` and `wb start <role>` ask the tracker and the git server only through lines of `watchbill.yml`, the team's own commands. For a GitHub `origin`, `wb init` writes them, here for `example/brake-controller`:
 
 ```yaml
 issue_comment: 'gh issue comment {issue} --repo example/brake-controller --body-file -'
@@ -410,8 +412,8 @@ draft_change: 'gh pr create --repo example/brake-controller --head {branch} --dr
 - `draft_change` is the command that opens the change of `{branch}` as a draft, its title and description filled from the commits. `wb build` says it, filled, after a session; it never runs it.
 - `open_issues` is no longer read (#155): `wb init` does not write it, and a line that is there is passed over. Listing the tracker's issues is the tracker's own program's job.
 - Each is one line for `/bin/sh -c`, run in the root of the checkout, as an agent runs the addresses. The values filled in (`{issue}`, `{change}`, `{branch}`) are plain names, as for the addresses. A value given that is not is refused with 2, by its option. A branch worked out that is not is refused with 1, saying to give `--change`.
-- A repository set up before these lines, or with another server, adds them by hand. Without them, `wb prompt` asks for `--change` and `--round` as before, and `wb <role>` is refused, naming the line it needs.
-- `wb <role>` asks nothing of the network but through these lines and the runner's `start`.
+- A repository set up before these lines, or with another server, adds them by hand. Without them, `wb prompt` asks for `--change` and `--round` as before, and `wb start <role>` is refused, naming the line it needs.
+- `wb start <role>` asks nothing of the network but through these lines and the runner's `start`.
 
 For a GitLab `origin`, `wb init` writes the same patterns with `glab`, here for `brakes/controller` on `gitlab.example.com`, and `issue_address` and `change_address` besides:
 
@@ -434,11 +436,11 @@ draft_change: 'glab mr create --repo https://gitlab.example.com/brakes/controlle
 - The project is written in the path of the API with each `/` as `%2F`.
 - `issue_comment_bodies` and `change_comment_bodies` ask the notes oldest first (`sort=asc`), and keep no system note. They, and `draft_change`, were written from the documentation of the API and of `glab`, and have not been run against a GitLab server.
 
-`change_checks` is read by `wb review` before it posts the stamp (#127). It prints one word for the change, `green`, `red` or `pending`, and ends with 0.
+`change_checks` is read by `wb start review` before it posts the stamp (#127). It prints one word for the change, `green`, `red` or `pending`, and ends with 0.
 
-- `wb review` starts on `green`. On `pending` it is refused with 1, saying to wait. On `red` it is refused with 1, saying that the change goes to a person, and that the lists or the stubs of the breakdown may be wrong: the CI builds the whole tree and runs every test, and the session saw only its view. A word that is not one of the three, or a status but 0, is refused with 1, naming `change_checks`.
+- `wb start review` starts on `green`. On `pending` it is refused with 1, saying to wait. On `red` it is refused with 1, saying that the change goes to a person, and that the lists or the stubs of the breakdown may be wrong: the CI builds the whole tree and runs every test, and the session saw only its view. A word that is not one of the three, or a status but 0, is refused with 1, naming `change_checks`.
 - The review's prompt gets nothing of it: not the word, and never the CI's log. Only `wb` reads the word.
-- For GitHub the word comes from the `bucket` of `gh pr checks`: `red` where a check failed or was cancelled, `pending` where one has not ended or has a bucket that is not known (the most restrictive applies), else `green`: only `pass` and `skipping` are green, so a change whose checks were all skipped is green. A pull request with no check reported, as a change just pushed has before its first check, ends `gh` with 1 and `wb review` is refused, naming `change_checks`: wait, and start it again. A repository with no CI has no `change_checks` line.
+- For GitHub the word comes from the `bucket` of `gh pr checks`: `red` where a check failed or was cancelled, `pending` where one has not ended or has a bucket that is not known (the most restrictive applies), else `green`: only `pass` and `skipping` are green, so a change whose checks were all skipped is green. A pull request with no check reported, as a change just pushed has before its first check, ends `gh` with 1 and `wb start review` is refused, naming `change_checks`: wait, and start it again. A repository with no CI has no `change_checks` line.
 - For GitLab the word comes from the status of the merge request's head pipeline, through `glab api`: only `success` is `green`, `failed` and `canceled` are `red`, and anything else, a merge request with no pipeline too, is `pending`. A `skipped` pipeline or one that waits for a manual job is `pending` and does not end by itself: a person runs the job, or sets the line another way. An answer that is not a merge request (a wrong number, a wrong project, no token) makes `jq` fail, and the review is refused, naming `change_checks`. This line was written from the documentation of `glab` and has not been run against a GitLab server.
 - With no `change_checks`, the review starts, and `wb` says on standard error that the CI was not read.
 
@@ -488,14 +490,14 @@ Where a `start` leaves out `{model}` or `{effort}`, the stamp's model or effort 
 With `classed` written, and the patterns of `watchbill.yml` in place:
 
 ```sh
-wb breakdown 54     # writes .watchbill/issues/54.yml on the branch issue-54
+wb start breakdown 54     # writes .watchbill/issues/54.yml on the branch issue-54
 wb accept 54        # the person accepts it, and wb commits the acceptance
-wb tester 54        # the tests, red
+wb start tester 54        # the tests, red
 wb answer 54        # the person answers what a session asked, any time it asked
-wb build 54         # the code, committed; wb says how to push it and open the change
-wb review 54        # round 1
-wb fix 54           # answers round 1
-wb review 54        # round 2
+wb start build 54         # the code, committed; wb says how to push it and open the change
+wb start review 54        # round 1
+wb start fix 54           # answers round 1
+wb start review 54        # round 2
 ```
 
 Each command posts its stamp and starts its session. The person answers the questions with `wb answer`, pushes the branch, opens the change and merges.
@@ -606,7 +608,7 @@ wb answer --change 174          # a change with no issue
 
 - **The marker** is one comment whose first line is `[revert] <role> round <n>`. `wb revert` finds the last `[stamp] <role> round <n>` on the issue, says on standard error what it will post, and posts it through `issue_comment` of `watchbill.yml`. `--round <n>` names an earlier round of that role; it is a whole number from 1.
 - **What it means:** the stamp it names, and every `[stamp]`, `[questions]`, `[answers]`, `[question]` and `[answer]` after it up to the marker, no longer count, whatever their role. Reverting review round 1 after fix round 1 takes the fix back too, since the fix answered that review. An `[answer]` after that stamp is taken back too, also one that answers a question asked before it: that question is then open again, as the owner decided (#142). A stamp before it counts as before, so the next review after `wb revert 174 review` is round 1 again if it was the first.
-- **Who reads it:** the round that `wb <role>` and `wb prompt` work out ([the round and the change](#the-round-and-the-change)), the check that a fix follows a review, the step and the open questions of `wb status`, and the questions `wb answer` shows. A marker is read only from the first line of a comment, as a stamp is, so a marker quoted in a comment's text counts for nothing, and so does one with no such stamp before it, and so does a `[revert] breakdown` posted by hand. `wb status <issue>` marks the lines a marker took back in what it was worked out from.
+- **Who reads it:** the round that `wb start <role>` and `wb prompt` work out ([the round and the change](#the-round-and-the-change)), the check that a fix follows a review, the step and the open questions of `wb status`, and the questions `wb answer` shows. A marker is read only from the first line of a comment, as a stamp is, so a marker quoted in a comment's text counts for nothing, and so does one with no such stamp before it, and so does a `[revert] breakdown` posted by hand. `wb status <issue>` marks the lines a marker took back in what it was worked out from.
 - **A change with no issue:** `wb revert --change <n> <role>` posts the marker on the change, through `change_comment`, and reads the stamps from `change_comments`.
 - **What it does not touch:** the branch, the issue's file and its acceptance, and the change. The commits of the steps taken back stay on the branch, and taking them back is git's; `wb revert` says so on standard error.
 - **A later breakdown:** when a `[stamp] breakdown` stands after the stamp to be reverted, that stamp no longer counts, since the new breakdown took the issue back ([where each issue stands](#where-each-issue-stands)). `wb revert` is then refused with 1, saying so, and posts nothing.
@@ -623,7 +625,7 @@ The first step is reviews only. A person writes a change as before, checks out i
 
 ```sh
 git switch my-change            # the change's own branch
-wb review --change 174          # posts the stamp on the change and starts the review
+wb start review --change 174          # posts the stamp on the change and starts the review
 ```
 
 - The change's description is the spec. The review reads it at `change_address`, and says so in a finding when it is empty.
@@ -635,7 +637,7 @@ wb review --change 174          # posts the stamp on the change and starts the r
 
 Then the team adds the rest when it is ready:
 
-- **The fix,** in the same way: `wb fix --change 174`.
+- **The fix,** in the same way: `wb start fix --change 174`.
 - **Issues with no file:** the tester, the build, the review and the fix are handed out for an issue, and work from its own numbered items.
 - **The breakdown and the acceptance:** once an issue has a file, the chain's gates bind. The file must be accepted, and the file and its acceptance committed, before any role of the issue is handed out.
 - **The hand-on** from one role to the next always needs the whole chain: an accepted file for every issue. It is not built yet (#88, and the listener and the officer, #85 and #86).

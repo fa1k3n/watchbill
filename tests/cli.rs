@@ -17,7 +17,7 @@ const USAGE: &str = "usage:
             [--requirements <text>] [--round <text>] [--checkout <text>]
             [--branch <text>] [--issue_address <text>]
             [--change_address <text>] [--runner <name>] [--parts] [--stamp]
-  wb start <role> [<issue>] [--runner <name>] [--prompt] [the options of prompt]
+  wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [the options of prompt]
   wb revision
   wb accept <issue> [--no-commit]
   wb status [<issue>] [--stage <heading>]

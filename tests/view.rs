@@ -1679,3 +1679,81 @@ fn test_WB_VIEW_34_the_short_forms_ntfs_gives_gitmodules_are_refused_as_a_link()
         assert!(refused(&path, "120000").is_none(), "{:?} is refused as a link", path);
     }
 }
+
+// ---- #172, after the review: renames, the index, ignored files, assume-unchanged ----
+
+#[test]
+fn test_WB_BUILD_33_a_rename_from_changes_to_reads_names_both_paths_and_is_refused_also_with_ignore_local() {
+    let bench = bench();
+    git(&bench.repo.path, &["mv", "src/brake.c", "include/c.h"]);
+    for words in [&["start", "build", "54"][..], &["start", "build", "54", "--ignore-local"][..]] {
+        let err = guarded(&bench, &start_unsandboxed(&bench, words));
+        assert!(err.contains("src/brake.c") && err.contains("include/c.h"), "{}", err);
+        assert!(err.lines().any(|line| line.contains("changes") && line.contains("src/brake.c")), "{}", err);
+        assert!(err.contains("cannot be overridden"), "{}", err);
+    }
+}
+
+#[test]
+fn test_WB_BUILD_30_a_difference_in_the_index_only_is_named() {
+    // A file staged and then deleted from the working tree, and a change staged and then put back.
+    let bench = bench();
+    put(&bench.repo.path, "include/x.h", "#define X 1\n");
+    git(&bench.repo.path, &["add", "--", "include/x.h"]);
+    fs::remove_file(bench.repo.path.join("include/x.h")).unwrap();
+    put(&bench.repo.path, "src/brake.h", "int brake(int);\n");
+    git(&bench.repo.path, &["add", "--", "src/brake.h"]);
+    put(&bench.repo.path, "src/brake.h", "int brake(void);\n");
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54"]));
+    assert!(err.contains("include/x.h") && err.contains("src/brake.h"), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_31_an_ignored_file_under_changes_is_named_by_the_rules_of_the_checkout_and_of_the_person() {
+    // Ignored by the checkout's own `.git/info/exclude`.
+    let bench = bench();
+    put(&bench.repo.path, ".git/info/exclude", "src/new.c\n");
+    put(&bench.repo.path, "src/new.c", "int fresh;\n");
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54"]));
+    assert!(err.contains("src/new.c"), "{}", err);
+    // Ignored by the person's global file only: git would write over it too.
+    let bench = self::bench();
+    let global = bench.at("global-ignore");
+    fs::write(&global, "src/new.c\n").unwrap();
+    git(&bench.repo.path, &["config", "core.excludesFile", global.to_str().unwrap()]);
+    put(&bench.repo.path, "src/new.c", "int fresh;\n");
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54", "--ignore-local"]));
+    assert!(err.contains("src/new.c"), "{}", err);
+    // An ignored file under `reads` is not in the view, and is not named.
+    let bench = self::bench();
+    put(&bench.repo.path, ".git/info/exclude", "include/o.h\n");
+    put(&bench.repo.path, "include/o.h", "#define O 1\n");
+    let err = text_of(&start_unsandboxed(&bench, &["start", "build", "54"]).stderr);
+    assert!(!err.contains("guard") && err.contains("bubblewrap"), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_30_a_changed_file_marked_assume_unchanged_or_skip_worktree_is_named_and_an_unchanged_one_is_not() {
+    let bench = bench();
+    git(&bench.repo.path, &["update-index", "--assume-unchanged", "src/brake.h"]);
+    git(&bench.repo.path, &["update-index", "--skip-worktree", "src/brake.c"]);
+    // Marked and not changed: nothing to name.
+    let err = text_of(&start_unsandboxed(&bench, &["start", "build", "54"]).stderr);
+    assert!(!err.contains("guard") && err.contains("bubblewrap"), "{}", err);
+    put(&bench.repo.path, "src/brake.h", "int brake(int);\n");
+    put(&bench.repo.path, "src/brake.c", "int brake(void) { return 2; }\n");
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54", "--ignore-local"]));
+    assert!(err.lines().any(|line| line.contains("changes") && line.contains("src/brake.c")), "{}", err);
+    assert!(err.contains("src/brake.h") && err.contains("cannot be overridden"), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_35_a_long_list_is_said_as_the_first_20_and_a_count() {
+    let bench = bench();
+    for number in 0..25 {
+        put(&bench.repo.path, &format!("include/f{:02}.h", number), "#define F 1\n");
+        git(&bench.repo.path, &["add", "--", &format!("include/f{:02}.h", number)]);
+    }
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54"]));
+    assert!(err.contains("include/f19.h") && !err.contains("include/f20.h") && err.contains("5 more"), "{}", err);
+}

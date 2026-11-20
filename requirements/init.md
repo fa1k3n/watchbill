@@ -61,4 +61,4 @@ What `wb init` does today: it sets Watchbill up in a git repository. What it wri
 | WB-INIT-55 | The `glab` commands that `wb init` writes for a GitLab `origin` shall name the host of `origin`, as `--repo https://<host>/<repo>` and `--hostname <host>`, without a user name or a token, and none of them shall be written for an `origin` with a port. Issue: #123. | T | Implemented |
 | WB-INIT-56 | `wb init` shall write the pattern `open_issues` for a GitHub and a GitLab `origin`, and none for a server other than those. Issue: #139. | T | Implemented |
 | WB-INIT-57 | The pattern `open_issues` that `wb init` writes shall print a line break in a title as a space, so that one issue is one line. Issue: #139. | T | Implemented |
-| WB-INIT-58 | `wb init` shall write the pattern `draft_change` for a GitHub and a GitLab `origin`, and none for a server other than those. Issue: #145. | T | Draft |
+| WB-INIT-58 | `wb init` shall write the pattern `draft_change` for a GitHub and a GitLab `origin`, and none for a server other than those. Issue: #145. | T | Implemented |

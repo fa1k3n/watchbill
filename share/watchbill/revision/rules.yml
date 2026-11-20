@@ -49,7 +49,7 @@ roles:
       - Write the issue's file.
       - Commit the issue's file alone on the branch of the issue.
       - Push its commit to the branch of the issue.
-      - Post its questions on the issue, one comment each.
+      - Post its questions on the issue, in one comment per session.
     may_not_also_hold: [tester, build, review, fix, officer]
     prompt: roles/breakdown.md
 
@@ -63,15 +63,14 @@ roles:
     may:
       - Add new tests on the branch of the issue.
       - Commit the tests.
-      - Push the commit of the tests to the branch of the issue.
       - Run the tests against a stand-in that gives a wrong answer, in a scratch copy it never commits.
-      - Post its questions on the issue, one comment each.
+      - Post its questions on the issue, in one comment per session.
     may_not_also_hold: [breakdown, build, review, fix, officer]
     prompt: roles/tester.md
 
   build:
     step: Make the tester's tests pass.
-    produces: The smallest change that meets the requirements, opened for review with every check green.
+    produces: The smallest change that meets the requirements, committed on the branch of the issue with the project's checks passing. A person pushes it and opens the change for review.
     reads:
       - The issue with its comments, the answers of a person among them, and the rows of its requirements.
       - The tester's tests and their helpers.
@@ -80,9 +79,8 @@ roles:
     may:
       - Change the files the issue names.
       - Run the checks of the project.
-      - Push its commits to the branch of the issue.
-      - Open the change for review.
-      - Post its questions on the issue, one comment each.
+      - Commit its work on the branch of the issue.
+      - Post its questions on the issue, in one comment per session.
     may_not_also_hold: [breakdown, tester, review, fix, officer]
     prompt: roles/build.md
 
@@ -99,7 +97,7 @@ roles:
     may:
       - Break the code in a scratch copy it never commits, to see a test fail on its own.
       - Post its findings on the change.
-      - Post its questions on the issue, one comment each.
+      - Post its questions on the issue, in one comment per session.
     may_not_also_hold: [breakdown, tester, build, fix, officer]
     prompt: roles/review.md
 
@@ -112,10 +110,9 @@ roles:
       - The files the issue names, and the files and tests the findings name, with the helpers of those tests.
     may:
       - Commit fixes on the branch of the change.
-      - Push its fixes to the branch of the issue.
       - Add a test beside a weak one, written first.
       - Post its answers on the change.
-      - Post its questions on the issue, one comment each.
+      - Post its questions on the issue, in one comment per session.
     may_not_also_hold: [breakdown, tester, build, review, officer]
     prompt: roles/fix.md
 

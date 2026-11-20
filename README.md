@@ -359,7 +359,8 @@ A session of the tester, the build, the review or the fix of an issue with an ac
 - **What it holds.** A new folder, `<state>/watchbill/views/<time>-<role>-<issue>/`, made by `wb` from the paths of `changes` and of the role's `reads`, as they are in `HEAD` of the checkout. It is a new repository with one commit of those files, on a branch of the checkout's name, with no remote and no history of the repository. A path of `changes` that is not there yet is not made: the session may make it. A worktree or a sparse checkout would not do: `git show` reads every file from the history.
 - **Where it runs.** In bubblewrap (`/usr/bin/bwrap`, from the package `bubblewrap`): the view at the path of the checkout, writable, so that `{checkout}` of the prompt is right. `/usr`, `/etc` and `/sys` are there read-only, `/tmp` and `/run` are its own, and the home folder is an empty one of its own, with the runner's `binds` in it. The checkout's `.git` and `.watchbill/`, the folder of the organisation's file and the person's other folders are not there. The variables `GIT_*` are not handed in. The network stays as the runner needs it: the view is what limits the code that can be sent.
 - **A terminal.** Where the kernel lets a program type into its terminal (`TIOCSTI`), a session could type into the person's shell after it ends. `wb` gives a session in a view no controlling terminal then. Where `/proc/sys/dev/tty/legacy_tiocsti` is `0`, as on Fedora, the kernel refuses it, and the session keeps its terminal.
-- **What comes back.** When the session ends, `wb` takes each commit of the view, in order. A commit that touches a path outside `changes`, under `.watchbill/` or under `build_files` of `watchbill.yml`, a merge or a submodule is refused, with the paths named: nothing of it or after it is taken, and `wb` ends with 1. The commits before it are put on the checkout's branch, with their messages and authors, by a fast-forward. `wb` pushes nothing: the person pushes. Work left uncommitted in the view is named and not taken.
+- **What comes back.** When the session ends, `wb` takes each commit of the view, in order. A commit that touches a path outside `changes`, under `.watchbill/` or under `build_files` of `watchbill.yml`, a merge or a submodule is refused, with the paths named: nothing of it or after it is taken, and `wb` ends with 1. The commits before it are put on the checkout's branch, with their messages and authors, by a fast-forward. Work left uncommitted in the view is named and not taken.
+- **The push is the person's** (#145). A view has no remote, and the prompts of the tester, the build and the fix say to commit and not to push or open a change. When commits were taken onto the branch, `wb` says on standard error the command that pushes it, `git push origin <branch>`, and after a build the command that opens the change as a draft: `draft_change` of `watchbill.yml`, with `{branch}` filled ([The patterns](#the-patterns)). Without that line it says so. `wb` runs neither. A role started without a view is told the same in its prompt, and `wb` says the same commands after it when the branch checked out has new commits. That `wb` pushes itself is #151.
 - **What is left.** The view is removed when all of it was taken back. It is kept, and named, when anything was refused or left uncommitted.
 - **How it is read.** Once the session has run, the `.git` of the view is the session's. `wb` never runs git with its settings, which would run outside the sandbox a command the session wrote there: it reads the view's objects through a repository of its own, and its `HEAD` from the files.
 - **Without a view.** A role started with no issue's file (#116), and the breakdown, which reads the whole code by its role, run as before, in the checkout. For a role with no file, `wb` says so on standard error before it starts. A person who starts it has decided to.
@@ -400,9 +401,14 @@ change_comments: 'gh api repos/example/brake-controller/issues/{change}/comments
 change_of_branch: 'gh pr list --repo example/brake-controller --head {branch} --state open --json number --jq ''.[].number'''
 open_issues: 'gh issue list --repo example/brake-controller --state open --limit 1000 --json number,title --jq ''.[] | "\(.number)\t\(.title | gsub("[\n\r]"; " "))"'''
 change_checks: 'gh pr checks {change} --repo example/brake-controller --json bucket --jq ''[.[].bucket] | if length == 0 then "pending" elif any(. == "fail" or . == "cancel") then "red" elif all(. == "pass" or . == "skipping") then "green" else "pending" end'''
+issue_comment_bodies: 'gh api repos/example/brake-controller/issues/{issue}/comments --paginate --jq ''.[] | .body + "\u0000"'''
+change_comment_bodies: 'gh api repos/example/brake-controller/issues/{change}/comments --paginate --jq ''.[] | .body + "\u0000"'''
+draft_change: 'gh pr create --repo example/brake-controller --head {branch} --draft --fill-verbose'
 ```
 
 - `issue_comment` and `change_comment` post a comment from standard input. `issue_comments` and `change_comments` print the first line of each comment, one to a line. `change_of_branch` prints the numbers of the open changes from `{branch}`, one to a line. At GitHub the comments of a pull request are those of an issue, so `change_comments` reads them the same way.
+- `issue_comment_bodies` and `change_comment_bodies` print each comment whole, followed by a NUL byte. One line break straight after a NUL is not read as part of the next comment: `gh --jq` and `jq -r` print one. `wb answer` reads them ([Answering the questions](#answering-the-questions)); no role needs them.
+- `draft_change` is the command that opens the change of `{branch}` as a draft, its title and description filled from the commits. `wb build` says it, filled, after a session; it never runs it.
 - `open_issues` prints the open issues, one to a line: the number, a tab and the title, with a line break in a title written as a space. For GitHub it stops at 1000 open issues. `wb status` reads it ([Where each issue stands](#where-each-issue-stands)); no role needs it.
 - Each is one line for `/bin/sh -c`, run in the root of the checkout, as an agent runs the addresses. The values filled in (`{issue}`, `{change}`, `{branch}`) are plain names, as for the addresses. A value given that is not is refused with 2, by its option. A branch worked out that is not is refused with 1, saying to give `--change`.
 - A repository set up before these lines, or with another server, adds them by hand. Without them, `wb prompt` asks for `--change` and `--round` as before, and `wb <role>` is refused, naming the line it needs.
@@ -420,11 +426,15 @@ open_issues: 'glab api --hostname gitlab.example.com ''projects/brakes%2Fcontrol
 issue_address: 'glab issue view {issue} --repo https://gitlab.example.com/brakes/controller --comments'
 change_address: 'glab mr view {change} --repo https://gitlab.example.com/brakes/controller --comments'
 change_checks: 'glab api --hostname gitlab.example.com projects/brakes%2Fcontroller/merge_requests/{change} | jq -r ''if (.iid | type) != "number" then error("not a merge request") else (.head_pipeline.status // "none") as $s | if $s == "success" then "green" elif $s == "failed" or $s == "canceled" then "red" else "pending" end end'''
+issue_comment_bodies: 'glab api --hostname gitlab.example.com ''projects/brakes%2Fcontroller/issues/{issue}/notes?sort=asc&order_by=created_at'' --paginate --output ndjson | jq -j ''select(.system == false) | .body + "\u0000"'''
+change_comment_bodies: 'glab api --hostname gitlab.example.com ''projects/brakes%2Fcontroller/merge_requests/{change}/notes?sort=asc&order_by=created_at'' --paginate --output ndjson | jq -j ''select(.system == false) | .body + "\u0000"'''
+draft_change: 'glab mr create --repo https://gitlab.example.com/brakes/controller --source-branch {branch} --draft --fill --fill-commit-body --yes'
 ```
 
 - The host is that of `origin`, without a user name or a token; without it `glab` asks gitlab.com. An `origin` with a port gets none of these lines.
 - The comments are posted through `glab api`, which reads the whole text from standard input; `glab issue note` would ask for it at a prompt. `glab api` has no `--jq`, so `issue_comments` and `change_comments` need `jq` on the machine of the team. `wb` does not. They keep no system note, and print the first line of each other note.
 - The project is written in the path of the API with each `/` as `%2F`.
+- `issue_comment_bodies` and `change_comment_bodies` ask the notes oldest first (`sort=asc`), and keep no system note. They, and `draft_change`, were written from the documentation of the API and of `glab`, and have not been run against a GitLab server.
 
 `change_checks` is read by `wb review` before it posts the stamp (#127). It prints one word for the change, `green`, `red` or `pending`, and ends with 0.
 
@@ -483,13 +493,14 @@ With `classed` written, and the patterns of `watchbill.yml` in place:
 wb breakdown 54     # writes .watchbill/issues/54.yml on the branch issue-54
 wb accept 54        # the person accepts it, and commits the acceptance
 wb tester 54        # the tests, red
-wb build 54         # the code, and the change opened for review
+wb answer 54        # the person answers what a session asked, any time it asked
+wb build 54         # the code, committed; wb says how to push it and open the change
 wb review 54        # round 1
 wb fix 54           # answers round 1
 wb review 54        # round 2
 ```
 
-Each command posts its stamp and starts its session. The person answers the questions and merges.
+Each command posts its stamp and starts its session. The person answers the questions with `wb answer`, pushes the branch, opens the change and merges.
 
 ### The exit status
 
@@ -536,8 +547,8 @@ Questions open:
   - `Not broken down`: none of these.
   A new breakdown takes the issue back: only the stamps after the last `[stamp] breakdown` count, and with none after it the issue is under `Accepted` or `Broken down` by its file.
   A heading with no issue is not printed. No round, no command and no word for a step going on is printed.
-- **The questions, last.** `Questions open` lists each issue that has a `[question]` no one has answered, with the names of those questions. The issue stays under its step too. A question is `[question] <issue>.…`; it is closed by an `[answer] <name> …` line, and `[answer] <issue> suggested` closes every question asked before it.
-- **Who answered.** `issue_comments` prints the first line of each comment and no author, so `wb` cannot yet tell an answer of a person from another. Until it reads who wrote a comment (#83), each `[answer]` line counts as a person's; a line that starts with `[question]` is never an answer. It reads first lines only, so an answer below the first line of a comment is not seen, which errs towards "open"; and a choice number is not held against the choices of the question (`wb answer`, a later issue, will): `[answer] 5.q1 7` closes `5.q1` whatever its choices are.
+- **The questions, last.** `Questions open` lists each issue that has a question no one has answered, with the names of those questions. The issue stays under its step too. A question is asked by a comment whose first line is `[questions] <issue>.<role> q1 q2` (`[questions] <issue> q1` for the breakdown), which names `<issue>.<role>.q1` and `<issue>.<role>.q2`, and closed by `[answers] <issue>.<role> q1 …`, which names the questions it answers ([Answering the questions](#answering-the-questions)). The forms of revision 0.0.8 are still read: a question `[question] <name>`, closed by an `[answer] <name> …` line, and `[answer] <issue> suggested`, which closes every question asked before it. Other words after `[answers] <issue>.<role>` close nothing.
+- **Who answered.** `issue_comments` prints the first line of each comment and no author, so `wb` cannot yet tell an answer of a person from another. Until it reads who wrote a comment (#83), each `[answers]` and `[answer]` line counts as a person's; a line that starts with `[question]` or `[questions]` is never an answer. It reads first lines only, so an answer below the first line of a comment is not seen, which errs towards "open"; and a choice number is not held against the choices of the question (`wb answer` holds it when it posts): `[answer] 5.q1 7` closes `5.q1` whatever its choices are.
 - **Without `issue_comments`** in `watchbill.yml` no stamp, question or answer is read, so each issue is at `Accepted` or below; `wb status` says so once on standard error.
 - **Which issues, and their titles:** the open issues from the pattern `open_issues` of `watchbill.yml` ([The patterns](#the-patterns)), one to a line: number, a tab, title. `wb init` writes it for a GitHub and a GitLab `origin`. Without it, the issues are those with a branch of the pattern `branch` (local or at `origin`) or a file under `.watchbill/issues/`, with no title. A title is printed with its control characters escaped. A line of `open_issues` whose first field is not a plain issue name is listed under `Not read`.
 - **`wb status <issue>`** prints that issue's heading and line and, under them, `Worked out from:` and the lines it was worked out from: its stamps, questions and answers, and the branch and files it found.
@@ -546,13 +557,56 @@ Questions open:
 - **The exit status:** 0 when every issue could be read; 1 when a pattern failed for an issue (it is listed last, under `Not read`, with why; the others are printed), or `open_issues` itself failed; 2 when it was used wrongly or Watchbill is not set up.
 - **It is not a dashboard** ([Not goals](#not-goals)): a list in the terminal, of now, for one repository. The sessions that run on this machine are for #140.
 
+## Answering the questions
+
+A session asks what only a person can settle on the issue, in one comment for the session (#145). `wb answer <issue>` shows each open question in full in the terminal and posts the answers in the form the next session and `wb status` read. The questions and the answers stay on the issue, where the team, the next session and an assessor read them.
+
+A question takes one line on the issue, and the rest is folded under `<details>`, which GitHub and GitLab show closed:
+
+```text
+[questions] 54.tester q1 q2
+q1: Is a clause that no test may reach left without a test?
+<details>
+
+Why it matters: nothing fails if the clause breaks.
+
+1. Let the tester read the two files of tests.
+2. Leave the clause without a test.
+
+Suggested: 1, because the clause needs a check.
+
+changes the issue's file: yes
+
+</details>
+
+q2: …
+```
+
+```sh
+wb answer 54                    # each open question, one at a time
+wb answer 54 --suggested        # every suggestion
+wb answer 54 tester.q1 2        # one answer, without asking
+wb answer 54 q3 "only the first command"   # a question of the breakdown
+wb answer --change 174          # a change with no issue
+```
+
+- **What it shows:** each open question of the issue, in the order asked, with its name, what is unclear, why it matters, the choices and the suggestion, laid out plainly. A question is open until an answer names it, as `wb status` reads it, and a question a `[revert]` marker took back is not shown. The questions of revision 0.0.8, one `[question] <name>` comment each, are shown and answered the same way.
+- **What it asks:** Enter takes the suggestion. A number takes that choice; a number that is not one of the choices is asked again. Any other text is the answer in words.
+- **What it posts:** first it says on standard error what it will post, then one comment per role through `issue_comment`: `[answers] 54.tester q1 q2`, then `q1: 2` and `q2: <words>`, a line each. Nothing is posted until every question shown has its answer: an input that ends first, or Ctrl-C, posts nothing.
+- **`--suggested`** takes every suggestion and names the questions that have none, which stay open. A suggestion is posted written out, as `q1: 1`.
+- **`<question> <answer>`** answers one question without asking: `tester.q1`, or `q1` for the breakdown, whose questions are `<issue>.q<n>`. The answer is read as at the terminal, and a number that is not a choice is refused with 1.
+- **The issue's file.** Where an answered question says `changes the issue's file: yes`, `wb answer` says after posting that the file is to be changed and accepted again (`wb accept`) before the role is started again; for the breakdown, that the breakdown is started again to fold the answers in. It never changes the file.
+- **A change with no issue:** `wb answer --change <n>` reads `change_comment_bodies` and posts through `change_comment`.
+- **What it reads:** the whole comments, through `issue_comment_bodies` of `watchbill.yml` ([The patterns](#the-patterns)). Without it, or without `issue_comment`, it is refused with 1, naming the line, and posts nothing.
+- **The exit status:** 0 when the answers are posted, or no question is open, which it says; 1 when it was refused, the input ended before every question was answered, or a pattern failed; 2 when it was used wrongly or Watchbill is not set up.
+
 ## Taking a step back
 
 `wb revert <issue> <role>` takes an issue back to before a step, for example to run review round 1 again. It deletes nothing at the tracker: it posts one marker, and from then on `wb` reads the issue as if that step and every step after it had not been done. Deleting comments would rewrite the history that an assessor reads, and the questions and answers in it are what a person decided.
 
 - **The marker** is one comment whose first line is `[revert] <role> round <n>`. `wb revert` finds the last `[stamp] <role> round <n>` on the issue, says on standard error what it will post, and posts it through `issue_comment` of `watchbill.yml`. `--round <n>` names an earlier round of that role; it is a whole number from 1.
-- **What it means:** the stamp it names, and every `[stamp]`, `[question]` and `[answer]` after it up to the marker, no longer count, whatever their role. Reverting review round 1 after fix round 1 takes the fix back too, since the fix answered that review. An `[answer]` after that stamp is taken back too, also one that answers a question asked before it: that question is then open again, as the owner decided (#142). A stamp before it counts as before, so the next review after `wb revert 174 review` is round 1 again if it was the first.
-- **Who reads it:** the round that `wb <role>` and `wb prompt` work out ([the round and the change](#the-round-and-the-change)), the check that a fix follows a review, and the step and the open questions of `wb status`. A marker is read only from the first line of a comment, as a stamp is, so a marker quoted in a comment's text counts for nothing, and so does one with no such stamp before it, and so does a `[revert] breakdown` posted by hand. `wb status <issue>` marks the lines a marker took back in what it was worked out from.
+- **What it means:** the stamp it names, and every `[stamp]`, `[questions]`, `[answers]`, `[question]` and `[answer]` after it up to the marker, no longer count, whatever their role. Reverting review round 1 after fix round 1 takes the fix back too, since the fix answered that review. An `[answer]` after that stamp is taken back too, also one that answers a question asked before it: that question is then open again, as the owner decided (#142). A stamp before it counts as before, so the next review after `wb revert 174 review` is round 1 again if it was the first.
+- **Who reads it:** the round that `wb <role>` and `wb prompt` work out ([the round and the change](#the-round-and-the-change)), the check that a fix follows a review, the step and the open questions of `wb status`, and the questions `wb answer` shows. A marker is read only from the first line of a comment, as a stamp is, so a marker quoted in a comment's text counts for nothing, and so does one with no such stamp before it, and so does a `[revert] breakdown` posted by hand. `wb status <issue>` marks the lines a marker took back in what it was worked out from.
 - **A change with no issue:** `wb revert --change <n> <role>` posts the marker on the change, through `change_comment`, and reads the stamps from `change_comments`.
 - **What it does not touch:** the branch, the issue's file and its acceptance, and the change. The commits of the steps taken back stay on the branch, and taking them back is git's; `wb revert` says so on standard error.
 - **A later breakdown:** when a `[stamp] breakdown` stands after the stamp to be reverted, that stamp no longer counts, since the new breakdown took the issue back ([where each issue stands](#where-each-issue-stands)). `wb revert` is then refused with 1, saying so, and posts nothing.

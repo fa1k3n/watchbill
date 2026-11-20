@@ -27,6 +27,8 @@ const USAGE: &str = "usage:
   wb status [<issue>] [--stage <heading>]
   wb revert <issue> <role> [--round <n>]
   wb revert --change <n> <role> [--round <n>]
+  wb answer <issue> [--suggested | <question> <answer>]
+  wb answer --change <n> [--suggested | <question> <answer>]
   wb --version
 
   init      set Watchbill up in the git repository of this folder: propose what
@@ -89,8 +91,8 @@ const USAGE: &str = "usage:
   status    list the issues in the flow under headings, as git status lists
             files: each issue under the last step it has done (Not broken
             down, Broken down, Accepted, Tested, Built, Reviewed, Fixed), with
-            its title, and last the issues that have a question no [answer]
-            line has closed. The open issues come from open_issues of watchbill.yml,
+            its title, and last the issues that have a question no [answers]
+            or [answer] line has closed. The open issues come from open_issues of watchbill.yml,
             the comments from issue_comments. <issue> prints that issue and
             what it was worked out from; --stage <heading> prints that heading
             only, whatever its case. Ends with 0 when every issue could be
@@ -109,6 +111,22 @@ const USAGE: &str = "usage:
             back with git, not by a marker. Ends with 0 when the marker is
             posted, 1 when it was refused or the posting failed, 2 when it was
             used wrongly or the repository is not set up
+  answer    answer the open questions of an issue: wb answer <issue> reads
+            the whole comments by issue_comment_bodies of watchbill.yml, shows
+            each open question in full, one at a time, and asks: Enter takes
+            the suggestion, a number takes that choice, other text is the
+            answer in words; a number that is not a choice is asked again.
+            Then it says what it will post and posts one [answers] comment per
+            role by issue_comment. Nothing is posted before every question is
+            answered, and nothing after Ctrl-C. --suggested takes every
+            suggestion and names the questions with none. <question> <answer>,
+            as tester.q1 2 (q1 for the breakdown), answers one question without
+            asking. --change <n> answers on a change with no issue, by
+            change_comment_bodies and change_comment. It never changes the
+            issue's file: where an answer does, it says so. Ends with 0 when
+            the answers are posted or no question is open, 1 when it was
+            refused, the input ended or a pattern failed, 2 when it was used
+            wrongly or the repository is not set up
 ";
 
 fn root() -> &'static Path {

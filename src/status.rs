@@ -5,15 +5,17 @@
 //! files), the comments of each issue from `issue_comments`, and the issue's file and its acceptance from the
 //! branch of the issue with `git show`, never by switching branches.
 //!
-//! `issue_comments` prints only the first line of each comment and no author. An `[answer]` therefore cannot be
-//! told from a person's: until the program reads who wrote a comment (#83), every `[answer]` line counts as a
-//! person's. A line that starts with `[question]` is never an answer. An answer written below the first line of
-//! a comment is not seen, and neither is a choice number that is not one of the choices.
+//! `issue_comments` prints only the first line of each comment and no author. An answer therefore cannot be told
+//! from a person's: until the program reads who wrote a comment (#83), every `[answers]` and `[answer]` line counts
+//! as a person's. A line that starts with `[question]` or `[questions]` is never an answer. The questions and the
+//! answers are read from first lines alone (`answer::open_names`, #145): `[questions] <issue>.<role> q1 q2` names
+//! every question of its comment, as `[answers]` names every answer. A choice number that is not one of the
+//! choices is not seen.
 
 use std::io::Write;
 use std::path::Path;
 
-use crate::{issue, prompt, starter};
+use crate::{answer, issue, prompt, starter};
 
 /// The headings of the steps, in the order of the flow.
 pub const STEPS: [&str; 7] = ["Not broken down", "Broken down", "Accepted", "Tested", "Built", "Reviewed", "Fixed"];
@@ -83,30 +85,6 @@ fn issue_of(pattern: &str, name: &str) -> Option<String> {
     (!digits.is_empty() && (after.is_empty() || after.starts_with('-'))).then_some(digits)
 }
 
-/// The names of the questions, in the order they were asked, that no answer closes, from the first lines of the
-/// comments. A question is `[question] <issue>.…`; an answer is `[answer] <name> …` and closes the question of
-/// that name; `[answer] <issue> suggested` closes every question asked before it.
-fn open_questions(issue: &str, lines: &[String]) -> Vec<String> {
-    let mine = format!("{}.", issue);
-    let mut asked: Vec<(String, bool)> = Vec::new();
-    for line in lines {
-        if let Some(rest) = line.strip_prefix("[question] ") {
-            let name = rest.split_whitespace().next().unwrap_or_default();
-            if name.starts_with(&mine) && !asked.iter().any(|(known, _)| known == name) {
-                asked.push((name.to_string(), true));
-            }
-        } else if let Some(rest) = line.strip_prefix("[answer] ") {
-            let mut words = rest.split_whitespace();
-            match (words.next(), words.next(), words.next()) {
-                (Some(name), Some("suggested"), None) if name == issue => asked.iter_mut().for_each(|(_, open)| *open = false),
-                (Some(name), _, _) => asked.iter_mut().filter(|(known, _)| known == name).for_each(|(_, open)| *open = false),
-                _ => {}
-            }
-        }
-    }
-    asked.into_iter().filter(|(_, open)| *open).map(|(name, _)| name).collect()
-}
-
 /// The issue's file and whether its acceptance holds, on the first branch of the issue that has them.
 fn on_branches(root: &str, number: &str, pattern: &str, all: &[Branch], from: &mut Vec<String>) -> (bool, bool) {
     let file = format!("{}/{}.yml", issue::FOLDER, number);
@@ -168,11 +146,11 @@ fn read_issue(root: &str, number: &str, title: Option<String>, comments: Option<
     };
     let gone = starter::taken_back(&lines.join("\n"));
     for (line, gone) in lines.iter().zip(gone) {
-        if ["[stamp] ", "[question] ", "[answer] ", "[revert] "].iter().any(|start| line.starts_with(start)) {
+        if ["[stamp] ", "[question] ", "[questions] ", "[answer] ", "[answers] ", "[revert] "].iter().any(|start| line.starts_with(start)) {
             from.push(if gone { format!("{}  (taken back by a [revert] marker)", issue::shown(line)) } else { issue::shown(line) });
         }
     }
-    let questions = open_questions(number, &counted);
+    let questions = answer::open_names(number, &counted);
     Ok(Found { number: number.to_string(), title, step, questions, from })
 }
 

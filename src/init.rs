@@ -174,11 +174,6 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
                     repository
                 ),
             ),
-            // The open issues, for `wb status` (#139): the number, a tab and the title, one issue to a line. A line break in a title is written as a space.
-            (
-                "open_issues",
-                format!("gh issue list --repo {} --state open --limit 1000 --json number,title --jq '.[] | \"\\(.number)\\t\\(.title | gsub(\"[\\n\\r]\"; \" \"))\"'", repository),
-            ),
             // The whole comments, for `wb answer` (#145): each body and a NUL byte. `gh --jq` prints a line break
             // after each, which `wb` does not read as part of the next body.
             ("issue_comment_bodies", whole("issue")),
@@ -229,15 +224,6 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
             ("change_comment", format!("{} --method POST {} -F body=@-", api, notes("merge_requests", "change"))),
             ("change_comments", first_lines("merge_requests", "change")),
             ("change_of_branch", format!("glab mr list --repo {} --source-branch {{branch}} -F json --jq '.[].iid'", url)),
-            // The open issues, for `wb status` (#139): `glab api` pages them as the comments are paged, and `jq` prints
-            // the number, a tab and the title. The query is quoted: it holds `&`.
-            (
-                "open_issues",
-                format!(
-                    "{} '{}/issues?state=opened&per_page=100' --paginate --output ndjson | jq -r '\"\\(.iid)\\t\\(.title | gsub(\"[\\n\\r]\"; \" \"))\"'",
-                    api, project
-                ),
-            ),
             // The CI of a merge request (#127), as one word: the status of its head pipeline. Only `success` is green; a
             // merge request with no pipeline, or one that is running, waiting or blocked, is pending.
             (

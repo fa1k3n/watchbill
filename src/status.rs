@@ -1,9 +1,16 @@
-//! `wb status` (#139): the issues in the flow, under headings as `git status` lists files under theirs, each
+//! `wb status` (#139, #155): the issues in the flow, under headings as `git status` lists files under theirs, each
 //! issue under the last step it has done. It only reads. It says what is, never what to do.
 //!
-//! What it reads: the open issues from `open_issues` of `watchbill.yml` (or, without it, the branches and the
-//! files), the comments of each issue from `issue_comments`, and the issue's file and its acceptance from the
-//! branch of the issue with `git show`, never by switching branches.
+//! The issues in the flow are those whose branch, by the pattern `branch`, local or at `origin`, holds a commit
+//! that the default branch of `origin` does not. They are found with git alone, from the refs as they are:
+//! nothing is fetched. An issue that is done is not listed: its branch is merged into the default branch or
+//! deleted, or (as the owner squash-merges) its whole change is one commit on the default branch, by
+//! `git patch-id --stable`, or its upstream at `origin` is gone. `wb status <issue>` reads it all the same, and
+//! says that it is not in the flow.
+//!
+//! What it reads besides: the comments of each issue from `issue_comments`, the open change of its branch from
+//! `change_of_branch`, the title of one issue from `issue_address`, and the issue's file and its acceptance from
+//! the branch of the issue with `git show`, never by switching branches.
 //!
 //! `issue_comments` prints only the first line of each comment and no author. An answer therefore cannot be told
 //! from a person's: until the program reads who wrote a comment (#83), every `[answers]` and `[answer]` line counts
@@ -34,6 +41,13 @@ pub fn heading_of(word: &str) -> Option<&'static str> {
 /// An issue as it was read.
 struct Found {
     number: String,
+    /// The branch of the issue in the flow that is shown on its line, or `None` when it is not in the flow.
+    branch: Option<String>,
+    /// The open changes of that branch.
+    changes: Vec<String>,
+    /// How many commits of the local branch the branch at `origin` does not hold.
+    unpushed: u64,
+    /// The title, for `wb status <issue>` alone.
     title: Option<String>,
     step: &'static str,
     questions: Vec<String>,
@@ -68,6 +82,90 @@ fn branches(root: &str) -> Vec<Branch> {
     }
     found.sort_by_key(|branch| !branch.full.starts_with("refs/heads/"));
     found
+}
+
+/// The ref of the default branch of `origin`: `refs/remotes/origin/HEAD`, else `origin/main`, `main`,
+/// `origin/master`, `master`. `None` when none is there.
+fn default_branch(root: &str) -> Option<String> {
+    let exists = |full: &str| git(root, &["rev-parse", "--verify", "--quiet", &format!("{}^{{commit}}", full)]).is_some();
+    if let Some(target) = git(root, &["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"]) {
+        let target = String::from_utf8_lossy(&target).trim().to_string();
+        if exists(&target) {
+            return Some(target);
+        }
+    }
+    ["refs/remotes/origin/main", "refs/heads/main", "refs/remotes/origin/master", "refs/heads/master"].iter().find(|full| exists(full)).map(|full| full.to_string())
+}
+
+/// The patch ids (`git patch-id --stable`) of a diff or of the output of `git log -p`, one for each commit.
+fn patch_ids(root: &str, input: Vec<u8>) -> Vec<String> {
+    use std::process::{Command, Stdio};
+    let Ok(mut child) = Command::new("git").args(["-C", root, "patch-id", "--stable"]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() else {
+        return Vec::new();
+    };
+    let Some(mut stdin) = child.stdin.take() else {
+        return Vec::new();
+    };
+    // The input is written from a thread, so that a long one cannot wait for the output to be read.
+    let writer = std::thread::spawn(move || {
+        let _ = stdin.write_all(&input);
+    });
+    let output = child.wait_with_output();
+    let _ = writer.join();
+    match output {
+        Ok(run) => String::from_utf8_lossy(&run.stdout).lines().filter_map(|line| line.split_whitespace().next()).map(str::to_string).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Whether the whole change of the branch is a commit on the default branch: the patch id of the diff from their
+/// merge base to the branch is that of a commit between the merge base and the default branch. This finds a
+/// squash merge, whose commit is never an ancestor of the branch. A squash whose diff differs from the
+/// branch's is not found.
+fn squashed(root: &str, default: &str, branch: &str) -> bool {
+    let Some(base) = git(root, &["merge-base", default, branch]) else {
+        return false;
+    };
+    let base = String::from_utf8_lossy(&base).trim().to_string();
+    let Some(diff) = git(root, &["diff", "--no-ext-diff", &base, branch]).filter(|diff| !diff.is_empty()) else {
+        return false;
+    };
+    let Some(mine) = patch_ids(root, diff).into_iter().next() else {
+        return false;
+    };
+    let Some(log) = git(root, &["log", "-p", "--no-ext-diff", &format!("{}..{}", base, default)]) else {
+        return false;
+    };
+    patch_ids(root, log).contains(&mine)
+}
+
+/// The local branches whose upstream at `origin` is gone, as after `git fetch --prune`.
+fn upstream_gone(root: &str) -> Option<Vec<String>> {
+    let listed = git(root, &["for-each-ref", "--format=%(refname) %(upstream:track)", "refs/heads"])?;
+    Some(String::from_utf8_lossy(&listed).lines().filter_map(|line| line.strip_suffix(" [gone]")).map(str::to_string).collect())
+}
+
+/// The refs of the branches in the flow: those whose tip holds a commit that the default branch does not, less
+/// the branches of an issue that are done (their upstream is gone, or their whole change is on the default
+/// branch). `Err` when git could not list the refs.
+fn in_flow(root: &str, default: &str, pattern: &str) -> Result<Vec<String>, String> {
+    let fail = || "git could not list the branches, so no issue is read".to_string();
+    let listed = git(root, &["for-each-ref", "--no-merged", default, "--format=%(refname)", "refs/heads", "refs/remotes/origin"]).ok_or_else(fail)?;
+    let gone = upstream_gone(root).ok_or_else(fail)?;
+    let mut refs: Vec<String> = Vec::new();
+    for full in String::from_utf8_lossy(&listed).lines() {
+        let name = full.strip_prefix("refs/heads/").or_else(|| full.strip_prefix("refs/remotes/origin/")).unwrap_or(full);
+        if issue_of(pattern, name).is_some() && (gone.iter().any(|branch| branch == full) || squashed(root, default, full)) {
+            continue;
+        }
+        refs.push(full.to_string());
+    }
+    Ok(refs)
+}
+
+/// How many commits `local` holds that `other` does not.
+fn ahead(root: &str, local: &str, other: &str) -> u64 {
+    git(root, &["rev-list", "--count", local, &format!("^{}", other)]).and_then(|count| String::from_utf8_lossy(&count).trim().parse().ok()).unwrap_or(0)
 }
 
 /// Whether a branch is the issue's: it is the pattern `branch` with the issue filled, or starts with it and a `-`.
@@ -117,7 +215,8 @@ fn on_branches(root: &str, number: &str, pattern: &str, all: &[Branch], from: &m
 }
 
 /// Reads one issue, or says why it could not be read.
-fn read_issue(root: &str, number: &str, title: Option<String>, comments: Option<&str>, pattern: &str, all: &[Branch]) -> Result<Found, String> {
+fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flow: &[String], default: &str, with_title: bool) -> Result<Found, String> {
+    let (comments, pattern) = (patterns.comments.as_deref(), patterns.branch.as_str());
     let mut from = Vec::new();
     let mut lines = Vec::new();
     if let Some(command) = comments {
@@ -131,6 +230,36 @@ fn read_issue(root: &str, number: &str, title: Option<String>, comments: Option<
     // What a `[revert]` marker took back (#142) counts for no step and no question.
     let counted = starter::counted(&lines.join("\n"));
     let (file, accepted) = on_branches(root, number, pattern, all, &mut from);
+    // The branch that is shown: the first of the issue's branches in the flow, a local one before one at `origin`.
+    let shown = all.iter().find(|branch| is_of(pattern, number, &branch.name) && flow.contains(&branch.full));
+    let (mut changes, mut unpushed) = (Vec::new(), 0);
+    let mut not_in_flow = None;
+    match shown {
+        None => not_in_flow = Some(format!("not in the flow: no branch of the issue holds a commit that {} does not", default)),
+        Some(branch) => {
+            if branch.full.starts_with("refs/heads/") {
+                let at_origin = format!("refs/remotes/origin/{}", branch.name);
+                let against = if all.iter().any(|other| other.full == at_origin) { at_origin } else { default.to_string() };
+                unpushed = ahead(root, &branch.full, &against);
+            }
+            if let Some(command) = &patterns.change_of_branch {
+                if !prompt::is_plain_name(&branch.name) {
+                    return Err(format!("the branch {} is not a plain name that fills `change_of_branch`", issue::shown(&branch.name)));
+                }
+                changes = starter::open_changes(root, &command.replace("{branch}", &branch.name))?;
+            }
+        }
+    }
+    if let Some(line) = not_in_flow {
+        from.insert(0, line);
+    }
+    let title = match (&patterns.issue_address, with_title) {
+        (Some(command), true) => {
+            let printed = starter::run(root, "issue_address", &command.replace("{issue}", number), None)?;
+            String::from_utf8_lossy(&printed).lines().next().map(|line| line.trim_end_matches('\r').to_string())
+        }
+        _ => None,
+    };
     // A new breakdown takes the issue back: only the stamps after the last `[stamp] breakdown` decide the step.
     let since = stamps.iter().rposition(|(name, _)| name == "breakdown").map_or(0, |at| at + 1);
     let stamps = &stamps[since..];
@@ -151,36 +280,15 @@ fn read_issue(root: &str, number: &str, title: Option<String>, comments: Option<
         }
     }
     let questions = answer::open_names(number, &counted);
-    Ok(Found { number: number.to_string(), title, step, questions, from })
+    Ok(Found { number: number.to_string(), branch: shown.map(|branch| branch.name.clone()), changes, unpushed, title, step, questions, from })
 }
 
-/// The open issues that `open_issues` prints: the number, a tab and the title, to a line.
-fn open_issues(root: &str, command: &str) -> Result<Vec<(String, Option<String>)>, String> {
-    let printed = starter::run(root, "open_issues", command, None)?;
-    Ok(String::from_utf8_lossy(&printed)
-        .lines()
-        .map(|line| line.trim_end_matches('\r'))
-        .filter(|line| !line.trim().is_empty())
-        .map(|line| match line.split_once('\t') {
-            Some((number, title)) => (number.trim().to_string(), Some(title.to_string())),
-            None => (line.trim().to_string(), None),
-        })
-        .collect())
-}
-
-/// The issues with no `open_issues`: those with a branch of the pattern, and those with a file under
-/// `.watchbill/issues/`.
-fn from_the_repository(root: &str, pattern: &str, all: &[Branch]) -> Vec<(String, Option<String>)> {
-    let mut numbers: Vec<String> = all.iter().filter_map(|branch| issue_of(pattern, &branch.name)).collect();
-    if let Ok(entries) = std::fs::read_dir(Path::new(root).join(issue::FOLDER)) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if let Some(stem) = name.strip_suffix(".yml").filter(|stem| issue::is_name(stem)) {
-                numbers.push(stem.to_string());
-            }
-        }
-    }
-    numbers.into_iter().map(|number| (number, None)).collect()
+/// The patterns of `watchbill.yml` that `wb status` reads.
+struct Patterns {
+    branch: String,
+    comments: Option<String>,
+    change_of_branch: Option<String>,
+    issue_address: Option<String>,
 }
 
 /// Numbers in the order of their value, then the other names in the order of their letters.
@@ -190,57 +298,69 @@ fn order(number: &str) -> (u8, u64, String) {
         Err(_) => (1, 0, number.to_string()),
     }
 }
+/// The line of an issue: its number, its branch, its open changes as `#<n>`, how many commits are not pushed and,
+/// for one issue, its title. Every part is written with its control characters escaped.
+fn line_of(found: &Found) -> String {
+    let mut parts = vec![issue::shown(&found.number)];
+    if let Some(branch) = &found.branch {
+        parts.push(issue::shown(branch));
+    }
+    parts.extend(found.changes.iter().map(|change| format!("#{}", issue::shown(change))));
+    if found.unpushed > 0 {
+        parts.push(format!("{} not pushed", found.unpushed));
+    }
+    if let Some(title) = &found.title {
+        parts.push(issue::shown(title));
+    }
+    format!("  {}\n", parts.join("  "))
+}
 
 /// `wb status [<issue>] [--stage <heading>]` in the repository at `root`: 0 every issue could be read, 1 a
-/// pattern failed, 2 the repository is not set up. `stage`, when given, is a heading that `heading_of` knows.
+/// pattern failed, 2 the repository is not set up or has no default branch. `stage`, when given, is a heading
+/// that `heading_of` knows.
 pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     if !Path::new(root).join(crate::init::CONFIG_FOLDER).join(crate::init::CONFIG_FILE).is_file() {
         let _ = writeln!(err, "wb status: .watchbill/watchbill.yml is not there. Watchbill is not set up in this repository.");
         return 2;
     }
     let pattern = |key: &str| prompt::pattern_of(root, key);
-    let (branch, listing, comments) = match (pattern("branch"), pattern("open_issues"), pattern("issue_comments")) {
-        (Ok(branch), Ok(listing), Ok(comments)) => (branch.unwrap_or_else(|| "issue-{issue}".to_string()), listing, comments),
-        (Err(why), _, _) | (_, Err(why), _) | (_, _, Err(why)) => {
+    // `issue_address` is read for one issue only: the list never runs it.
+    let address = if only.is_some() { pattern("issue_address") } else { Ok(None) };
+    let patterns = match (pattern("branch"), pattern("issue_comments"), pattern("change_of_branch"), address) {
+        (Ok(branch), Ok(comments), Ok(change_of_branch), Ok(issue_address)) => {
+            Patterns { branch: branch.unwrap_or_else(|| "issue-{issue}".to_string()), comments, change_of_branch, issue_address }
+        }
+        (Err(why), ..) | (_, Err(why), ..) | (_, _, Err(why), _) | (.., Err(why)) => {
             let _ = writeln!(err, "wb status: {}", why);
             return 2;
         }
     };
-    let all = branches(root);
-    let mut issues = match &listing {
-        Some(command) => match open_issues(root, command) {
-            Ok(issues) => issues,
-            Err(why) => {
-                let _ = writeln!(err, "wb status: {}", why);
-                return 1;
-            }
-        },
-        None => from_the_repository(root, &branch, &all),
+    let Some(default) = default_branch(root) else {
+        let _ = writeln!(err, "wb status: no default branch was found: not refs/remotes/origin/HEAD, nor main nor master, at origin or here. The issues in the flow are those whose branch holds a commit that it does not.");
+        return 2;
     };
-    if let Some(one) = only {
-        issues.retain(|(number, _)| number == one);
-        if issues.is_empty() {
-            issues.push((one.to_string(), None));
+    let all = branches(root);
+    let flow = match in_flow(root, &default, &patterns.branch) {
+        Ok(flow) => flow,
+        Err(why) => {
+            let _ = writeln!(err, "wb status: {}", why);
+            return 2;
         }
-    }
-    // A line of `open_issues` whose first field is not a plain name cannot fill a pattern: it is not read.
-    let mut failed: Vec<(String, String)> = Vec::new();
-    let (plain, bad): (Vec<_>, Vec<_>) = issues.into_iter().partition(|(number, _)| prompt::is_plain_name(number));
-    {
-        for (number, _) in bad {
-            failed.push((issue::shown(&number), "the first field of this line of `open_issues` is not a plain issue name".to_string()));
-        }
-    }
-    let mut issues = plain;
-    if comments.is_none() {
+    };
+    let mut issues: Vec<String> = match only {
+        Some(one) => vec![one.to_string()],
+        None => flow.iter().filter_map(|full| full.strip_prefix("refs/heads/").or_else(|| full.strip_prefix("refs/remotes/origin/"))).filter_map(|name| issue_of(&patterns.branch, name)).collect(),
+    };
+    if patterns.comments.is_none() {
         let _ = writeln!(err, "wb status: watchbill.yml has no `issue_comments`, so no stamp, question or answer is read: an issue is at Accepted or below.");
     }
-    issues.sort_by_key(|(number, _)| order(number));
-    issues.dedup_by(|a, b| a.0 == b.0);
+    issues.sort_by_key(|number| order(number));
+    issues.dedup();
 
+    let mut failed: Vec<(String, String)> = Vec::new();
     let mut read: Vec<Found> = Vec::new();
-    for (number, title) in issues {
-        match read_issue(root, &number, title, comments.as_deref(), &branch, &all) {
+    for number in issues {
+        match read_issue(root, &number, &patterns, &all, &flow, &default, only.is_some()) {
             Ok(found) => read.push(found),
             Err(why) => failed.push((issue::shown(&number), issue::shown(&why))),
         }
@@ -248,12 +368,8 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, out: 
 
     let show = |heading: &str| stage.map_or(true, |wanted| wanted == heading);
     let mut sections: Vec<String> = Vec::new();
-    let title = |found: &Found| match &found.title {
-        Some(title) => format!("  {}  {}\n", issue::shown(&found.number), issue::shown(title)),
-        None => format!("  {}\n", issue::shown(&found.number)),
-    };
     for heading in STEPS.iter().filter(|heading| show(heading)) {
-        let lines: String = read.iter().filter(|found| found.step == *heading).map(title).collect();
+        let lines: String = read.iter().filter(|found| found.step == *heading).map(line_of).collect();
         if !lines.is_empty() {
             sections.push(format!("{}:\n{}", heading, lines));
         }

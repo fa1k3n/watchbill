@@ -58,10 +58,12 @@ pub fn is_name(issue: &str) -> bool {
         && issue.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
 }
 
-/// Text of the file as `wb` shows what it did not make: a control character is written escaped, so
-/// that one line stays one line.
+/// Text of the file as `wb` shows what it did not make: a control character, U+2028, U+2029 and the bidi
+/// controls (U+202A to U+202E, U+2066 to U+2069) are written escaped, and so is a backslash, so that one line
+/// stays one line, text keeps its order, and an escape cannot be forged by writing it out.
 pub fn shown(text: &str) -> String {
-    text.chars().map(|c| if c.is_control() { c.escape_default().to_string() } else { c.to_string() }).collect()
+    let odd = |c: char| c.is_control() || c == '\\' || matches!(c, '\u{2028}' | '\u{2029}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}');
+    text.chars().map(|c| if odd(c) { c.escape_default().to_string() } else { c.to_string() }).collect()
 }
 
 fn fault(error: YamlError) -> String {

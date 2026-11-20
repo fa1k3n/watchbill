@@ -92,15 +92,19 @@ const USAGE: &str = "usage:
             set up
   status    list the issues in the flow under headings, as git status lists
             files: each issue under the last step it has done (Not broken
-            down, Broken down, Accepted, Tested, Built, Reviewed, Fixed), with
-            its title, and last the issues that have a question no [answers]
-            or [answer] line has closed. The open issues come from open_issues of watchbill.yml,
-            the comments from issue_comments. <issue> prints that issue and
-            what it was worked out from; --stage <heading> prints that heading
-            only, whatever its case. Ends with 0 when every issue could be
-            read, 1 when a pattern failed for one (it is listed under Not
-            read), 2 when it was used wrongly or the repository is not set up.
-            Writes nothing
+            down, Broken down, Accepted, Tested, Built, Reviewed, Fixed), and
+            last the issues that have a question no [answers] or [answer] line
+            has closed. An issue is in the flow when its branch, local or at
+            origin, holds a commit that the default branch of origin does not:
+            git alone says which, and fetches nothing. Its line shows the
+            branch, the open change as #<n> (change_of_branch) and how many
+            commits are not pushed. The comments come from issue_comments.
+            <issue> prints that issue, in the flow or not, with its title
+            (issue_address) and what it was worked out from; --stage <heading>
+            prints that heading only, whatever its case. Ends with 0 when
+            every issue could be read, 1 when a pattern failed for one (it is
+            listed under Not read), 2 when it was used wrongly or the
+            repository is not set up. Writes nothing
   revert    take an issue back to before a step, deleting nothing:
             wb revert <issue> <role> [--round <n>] posts, by issue_comment of
             watchbill.yml, one comment whose first line is

@@ -97,7 +97,7 @@ fn test_WB_TASK_23_the_acceptance_is_committed_alone_with_the_message_and_the_au
     assert_eq!(say(&folder.path, &["status", "--porcelain"]), "");
     let status = wb(&folder.path, &["status", "54"], "");
     let said = text(&status.stdout);
-    assert!(said.contains("Accepted:\n  54\n"), "{}", said);
+    assert!(said.contains("Accepted:\n  54  issue-54"), "{}", said);
 }
 
 #[test]

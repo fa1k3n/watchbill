@@ -195,6 +195,7 @@ fn test_WB_STATUS_2_an_issue_file_that_is_not_accepted_as_it_stands_is_broken_do
     put(&folder.path, ".watchbill/issues/3.yml", &format!("{}# changed\n", BARE_ISSUE.replace("{issue}", "3")));
     git(&folder.path, &["commit", "-q", "-a", "-m", "Changed"]);
     git(&folder.path, &["checkout", "-q", "-"]);
+    at_origin(&folder.path, "issue-3-work");
     let (out, _) = stdout(&folder.path, &["status"]);
     assert_eq!(out, "Broken down:\n  3  issue-3-work\n");
 }

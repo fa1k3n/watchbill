@@ -24,8 +24,8 @@ What a session of the tester, the build, the review or the fix sees when `wb <ro
 | WB-VIEW-18 | `wb` shall read those ignore rules from the checkout, and never from the view. Issue: #159. | T | Implemented |
 | WB-VIEW-19 | Where more than 20 paths are left in a view, `wb` shall say how many, the first 20, and that the whole list is in the file `back` of the session's folder. Issue: #159. | T | Implemented |
 | WB-VIEW-20 | After the commits of a view are taken back, `wb` shall say on standard error `git show --stat <commit>` for each commit taken. Issue: #159. | T | Implemented |
-| WB-VIEW-21 | `wb` shall say on standard error, and write into `back`, each path from a view with its control characters escaped. Issue: #167. | T | Draft |
-| WB-VIEW-22 | `back` shall hold one line for each path from a view, whatever its name holds. Issue: #167. | T | Draft |
+| WB-VIEW-21 | `wb` shall say on standard error, and write into `back`, each path from a view with its control characters escaped. Issue: #167. | T | Implemented |
+| WB-VIEW-22 | `back` shall hold one line for each path from a view, whatever its name holds. Issue: #167. | T | Implemented |
 | WB-VIEW-23 | `wb view <issue> <role>` shall print the paths of that role's view, one to a line, the same list its start makes the view from. Issue: #173. | T | Draft |
 | WB-VIEW-24 | `wb view <issue> <role>` shall print the level and the line `view: <hash>` that the role's stamp would hold. Issue: #173. | T | Draft |
 | WB-VIEW-25 | `wb view <issue> <role> --out` shall print the folders of `HEAD` that the view leaves out, each with a count of its paths. Issue: #173. | T | Draft |
@@ -36,3 +36,6 @@ What a session of the tester, the build, the review or the fix sees when `wb <ro
 | WB-VIEW-30 | `wb view <issue> <role>` shall print the local changes that the guard of the start would name. Issue: #173. | T | Draft |
 | WB-VIEW-31 | `wb view` shall make no view, post nothing, write nothing, and ask nothing of the network. Issue: #173. | T | Draft |
 | WB-VIEW-32 | `wb view <issue> <role>` for an issue with no accepted, committed file shall end with 1, saying the role would run without a view. Issue: #173. | T | Draft |
+| WB-VIEW-33 | An entry of `changes` that is a file shall cover that path only, and never a path under it; a folder shall cover the paths under it. Issue: #192. | T | Draft |
+| WB-VIEW-34 | `wb` shall refuse with 1, naming the path, a commit of a view that holds a path with a part `.git` in any case, or a path git refuses to check out. Issue: #192. | T | Draft |
+| WB-VIEW-35 | After it puts a commit of a view on the branch, `wb` shall compare its tree with the view's commit, and where they differ stop, name the commit and end with 1. Issue: #192. | T | Draft |

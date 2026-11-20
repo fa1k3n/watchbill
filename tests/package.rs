@@ -33,9 +33,10 @@ fn test_WB_PKG_7_the_package_requires_git_core_and_no_python_and_no_crate() {
     let requires: Vec<&str> = text
         .lines()
         .filter(|line| line.starts_with("Requires:") || line.starts_with("Requires("))
+        .map(|line| line.split_whitespace().last().unwrap_or_default())
         .collect();
-    assert_eq!(requires.len(), 1, "{:?}", requires);
-    assert!(requires[0].split_whitespace().last() == Some("git-core"), "{}", requires[0]);
+    // `bubblewrap` since #126 (WB-VIEW-12), from the distribution's own repositories as `git-core` is.
+    assert_eq!(requires, ["git-core", "bubblewrap"], "{:?}", requires);
     assert!(!text.to_lowercase().contains("python"), "the spec names Python");
     assert!(!text.contains("%pyproject"), "the spec builds a Python package");
 }

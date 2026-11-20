@@ -57,10 +57,10 @@ At 0.0.9. An issue that changes a verdict changes its row.
 |---|---|---|
 | 1. Fits the workflow | Partly: any tracker and git server with a command line, by a pattern the team writes. `wb init` writes the patterns for GitHub and GitLab only. The CI and the requirements tool are names and nothing more. `wb` installs on Fedora and Enterprise Linux only | |
 | 2. What the agents are told | Held for what `wb` hands out: the pinned revision, `wb check`. `wb <role>` posts the stamp and starts the session with that prompt itself. A session started by hand is the word of the one who started it, and so is the effort of a runner whose `start` cannot set it | |
-| 3. Rules enforced | Partly: the pinned revision, the acceptance, the breakdown's runner and the placeholders are checked in code. No limit of the rule table is | #28 names each limit and what holds it; then #65, #88 and the pieces #28 writes |
+| 3. Rules enforced | Partly: the pinned revision, the acceptance, the breakdown's runner and the placeholders are checked in code. What a session of an issue with an accepted file reads and changes is held by its view. No other limit of the rule table is | #28 names each limit and what holds it; then #88 and the pieces #28 writes |
 | 4. People keep the decisions | Partly: `wb accept` asks for a person's word, but cannot tell a person from an agent under one account. That an agent cannot merge rests on the git server's settings | The roles' accounts, #83, and the acceptance read at the tracker, #88. No issue yet checks that a role's account cannot merge |
 | 5. Duties separated | Partly: the rule table says it, and nothing knows who holds which role | #83 and #88, for work that is handed on. No issue yet for a session a person starts |
-| 6. Sees only the code it needs | Not yet: the lists are in the prompt only. `wb accept` checks that they hold what each file needs to build, by the team's own command `needs` ([below](#the-lists-checked-at-acceptance)) | The sandbox, #65 |
+| 6. Sees only the code it needs | Partly: a session that `wb <role>` starts for an issue with an accepted file runs in a view, in bubblewrap. It sees the paths of its lists and no history, and its commits come back only where `changes` allows ([The view](#the-view)). `wb accept` checks that the lists hold what each file needs to build, by the team's own command `needs` ([below](#the-lists-checked-at-acceptance)). A session started by hand, for an issue with no file, or as the breakdown sees the whole checkout. What still leaks is [said below](#what-still-leaks) | No issue yet for a session started by hand |
 | 7. Code goes only where allowed | Partly: checked for the breakdown | The other roles, #11. No issue yet for a local model for them |
 | 8. Starts small | Held: `wb <role>` starts any role alone, for an issue with no file, and a review or a fix of a change with no issue, and posts the stamp on the issue or the change ([one role at a time](#taking-it-on-one-role-at-a-time)) | |
 | 9. Starts strict, opens up | Not yet: one level for the whole repository, and no level given means the strictest | #11, #65, and a level for each path, which has no issue yet |
@@ -277,11 +277,13 @@ runners:
       model: claude-opus-5-5
       effort: high
     start: [claude, --model, '{model}', --effort, '{effort}', '{prompt}']   # how `wb <role>` starts a session
+    binds: ['~/.local/bin/claude', '~/.local/share/claude', {writable: '~/.claude'}, {writable: '~/.claude.json'}]
 ```
 
 - `levels` is at least one name, each once, from the least to the most restrictive.
 - A runner has `tools`, `model`, `agreement` and `up_to`, which is one of the levels. `breakdown` is there only when the runner is cleared for the breakdown: its `up_to` is no higher than the runner's own, its `model` is an exact model ID and its `effort` is one of the model table's.
 - `start` is there only when `wb <role>` may start sessions on the runner ([Starting a session](#starting-a-session)). It is a list of one word or more, each a text of one line. `{model}`, `{effort}` and `{prompt}` are the only placeholders, and the first word, the program, holds none.
+- `binds` is there only when the runner needs paths of its own in a view ([The view](#the-view)): its program, its settings, its login. Each is a path from the root, `/…`, or from the home folder of the person who runs `wb`, `~/…`, with no `..`, and not the root or the home folder itself. It is read-only, unless it is written `{writable: <path>}`. A path that is not there is left out. The paths above are where Claude Code keeps itself on one machine; they are an example, not a promise.
 - `default` is the name of one of the runners.
 - A key that is not known, at any depth, a level written twice, a field missing or a value of the wrong type is refused, with the file and the place named.
 
@@ -290,6 +292,15 @@ The repository states its own level, as the line `confidentiality:` of `.watchbi
 `wb prompt breakdown <issue> --runner <name>` hands out the prompt only when the organisation's file is there, names the runner, the runner has `breakdown`, and the repository's level is no higher than the breakdown's `up_to`. Otherwise it prints nothing on standard output, names on standard error the file it looked for, the runner, or the level and the `up_to`, and ends with 1. With no `--runner` the breakdown ends with 2 and the usage. Its stamp has `runner: <name>` and the `model` and `effort` of the runner's `breakdown`, and `--parts` adds two lines after the parts: `level: <the repository's level>` and `runner: <name>`.
 
 What it does not do yet (#11): the tester, the build, the review and the fix are not refused on a runner or a missing file, and the level of an issue is not read. It cannot stop a person from pasting code into another tool, or running a session with a prompt that `wb` did not hand out. The stamp on the issue is what shows where the work was handed out.
+
+#### What still leaks
+
+A view ([below](#the-view)) keeps the rest of the code and the history away from a session. It does not keep everything:
+
+- Every file of the lists goes to the model, as the session reads it. The level of the repository still decides which runner may have them.
+- A test that passes or fails tells one bit about code the session cannot read, at each try. A session that runs the tests many times learns more.
+- The runner's own settings and login are inside the view, as its `binds`. What the runner keeps there, the session can read.
+- Nothing stops a person from pasting code into another tool.
 
 ## Starting a session
 
@@ -315,6 +326,7 @@ In this order. The first fault ends it, before anything is posted or started:
 3. The class: no classed code is worked on by a session started here until a session sees only its files (#65). See [Classed code](#classed-code).
 4. The runner has `start`, and no word of it is 128 KiB or more once filled: Linux hands a program no longer word. Otherwise 1, saying to use `--prompt`.
 5. Standard input and standard output are a terminal. Otherwise 1, naming #65: no session is started out of a person's sight before the sandbox.
+6. The view, for a session of an issue with an accepted file ([The view](#the-view)): no bind of the runner holds or lies in the checkout, the folder of the organisation's file or the state folder; there is a state folder; bubblewrap is at `/usr/bin/bwrap` and can make a sandbox; the checkout's `HEAD` names a branch; and the view is made. Otherwise 1, saying why. Where unprivileged user namespaces are off, bubblewrap cannot make a sandbox, and its own words are said.
 
 Then `watchbill.yml` must have `issue_comment`, or `change_comment` for a change with no issue. Without it the command is refused with 1, and nothing is posted.
 
@@ -337,8 +349,21 @@ They are worked out, never asked. `--round` and `--change` are still taken, and 
 ### The stamp and the session
 
 - **The stamp.** `wb` says on standard error what it will post. It then runs `issue_comment` with `{issue}` filled and the stamp on standard input: the line `[stamp] <role> round <n>`, then the lines `wb prompt --stamp` prints, with `runner:` the runner it starts. A review or a fix with no issue posts it by `change_comment`, with `{change}` filled. What the command prints goes to standard error. When it ends with anything but 0, nothing is started, and `wb` ends with 1.
-- **The session.** `wb` runs the runner's `start`, its words filled: `{model}` and `{effort}` are those of the stamp, and `{prompt}` is the whole prompt as one word. Nothing goes through a shell. It runs in the root of the checkout, in the foreground, in the person's terminal. Ctrl-C and Ctrl-\ go to the session, and `wb` waits for it. `wb` ends with 0 when the session ends with 0, and with 1 otherwise.
+- **The session.** `wb` runs the runner's `start`, its words filled: `{model}` and `{effort}` are those of the stamp, and `{prompt}` is the whole prompt as one word. Nothing goes through a shell. It runs in the root of the checkout, in the foreground, in the person's terminal: for an issue with an accepted file in its view, and otherwise as it is, which `wb` says first. Ctrl-C and Ctrl-\ go to the session, and `wb` waits for it. `wb` ends with 0 when the session ends with 0, and with 1 otherwise.
 - **`--prompt`** prints the prompt as `wb prompt` does, and posts and starts nothing. `--stamp` and `--parts` do as with `wb prompt`, with `--prompt` or without. No `default` runner is taken then: the output is that of `wb prompt` for the same words.
+
+### The view
+
+A session of the tester, the build, the review or the fix of an issue with an accepted, committed file sees only the files its issue's file lists for it (#126). The program keeps this limit, not the prompt.
+
+- **What it holds.** A new folder, `<state>/watchbill/views/<time>-<role>-<issue>/`, made by `wb` from the paths of `changes` and of the role's `reads`, as they are in `HEAD` of the checkout. It is a new repository with one commit of those files, on a branch of the checkout's name, with no remote and no history of the repository. A path of `changes` that is not there yet is not made: the session may make it. A worktree or a sparse checkout would not do: `git show` reads every file from the history.
+- **Where it runs.** In bubblewrap (`/usr/bin/bwrap`, from the package `bubblewrap`): the view at the path of the checkout, writable, so that `{checkout}` of the prompt is right. `/usr`, `/etc` and `/sys` are there read-only, `/tmp` and `/run` are its own, and the home folder is an empty one of its own, with the runner's `binds` in it. The checkout's `.git` and `.watchbill/`, the folder of the organisation's file and the person's other folders are not there. The variables `GIT_*` are not handed in. The network stays as the runner needs it: the view is what limits the code that can be sent.
+- **A terminal.** Where the kernel lets a program type into its terminal (`TIOCSTI`), a session could type into the person's shell after it ends. `wb` gives a session in a view no controlling terminal then. Where `/proc/sys/dev/tty/legacy_tiocsti` is `0`, as on Fedora, the kernel refuses it, and the session keeps its terminal.
+- **What comes back.** When the session ends, `wb` takes each commit of the view, in order. A commit that touches a path outside `changes`, under `.watchbill/` or under `build_files` of `watchbill.yml`, a merge or a submodule is refused, with the paths named: nothing of it or after it is taken, and `wb` ends with 1. The commits before it are put on the checkout's branch, with their messages and authors, by a fast-forward. `wb` pushes nothing: the person pushes. Work left uncommitted in the view is named and not taken.
+- **What is left.** The view is removed when all of it was taken back. It is kept, and named, when anything was refused or left uncommitted.
+- **How it is read.** Once the session has run, the `.git` of the view is the session's. `wb` never runs git with its settings, which would run outside the sandbox a command the session wrote there: it reads the view's objects through a repository of its own, and its `HEAD` from the files.
+- **Without a view.** A role started with no issue's file (#116), and the breakdown, which reads the whole code by its role, run as before, in the checkout. For a role with no file, `wb` says so on standard error before it starts. A person who starts it has decided to.
+- **The stamp** has the line `view:`, after `time:`: the SHA-256 of the list of paths, one to a line, as the file `view` of the lines holds it, or `none`. `wb prompt --stamp` gives the same line: it says what was handed out, as the model and the effort do.
 
 ### The lines it leaves
 
@@ -356,7 +381,8 @@ Each start of `wb <role>`, started or refused, leaves a few plain lines on the m
   message: …
   ```
 
-  `check` is the one that refused: `prompt`, `rule`, `class`, `start` or `terminal`. `message` is the first line of what was said. `not posted` is a stamp that was not posted, and no session was started. `ended` gives the session's own status (or `signal:` when a signal ended it) and the seconds it ran. A `wb` killed while the session runs leaves no `outcome`.
+  `check` is the one that refused: `prompt`, `rule`, `class`, `start`, `terminal` or `view`. `message` is the first line of what was said. `not posted` is a stamp that was not posted, and no session was started. `ended` gives the session's own status (or `signal:` when a signal ended it) and the seconds it ran. A `wb` killed while the session runs leaves no `outcome`.
+- **`view` and `back`,** for a session in a view: the list of its paths, one to a line, whose SHA-256 is the stamp's `view:`; and what came back, a line each: `taken: <commit on the branch> <subject>`, `refused: <commit of the view> <subject>: <why>`, `not taken: …`, `uncommitted: <path>`, `failed: <why>`, and last `view: removed` or `view: kept <folder>`.
 - **Not in the way:** a folder that cannot be written is said on standard error. It changes neither the status nor whether the session starts.
 - **What writes none:** `--prompt`, `--stamp` and `--parts`, and `wb prompt` and `wb check`. Nor does a command used wrongly (status 2 before the checks begin): no start was tried.
 - **What they are:** diagnostics on one machine, not a record ([Not goals](#not-goals)). `wb` never reads them back to decide anything, and nothing in them leaves the machine. They are plain files, so the team's own tools or a recorder can collect them, and a person removes them when they are no longer wanted.
@@ -457,12 +483,13 @@ Each command posts its stamp and starts its session. The person answers the ques
 ### The exit status
 
 - **0**: the session ended with 0; with `--prompt`, `--stamp` or `--parts`, it was printed.
-- **1**: it was refused, by `wb prompt`'s checks or by one of the four after them; `watchbill.yml` has no pattern it needs; a pattern ended with anything but 0; or the session could not be started, or did not end with 0.
+- **1**: it was refused, by `wb prompt`'s checks or by one of the five after them; `watchbill.yml` has no pattern it needs; a pattern ended with anything but 0; the session could not be started, or did not end with 0; or a commit of its view was refused, or the view's work could not be taken back.
 - **2**: it was used wrongly, as for `wb prompt`, or with no runner and no `default`, a `--round` that is not a whole number from 1, or an issue or a change to post on that is not plain; the folder is not in a git repository; or Watchbill is not set up.
 
 ### What it does not do
 
-- Start a session without a terminal, for the listener (#85): after the sandbox (#65).
+- Start a session without a terminal, for the listener (#85).
+- Run the breakdown, or a role with no issue's file, in a view.
 - Keep the session's last message and hand it on (#88).
 - Know whether a session of the same role already runs on the issue (#88).
 - Say what the session does with its prompt. The stamp says what was handed out and started.

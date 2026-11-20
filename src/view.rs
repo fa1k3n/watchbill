@@ -1,0 +1,734 @@
+//! The view (#126): a session of the tester, the build, the review or the fix of an issue with an accepted file
+//! sees only the paths its issue's file lists for it, and the program keeps that limit, not the prompt.
+//!
+//! - **The view** is a new git repository, made by `wb` from the trusted side: the paths of `changes` and of the
+//!   role's `reads`, as they are in `HEAD` of the checkout, in one commit, with no remote and no history.
+//! - **The sandbox** is bubblewrap: the view at the path of the checkout, writable; the system read-only; `/tmp`
+//!   and `/run` of its own; the home folder empty but for the runner's `binds`; the folder of the organisation's
+//!   file covered. The network stays as the runner needs it.
+//! - **What comes back**: each commit of the view, in order, put on the checkout's branch when it keeps to
+//!   `changes`, and refused, with every commit after it, when it does not. `wb` pushes nothing.
+//!
+//! Once the session has run, what is in the view is the session's. `wb` never runs git with the view's own
+//! settings, which would run a command the session wrote there outside the sandbox: it reads the view's objects
+//! from a repository of its own, through `alternates`, and reads the view's `HEAD` from its files.
+
+use std::ffi::OsString;
+use std::fs;
+use std::io::Write;
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitStatus, Stdio};
+
+use crate::starter::parts;
+
+/// bubblewrap, at the path the distribution's package puts it. It is fixed in `wb`, as the organisation's file
+/// is: it is not looked for on the `PATH`, so that nothing put there stands in for it.
+pub const BWRAP: &str = "/usr/bin/bwrap";
+
+/// The paths of the view of `role`: those of `changes`, then those of the role's `reads`, each once, as the
+/// issue's file writes them.
+pub fn paths(issue: &crate::issue::Issue, role: &str) -> Vec<String> {
+    let reads = issue.reads.iter().find(|(name, _)| name == role).map(|(_, list)| list.as_slice()).unwrap_or(&[]);
+    let mut found: Vec<String> = Vec::new();
+    for path in issue.changes.iter().chain(reads) {
+        if !found.contains(path) {
+            found.push(path.clone());
+        }
+    }
+    found
+}
+
+/// The list of paths as the session folder holds it and the stamp hashes it: one to a line.
+pub fn list(paths: &[String]) -> String {
+    paths.iter().map(|path| format!("{}\n", path)).collect()
+}
+
+/// The stamp's `view:`: the SHA-256 of the list.
+pub fn hash(paths: &[String]) -> String {
+    crate::manifest::hash_bytes(list(paths).as_bytes())
+}
+
+/// Runs git in `at` with `args`, with no variable `GIT_*` of this process and with `env`, and `input` on standard
+/// input. The result is standard output; a git that cannot be run, or ends with anything but 0, is the error, with
+/// the first line it said.
+fn git(at: &Path, args: &[&str], env: &[(&str, &Path)], input: Option<&[u8]>) -> Result<Vec<u8>, String> {
+    let mut command = Command::new("git");
+    command.arg("-C").arg(at).args(args);
+    for (name, _) in std::env::vars_os() {
+        if name.to_string_lossy().starts_with("GIT_") {
+            command.env_remove(name);
+        }
+    }
+    for (name, value) in env {
+        command.env(name, value);
+    }
+    command.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command.spawn().map_err(|error| format!("git could not be run: {}", error))?;
+    let stdin = child.stdin.take();
+    let output = std::thread::scope(|scope| {
+        if let (Some(input), Some(mut stdin)) = (input, stdin) {
+            scope.spawn(move || {
+                let _ = stdin.write_all(input);
+            });
+        }
+        child.wait_with_output()
+    })
+    .map_err(|error| format!("git could not be waited for: {}", error))?;
+    if output.status.success() {
+        return Ok(output.stdout);
+    }
+    let said = String::from_utf8_lossy(&output.stderr);
+    let first = said.lines().find(|line| !line.trim().is_empty()).unwrap_or("").trim().to_string();
+    Err(format!("`git {}` ended with {}{}", args.first().copied().unwrap_or(""), output.status.code().unwrap_or(-1), if first.is_empty() { String::new() } else { format!(": {}", first) }))
+}
+
+fn line(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).trim().to_string()
+}
+
+/// A folder of its own, new, readable by its owner alone: `<base>`, or `<base>-2`, `-3` and on when it is there.
+fn new_folder(below: &Path, base: &str) -> Result<PathBuf, String> {
+    fs::create_dir_all(below).map_err(|error| format!("{} could not be made: {}", below.display(), error))?;
+    for number in 1..10_000 {
+        let folder = if number == 1 { below.join(base) } else { below.join(format!("{}-{}", base, number)) };
+        match fs::DirBuilder::new().mode(0o700).create(&folder) {
+            Ok(()) => return Ok(folder),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(format!("{} could not be made: {}", folder.display(), error)),
+        }
+    }
+    Err(format!("no new folder could be made in {}", below.display()))
+}
+
+/// Removes a folder and all below it, also folders the session left without write permission.
+fn remove(folder: &Path) -> std::io::Result<()> {
+    let mut open = vec![folder.to_path_buf()];
+    while let Some(at) = open.pop() {
+        if let Ok(found) = fs::symlink_metadata(&at) {
+            if found.is_dir() {
+                let _ = fs::set_permissions(&at, fs::Permissions::from_mode(0o700));
+                if let Ok(entries) = fs::read_dir(&at) {
+                    open.extend(entries.filter_map(|entry| entry.ok()).map(|entry| entry.path()));
+                }
+            }
+        }
+    }
+    fs::remove_dir_all(folder)
+}
+
+/// A view made: its folder, the one commit it was made with, the commit of the checkout it was made from, and
+/// the branch of the checkout its commits go back to.
+#[derive(Clone, Debug)]
+pub struct View {
+    pub folder: PathBuf,
+    pub base: String,
+    pub head: String,
+    /// The branch, as `refs/heads/<name>`.
+    pub branch: String,
+}
+
+impl View {
+    /// The branch's name, as a person writes it.
+    pub fn branch_name(&self) -> &str {
+        self.branch.strip_prefix("refs/heads/").unwrap_or(&self.branch)
+    }
+}
+
+/// The checkout's branch, as `refs/heads/<name>`, and the commit `HEAD` names. A `HEAD` that names no branch is
+/// refused: the commits of the view go back onto the branch.
+pub fn branch_of(root: &str) -> Result<(String, String), String> {
+    let root = Path::new(root);
+    let branch = git(root, &["symbolic-ref", "-q", "HEAD"], &[], None).map(|out| line(&out)).map_err(|_| {
+        "the checkout's HEAD names no branch, and the commits of the view go back onto the branch HEAD names. Check out the issue's branch".to_string()
+    })?;
+    let head = git(root, &["rev-parse", "--verify", "-q", "HEAD^{commit}"], &[], None)
+        .map(|out| line(&out))
+        .map_err(|_| "the checkout's HEAD names no commit, and the view is made from it".to_string())?;
+    Ok((branch, head))
+}
+
+/// Makes the view of `paths` from `HEAD` of the checkout at `root`, in a new folder below `below` named `base`.
+/// A path that is not in `HEAD` is not made: the session may make it. A folder that cannot be made, or a git that
+/// fails, is the error, and nothing is left.
+pub fn make(root: &str, paths: &[String], below: &Path, base: &str) -> Result<View, String> {
+    let (branch, head) = branch_of(root)?;
+    let folder = new_folder(below, base)?;
+    match fill(Path::new(root), paths, &folder, &branch, &head) {
+        Ok(commit) => Ok(View { folder, base: commit, head, branch }),
+        Err(why) => {
+            let _ = remove(&folder);
+            Err(format!("the view could not be made: {}", why))
+        }
+    }
+}
+
+/// The work of `make` once the folder is there: a repository with the listed files of `HEAD` and one commit.
+fn fill(root: &Path, paths: &[String], folder: &Path, branch: &str, head: &str) -> Result<String, String> {
+    let short = branch.strip_prefix("refs/heads/").unwrap_or(branch);
+    let literal = [("GIT_LITERAL_PATHSPECS", Path::new("1"))];
+    // The entries of `HEAD` below each path, as `ls-tree` gives them; a submodule is left out.
+    let wanted: Vec<String> = paths.iter().map(|path| parts(path).join("/")).filter(|path| !path.is_empty()).collect();
+    let mut args = vec!["ls-tree", "-r", "-z", "--full-tree", head, "--"];
+    args.extend(wanted.iter().map(String::as_str));
+    let listed = if wanted.is_empty() { Vec::new() } else { git(root, &args, &literal, None)? };
+    let mut entries: Vec<u8> = Vec::new();
+    let mut blobs: Vec<u8> = Vec::new();
+    for entry in listed.split(|byte| *byte == 0).filter(|entry| !entry.is_empty()) {
+        let text = String::from_utf8_lossy(entry);
+        let mut words = text.split_whitespace();
+        let (_, kind, object) = (words.next(), words.next(), words.next());
+        if kind != Some("blob") {
+            continue;
+        }
+        entries.extend_from_slice(entry);
+        entries.push(0);
+        blobs.extend_from_slice(object.unwrap_or_default().as_bytes());
+        blobs.push(b'\n');
+    }
+    let at = folder.to_str().ok_or("the folder of the view is not UTF-8 text")?;
+    git(root, &["init", "-q", "--template=", &format!("--initial-branch={}", short), at], &[], None)?;
+    // The session commits as the person: the identity of the checkout, where it has one.
+    for key in ["user.name", "user.email"] {
+        if let Ok(value) = git(root, &["config", "--get", key], &[], None) {
+            git(folder, &["config", key, &line(&value)], &[], None)?;
+        }
+    }
+    if !blobs.is_empty() {
+        let pack = git(root, &["pack-objects", "--stdout", "-q"], &[], Some(&blobs))?;
+        git(folder, &["unpack-objects", "-q"], &[], Some(&pack))?;
+        git(folder, &["update-index", "--add", "-z", "--index-info"], &[], Some(&entries))?;
+        git(folder, &["checkout-index", "--all", "--force"], &[], None)?;
+    }
+    let tree = line(&git(folder, &["write-tree"], &[], None)?);
+    let who = [
+        ("GIT_AUTHOR_NAME", Path::new("Watchbill")),
+        ("GIT_AUTHOR_EMAIL", Path::new("watchbill@localhost")),
+        ("GIT_COMMITTER_NAME", Path::new("Watchbill")),
+        ("GIT_COMMITTER_EMAIL", Path::new("watchbill@localhost")),
+    ];
+    let message = b"The view: the paths of the issue's file for this role, as they are in HEAD of the checkout.\n";
+    let commit = line(&git(folder, &["commit-tree", "--no-gpg-sign", &tree], &who, Some(message))?);
+    git(folder, &["update-ref", branch, &commit], &[], None)?;
+    Ok(commit)
+}
+
+/// What a session in a view is run with.
+pub struct Plan<'a> {
+    pub view: &'a Path,
+    pub checkout: &'a Path,
+    /// The runner's `binds`, each as its path from the root and whether it is writable.
+    pub binds: Vec<(PathBuf, bool)>,
+    /// The folder of the organisation's file, covered by an empty one, or none when it is not there.
+    pub organisation: Option<&'a Path>,
+    /// The home folder, an empty one of the session's own, or none.
+    pub home: Option<&'a Path>,
+    /// Whether the session is given no controlling terminal (`setsid`).
+    pub new_session: bool,
+    /// The runner's `start`, filled.
+    pub words: &'a [String],
+}
+
+/// The system, as the sandbox has it, read-only: `/usr`, the links to it or the folders beside it, `/etc` and
+/// `/sys`; `/proc` and `/dev` of its own; `/tmp` and `/run` empty, but for the folder of the resolver where
+/// `/etc/resolv.conf` points into `/run`, so that the model can be reached.
+fn system() -> Vec<OsString> {
+    let mut words: Vec<OsString> = Vec::new();
+    let mut add = |more: &[&str]| words.extend(more.iter().map(OsString::from));
+    add(&["--ro-bind", "/usr", "/usr"]);
+    for top in ["/bin", "/sbin", "/lib", "/lib64", "/lib32", "/libx32"] {
+        match fs::symlink_metadata(top) {
+            Ok(found) if found.file_type().is_symlink() => {
+                if let Ok(target) = fs::read_link(top) {
+                    if let Some(target) = target.to_str() {
+                        add(&["--symlink", target, top]);
+                    }
+                }
+            }
+            Ok(found) if found.is_dir() => add(&["--ro-bind", top, top]),
+            _ => {}
+        }
+    }
+    add(&["--ro-bind", "/etc", "/etc"]);
+    if Path::new("/sys").is_dir() {
+        add(&["--ro-bind", "/sys", "/sys"]);
+    }
+    add(&["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", "/run"]);
+    if let Ok(resolver) = fs::canonicalize("/etc/resolv.conf") {
+        if let (true, Some(folder)) = (resolver.starts_with("/run"), resolver.parent().and_then(Path::to_str)) {
+            add(&["--ro-bind", folder, folder]);
+        }
+    }
+    words
+}
+
+/// The namespaces of the sandbox: all but the network's.
+const UNSHARE: [&str; 6] = ["--unshare-user", "--unshare-ipc", "--unshare-pid", "--unshare-uts", "--unshare-cgroup-try", "--die-with-parent"];
+
+/// The words bubblewrap is given for a session in a view.
+pub fn arguments(plan: &Plan) -> Vec<OsString> {
+    let mut words: Vec<OsString> = UNSHARE.iter().map(OsString::from).collect();
+    if plan.new_session {
+        words.push("--new-session".into());
+    }
+    words.extend(system());
+    let mut add = |more: &[&std::ffi::OsStr]| words.extend(more.iter().map(OsString::from));
+    if let Some(home) = plan.home.filter(|home| home.is_absolute() && *home != Path::new("/")) {
+        add(&["--tmpfs".as_ref(), home.as_os_str()]);
+    }
+    for (path, writable) in &plan.binds {
+        let how = if *writable { "--bind-try" } else { "--ro-bind-try" };
+        add(&[how.as_ref(), path.as_os_str(), path.as_os_str()]);
+    }
+    // The organisation's own folder, where `wb` reads its file, and the folder of the file given, when another.
+    let fixed = Path::new(crate::confidentiality::ORGANISATION_FILE).parent().filter(|folder| folder.is_dir());
+    for folder in [fixed, plan.organisation.filter(|folder| Some(*folder) != fixed)].into_iter().flatten() {
+        add(&["--tmpfs".as_ref(), folder.as_os_str()]);
+    }
+    add(&["--bind".as_ref(), plan.view.as_os_str(), plan.checkout.as_os_str()]);
+    add(&["--chdir".as_ref(), plan.checkout.as_os_str(), "--".as_ref()]);
+    words.extend(plan.words.iter().map(OsString::from));
+    words
+}
+
+/// Whether a session in a sandbox has a controlling terminal: only where the kernel refuses a program the
+/// injection of input into its terminal (`TIOCSTI`), as `dev.tty.legacy_tiocsti = 0` says. Elsewhere a session
+/// could type into the person's shell after it ends, and it is given no controlling terminal.
+pub fn new_session() -> bool {
+    fs::read_to_string("/proc/sys/dev/tty/legacy_tiocsti").map(|text| text.trim() != "0").unwrap_or(true)
+}
+
+/// Whether bubblewrap at `bwrap` can make a sandbox on this machine: it is there, and runs `/usr/bin/true` in
+/// the namespaces and the system of a view. The error says why not.
+pub fn works(bwrap: &Path) -> Result<(), String> {
+    if !bwrap.is_file() {
+        return Err(format!(
+            "there is no {}, and a session of an issue with an accepted file runs only in a view, in bubblewrap. Install the package bubblewrap",
+            bwrap.display()
+        ));
+    }
+    let mut command = Command::new(bwrap);
+    command.args(UNSHARE).args(system()).args(["--", "/usr/bin/true"]);
+    command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
+    let output = command.output().map_err(|error| format!("{} could not be run: {}", bwrap.display(), error))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let said = String::from_utf8_lossy(&output.stderr);
+    let first = said.lines().find(|line| !line.trim().is_empty()).unwrap_or("it said nothing").trim().to_string();
+    let off = match fs::read_to_string("/proc/sys/user/max_user_namespaces") {
+        Ok(text) if text.trim() == "0" => " User namespaces are off on this machine: /proc/sys/user/max_user_namespaces is 0.",
+        _ => " Unprivileged user namespaces may be off on this machine.",
+    };
+    Err(format!("bubblewrap ({}) could not make a sandbox here: {}.{} A session of an issue with an accepted file runs only in a view", bwrap.display(), first.trim_end_matches('.'), off))
+}
+
+/// Runs the session in its view, in bubblewrap at `bwrap`, in the foreground, with the person's standard
+/// input, output and error, and no variable `GIT_*` of this process. While it runs, an interrupt or a quit at the
+/// terminal does not end `wb` (`interrupt::hold`).
+pub fn run(bwrap: &Path, plan: &Plan) -> Result<ExitStatus, String> {
+    let _held = crate::interrupt::hold();
+    let mut command = Command::new(bwrap);
+    command.args(arguments(plan)).current_dir(plan.checkout);
+    for (name, _) in std::env::vars_os() {
+        if name.to_string_lossy().starts_with("GIT_") {
+            command.env_remove(name);
+        }
+    }
+    command.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
+    command.status().map_err(|error| format!("the session could not be started: {} could not be run: {}", bwrap.display(), error))
+}
+
+/// What was done with the commits of a view.
+#[derive(Debug, Default)]
+pub struct Back {
+    /// Each commit put on the branch: its name there and its subject.
+    pub taken: Vec<(String, String)>,
+    /// The commit refused, its subject and why.
+    pub refused: Option<(String, String, String)>,
+    /// The commits after the one refused, not taken: each its name in the view and its subject.
+    pub after: Vec<(String, String)>,
+    /// The paths left uncommitted in the view.
+    pub uncommitted: Vec<String>,
+    /// Why nothing of the view could be taken back, when it could not.
+    pub failed: Option<String>,
+}
+
+impl Back {
+    /// Whether all of the view's work is on the branch: nothing refused, failed or left uncommitted.
+    pub fn all_taken(&self) -> bool {
+        self.refused.is_none() && self.after.is_empty() && self.uncommitted.is_empty() && self.failed.is_none()
+    }
+
+    /// Whether anything was refused, or could not be taken back: `wb` then ends with 1.
+    pub fn refused_any(&self) -> bool {
+        self.refused.is_some() || self.failed.is_some()
+    }
+
+    /// The file `back` of the session's folder, with the last line `view: removed` or `view: kept <folder>`.
+    pub fn text(&self, kept: Option<&Path>) -> String {
+        let mut text = String::new();
+        for (commit, subject) in &self.taken {
+            text.push_str(&format!("taken: {} {}\n", commit, subject));
+        }
+        if let Some((commit, subject, why)) = &self.refused {
+            text.push_str(&format!("refused: {} {}: {}\n", commit, subject, why));
+        }
+        for (commit, subject) in &self.after {
+            text.push_str(&format!("not taken: {} {}\n", commit, subject));
+        }
+        for path in &self.uncommitted {
+            text.push_str(&format!("uncommitted: {}\n", path));
+        }
+        if let Some(why) = &self.failed {
+            text.push_str(&format!("failed: {}\n", why));
+        }
+        match kept {
+            Some(folder) => text.push_str(&format!("view: kept {}\n", folder.display())),
+            None => text.push_str("view: removed\n"),
+        }
+        text
+    }
+}
+
+/// A name of an object: 40 or 64 small hexadecimal digits.
+fn is_object(name: &str) -> bool {
+    (name.len() == 40 || name.len() == 64) && name.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+}
+
+/// A small file of the view's `.git`, read as it is: a plain file, never through a link.
+fn small_file(path: &Path) -> Option<String> {
+    let found = fs::symlink_metadata(path).ok()?;
+    if !found.is_file() || found.len() > 64 * 1024 * 1024 {
+        return None;
+    }
+    fs::read_to_string(path).ok()
+}
+
+/// The commit the view's `HEAD` names, read from the files of its `.git`, without git: a branch, loose or packed,
+/// or a commit named in `HEAD` itself.
+fn head_of(git_dir: &Path) -> Result<String, String> {
+    let none = || "the view's HEAD names no commit".to_string();
+    let head = small_file(&git_dir.join("HEAD")).ok_or_else(none)?;
+    let head = head.trim_end();
+    let Some(name) = head.strip_prefix("ref: ") else {
+        return if is_object(head) { Ok(head.to_string()) } else { Err(none()) };
+    };
+    let plain = name.starts_with("refs/heads/") && name.split('/').all(|part| !part.is_empty() && !part.starts_with('.') && !part.contains(".."));
+    if !plain {
+        return Err(none());
+    }
+    if let Some(loose) = small_file(&git_dir.join(name)) {
+        let loose = loose.trim();
+        return if is_object(loose) { Ok(loose.to_string()) } else { Err(none()) };
+    }
+    let packed = small_file(&git_dir.join("packed-refs")).unwrap_or_default();
+    packed
+        .lines()
+        .find_map(|line| line.split_once(' ').filter(|(_, found)| *found == name).map(|(object, _)| object.to_string()))
+        .filter(|object| is_object(object))
+        .ok_or_else(none)
+}
+
+/// One change of a commit, as `diff-tree --raw` gives it.
+struct Change {
+    mode: String,
+    object: String,
+    path: String,
+}
+
+/// What a commit of the view changes, against its parent.
+fn changes_of(store: &Path, parent: &str, commit: &str) -> Result<Vec<Change>, String> {
+    let raw = git(store, &["diff-tree", "-r", "-z", "--no-renames", "--raw", parent, commit], &[], None)?;
+    let mut found = Vec::new();
+    let mut fields = raw.split(|byte| *byte == 0).filter(|field| !field.is_empty());
+    while let (Some(head), Some(path)) = (fields.next(), fields.next()) {
+        let head = String::from_utf8_lossy(head);
+        let words: Vec<&str> = head.trim_start_matches(':').split(' ').collect();
+        let [_, mode, _, object, _] = words.as_slice() else {
+            return Err(format!("git said a change of {} in a form not known: {}", commit, head));
+        };
+        let path = String::from_utf8(path.to_vec()).map_err(|_| format!("a path of the commit {} is not UTF-8 text", commit))?;
+        found.push(Change { mode: mode.to_string(), object: object.to_string(), path });
+    }
+    Ok(found)
+}
+
+/// Why a path that a commit changes is not taken, if it is not: under `.watchbill/`, a file of the build, or
+/// outside `changes`.
+fn not_allowed(path: &str, changes: &[String], build_files: &[String]) -> Option<String> {
+    let found = parts(path);
+    if found.first() == Some(&".watchbill") {
+        return Some(format!("{} is under .watchbill/", path));
+    }
+    if let Some(build) = build_files.iter().find(|build| crate::starter::meet(path, build)) {
+        return Some(format!("{} is under `build_files` of watchbill.yml: {}", path, build));
+    }
+    let inside = changes.iter().any(|entry| {
+        let entry = parts(entry);
+        !entry.is_empty() && found.len() >= entry.len() && found[..entry.len()] == entry[..]
+    });
+    if !inside {
+        return Some(format!("{} is outside `changes`", path));
+    }
+    None
+}
+
+/// A commit of the view as git keeps it: its author, as `name`, `email` and `date`, and its message.
+struct Raw {
+    author: (String, String, String),
+    message: Vec<u8>,
+}
+
+impl Raw {
+    fn subject(&self) -> String {
+        String::from_utf8_lossy(&self.message).lines().next().unwrap_or("").to_string()
+    }
+}
+
+fn raw_of(store: &Path, commit: &str) -> Result<Raw, String> {
+    let bytes = git(store, &["cat-file", "commit", commit], &[], None)?;
+    let split = bytes.windows(2).position(|two| two == b"\n\n").map(|at| at + 2).unwrap_or(bytes.len());
+    let head = String::from_utf8_lossy(&bytes[..split]);
+    let author = head.lines().find_map(|line| line.strip_prefix("author ")).ok_or_else(|| format!("the commit {} has no author", commit))?;
+    let (name, rest) = author.split_once(" <").ok_or_else(|| format!("the author of {} is not in its form", commit))?;
+    let (email, date) = rest.split_once("> ").ok_or_else(|| format!("the author of {} is not in its form", commit))?;
+    Ok(Raw { author: (name.to_string(), email.to_string(), date.to_string()), message: bytes[split..].to_vec() })
+}
+
+/// A short name of a commit, as a person reads it.
+fn short(commit: &str) -> &str {
+    &commit[..commit.len().min(12)]
+}
+
+/// Takes the work of the session back from `view` to the checkout at `root`: each commit, in order, while it
+/// keeps to `changes`, then the paths left uncommitted. A commit that does not is refused, and none after it is
+/// taken. What is said goes to `err`, after `name`.
+pub fn take_back(name: &str, root: &str, view: &View, changes: &[String], build_files: &[String], err: &mut dyn Write) -> Back {
+    let mut back = Back::default();
+    let store = match Store::new(view) {
+        Ok(store) => store,
+        Err(why) => {
+            back.failed = Some(why);
+            return said(name, view, back, err);
+        }
+    };
+    if let Err(why) = commits(root, view, &store.path, changes, build_files, &mut back) {
+        back.failed = Some(why);
+    }
+    match uncommitted(&store.path, &view.folder) {
+        Ok(found) => back.uncommitted = found,
+        Err(why) => {
+            if back.failed.is_none() {
+                back.failed = Some(format!("what is left uncommitted in the view could not be read: {}", why));
+            }
+        }
+    }
+    drop(store);
+    said(name, view, back, err)
+}
+
+/// A repository of `wb`'s own, through which the objects of a view are read, and removed when it is dropped.
+struct Store {
+    path: PathBuf,
+}
+
+impl Store {
+    fn new(view: &View) -> Result<Store, String> {
+        let git_dir = view.folder.join(".git");
+        let objects = git_dir.join("objects");
+        for folder in [&git_dir, &objects] {
+            match fs::symlink_metadata(folder) {
+                Ok(found) if found.is_dir() => {}
+                _ => return Err(format!("{} is not the folder it was made as, and nothing of the view is read through it", folder.display())),
+            }
+        }
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|since| since.subsec_nanos()).unwrap_or(0);
+        let path = new_folder(&std::env::temp_dir(), &format!("wb-view-{}-{}", std::process::id(), nanos))?;
+        let store = Store { path };
+        git(&store.path, &["init", "-q", "--bare", "--template=", "."], &[], None)?;
+        let alternates = store.path.join("objects/info");
+        fs::create_dir_all(&alternates).map_err(|error| error.to_string())?;
+        let line = format!("{}\n", objects.display());
+        fs::write(alternates.join("alternates"), line).map_err(|error| error.to_string())?;
+        Ok(store)
+    }
+}
+
+impl Drop for Store {
+    fn drop(&mut self) {
+        let _ = remove(&self.path);
+    }
+}
+
+/// Takes the commits of the view back onto the branch, as far as they keep to the lists. The error is why none
+/// could be taken.
+fn commits(root: &str, view: &View, store: &Path, changes: &[String], build_files: &[String], back: &mut Back) -> Result<(), String> {
+    let head = head_of(&view.folder.join(".git"))?;
+    if head == view.base {
+        return Ok(());
+    }
+    if git(store, &["merge-base", "--is-ancestor", &view.base, &head], &[], None).is_err() {
+        return Err(format!("the view's HEAD, {}, does not come from the commit the view was made with", short(&head)));
+    }
+    let listed = git(store, &["rev-list", "--first-parent", "--reverse", "--parents", &format!("{}..{}", view.base, head)], &[], None)?;
+    let listed = String::from_utf8_lossy(&listed).to_string();
+    // Each commit of the view, its parent and what it changes, until one is refused.
+    let mut wanted: Vec<(String, Raw, Vec<Change>)> = Vec::new();
+    let mut parent = view.base.clone();
+    for line in listed.lines() {
+        let words: Vec<&str> = line.split(' ').collect();
+        let commit = words[0].to_string();
+        let raw = raw_of(store, &commit)?;
+        if back.refused.is_some() {
+            back.after.push((commit, raw.subject()));
+            continue;
+        }
+        let why = if words.len() != 2 {
+            Some("it has not one parent, and a merge is not taken".to_string())
+        } else if words[1] != parent {
+            Some(format!("its parent is not {}", short(&parent)))
+        } else {
+            let found = changes_of(store, &parent, &commit)?;
+            let mut faults: Vec<String> = found.iter().filter_map(|change| not_allowed(&change.path, changes, build_files)).collect();
+            faults.extend(found.iter().filter(|change| change.mode == "160000").map(|change| format!("{} is a submodule", change.path)));
+            if faults.is_empty() {
+                wanted.push((commit.clone(), raw, found));
+                parent = commit;
+                continue;
+            }
+            Some(faults.join(", "))
+        };
+        back.refused = Some((commit, raw.subject(), why.unwrap_or_default()));
+    }
+    if wanted.is_empty() {
+        return Ok(());
+    }
+    // The checkout is where the view was made from, or nothing is taken.
+    match branch_of(root) {
+        Ok((branch, now)) if branch == view.branch && now == view.head => {}
+        _ => {
+            back.after.splice(0..0, wanted.iter().map(|(commit, raw, _)| (commit.clone(), raw.subject())));
+            return Err(format!("the checkout is no longer at {} on {}, where the view was made from, so nothing is taken back", short(&view.head), view.branch_name()));
+        }
+    }
+    // The files of the commits, into the checkout's own store.
+    let root = Path::new(root);
+    let mut objects: Vec<u8> = Vec::new();
+    for (_, _, found) in &wanted {
+        for change in found.iter().filter(|change| change.mode != "000000") {
+            objects.extend_from_slice(format!("{}\n", change.object).as_bytes());
+        }
+    }
+    if !objects.is_empty() {
+        let pack = git(store, &["pack-objects", "--stdout", "-q"], &[], Some(&objects))?;
+        git(root, &["unpack-objects", "-q"], &[], Some(&pack))?;
+    }
+    // Each commit again, on the branch, by an index of `wb`'s own: the tree of the one before, with its changes.
+    let index = store.join("index-of-the-checkout");
+    let env = [("GIT_INDEX_FILE", index.as_path())];
+    git(root, &["read-tree", &view.head], &env, None)?;
+    let zero = "0".repeat(view.head.len());
+    let mut tip = view.head.clone();
+    let mut made: Vec<(String, String)> = Vec::new();
+    for (_, raw, found) in &wanted {
+        let mut info: Vec<u8> = Vec::new();
+        for change in found {
+            let line = if change.mode == "000000" { format!("0 {}\t{}", zero, change.path) } else { format!("{} {}\t{}", change.mode, change.object, change.path) };
+            info.extend_from_slice(line.as_bytes());
+            info.push(0);
+        }
+        git(root, &["update-index", "-z", "--index-info"], &env, Some(&info))?;
+        let tree = line(&git(root, &["write-tree"], &env, None)?);
+        let (author, email, date) = &raw.author;
+        let who = [("GIT_AUTHOR_NAME", Path::new(author)), ("GIT_AUTHOR_EMAIL", Path::new(email)), ("GIT_AUTHOR_DATE", Path::new(date))];
+        tip = line(&git(root, &["commit-tree", &tree, "-p", &tip], &who, Some(&raw.message))?);
+        made.push((tip.clone(), raw.subject()));
+    }
+    // On the branch, by a fast-forward of the checkout: git refuses it where a change of the working tree would be lost.
+    if let Err(why) = git(root, &["merge", "--ff-only", "-q", &tip], &[], None) {
+        back.after.splice(0..0, wanted.iter().map(|(commit, raw, _)| (commit.clone(), raw.subject())));
+        return Err(format!(
+            "the commits were made, up to {}, and could not be put on {}: {}. Put them there with `git merge --ff-only {}`",
+            tip,
+            view.branch_name(),
+            why,
+            tip
+        ));
+    }
+    back.taken = made;
+    Ok(())
+}
+
+/// The paths of the view that differ from its `HEAD`, or are not in it and not ignored: work not committed.
+fn uncommitted(store: &Path, view: &Path) -> Result<Vec<String>, String> {
+    let head = head_of(&view.join(".git"))?;
+    let index = store.join("index-of-the-view");
+    let env = [("GIT_INDEX_FILE", index.as_path()), ("GIT_WORK_TREE", view)];
+    let quiet = ["-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false"];
+    let with = |more: &[&str]| -> Vec<String> { quiet.iter().chain(more).map(|word| word.to_string()).collect() };
+    let run = |more: &[&str]| -> Result<Vec<u8>, String> {
+        let words = with(more);
+        let words: Vec<&str> = words.iter().map(String::as_str).collect();
+        git(store, &words, &env, None)
+    };
+    run(&["read-tree", &head])?;
+    // `--refresh` ends with 1 where a file needs it; what differs is read next.
+    let _ = run(&["update-index", "-q", "--refresh"]);
+    let mut found: Vec<String> = Vec::new();
+    for listed in [run(&["diff-files", "--name-only", "-z"])?, run(&["ls-files", "--others", "--exclude-standard", "-z"])?] {
+        for path in listed.split(|byte| *byte == 0).filter(|path| !path.is_empty()) {
+            let path = String::from_utf8_lossy(path).to_string();
+            if !found.contains(&path) {
+                found.push(path);
+            }
+        }
+    }
+    found.sort();
+    Ok(found)
+}
+
+/// Says what was taken back and what was not, and removes the view when all of it was taken; else it is kept,
+/// and named.
+fn said(name: &str, view: &View, back: Back, err: &mut dyn Write) -> Back {
+    for (commit, subject) in &back.taken {
+        let _ = writeln!(err, "{}: taken onto {}: {} {}", name, view.branch_name(), short(commit), subject);
+    }
+    if let Some((commit, subject, why)) = &back.refused {
+        let _ = writeln!(err, "{}: refused, and not taken: the commit {} \"{}\" of the view: {}", name, short(commit), subject, why);
+    }
+    for (commit, subject) in &back.after {
+        let _ = writeln!(err, "{}: not taken: the commit {} \"{}\" of the view", name, short(commit), subject);
+    }
+    if !back.uncommitted.is_empty() {
+        let _ = writeln!(err, "{}: left uncommitted in the view, and not taken: {}", name, back.uncommitted.join(", "));
+    }
+    if let Some(why) = &back.failed {
+        let _ = writeln!(err, "{}: {}", name, why);
+    }
+    if !back.taken.is_empty() {
+        let _ = writeln!(err, "{}: nothing is pushed: push {} when it is ready", name, view.branch_name());
+    }
+    back
+}
+
+/// Removes the view when all of its work was taken back, and keeps it otherwise. What it did is said; the result
+/// is the folder kept, or none.
+pub fn tidy(name: &str, view: &View, back: &Back, err: &mut dyn Write) -> Option<PathBuf> {
+    if back.all_taken() {
+        match remove(&view.folder) {
+            Ok(()) => return None,
+            Err(error) => {
+                let _ = writeln!(err, "{}: the view {} could not be removed: {}", name, view.folder.display(), error);
+                return Some(view.folder.clone());
+            }
+        }
+    }
+    let _ = writeln!(err, "{}: the view is kept, with what was not taken back: {}", name, view.folder.display());
+    Some(view.folder.clone())
+}
+
+/// Removes a view that no session ran in.
+pub fn discard(view: &View) {
+    let _ = remove(&view.folder);
+}

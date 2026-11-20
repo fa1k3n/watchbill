@@ -530,8 +530,8 @@ fn test_WB_PROMPT_18_an_option_of_where_the_work_is_is_taken_and_filled_in() {
 
 // ---- `wb prompt <role> --stamp` (#68) ----
 
-const STAMP_NAMES: [&str; 12] =
-    ["role", "model", "effort", "runner", "version", "revision", "issue", "change", "round", "branch", "checkout", "time"];
+const STAMP_NAMES: [&str; 13] =
+    ["role", "model", "effort", "runner", "version", "revision", "issue", "change", "round", "branch", "checkout", "time", "view"];
 
 const ROLES: [&str; 4] = ["build", "fix", "review", "tester"];
 
@@ -580,7 +580,7 @@ fn value<'a>(found: &'a [(String, String)], name: &str) -> &'a str {
 }
 
 #[test]
-fn test_WB_PROMPT_19_a_stamp_is_the_twelve_lines_in_order_and_the_parts_for_each_role() {
+fn test_WB_PROMPT_19_a_stamp_is_the_thirteen_lines_in_order_and_the_parts_for_each_role() {
     let folder = set_up();
     put(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
 
@@ -591,12 +591,12 @@ fn test_WB_PROMPT_19_a_stamp_is_the_twelve_lines_in_order_and_the_parts_for_each
         assert_eq!(text(&run.stderr), "", "{}", role);
         let out = text(&run.stdout);
         let found = fields(&out);
-        let names: Vec<&str> = found.iter().take(12).map(|(name, _)| name.as_str()).collect();
+        let names: Vec<&str> = found.iter().take(13).map(|(name, _)| name.as_str()).collect();
         assert_eq!(names, STAMP_NAMES, "{}", role);
-        assert!(found.len() > 12, "{}: {}", role, out);
+        assert!(found.len() > 13, "{}: {}", role, out);
         // The line `requirements: given` stands before the parts, as the file of the issue is used (#97).
-        assert_eq!(found[12], ("requirements".to_string(), "given".to_string()), "{}: {}", role, out);
-        assert!(found.iter().skip(13).all(|(name, _)| name == "part"), "{}: {}", role, out);
+        assert_eq!(found[13], ("requirements".to_string(), "given".to_string()), "{}: {}", role, out);
+        assert!(found.iter().skip(14).all(|(name, _)| name == "part"), "{}: {}", role, out);
         assert!(out.ends_with('\n'), "{}", role);
         assert_eq!(value(&found, "role"), role);
         // A value the prompt does not hold is written empty: it was not handed out.
@@ -699,7 +699,7 @@ fn test_WB_PROMPT_21_the_part_lines_are_the_lines_of_parts_in_order() {
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let out = text(&run.stdout);
-    let lines: Vec<String> = out.lines().skip(13).map(|line| line.strip_prefix("part: ").unwrap().to_string()).collect();
+    let lines: Vec<String> = out.lines().skip(14).map(|line| line.strip_prefix("part: ").unwrap().to_string()).collect();
     let expected: Vec<String> = parts.lines().map(|line| line.to_string()).collect();
     assert_eq!(lines.len(), 4);
     assert_eq!(lines, expected);

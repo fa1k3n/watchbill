@@ -57,8 +57,8 @@ pub fn revert(root: &str, on: On, role: &str, round: Option<u64>, err: &mut dyn 
         }
     };
     let stamps = starter::stamps_in(&String::from_utf8_lossy(&printed));
-    let found = stamps.iter().rev().find(|(name, n)| name == role && round.map_or(true, |wanted| wanted == *n));
-    let Some((_, n)) = found else {
+    let found = stamps.iter().enumerate().rev().find(|(_, (name, n))| name == role && round.map_or(true, |wanted| wanted == *n));
+    let Some((at, (_, n))) = found else {
         let which = match round {
             Some(round) => format!("no `[stamp] {} round {}` that still counts", role, round),
             None => format!("no `[stamp] {}` that still counts", role),
@@ -66,6 +66,14 @@ pub fn revert(root: &str, on: On, role: &str, round: Option<u64>, err: &mut dyn 
         let _ = writeln!(err, "wb revert: there is {} on {} {} (from `{}` of watchbill.yml), so there is no {} to take back.", which, word, value, read, role);
         return 1;
     };
+    if stamps[at..].iter().any(|(name, _)| name == "breakdown") {
+        let _ = writeln!(
+            err,
+            "wb revert: a later breakdown took the issue back ({} {}), so the stamp `{} round {}` before it no longer counts and is not reverted. Nothing is posted.",
+            word, value, role, n
+        );
+        return 1;
+    }
     let marker = format!("[revert] {} round {}\n", role, n);
     let _ = write!(
         err,

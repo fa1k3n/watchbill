@@ -103,24 +103,41 @@ fn role_and_round(start: &str, line: &str) -> Option<(String, u64)> {
     }
 }
 
+/// Which of the lines of `text` are taken back (#142), one flag to a line: see `counted`. A marker is not
+/// taken back itself in this list: it is what took the others back. A `[revert] breakdown` counts for nothing:
+/// the breakdown is taken back with git, and `wb revert` refuses it, so one posted by hand is not read.
+pub fn taken_back(text: &str) -> Vec<bool> {
+    let lines: Vec<&str> = text.lines().map(|line| line.trim_end_matches('\r')).collect();
+    let mut kept: Vec<usize> = Vec::new();
+    let mut gone = vec![false; lines.len()];
+    for (at, line) in lines.iter().enumerate() {
+        match role_and_round("[revert] ", line) {
+            Some((role, n)) if role != "breakdown" => {
+                if let Some(held) = kept.iter().rposition(|held| role_and_round("[stamp] ", lines[*held]) == Some((role.clone(), n))) {
+                    for dropped in kept.drain(held..) {
+                        gone[dropped] = true;
+                    }
+                }
+            }
+            _ => kept.push(at),
+        }
+    }
+    gone
+}
+
 /// The first lines of comments that still count (#142), one to a line. A line `[revert] <role> round <n>` takes
 /// back the last `[stamp] <role> round <n>` before it and every line after that stamp, up to the marker: stamps,
 /// questions and answers, whatever their role. The marker goes too. A marker with no such stamp before it counts
-/// for nothing. A marker is read only as the whole of a first line, as a stamp is.
+/// for nothing. A marker is read only as the whole of a first line, as a stamp is. A marker of the breakdown is
+/// not read (`taken_back`).
 pub fn counted(text: &str) -> Vec<String> {
-    let mut kept: Vec<String> = Vec::new();
-    for line in text.lines().map(|line| line.trim_end_matches('\r')) {
-        if line.starts_with("[revert] ") {
-            if let Some(marker) = role_and_round("[revert] ", line) {
-                if let Some(at) = kept.iter().rposition(|held| role_and_round("[stamp] ", held) == Some(marker.clone())) {
-                    kept.truncate(at);
-                }
-                continue;
-            }
-        }
-        kept.push(line.to_string());
-    }
-    kept
+    let gone = taken_back(text);
+    text.lines()
+        .map(|line| line.trim_end_matches('\r'))
+        .zip(gone)
+        .filter(|(line, gone)| !gone && role_and_round("[revert] ", line).map_or(true, |(role, _)| role == "breakdown"))
+        .map(|(line, _)| line.to_string())
+        .collect()
 }
 
 /// The stamps in the first lines of comments, one to a line, that still count (`counted`): the role and the

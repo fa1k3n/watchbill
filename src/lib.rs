@@ -1313,6 +1313,11 @@ fn run_revert(parser: &mut Parser, err: &mut dyn Write) -> i32 {
             return used(err, format!("'{}' is not an issue: an issue is letters, digits, '.', '_' and '-', and does not start with '.'", issue.escape_debug()));
         }
     }
+    if let Some(change) = &change {
+        if !prompt::is_plain_name(change) {
+            return used(err, format!("'{}' is not a change: a change is letters, digits, '.', '_' and '-', and does not start with '.' or '-'", change.escape_debug()));
+        }
+    }
     let on = match (&issue, &change) {
         (Some(issue), _) => revert::On::Issue(issue),
         (None, Some(change)) => revert::On::Change(change),

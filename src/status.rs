@@ -166,9 +166,10 @@ fn read_issue(root: &str, number: &str, title: Option<String>, comments: Option<
         _ if file => "Broken down",
         _ => "Not broken down",
     };
-    for line in &lines {
+    let gone = starter::taken_back(&lines.join("\n"));
+    for (line, gone) in lines.iter().zip(gone) {
         if ["[stamp] ", "[question] ", "[answer] ", "[revert] "].iter().any(|start| line.starts_with(start)) {
-            from.push(issue::shown(line));
+            from.push(if gone { format!("{}  (taken back by a [revert] marker)", issue::shown(line)) } else { issue::shown(line) });
         }
     }
     let questions = open_questions(number, &counted);

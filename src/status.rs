@@ -71,7 +71,7 @@ fn branches(root: &str) -> Vec<Branch> {
 }
 
 /// Whether a branch is the issue's: it is the pattern `branch` with the issue filled, or starts with it and a `-`.
-fn is_of(pattern: &str, issue: &str, name: &str) -> bool {
+pub(crate) fn is_of(pattern: &str, issue: &str, name: &str) -> bool {
     let start = pattern.replace("{issue}", issue);
     pattern.contains("{issue}") && (name == start || name.starts_with(&format!("{}-", start)))
 }

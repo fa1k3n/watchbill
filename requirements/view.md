@@ -24,3 +24,5 @@ What a session of the tester, the build, the review or the fix sees when `wb <ro
 | WB-VIEW-18 | `wb` shall read those ignore rules from the checkout, and never from the view. Issue: #159. | T | Implemented |
 | WB-VIEW-19 | Where more than 20 paths are left in a view, `wb` shall say how many, the first 20, and that the whole list is in the file `back` of the session's folder. Issue: #159. | T | Implemented |
 | WB-VIEW-20 | After the commits of a view are taken back, `wb` shall say on standard error `git show --stat <commit>` for each commit taken. Issue: #159. | T | Implemented |
+| WB-VIEW-21 | `wb` shall say on standard error, and write into `back`, each path from a view with its control characters escaped. Issue: #167. | T | Draft |
+| WB-VIEW-22 | `back` shall hold one line for each path from a view, whatever its name holds. Issue: #167. | T | Draft |

@@ -70,7 +70,6 @@ fn test_WB_INIT_14_yes_writes_what_the_repository_says_and_asks_nothing() {
             "change_comments: 'gh api repos/example/brake-controller/issues/{change}/comments --paginate --jq ''.[].body | split(\"\\n\")[0]'''",
             "change_of_branch: 'gh pr list --repo example/brake-controller --head {branch} --state open --json number --jq ''.[].number'''",
             r#"change_checks: 'gh pr checks {change} --repo example/brake-controller --json bucket --jq ''[.[].bucket] | if length == 0 then "pending" elif any(. == "fail" or . == "cancel") then "red" elif all(. == "pass" or . == "skipping") then "green" else "pending" end'''"#,
-            r#"open_issues: 'gh issue list --repo example/brake-controller --state open --limit 1000 --json number,title --jq ''.[] | "\(.number)\t\(.title | gsub("[\n\r]"; " "))"'''"#,
             // The whole comments, for `wb answer` (#145), and the command that opens the change as a draft.
             r#"issue_comment_bodies: 'gh api repos/example/brake-controller/issues/{issue}/comments --paginate --jq ''.[] | .body + "\u0000"'''"#,
             r#"change_comment_bodies: 'gh api repos/example/brake-controller/issues/{change}/comments --paginate --jq ''.[] | .body + "\u0000"'''"#,
@@ -834,76 +833,26 @@ fn no_pattern(keys: &[&str]) {
     }
 }
 
-// ---- the pattern that lists the open issues (#139) ----
+// ---- no pattern that lists the open issues (#155) ----
 
 #[test]
-fn test_WB_INIT_56_a_github_origin_gets_open_issues_that_prints_the_number_a_tab_and_the_title() {
-    let folder = repository(Some("https://github.com/example/brake-controller.git"));
-    let run = wb(&folder.path, &["init", "--yes"], "");
-    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert_eq!(
-        pattern(&folder.path, "open_issues").as_deref(),
-        Some("gh issue list --repo example/brake-controller --state open --limit 1000 --json number,title --jq '.[] | \"\\(.number)\\t\\(.title | gsub(\"[\\n\\r]\"; \" \"))\"'")
-    );
-    assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
-}
-
-#[test]
-fn test_WB_INIT_56_a_gitlab_origin_gets_open_issues_with_the_host_of_origin() {
-    let folder = repository(Some("https://gitlab.team.example/brakes/controller.git"));
-    let run = wb(&folder.path, &["init", "--yes"], "");
-    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert_eq!(
-        pattern(&folder.path, "open_issues").as_deref(),
-        Some("glab api --hostname gitlab.team.example 'projects/brakes%2Fcontroller/issues?state=opened&per_page=100' --paginate --output ndjson | jq -r '\"\\(.iid)\\t\\(.title | gsub(\"[\\n\\r]\"; \" \"))\"'")
-    );
-    assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
-}
-
-#[test]
-fn test_WB_INIT_56_another_server_gets_no_open_issues() {
+fn test_WB_INIT_59_wb_init_writes_no_open_issues_for_any_origin() {
     no_pattern(&["open_issues"]);
-}
-
-/// What the jq of a pattern prints for a title with a line break and a tab, or `None` when `jq` is not here.
-fn jq_prints(program: &str, json: &str) -> Option<String> {
-    if !std::process::Command::new("jq").arg("--version").output().map(|run| run.status.success()).unwrap_or(false) {
-        eprintln!("jq is not installed: not checked");
-        return None;
+    for origin in ["https://github.com/example/brake-controller.git", "https://gitlab.team.example/brakes/controller.git"] {
+        let folder = repository(Some(origin));
+        assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+        assert!(!read(&config(&folder.path)).contains("open_issues"));
     }
-    let mut child = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(program)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    std::io::Write::write_all(&mut child.stdin.take().unwrap(), json.as_bytes()).unwrap();
-    Some(text(&child.wait_with_output().unwrap().stdout))
 }
 
 #[test]
-fn test_WB_INIT_57_the_github_pattern_prints_the_line_breaks_of_a_title_as_spaces() {
+fn test_WB_INIT_59_a_line_open_issues_that_is_already_there_is_passed_over_by_check() {
     let folder = repository(Some("https://github.com/example/brake-controller.git"));
     assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
-    let line = pattern(&folder.path, "open_issues").unwrap();
-    // Only what `gh` prints is stood in for: the jq of the pattern is run on its JSON.
-    let jq = line.split_once("--jq ").unwrap().1;
-    if let Some(printed) = jq_prints(&format!("jq -r {}", jq), "[{\"number\":8,\"title\":\"Line\\nbreak\\r\\nand\\ttab\"}]") {
-        assert_eq!(printed, "8\tLine break  and\ttab\n");
-    }
-}
-
-#[test]
-fn test_WB_INIT_57_the_gitlab_pattern_prints_the_line_breaks_of_a_title_as_spaces() {
-    let folder = repository(Some("https://gitlab.example.com/brakes/controller.git"));
-    assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
-    let line = pattern(&folder.path, "open_issues").unwrap();
-    let jq = line.split_once(" | ").unwrap().1;
-    assert!(jq.starts_with("jq -r "), "{}", jq);
-    if let Some(printed) = jq_prints(jq, "{\"iid\":8,\"title\":\"Line\\nbreak\\r\\nand\\ttab\"}\n") {
-        assert_eq!(printed, "8\tLine break  and\ttab\n");
-    }
+    let mut file = std::fs::OpenOptions::new().append(true).open(config(&folder.path)).unwrap();
+    std::io::Write::write_all(&mut file, b"open_issues: 'gh issue list'\n").unwrap();
+    let run = wb(&folder.path, &["check"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
 }
 
 // ---- which paths are classed (#84, the owner's answer of 2026-11-19) ----

@@ -83,7 +83,7 @@ fn snapshot(folder: &Path) -> Vec<(String, Vec<u8>)> {
 /// `wb accept 54` refused: status 1, nothing written. What it said on standard error is the result.
 fn refused(folder: &Folder) -> String {
     let before = snapshot(&folder.path);
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
     assert_eq!(snapshot(&folder.path), before, "something was written");
     assert!(!accepted(folder).exists());
@@ -92,7 +92,7 @@ fn refused(folder: &Folder) -> String {
 
 /// `wb accept 54` taken: status 0, and the acceptance written. What it said on standard output is the result.
 fn taken(folder: &Folder) -> String {
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
     assert!(accepted(folder).is_file());
     text(&run.stdout)
@@ -223,7 +223,7 @@ fn test_WB_TASK_19_needs_is_run_at_the_root_of_the_checkout() {
     put(&folder.path, "src/brake.c", "");
     needs(&folder, "test -f .watchbill/watchbill.yml || exit 5");
 
-    let run = wb(&folder.path.join("src"), &["accept", "54"], "");
+    let run = wb(&folder.path.join("src"), &["accept", "54", "--no-commit"], "");
 
     assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
     assert!(text(&run.stdout).contains("were checked by `needs`"), "{}", text(&run.stdout));

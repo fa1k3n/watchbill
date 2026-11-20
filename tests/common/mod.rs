@@ -167,7 +167,7 @@ pub fn issues_ready(folder: &Path, issues: &[&str]) {
     let mut added = Vec::new();
     for issue in issues {
         put(folder, &format!(".watchbill/issues/{}.yml", issue), &BARE_ISSUE.replace("{issue}", issue));
-        let run = wb(folder, &["accept", "--", issue], "");
+        let run = wb(folder, &["accept", "--no-commit", "--", issue], "");
         assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
         added.push(format!(".watchbill/issues/{}.yml", issue));
         added.push(format!(".watchbill/issues/{}.accepted", issue));

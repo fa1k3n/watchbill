@@ -15,21 +15,22 @@ What `wb` reads of an issue's file and how a person accepts it. What the file is
 | WB-TASK-9 | `wb accept` shall refuse when git gives no `user.name` or `user.email`, and end with 1. Issue: #74. | T | Implemented |
 | WB-TASK-10 | An issue's file shall count as accepted only while the SHA-256 in its acceptance is that of the file as it is. Issue: #74. | T | Implemented |
 | WB-TASK-11 | `wb check` shall not fail on the files under `.watchbill/issues/`. Issue: #74. | T | Implemented |
-| WB-TASK-12 | `wb accept` shall write nothing but the acceptance, and ask nothing of the network. Issue: #74. | T | Implemented |
+| WB-TASK-12 | `wb accept` shall write nothing but the acceptance, and ask nothing of the network. Replaced by WB-TASK-30. Issue: #74. | T | Deprecated |
 | WB-TASK-13 | For the tester, the build, the review and the fix, `wb prompt` shall end with 1, print nothing on standard output and name the file when the issue's file or its acceptance is not committed in `HEAD` or differs from it in the working tree. Issue: #97. | T | Implemented |
 | WB-TASK-14 | For the tester, the build, the review and the fix, `wb prompt` shall end with 1, print nothing on standard output and name the missing file when the issue has no file, unless `watchbill.yml` says `breakdown: none`. Replaced by WB-TASK-17. Issue: #97. | T | Deprecated |
 | WB-TASK-15 | `wb` shall refuse `breakdown: none` in `watchbill.yml` when the revision's rule table holds the breakdown. Replaced by WB-TASK-18. Issue: #97. | T | Deprecated |
-| WB-TASK-16 | `wb accept` shall end by saying that the acceptance is to be committed alone, with the command. Issue: #97. | T | Implemented |
+| WB-TASK-16 | `wb accept` shall end by saying that the acceptance is to be committed alone, with the command. Replaced by WB-TASK-23 and WB-TASK-29. Issue: #97. | T | Deprecated |
 | WB-TASK-17 | When an issue has no file, `wb prompt` shall hand out the tester's, the build's, the review's and the fix's prompts, and fill `requirements` with "the numbered requirements of issue {issue}" unless `--requirements` is given. Replaces WB-TASK-14 and WB-PROMPT-50. Issue: #116. | T | Implemented |
 | WB-TASK-18 | `wb check` and `wb prompt` shall refuse a `watchbill.yml` that has the key `breakdown`, name the line, say to remove it, and end with 1. Replaces WB-TASK-15. Issue: #116. | T | Implemented |
 | WB-TASK-19 | Where `watchbill.yml` has `needs`, `wb accept` shall run it for each path of `changes` and of the tester's and the build's `reads`, and refuse with 1 a path it prints that is in neither that role's `reads` nor `changes`, naming the role, the file and the path. Issue: #125. | T | Implemented |
 | WB-TASK-20 | `wb accept` shall refuse with 1, naming the file, when the command of `needs` ends with anything but 0. Issue: #125. | T | Implemented |
 | WB-TASK-21 | Where `watchbill.yml` has no `needs`, `wb accept` shall say that the lists were not checked. Issue: #125. | T | Implemented |
 | WB-TASK-22 | `wb accept` shall refuse with 1 an issue's file whose `changes` holds a path under `build_files` of `watchbill.yml`, naming the path. Issue: #125. | T | Implemented |
-| WB-TASK-23 | After it writes the acceptance, `wb accept` shall commit `.watchbill/issues/<issue>.accepted` alone, with the message `Accept the issue's file (<issue>)`, as the `user.name` and `user.email` of git. Issue: #157. | T | Draft |
-| WB-TASK-24 | `wb accept` shall leave staged what was staged before it, and keep it out of its commit. Issue: #157. | T | Draft |
-| WB-TASK-25 | `wb accept` shall say what it will commit before it commits. Issue: #157. | T | Draft |
-| WB-TASK-26 | `wb accept` shall refuse with 1, writing nothing and naming both branches, when the checkout is not on the issue's branch. Issue: #157. | T | Draft |
-| WB-TASK-27 | `wb accept` shall refuse with 1, writing nothing, when the issue's file is not committed in `HEAD` or differs from it. Issue: #157. | T | Draft |
-| WB-TASK-28 | When its commit fails, `wb accept` shall leave the acceptance written, say so, and end with 1. Issue: #157. | T | Draft |
-| WB-TASK-29 | `wb accept --no-commit` shall write the acceptance, commit nothing, and print the command that commits it alone. Issue: #157. | T | Draft |
+| WB-TASK-23 | After it writes the acceptance, `wb accept` shall commit `.watchbill/issues/<issue>.accepted` alone, with the message `Accept the issue's file (<issue>)`, as the `user.name` and `user.email` of git. Issue: #157. | T | Implemented |
+| WB-TASK-24 | `wb accept` shall leave staged what was staged before it, and keep it out of its commit. Issue: #157. | T | Implemented |
+| WB-TASK-25 | `wb accept` shall say what it will commit before it commits. Issue: #157. | T | Implemented |
+| WB-TASK-26 | `wb accept` shall refuse with 1, writing nothing and naming both branches, when the checkout is not on the issue's branch. Issue: #157. | T | Implemented |
+| WB-TASK-27 | `wb accept` shall refuse with 1, writing nothing, when the issue's file is not committed in `HEAD` or differs from it. Issue: #157. | T | Implemented |
+| WB-TASK-28 | When its commit fails, `wb accept` shall leave the acceptance written, say so, and end with 1. Issue: #157. | T | Implemented |
+| WB-TASK-29 | `wb accept --no-commit` shall write the acceptance, commit nothing, and print the command that commits it alone. Issue: #157. | T | Implemented |
+| WB-TASK-30 | `wb accept` shall write nothing but the acceptance, commit nothing but that file, and ask nothing of the network. Replaces WB-TASK-12. Issue: #157. | T | Implemented |

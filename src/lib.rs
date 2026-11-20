@@ -41,7 +41,7 @@ pub const USAGE: &str = "usage:
   wb review [<issue>] [--runner <name>] [--prompt] [the options of prompt]
   wb fix [<issue>] [--runner <name>] [--prompt] [the options of prompt]
   wb revision
-  wb accept <issue>
+  wb accept <issue> [--no-commit]
   wb status [<issue>] [--stage <heading>]
   wb revert <issue> <role> [--round <n>]
   wb revert --change <n> <role> [--round <n>]
@@ -104,8 +104,12 @@ pub const USAGE: &str = "usage:
             will be written, and write .watchbill/issues/<issue>.accepted with
             the SHA-256 of the file, the git user.name and user.email, and the
             time in UTC. An acceptance that is there is never written over.
-            Ends with 0 when it is accepted, 1 when it is refused, 2 when it
-            was used wrongly or the repository is not set up
+            Then commit it alone, on the issue's branch, with nothing else:
+            it refuses first when the checkout is not on that branch or the
+            issue's file is not committed as it is. --no-commit only writes
+            it and says the commit. Ends with 0 when it is accepted, 1 when it
+            is refused, 2 when it was used wrongly or the repository is not
+            set up
   status    list the issues in the flow under headings, as git status lists
             files: each issue under the last step it has done (Not broken
             down, Broken down, Accepted, Tested, Built, Reviewed, Fixed), with
@@ -1260,6 +1264,7 @@ fn run_accept(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
         2
     };
     let mut issue: Option<String> = None;
+    let mut commit = true;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
@@ -1267,6 +1272,7 @@ fn run_accept(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
             Err(refused) => return used(err, format!("'{}' is not known", refused)),
         };
         match found {
+            Word::Long(option) if option == "no-commit" => commit = false,
             Word::Value(value) if issue.is_none() => issue = Some(word(value.as_bytes())),
             found => {
                 let refused = named(found, parser);
@@ -1289,7 +1295,7 @@ fn run_accept(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
             let _ = writeln!(err, "wb accept: this folder is not in a git repository. Watchbill is set up in one.");
             2
         }
-        Ok(Some(root)) => issue::accept(&root, &issue, out, err),
+        Ok(Some(root)) => issue::accept(&root, &issue, commit, out, err),
     }
 }
 

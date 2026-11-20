@@ -1015,3 +1015,34 @@ fn test_WB_INIT_51_build_files_is_shown_before_it_is_written_after_classed() {
     let file = read(&config(&folder.path));
     assert!(file.contains("\nclassed: []\nbuild_files: ['.gitlab-ci.yml']\n"), "{}", file);
 }
+
+// ---- the pattern that reads the CI of a change (#127) ----
+
+#[test]
+fn test_WB_INIT_52_a_github_origin_gets_change_checks_that_prints_one_word() {
+    let folder = repository(Some("https://github.com/example/brake-controller.git"));
+    let run = wb(&folder.path, &["init", "--yes"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(
+        pattern(&folder.path, "change_checks").as_deref(),
+        Some("gh pr checks {change} --repo example/brake-controller --json bucket --jq '[.[].bucket] | if length == 0 then \"pending\" elif any(. == \"fail\" or . == \"cancel\") then \"red\" elif any(. == \"pending\") then \"pending\" else \"green\" end'")
+    );
+    assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
+}
+
+#[test]
+fn test_WB_INIT_52_a_gitlab_origin_gets_change_checks_with_the_host_of_origin() {
+    let folder = repository(Some("https://gitlab.team.example/brakes/controller.git"));
+    let run = wb(&folder.path, &["init", "--yes"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(
+        pattern(&folder.path, "change_checks").as_deref(),
+        Some("glab api --hostname gitlab.team.example projects/brakes%2Fcontroller/merge_requests/{change} | jq -r '(.head_pipeline.status // \"none\") as $s | if $s == \"success\" then \"green\" elif $s == \"failed\" or $s == \"canceled\" then \"red\" else \"pending\" end'")
+    );
+    assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
+}
+
+#[test]
+fn test_WB_INIT_52_another_server_gets_no_change_checks() {
+    no_pattern(&["change_checks"]);
+}

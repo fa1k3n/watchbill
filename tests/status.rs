@@ -915,6 +915,7 @@ fn test_WB_STATUS_32_a_local_branch_whose_upstream_is_gone_is_done() {
         comments(&folder.path, issue, &[]);
         branch(&folder.path, issue, true);
     }
+    git(&folder.path, &["remote", "add", "origin", "/nonexistent/origin.git"]);
     // 5 and 6 follow a branch at origin; at 5 it was deleted (as after `git fetch --prune`), 6 still has it, 7 follows none.
     for issue in ["5", "6"] {
         let name = format!("issue-{}-work", issue);

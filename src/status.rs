@@ -3,8 +3,10 @@
 //!
 //! The issues in the flow are those whose branch, by the pattern `branch`, local or at `origin`, holds a commit
 //! that the default branch of `origin` does not. They are found with git alone, from the refs as they are:
-//! nothing is fetched. An issue that is done (its branch merged or deleted) is not listed; `wb status <issue>`
-//! reads it all the same, and says that it is not in the flow.
+//! nothing is fetched. An issue that is done is not listed: its branch is merged into the default branch or
+//! deleted, or (as the owner squash-merges) its whole change is one commit on the default branch, by
+//! `git patch-id --stable`, or its upstream at `origin` is gone. `wb status <issue>` reads it all the same, and
+//! says that it is not in the flow.
 //!
 //! What it reads besides: the comments of each issue from `issue_comments`, the open change of its branch from
 //! `change_of_branch`, the title of one issue from `issue_address`, and the issue's file and its acceptance from
@@ -95,10 +97,70 @@ fn default_branch(root: &str) -> Option<String> {
     ["refs/remotes/origin/main", "refs/heads/main", "refs/remotes/origin/master", "refs/heads/master"].iter().find(|full| exists(full)).map(|full| full.to_string())
 }
 
-/// The branches whose tip holds a commit that the default branch does not.
-fn in_flow(root: &str, default: &str) -> Vec<String> {
-    let listed = git(root, &["for-each-ref", "--no-merged", default, "--format=%(refname)", "refs/heads", "refs/remotes/origin"]).unwrap_or_default();
-    String::from_utf8_lossy(&listed).lines().map(str::to_string).collect()
+/// The patch ids (`git patch-id --stable`) of a diff or of the output of `git log -p`, one for each commit.
+fn patch_ids(root: &str, input: Vec<u8>) -> Vec<String> {
+    use std::process::{Command, Stdio};
+    let Ok(mut child) = Command::new("git").args(["-C", root, "patch-id", "--stable"]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() else {
+        return Vec::new();
+    };
+    let Some(mut stdin) = child.stdin.take() else {
+        return Vec::new();
+    };
+    // The input is written from a thread, so that a long one cannot wait for the output to be read.
+    let writer = std::thread::spawn(move || {
+        let _ = stdin.write_all(&input);
+    });
+    let output = child.wait_with_output();
+    let _ = writer.join();
+    match output {
+        Ok(run) => String::from_utf8_lossy(&run.stdout).lines().filter_map(|line| line.split_whitespace().next()).map(str::to_string).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Whether the whole change of the branch is a commit on the default branch: the patch id of the diff from their
+/// merge base to the branch is that of a commit between the merge base and the default branch. This finds a
+/// squash merge, whose commit is never an ancestor of the branch. A squash whose diff differs from the
+/// branch's is not found.
+fn squashed(root: &str, default: &str, branch: &str) -> bool {
+    let Some(base) = git(root, &["merge-base", default, branch]) else {
+        return false;
+    };
+    let base = String::from_utf8_lossy(&base).trim().to_string();
+    let Some(diff) = git(root, &["diff", "--no-ext-diff", &base, branch]).filter(|diff| !diff.is_empty()) else {
+        return false;
+    };
+    let Some(mine) = patch_ids(root, diff).into_iter().next() else {
+        return false;
+    };
+    let Some(log) = git(root, &["log", "-p", "--no-ext-diff", &format!("{}..{}", base, default)]) else {
+        return false;
+    };
+    patch_ids(root, log).contains(&mine)
+}
+
+/// The local branches whose upstream at `origin` is gone, as after `git fetch --prune`.
+fn upstream_gone(root: &str) -> Option<Vec<String>> {
+    let listed = git(root, &["for-each-ref", "--format=%(refname) %(upstream:track)", "refs/heads"])?;
+    Some(String::from_utf8_lossy(&listed).lines().filter_map(|line| line.strip_suffix(" [gone]")).map(str::to_string).collect())
+}
+
+/// The refs of the branches in the flow: those whose tip holds a commit that the default branch does not, less
+/// the branches of an issue that are done (their upstream is gone, or their whole change is on the default
+/// branch). `Err` when git could not list the refs.
+fn in_flow(root: &str, default: &str, pattern: &str) -> Result<Vec<String>, String> {
+    let fail = || "git could not list the branches, so no issue is read".to_string();
+    let listed = git(root, &["for-each-ref", "--no-merged", default, "--format=%(refname)", "refs/heads", "refs/remotes/origin"]).ok_or_else(fail)?;
+    let gone = upstream_gone(root).ok_or_else(fail)?;
+    let mut refs: Vec<String> = Vec::new();
+    for full in String::from_utf8_lossy(&listed).lines() {
+        let name = full.strip_prefix("refs/heads/").or_else(|| full.strip_prefix("refs/remotes/origin/")).unwrap_or(full);
+        if issue_of(pattern, name).is_some() && (gone.iter().any(|branch| branch == full) || squashed(root, default, full)) {
+            continue;
+        }
+        refs.push(full.to_string());
+    }
+    Ok(refs)
 }
 
 /// How many commits `local` holds that `other` does not.
@@ -262,7 +324,9 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, out: 
         return 2;
     }
     let pattern = |key: &str| prompt::pattern_of(root, key);
-    let patterns = match (pattern("branch"), pattern("issue_comments"), pattern("change_of_branch"), pattern("issue_address")) {
+    // `issue_address` is read for one issue only: the list never runs it.
+    let address = if only.is_some() { pattern("issue_address") } else { Ok(None) };
+    let patterns = match (pattern("branch"), pattern("issue_comments"), pattern("change_of_branch"), address) {
         (Ok(branch), Ok(comments), Ok(change_of_branch), Ok(issue_address)) => {
             Patterns { branch: branch.unwrap_or_else(|| "issue-{issue}".to_string()), comments, change_of_branch, issue_address }
         }
@@ -276,7 +340,13 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, out: 
         return 2;
     };
     let all = branches(root);
-    let flow = in_flow(root, &default);
+    let flow = match in_flow(root, &default, &patterns.branch) {
+        Ok(flow) => flow,
+        Err(why) => {
+            let _ = writeln!(err, "wb status: {}", why);
+            return 2;
+        }
+    };
     let mut issues: Vec<String> = match only {
         Some(one) => vec![one.to_string()],
         None => flow.iter().filter_map(|full| full.strip_prefix("refs/heads/").or_else(|| full.strip_prefix("refs/remotes/origin/"))).filter_map(|name| issue_of(&patterns.branch, name)).collect(),

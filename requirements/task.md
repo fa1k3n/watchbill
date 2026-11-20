@@ -26,3 +26,10 @@ What `wb` reads of an issue's file and how a person accepts it. What the file is
 | WB-TASK-20 | `wb accept` shall refuse with 1, naming the file, when the command of `needs` ends with anything but 0. Issue: #125. | T | Implemented |
 | WB-TASK-21 | Where `watchbill.yml` has no `needs`, `wb accept` shall say that the lists were not checked. Issue: #125. | T | Implemented |
 | WB-TASK-22 | `wb accept` shall refuse with 1 an issue's file whose `changes` holds a path under `build_files` of `watchbill.yml`, naming the path. Issue: #125. | T | Implemented |
+| WB-TASK-23 | After it writes the acceptance, `wb accept` shall commit `.watchbill/issues/<issue>.accepted` alone, with the message `Accept the issue's file (<issue>)`, as the `user.name` and `user.email` of git. Issue: #157. | T | Draft |
+| WB-TASK-24 | `wb accept` shall leave staged what was staged before it, and keep it out of its commit. Issue: #157. | T | Draft |
+| WB-TASK-25 | `wb accept` shall say what it will commit before it commits. Issue: #157. | T | Draft |
+| WB-TASK-26 | `wb accept` shall refuse with 1, writing nothing and naming both branches, when the checkout is not on the issue's branch. Issue: #157. | T | Draft |
+| WB-TASK-27 | `wb accept` shall refuse with 1, writing nothing, when the issue's file is not committed in `HEAD` or differs from it. Issue: #157. | T | Draft |
+| WB-TASK-28 | When its commit fails, `wb accept` shall leave the acceptance written, say so, and end with 1. Issue: #157. | T | Draft |
+| WB-TASK-29 | `wb accept --no-commit` shall write the acceptance, commit nothing, and print the command that commits it alone. Issue: #157. | T | Draft |

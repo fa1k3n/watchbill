@@ -35,3 +35,14 @@ What `wb status` says of the issues in the flow. It only reads.
 | WB-STATUS-29 | `wb status` shall take `[answer] <issue> suggested` as an answer to every question asked before it, and to none asked after it. Issue: #139. | T | Implemented |
 | WB-STATUS-30 | `wb status` shall close a question by an `[answer]` of its name whatever follows the name, a choice number too. Issue: #139. | T | Implemented |
 | WB-STATUS-31 | `wb status` shall let only the stamps after the last `[stamp] breakdown` decide the step, so that a new breakdown takes the issue back to `Accepted` or `Broken down` by its file. Issue: #139. | T | Implemented |
+| WB-STATUS-32 | `wb status` shall list an issue only when its branch, by the pattern `branch`, local or at `origin`, holds a commit that the default branch of `origin` does not. Issue: #155. | T | Draft |
+| WB-STATUS-33 | `wb status` shall find the issues it lists with git alone, with no pattern. Issue: #155. | T | Draft |
+| WB-STATUS-34 | `wb status` shall put under `Not broken down` an issue whose branch holds no issue's file. Issue: #155. | T | Draft |
+| WB-STATUS-35 | `wb status <issue>` shall read an issue that is not in the flow, and say that it is not. Issue: #155. | T | Draft |
+| WB-STATUS-36 | `wb status` shall print one line per issue in the list, with its number and its branch, and no title. Issue: #155. | T | Draft |
+| WB-STATUS-37 | `wb status <issue>` shall print the issue's title from the first line of `issue_address`. Issue: #155. | T | Draft |
+| WB-STATUS-38 | `wb status` shall run no pattern but `issue_comments` and `change_of_branch`, each once for each issue it lists, and `wb status <issue>` also `issue_address`. Issue: #155. | T | Draft |
+| WB-STATUS-39 | `wb status` shall take the default branch from `refs/remotes/origin/HEAD`, else `main`, else `master`, and end with 2 when none is there. Issue: #155. | T | Draft |
+| WB-STATUS-40 | Where the local branch of an issue holds commits that its branch at `origin` does not, `wb status` shall add how many to the issue's line, as `2 not pushed`. Issue: #155. | T | Draft |
+| WB-STATUS-41 | `wb status` shall read the refs as they are, and fetch nothing. Issue: #155. | T | Draft |
+| WB-STATUS-42 | `wb status` shall show on the line of an issue the change that `change_of_branch` prints for its branch, as `#<n>`, and none where it prints none. Issue: #155. | T | Draft |

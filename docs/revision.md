@@ -238,7 +238,7 @@ The pieces that build this have their requirements reserved as Draft rows in `re
 | `WB-MON` | `requirements/mon.md` | #124, #126, #127 |
 | `WB-VIEW` | `requirements/view.md` | #126, #145 |
 | `WB-ANSWER` | `requirements/answer.md` | #145 |
-| `WB-STATUS` | `requirements/status.md` | #139 |
+| `WB-STATUS` | `requirements/status.md` | #139, #155 |
 | `WB-REVERT` | `requirements/revert.md` | #142 |
 | `WB-PUSH` | `requirements/push.md` | #151 |
 

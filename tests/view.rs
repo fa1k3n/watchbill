@@ -894,6 +894,21 @@ fn test_WB_VIEW_16_without_a_view_new_commits_on_the_branch_get_the_same_command
     assert!(!text_of(&run.stderr).contains("git push"), "{}", text_of(&run.stderr));
 }
 
+#[test]
+fn test_WB_BUILD_39_a_draft_change_the_session_wrote_and_did_not_commit_is_not_said() {
+    let bench = bench();
+    git(&bench.repo.path, &["checkout", "-q", "issue-99"]);
+    with_line(&bench, "draft_change: 'draft-stand-in --head {branch}'");
+    bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file' && echo \"draft_change: 'evil {branch}'\" >> .watchbill/watchbill.yml\n");
+
+    let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["start", "build", "99"]);
+
+    let err = text_of(&run.stderr);
+    assert!(err.contains("git push origin issue-99"), "{}", err);
+    assert!(err.contains("a person reads the change and commits it, or takes it back with git, before the next command"), "{}", err);
+    assert!(!err.contains("evil") && !err.contains("draft-stand-in"), "{}", err);
+}
+
 
 // ---- WB-VIEW-17 to 19: the ignore rules of the checkout, and a long list left ----
 

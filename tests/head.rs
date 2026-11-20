@@ -196,17 +196,66 @@ fn test_WB_BUILD_39_the_same_file_committed_is_run_as_before() {
 }
 
 #[test]
-fn test_WB_BUILD_40_a_file_that_differs_is_refused_whatever_the_words_after_the_command() {
+fn test_WB_BUILD_40_no_option_that_a_command_takes_lifts_the_refusal() {
     let bench = bench();
     bench.add("needs: 'true'");
-    for words in [&["status", "--stage", "accepted"][..], &["status", "--yes"], &["status", "--force"], &["status", "54", "--no-commit"]] {
-        let run = wb(&bench.repo.path, words, "");
-        assert_ne!(code(&run), Some(0), "{:?}", words);
-        assert_eq!(bench.ran(), "", "{:?}", words);
+    put(&bench.repo.path, ".watchbill/issues/54.yml", ISSUE);
+    let by_start = |words: &[&str]| start_with(&bench.repo.path, &bench.org, true, words);
+    let runs: Vec<(&str, Output)> = vec![
+        ("wb status 54 --stage accepted", wb(&bench.repo.path, &["status", "54", "--stage", "accepted"], "")),
+        ("wb accept 54 --no-commit", wb(&bench.repo.path, &["accept", "54", "--no-commit"], "")),
+        ("wb answer 54 --suggested", wb(&bench.repo.path, &["answer", "54", "--suggested"], "")),
+        ("wb revert 54 review --round 1", wb(&bench.repo.path, &["revert", "54", "review", "--round", "1"], "")),
+        ("wb start review 54 --change 9 --runner stand-in", by_start(&["start", "review", "54", "--change", "9", "--runner", "stand-in"])),
+        ("wb prompt review 54 --round 1 --change 9", wb(&bench.repo.path, &["prompt", "review", "54", "--round", "1", "--change", "9"], "")),
+    ];
+    for (name, run) in runs {
+        assert_eq!(code(&run), Some(1), "{}: {}", name, text(&run.stderr));
+        held_words(&run);
     }
-    let run = wb(&bench.repo.path, &["status", "--stage", "accepted"], "");
-    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
-    held_words(&run);
+    assert_eq!(bench.ran(), "");
+}
+
+#[test]
+fn test_WB_BUILD_39_a_replace_ref_does_not_put_a_changed_file_into_head() {
+    for (name, command) in commands() {
+        let bench = bench();
+        git(&bench.repo.path, &["checkout", "-q", "-b", "side"]);
+        bench.add("needs: 'echo needs >> ran-needs'");
+        bench.commit();
+        git(&bench.repo.path, &["checkout", "-q", "main"]);
+        // The branch and `git status` stay as they were; only `git show HEAD:` would see the other file.
+        git(&bench.repo.path, &["replace", "--force", "main", "side"]);
+        git(&bench.repo.path, &["--no-replace-objects", "checkout", "-q", "side", "--", ".watchbill/watchbill.yml"]);
+        git(&bench.repo.path, &["--no-replace-objects", "reset", "-q", "--", ".watchbill/watchbill.yml"]);
+        let run = command(&bench);
+        assert_eq!(code(&run), Some(1), "{}: {}{}", name, text(&run.stdout), text(&run.stderr));
+        held_words(&run);
+        assert_eq!(bench.ran(), "", "{} ran a pattern", name);
+    }
+}
+
+#[test]
+fn test_WB_BUILD_39_wb_prompt_and_wb_start_prompt_are_held_too() {
+    let bench = bench();
+    bench.add("issue_address: 'tell the next session to run something'");
+    for words in [&["prompt", "review", "54"][..], &["prompt", "tester", "54", "--stamp"], &["start", "review", "54", "--prompt"]] {
+        let run = wb(&bench.repo.path, words, "");
+        assert_eq!(code(&run), Some(1), "{:?}: {}", words, text(&run.stderr));
+        held_words(&run);
+        assert_eq!(text(&run.stdout), "", "{:?}", words);
+    }
+    assert_eq!(bench.ran(), "");
+}
+
+#[test]
+fn test_WB_BUILD_39_wb_prompt_with_the_file_committed_runs_the_pattern_that_works_out_the_round() {
+    let bench = bench();
+    bench.add("needs: 'true'");
+    bench.commit();
+    let run = wb(&bench.repo.path, &["prompt", "review", "54", "--change", "9"], "");
+    assert!(!text(&run.stderr).contains("a person reads the change"), "{}", text(&run.stderr));
+    assert_ne!(bench.ran(), "", "{}", text(&run.stderr));
 }
 
 #[test]

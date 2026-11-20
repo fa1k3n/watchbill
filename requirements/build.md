@@ -42,3 +42,7 @@ What `wb <role> <issue>` checks, posts and starts. One path for a person and, af
 | WB-BUILD-36 | `wb start <role> <issue>` shall do what `wb <role> <issue>` did, with the same options. Issue: #175. | T | Draft |
 | WB-BUILD-37 | `wb <role> …` for a role of the revision shall end with 2 and say the form `wb start <role> …` with the same words. Issue: #175. | T | Draft |
 | WB-BUILD-38 | `wb start` with a role that is not known shall end with 2 and name the roles. Issue: #175. | T | Draft |
+| WB-BUILD-39 | Every command that runs a pattern of `watchbill.yml`, or reads `needs` or `build_files` from it, shall first compare the file in the working tree with `HEAD`, and refuse with 1, naming the file, where it differs or is not committed, before any pattern runs or anything is posted. Issue: #186. | T | Draft |
+| WB-BUILD-40 | No flag shall lift the refusal of WB-BUILD-39. Issue: #186. | T | Draft |
+| WB-BUILD-41 | The refusal of WB-BUILD-39 shall say that a person reads the change and commits it, or takes it back with git, before the next command. Issue: #186. | T | Draft |
+| WB-BUILD-42 | `wb init` and `wb upgrade` shall not be held by WB-BUILD-39, and `wb upgrade` shall say that the file is to be committed. Issue: #186. | T | Draft |

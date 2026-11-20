@@ -399,7 +399,7 @@ change_comment: 'gh pr comment {change} --repo example/brake-controller --body-f
 change_comments: 'gh api repos/example/brake-controller/issues/{change}/comments --paginate --jq ''.[].body | split("\n")[0]'''
 change_of_branch: 'gh pr list --repo example/brake-controller --head {branch} --state open --json number --jq ''.[].number'''
 open_issues: 'gh issue list --repo example/brake-controller --state open --limit 1000 --json number,title --jq ''.[] | "\(.number)\t\(.title | gsub("[\n\r]"; " "))"'''
-change_checks: 'gh pr checks {change} --repo example/brake-controller --json bucket --jq ''[.[].bucket] | if length == 0 then "pending" elif any(. == "fail" or . == "cancel") then "red" elif any(. == "pending") then "pending" else "green" end'''
+change_checks: 'gh pr checks {change} --repo example/brake-controller --json bucket --jq ''[.[].bucket] | if length == 0 then "pending" elif any(. == "fail" or . == "cancel") then "red" elif all(. == "pass" or . == "skipping") then "green" else "pending" end'''
 ```
 
 - `issue_comment` and `change_comment` post a comment from standard input. `issue_comments` and `change_comments` print the first line of each comment, one to a line. `change_of_branch` prints the numbers of the open changes from `{branch}`, one to a line. At GitHub the comments of a pull request are those of an issue, so `change_comments` reads them the same way.
@@ -419,7 +419,7 @@ change_of_branch: 'glab mr list --repo https://gitlab.example.com/brakes/control
 open_issues: 'glab api --hostname gitlab.example.com ''projects/brakes%2Fcontroller/issues?state=opened&per_page=100'' --paginate --output ndjson | jq -r ''"\(.iid)\t\(.title | gsub("[\n\r]"; " "))"'''
 issue_address: 'glab issue view {issue} --repo https://gitlab.example.com/brakes/controller --comments'
 change_address: 'glab mr view {change} --repo https://gitlab.example.com/brakes/controller --comments'
-change_checks: 'glab api --hostname gitlab.example.com projects/brakes%2Fcontroller/merge_requests/{change} | jq -r ''(.head_pipeline.status // "none") as $s | if $s == "success" then "green" elif $s == "failed" or $s == "canceled" then "red" else "pending" end'''
+change_checks: 'glab api --hostname gitlab.example.com projects/brakes%2Fcontroller/merge_requests/{change} | jq -r ''if (.iid | type) != "number" then error("not a merge request") else (.head_pipeline.status // "none") as $s | if $s == "success" then "green" elif $s == "failed" or $s == "canceled" then "red" else "pending" end end'''
 ```
 
 - The host is that of `origin`, without a user name or a token; without it `glab` asks gitlab.com. An `origin` with a port gets none of these lines.
@@ -430,8 +430,8 @@ change_checks: 'glab api --hostname gitlab.example.com projects/brakes%2Fcontrol
 
 - `wb review` starts on `green`. On `pending` it is refused with 1, saying to wait. On `red` it is refused with 1, saying that the change goes to a person, and that the lists or the stubs of the breakdown may be wrong: the CI builds the whole tree and runs every test, and the session saw only its view. A word that is not one of the three, or a status but 0, is refused with 1, naming `change_checks`.
 - The review's prompt gets nothing of it: not the word, and never the CI's log. Only `wb` reads the word.
-- For GitHub the word comes from the `bucket` of `gh pr checks`: `red` where a check failed or was cancelled, `pending` where one has not ended or none is reported yet, else `green`. A pull request with no check at all ends `gh` with 1, and `wb review` is refused. A repository with no CI has no `change_checks` line.
-- For GitLab the word comes from the status of the merge request's head pipeline, through `glab api`: only `success` is `green`, `failed` and `canceled` are `red`, and anything else, a merge request with no pipeline too, is `pending`. This line was written from the documentation of `glab` and has not been run against a GitLab server.
+- For GitHub the word comes from the `bucket` of `gh pr checks`: `red` where a check failed or was cancelled, `pending` where one has not ended or has a bucket that is not known (the most restrictive applies), else `green`: only `pass` and `skipping` are green, so a change whose checks were all skipped is green. A pull request with no check reported, as a change just pushed has before its first check, ends `gh` with 1 and `wb review` is refused, naming `change_checks`: wait, and start it again. A repository with no CI has no `change_checks` line.
+- For GitLab the word comes from the status of the merge request's head pipeline, through `glab api`: only `success` is `green`, `failed` and `canceled` are `red`, and anything else, a merge request with no pipeline too, is `pending`. A `skipped` pipeline or one that waits for a manual job is `pending` and does not end by itself: a person runs the job, or sets the line another way. An answer that is not a merge request (a wrong number, a wrong project, no token) makes `jq` fail, and the review is refused, naming `change_checks`. This line was written from the documentation of `glab` and has not been run against a GitLab server.
 - With no `change_checks`, the review starts, and `wb` says on standard error that the CI was not read.
 
 ### Classed code

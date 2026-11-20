@@ -4,16 +4,16 @@ What `wb status` says of the issues in the flow. It only reads.
 
 | ID | Requirement | Ver | Status |
 |---|---|---|---|
-| WB-STATUS-1 | `wb status` shall print a heading for each step that has issues, and under it one line per issue: its number and its title. Issue: #139. | T | Implemented |
+| WB-STATUS-1 | `wb status` shall print a heading for each step that has issues, and under it one line per issue: its number and its title. Replaced by WB-STATUS-36. Issue: #139, #155. | T | Deprecated |
 | WB-STATUS-2 | `wb status` shall put an issue under the first heading that holds: `Fixed` (the last stamp is `[stamp] fix`), `Reviewed` (the last stamp is `[stamp] review`), `Built` (a `[stamp] build`), `Tested` (a `[stamp] tester`), `Accepted` (the issue's file and an acceptance that holds for it, on the issue's branch), `Broken down` (the issue's file on its branch), `Not broken down`. Issue: #139. | T | Implemented |
 | WB-STATUS-3 | `wb status` shall count a `[question]` as open until an `[answer]` of a person to its name closes it. Issue: #139. | T | Implemented |
-| WB-STATUS-4 | `wb status` shall take the issues and their titles from the pattern `open_issues` of `watchbill.yml`, and without it the issues that have a branch of the pattern `branch` or a file under `.watchbill/issues/`, with no title. Issue: #139. | T | Implemented |
+| WB-STATUS-4 | `wb status` shall take the issues and their titles from the pattern `open_issues` of `watchbill.yml`, and without it the issues that have a branch of the pattern `branch` or a file under `.watchbill/issues/`, with no title. Replaced by WB-STATUS-32 and WB-STATUS-33. Issue: #139, #155. | T | Deprecated |
 | WB-STATUS-5 | `wb status <issue>` shall print the heading and the line of that issue and, under them, the lines it was worked out from. Issue: #139. | T | Implemented |
 | WB-STATUS-6 | `wb status --stage <heading>` shall print only that heading, the name matched without regard to case. Issue: #139. | T | Implemented |
 | WB-STATUS-7 | When a pattern fails for one issue, `wb status` shall list that issue under `Not read` with why, print the others, and end with 1. Issue: #139. | T | Implemented |
 | WB-STATUS-8 | `wb status` shall write nothing. Issue: #139. | T | Implemented |
 | WB-STATUS-9 | After the steps, `wb status` shall print `Questions open`: each issue that has an open question, with the names of those questions in the order they were asked. Issue: #139. | T | Implemented |
-| WB-STATUS-10 | `wb status` shall print a title with its control characters escaped. Issue: #139. | T | Implemented |
+| WB-STATUS-10 | `wb status` shall print a title with its control characters escaped. Replaced by WB-STATUS-37. Issue: #139, #155. | T | Deprecated |
 | WB-STATUS-11 | `wb status` shall not print a heading that has no issue. Issue: #139. | T | Implemented |
 | WB-STATUS-12 | `wb status` shall print no line that holds a round, a command to run or a word for a step going on. Issue: #139. | T | Implemented |
 | WB-STATUS-13 | `wb status` shall print the steps in the order of the flow, `Not broken down` first and `Fixed` last. Issue: #139. | T | Implemented |
@@ -22,27 +22,27 @@ What `wb status` says of the issues in the flow. It only reads.
 | WB-STATUS-16 | `wb status --stage` with a heading that is not known shall end with 2. Issue: #139. | T | Implemented |
 | WB-STATUS-17 | `wb status` shall switch no branch. Issue: #139. | T | Implemented |
 | WB-STATUS-18 | `wb status` shall read the issue's file and its acceptance from the branch with `git show`, so that an acceptance that is written and not committed leaves the issue under `Broken down`. Issue: #139. | T | Implemented |
-| WB-STATUS-19 | `wb status` shall run no pattern but `open_issues` and `issue_comments`. Issue: #139. | T | Implemented |
+| WB-STATUS-19 | `wb status` shall run no pattern but `open_issues` and `issue_comments`. Replaced by WB-STATUS-38. Issue: #139, #155. | T | Deprecated |
 | WB-STATUS-20 | `wb status` used wrongly, with an option or a word that is not known, shall end with 2. Issue: #139. | T | Implemented |
 | WB-STATUS-21 | `wb status` in a folder that is not in a git repository, or where Watchbill is not set up, shall end with 2. Issue: #139. | T | Implemented |
 | WB-STATUS-22 | `wb status` shall keep an issue that has an open question under its step. Issue: #139. | T | Implemented |
-| WB-STATUS-23 | When `open_issues` fails, `wb status` shall say so on standard error, list no issue, and end with 1. Issue: #139. | T | Implemented |
+| WB-STATUS-23 | When `open_issues` fails, `wb status` shall say so on standard error, list no issue, and end with 1. `open_issues` is no longer read (#155). Issue: #139, #155. | T | Deprecated |
 | WB-STATUS-24 | `wb status <issue>` shall print the lines it worked out from under the heading `Worked out from:`. Issue: #139. | T | Implemented |
-| WB-STATUS-25 | `wb status` shall list a line of `open_issues` whose first field is not a plain issue name under `Not read`, with why, and end with 1. Issue: #139. | T | Implemented |
+| WB-STATUS-25 | `wb status` shall list a line of `open_issues` whose first field is not a plain issue name under `Not read`, with why, and end with 1. `open_issues` is no longer read (#155). Issue: #139, #155. | T | Deprecated |
 | WB-STATUS-26 | Without `issue_comments`, `wb status` shall say so once on standard error. Issue: #139. | T | Implemented |
 | WB-STATUS-27 | `wb --help` shall name `wb status`. Issue: #139. | T | Implemented |
 | WB-STATUS-28 | `wb status` shall run from any folder inside the repository. Issue: #139. | T | Implemented |
 | WB-STATUS-29 | `wb status` shall take `[answer] <issue> suggested` as an answer to every question asked before it, and to none asked after it. Issue: #139. | T | Implemented |
 | WB-STATUS-30 | `wb status` shall close a question by an `[answer]` of its name whatever follows the name, a choice number too. Issue: #139. | T | Implemented |
 | WB-STATUS-31 | `wb status` shall let only the stamps after the last `[stamp] breakdown` decide the step, so that a new breakdown takes the issue back to `Accepted` or `Broken down` by its file. Issue: #139. | T | Implemented |
-| WB-STATUS-32 | `wb status` shall list an issue only when its branch, by the pattern `branch`, local or at `origin`, holds a commit that the default branch of `origin` does not. Issue: #155. | T | Draft |
-| WB-STATUS-33 | `wb status` shall find the issues it lists with git alone, with no pattern. Issue: #155. | T | Draft |
-| WB-STATUS-34 | `wb status` shall put under `Not broken down` an issue whose branch holds no issue's file. Issue: #155. | T | Draft |
-| WB-STATUS-35 | `wb status <issue>` shall read an issue that is not in the flow, and say that it is not. Issue: #155. | T | Draft |
-| WB-STATUS-36 | `wb status` shall print one line per issue in the list, with its number and its branch, and no title. Issue: #155. | T | Draft |
-| WB-STATUS-37 | `wb status <issue>` shall print the issue's title from the first line of `issue_address`. Issue: #155. | T | Draft |
-| WB-STATUS-38 | `wb status` shall run no pattern but `issue_comments` and `change_of_branch`, each once for each issue it lists, and `wb status <issue>` also `issue_address`. Issue: #155. | T | Draft |
-| WB-STATUS-39 | `wb status` shall take the default branch from `refs/remotes/origin/HEAD`, else `main`, else `master`, and end with 2 when none is there. Issue: #155. | T | Draft |
-| WB-STATUS-40 | Where the local branch of an issue holds commits that its branch at `origin` does not, `wb status` shall add how many to the issue's line, as `2 not pushed`. Issue: #155. | T | Draft |
-| WB-STATUS-41 | `wb status` shall read the refs as they are, and fetch nothing. Issue: #155. | T | Draft |
-| WB-STATUS-42 | `wb status` shall show on the line of an issue the change that `change_of_branch` prints for its branch, as `#<n>`, and none where it prints none. Issue: #155. | T | Draft |
+| WB-STATUS-32 | `wb status` shall list an issue only when its branch, by the pattern `branch`, local or at `origin`, holds a commit that the default branch of `origin` does not. Issue: #155. | T | Implemented |
+| WB-STATUS-33 | `wb status` shall find the issues it lists with git alone, with no pattern. Issue: #155. | T | Implemented |
+| WB-STATUS-34 | `wb status` shall put under `Not broken down` an issue whose branch holds no issue's file. Issue: #155. | T | Implemented |
+| WB-STATUS-35 | `wb status <issue>` shall read an issue that is not in the flow, and say that it is not. Issue: #155. | T | Implemented |
+| WB-STATUS-36 | `wb status` shall print one line per issue in the list, with its number and its branch, and no title. Issue: #155. | T | Implemented |
+| WB-STATUS-37 | `wb status <issue>` shall print the issue's title from the first line of `issue_address`, with its control characters escaped. Issue: #155. | T | Implemented |
+| WB-STATUS-38 | `wb status` shall run no pattern but `issue_comments` and `change_of_branch`, each once for each issue it lists, and `wb status <issue>` also `issue_address`. Issue: #155. | T | Implemented |
+| WB-STATUS-39 | `wb status` shall take the default branch from `refs/remotes/origin/HEAD`, else `main`, else `master`, and end with 2 when none is there. Issue: #155. | T | Implemented |
+| WB-STATUS-40 | Where the local branch of an issue holds commits that its branch at `origin` does not, `wb status` shall add how many to the issue's line, as `2 not pushed`. Issue: #155. | T | Implemented |
+| WB-STATUS-41 | `wb status` shall read the refs as they are, and fetch nothing. Issue: #155. | T | Implemented |
+| WB-STATUS-42 | `wb status` shall show on the line of an issue the change that `change_of_branch` prints for its branch, as `#<n>`, and none where it prints none. Issue: #155. | T | Implemented |

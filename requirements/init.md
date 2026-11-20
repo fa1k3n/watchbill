@@ -59,7 +59,7 @@ What `wb init` does today: it sets Watchbill up in a git repository. What it wri
 | WB-INIT-53 | `wb init` shall write the patterns `change_comment` and `change_comments` for a GitHub `origin`, and none for a server other than GitHub and GitLab. Issue: #84, #116. | T | Implemented |
 | WB-INIT-54 | `wb init` shall ask for `classed` after the CI driver, propose `[]`, and write the answer as the line `classed:` of `watchbill.yml`, `classed: []` with `--yes`; a path that starts with `/`, holds `..` or is the root shall not be taken, and the question shall be asked again. Issue: #84. | T | Implemented |
 | WB-INIT-55 | The `glab` commands that `wb init` writes for a GitLab `origin` shall name the host of `origin`, as `--repo https://<host>/<repo>` and `--hostname <host>`, without a user name or a token, and none of them shall be written for an `origin` with a port. Issue: #123. | T | Implemented |
-| WB-INIT-56 | `wb init` shall write the pattern `open_issues` for a GitHub and a GitLab `origin`, and none for a server other than those. Issue: #139. | T | Implemented |
-| WB-INIT-57 | The pattern `open_issues` that `wb init` writes shall print a line break in a title as a space, so that one issue is one line. Issue: #139. | T | Implemented |
+| WB-INIT-56 | `wb init` shall write the pattern `open_issues` for a GitHub and a GitLab `origin`, and none for a server other than those. Replaced by WB-INIT-59. Issue: #139, #155. | T | Deprecated |
+| WB-INIT-57 | The pattern `open_issues` that `wb init` writes shall print a line break in a title as a space, so that one issue is one line. `wb init` no longer writes `open_issues` (#155), WB-INIT-59. Issue: #139, #155. | T | Deprecated |
 | WB-INIT-58 | `wb init` shall write the pattern `draft_change` for a GitHub and a GitLab `origin`, and none for a server other than those. Issue: #145. | T | Implemented |
-| WB-INIT-59 | `wb init` shall write no pattern `open_issues`. Issue: #155. | T | Draft |
+| WB-INIT-59 | `wb init` shall write no pattern `open_issues`. Issue: #155. | T | Implemented |

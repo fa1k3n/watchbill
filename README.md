@@ -491,7 +491,7 @@ With `classed` written, and the patterns of `watchbill.yml` in place:
 
 ```sh
 wb breakdown 54     # writes .watchbill/issues/54.yml on the branch issue-54
-wb accept 54        # the person accepts it, and commits the acceptance
+wb accept 54        # the person accepts it, and wb commits the acceptance
 wb tester 54        # the tests, red
 wb answer 54        # the person answers what a session asked, any time it asked
 wb build 54         # the code, committed; wb says how to push it and open the change
@@ -682,9 +682,9 @@ wb accept: committed .watchbill/issues/54.accepted alone (3f9a1c2). What was sta
 wb accept: wb pushes nothing. Push the branch issue-54 so that the history elsewhere holds the acceptance.
 ```
 
-The commit is made by `wb accept`, alone, so the history holds the acceptance before any work it allows. Only that one file is committed: whatever else is staged stays staged. It is made as the `user.name` and `user.email` of git, on the issue's branch. Before it writes anything, `wb accept` refuses with 1 when the checkout is not on that branch (the pattern `branch` of `watchbill.yml`, naming both), or when the issue's file is not committed in `HEAD` or differs from it: the acceptance holds for the file as the history has it. When the commit fails (a hook, a signing key), the acceptance stays written, `wb accept` says so and ends with 1, and the person commits it with the command it prints. `wb` pushes nothing. `wb accept --no-commit` keeps the form of 0.0.9: it writes the acceptance and prints the command, and makes none of those refusals.
+The commit is made by `wb accept`, alone, so the history holds the acceptance before any work it allows. Only that one file is committed: whatever else is staged stays staged. It is made as the `user.name` and `user.email` of git, on the issue's branch. Before it writes anything, `wb accept` refuses with 1 when the checkout is not on that branch (the pattern `branch` of `watchbill.yml`, naming both), or when the issue's file is not committed in `HEAD` or differs from it: the acceptance holds for the file as the history has it. When the commit fails (a hook, a signing key), the acceptance stays written and is unstaged again, `wb accept` says so and ends with 1, and the person commits it with the command it prints. A commit that holds more than the acceptance (a hook of git added a file) is refused with 1 and named. `wb` pushes nothing. `wb accept --no-commit` keeps the form of 0.0.9: it writes the acceptance and prints the command, and makes none of those refusals.
 
-`by` is the `user.name` and `user.email` of git, and `time` is UTC. Without both, `wb accept` refuses. An acceptance that is there is never written over: remove it first. `wb` writes nothing else, and asks nothing of the network; `needs` is the team's own command.
+`by` is the `user.name` and `user.email` of git, and `time` is UTC. Without both, `wb accept` refuses. An acceptance that is there is never written over: remove it first. `wb accept` writes nothing but the acceptance, commits nothing but that file, and asks nothing of the network; `needs` is the team's own command.
 
 An issue's file counts as accepted only while the SHA-256 in its acceptance is that of the file as it is. The function `watchbill::issue::is_accepted` answers that. One byte changed, and it is not accepted: it is accepted again by removing the `.accepted` and running `wb accept`.
 

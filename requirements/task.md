@@ -15,7 +15,7 @@ What `wb` reads of an issue's file and how a person accepts it. What the file is
 | WB-TASK-9 | `wb accept` shall refuse when git gives no `user.name` or `user.email`, and end with 1. Issue: #74. | T | Implemented |
 | WB-TASK-10 | An issue's file shall count as accepted only while the SHA-256 in its acceptance is that of the file as it is. Issue: #74. | T | Implemented |
 | WB-TASK-11 | `wb check` shall not fail on the files under `.watchbill/issues/`. Issue: #74. | T | Implemented |
-| WB-TASK-12 | `wb accept` shall write nothing but the acceptance, and ask nothing of the network. Issue: #74. | T | Implemented |
+| WB-TASK-12 | `wb accept` shall write nothing but the acceptance, and ask nothing of the network. Replaced by WB-TASK-30. Issue: #74. | T | Deprecated |
 | WB-TASK-13 | For the tester, the build, the review and the fix, `wb prompt` shall end with 1, print nothing on standard output and name the file when the issue's file or its acceptance is not committed in `HEAD` or differs from it in the working tree. Issue: #97. | T | Implemented |
 | WB-TASK-14 | For the tester, the build, the review and the fix, `wb prompt` shall end with 1, print nothing on standard output and name the missing file when the issue has no file, unless `watchbill.yml` says `breakdown: none`. Replaced by WB-TASK-17. Issue: #97. | T | Deprecated |
 | WB-TASK-15 | `wb` shall refuse `breakdown: none` in `watchbill.yml` when the revision's rule table holds the breakdown. Replaced by WB-TASK-18. Issue: #97. | T | Deprecated |
@@ -33,3 +33,4 @@ What `wb` reads of an issue's file and how a person accepts it. What the file is
 | WB-TASK-27 | `wb accept` shall refuse with 1, writing nothing, when the issue's file is not committed in `HEAD` or differs from it. Issue: #157. | T | Implemented |
 | WB-TASK-28 | When its commit fails, `wb accept` shall leave the acceptance written, say so, and end with 1. Issue: #157. | T | Implemented |
 | WB-TASK-29 | `wb accept --no-commit` shall write the acceptance, commit nothing, and print the command that commits it alone. Issue: #157. | T | Implemented |
+| WB-TASK-30 | `wb accept` shall write nothing but the acceptance, commit nothing but that file, and ask nothing of the network. Replaces WB-TASK-12. Issue: #157. | T | Implemented |

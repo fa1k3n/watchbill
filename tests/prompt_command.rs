@@ -398,7 +398,7 @@ fn test_WB_PROMPT_15_an_empty_value_is_refused_by_name_and_ends_with_2() {
 
 #[test]
 fn test_WB_PROMPT_15_the_usage_names_wb_prompt() {
-    let run = wb(&folder().path, &["--help"], "");
+    let run = wb(&folder().path, &["help", "prompt"], "");
 
     assert!(text(&run.stdout).contains("wb prompt <role>"), "{}", text(&run.stdout));
     assert!(text(&run.stdout).contains("--parts"), "{}", text(&run.stdout));
@@ -809,7 +809,7 @@ fn test_WB_PROMPT_17_a_stamp_changes_nothing_under_the_repository() {
 
 #[test]
 fn test_WB_PROMPT_19_the_usage_names_stamp() {
-    let run = wb(&folder().path, &["--help"], "");
+    let run = wb(&folder().path, &["help", "prompt"], "");
 
     assert!(text(&run.stdout).contains("[--stamp]"), "{}", text(&run.stdout));
 }
@@ -1254,7 +1254,7 @@ fn test_WB_PROMPT_17_a_run_that_derives_writes_nothing_under_the_repository() {
 
 #[test]
 fn test_WB_PROMPT_31_the_usage_names_the_issue_word() {
-    let run = wb(&folder().path, &["--help"], "");
+    let run = wb(&folder().path, &["help", "prompt"], "");
 
     assert!(text(&run.stdout).contains("wb prompt <role> [<issue>]"), "{}", text(&run.stdout));
 }

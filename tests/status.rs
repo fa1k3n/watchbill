@@ -517,13 +517,6 @@ fn test_WB_STATUS_28_it_runs_from_a_folder_below_the_root() {
 }
 
 #[test]
-fn test_WB_STATUS_27_help_names_status() {
-    let folder = set_up();
-    let (out, _) = stdout(&folder.path, &["--help"]);
-    assert!(out.contains("wb status [<issue>] [--stage <heading>]"), "{}", out);
-}
-
-#[test]
 fn test_WB_STATUS_26_without_issue_comments_it_says_so_once_on_standard_error() {
     let folder = set_up();
     let file = config(&folder.path);

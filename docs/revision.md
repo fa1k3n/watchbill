@@ -231,7 +231,7 @@ The pieces that build this have their requirements reserved as Draft rows in `re
 | `WB-CONF` | `requirements/conf.md` | #11 |
 | `WB-TASK` | `requirements/task.md` | #74, #78, #116, #157: the area keeps its name, and its rows say issue |
 | `WB-ACCT` | `requirements/acct.md` | #83 |
-| `WB-BUILD` | `requirements/build.md` | #84 |
+| `WB-BUILD` | `requirements/build.md` | #84, #162 |
 | `WB-LISTEN` | `requirements/listen.md` | #85 |
 | `WB-OFFICER` | `requirements/officer.md` | #86 |
 | `WB-HAND` | `requirements/hand.md` | #88 |

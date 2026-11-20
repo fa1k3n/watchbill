@@ -20,7 +20,7 @@ What a session of the tester, the build, the review or the fix sees when `wb <ro
 | WB-VIEW-14 | After the commits of a session in a view are taken onto the branch, `wb <role>` shall say on standard error the command that pushes the branch, `git push origin <branch>`, and shall not run it. Issue: #145. | T | Implemented |
 | WB-VIEW-15 | After a session of the build whose commits were taken onto the branch, `wb build` shall also say on standard error the command that opens the change as a draft, the pattern `draft_change` of `watchbill.yml` with `{branch}` filled, and shall not run it; without the pattern, it shall say that the line is not there. Issue: #145. | T | Implemented |
 | WB-VIEW-16 | After a session of the tester, the build or the fix without a view, where the branch checked out has new commits, `wb <role>` shall say the same commands as after a view. Issue: #145. | T | Implemented |
-| WB-VIEW-17 | `wb` shall not count as work left in a view a path that the ignore rules of the checkout ignore: every `.gitignore` of `HEAD` and the checkout's `.git/info/exclude`. Issue: #159. | T | Draft |
-| WB-VIEW-18 | `wb` shall read those ignore rules from the checkout, and never from the view. Issue: #159. | T | Draft |
-| WB-VIEW-19 | Where more than 20 paths are left in a view, `wb` shall say how many, the first 20, and that the whole list is in the file `back` of the session's folder. Issue: #159. | T | Draft |
-| WB-VIEW-20 | After the commits of a view are taken back, `wb` shall say on standard error `git show --stat <commit>` for each commit taken. Issue: #159. | T | Draft |
+| WB-VIEW-17 | `wb` shall not count as work left in a view a path that the ignore rules of the checkout ignore: every `.gitignore` of `HEAD` and the checkout's `.git/info/exclude`. Issue: #159. | T | Implemented |
+| WB-VIEW-18 | `wb` shall read those ignore rules from the checkout, and never from the view. Issue: #159. | T | Implemented |
+| WB-VIEW-19 | Where more than 20 paths are left in a view, `wb` shall say how many, the first 20, and that the whole list is in the file `back` of the session's folder. Issue: #159. | T | Implemented |
+| WB-VIEW-20 | After the commits of a view are taken back, `wb` shall say on standard error `git show --stat <commit>` for each commit taken. Issue: #159. | T | Implemented |

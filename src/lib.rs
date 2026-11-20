@@ -1130,13 +1130,18 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     }
     // What the session committed in its view comes back onto the branch, as far as it keeps to `changes`.
     if let (Some(prepared), Some(file)) = (&prepared, &handed.file) {
-        let back = view::take_back(name, root, &prepared.view, &file.issue.changes, &prepared.build_files, err);
+        let list = lines.file("back");
+        let back = view::take_back(name, root, &prepared.view, &file.issue.changes, &prepared.build_files, list.as_deref(), err);
         let kept = view::tidy(name, &prepared.view, &back, err);
         lines.write("back", &back.text(kept.as_deref()), err);
         if back.refused_any() {
             code = 1;
         }
         if !back.taken.is_empty() {
+            // How to look at what was taken (#159): the commits keep who wrote them, the tests, the checks.
+            for (commit, _) in &back.taken {
+                let _ = writeln!(err, "{}: to see what the commit changes, run:\n  git show --stat {}", name, commit);
+            }
             say_push(name, role, root, prepared.view.branch_name(), err);
         }
     }

@@ -37,6 +37,7 @@ fn set_up() -> Folder {
     git(&folder.path, &["config", "user.email", "ada@example.org"]);
     let run = wb(&folder.path, &["init", "--yes"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    commit_config(&folder.path);
     folder
 }
 
@@ -44,6 +45,7 @@ fn set_up() -> Folder {
 fn add(folder: &Folder, lines: &str) {
     let mut file = fs::OpenOptions::new().append(true).open(config(&folder.path)).unwrap();
     file.write_all(lines.as_bytes()).unwrap();
+    commit_config(&folder.path);
 }
 
 /// Gives `watchbill.yml` the pattern `needs`, written in single quotes.
@@ -324,6 +326,7 @@ fn test_WB_TASK_22_the_ci_file_wb_init_found_is_refused_in_changes() {
     put(&folder.path, ".gitlab-ci.yml", "");
     let run = wb(&folder.path, &["init", "--yes"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    commit_config(&folder.path);
     with_issue(&folder, &ISSUE.replace("changes: [src/brake.c, tests/test_brake.c]", "changes: [src/brake.c, .gitlab-ci.yml]"));
 
     let err = refused(&folder);

@@ -302,6 +302,7 @@ fn test_WB_TASK_26_without_a_pattern_branch_it_refuses_with_1_and_no_commit_stil
     let without: String = yml.lines().filter(|line| !line.starts_with("branch:")).map(|line| format!("{}\n", line)).collect();
     assert_ne!(yml, without);
     put(&folder.path, ".watchbill/watchbill.yml", &without);
+    commit_config(&folder.path);
     let before = files(&folder.path);
     let run = wb(&folder.path, &["accept", "54"], "");
     assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));

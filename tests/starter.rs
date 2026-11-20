@@ -1359,3 +1359,198 @@ fn test_WB_PROMPT_55_a_stamp_of_the_build_without_a_round_leaves_it_empty_and_ru
     assert!(text(&run.stdout).lines().any(|line| line == "round:"), "{}", text(&run.stdout));
     assert!(!bench.calls().iter().any(|call| call.starts_with("comments")), "{:?}", bench.calls());
 }
+
+// ---- WB-BUILD-14 to 16 and WB-MON-8: the review starts only on a change whose CI is green (#127) ----
+
+impl Bench {
+    /// A stand-in `change_checks`: it logs the change it was run for, prints `said`, and ends with `status`.
+    fn checks(&self, said: &str, status: i32) {
+        let l = self.log.path.to_str().unwrap();
+        script(&self.at("checks.sh"), &format!("echo \"checks $1\" >> {l}/calls\nprintf '%s' '{said}'\nexit {status}\n"));
+        self.set("change_checks", &format!("change_checks: '{} {{change}}'", self.at("checks.sh").display()));
+    }
+
+    fn checks_read(&self) -> Vec<String> {
+        self.calls().into_iter().filter(|call| call.starts_with("checks ")).collect()
+    }
+}
+
+#[test]
+fn test_WB_BUILD_14_a_green_ci_starts_the_review_and_is_read_for_the_change_before_the_stamp_is_posted() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    bench.checks("green\n", 0);
+    ok(&bench.start(true, &["review", "54"]));
+    let calls = bench.calls();
+    let at = |call: &str| calls.iter().position(|one| one == call).unwrap_or_else(|| panic!("{} not in {:?}", call, calls));
+    assert!(at("checks 174") < at("post issue 54") && at("post issue 54") < at("start"), "{:?}", calls);
+}
+
+#[test]
+fn test_WB_BUILD_14_a_pending_ci_is_refused_with_1_saying_to_wait() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    bench.checks("pending\n", 0);
+    let run = bench.start(true, &["review", "54"]);
+    refused(&bench, &run, 1, &["pending", "wait"]);
+    assert_eq!(bench.checks_read(), ["checks 174"]);
+}
+
+#[test]
+fn test_WB_BUILD_14_a_red_ci_is_refused_with_1_saying_it_goes_to_a_person_and_the_lists_or_stubs_may_be_wrong() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    bench.checks("red\n", 0);
+    let run = bench.start(true, &["review", "54"]);
+    refused(&bench, &run, 1, &["red", "goes to a person", "lists or the stubs"]);
+}
+
+#[test]
+fn test_WB_BUILD_14_a_review_of_a_change_with_no_issue_reads_the_ci_of_the_change_given() {
+    let bench = bench();
+    bench.checks("red\n", 0);
+    let run = bench.start(true, &["review", "--change", "175"]);
+    refused(&bench, &run, 1, &["red"]);
+    assert_eq!(bench.checks_read(), ["checks 175"]);
+}
+
+#[test]
+fn test_WB_BUILD_14_only_the_review_reads_the_ci() {
+    let bench = bench();
+    bench.checks("red\n", 0);
+    ok(&bench.start(true, &["build", "54"]));
+    assert!(bench.checks_read().is_empty(), "{:?}", bench.calls());
+}
+
+#[test]
+fn test_WB_BUILD_14_review_with_prompt_reads_no_ci() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    bench.checks("red\n", 0);
+    ok(&bench.start(true, &["review", "54", "--prompt"]));
+    assert!(bench.checks_read().is_empty(), "{:?}", bench.calls());
+}
+
+#[test]
+fn test_WB_BUILD_15_a_word_other_than_green_red_or_pending_is_refused_naming_change_checks() {
+    for said in ["", "passed\n", "GREEN\n", "green red\n", "green\ngreen\n", "greenish\n"] {
+        let bench = bench();
+        bench.changes("issue-54", &["174"]);
+        bench.checks(said, 0);
+        let run = bench.start(true, &["review", "54"]);
+        refused(&bench, &run, 1, &["change_checks", "green, red or pending"]);
+    }
+}
+
+#[test]
+fn test_WB_BUILD_15_a_check_that_ends_with_anything_but_0_is_refused_naming_change_checks_also_when_it_printed_green() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    bench.checks("green\n", 3);
+    let run = bench.start(true, &["review", "54"]);
+    refused(&bench, &run, 1, &["change_checks", "ended with 3"]);
+}
+
+#[test]
+fn test_WB_BUILD_15_a_word_with_spaces_or_a_line_end_around_it_is_read() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    bench.checks(" green \r\n", 0);
+    ok(&bench.start(true, &["review", "54"]));
+    assert_eq!(bench.checks_read(), ["checks 174"]);
+}
+
+#[test]
+fn test_WB_BUILD_16_with_no_change_checks_the_review_starts_and_says_the_ci_was_not_read() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    let run = bench.start(true, &["review", "54"]);
+    ok(&run);
+    assert!(bench.started());
+    assert!(text(&run.stderr).contains("the CI was not read"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_16_a_start_that_reads_the_ci_does_not_say_it_was_not_read() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    bench.checks("green\n", 0);
+    let run = bench.start(true, &["review", "54"]);
+    ok(&run);
+    assert!(!text(&run.stderr).contains("was not read"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_MON_8_the_folder_of_a_review_holds_ci_with_the_word_printed() {
+    for word in ["green", "red", "pending"] {
+        let bench = bench();
+        let state = folder_named("state");
+        bench.changes("issue-54", &["174"]);
+        bench.checks(&format!("{}\n", word), 0);
+        let run = start_at(&bench, &state.path, true, &["review", "54"]);
+        assert_eq!(code(&run), Some(if word == "green" { 0 } else { 1 }), "{}", text(&run.stderr));
+        let folder = only(&state.path);
+        assert_eq!(read(&folder.join("ci")), format!("ci: {}\n", word));
+        // The stamp that would have been posted is there too, whatever the outcome.
+        assert!(folder.join("stamp").exists());
+    }
+}
+
+#[test]
+fn test_WB_MON_8_a_review_with_no_change_checks_leaves_ci_not_read_and_another_role_leaves_no_ci() {
+    let bench = bench();
+    let state = folder_named("state");
+    bench.changes("issue-54", &["174"]);
+    ok(&start_at(&bench, &state.path, true, &["review", "54"]));
+    assert_eq!(read(&only(&state.path).join("ci")), "ci: not read\n");
+    let other = folder_named("other");
+    ok(&start_at(&bench, &other.path, true, &["build", "54"]));
+    assert!(!only(&other.path).join("ci").exists());
+}
+
+#[test]
+fn test_WB_MON_8_a_check_that_fails_leaves_ci_with_the_fault() {
+    let bench = bench();
+    let state = folder_named("state");
+    bench.changes("issue-54", &["174"]);
+    bench.checks("passed\n", 0);
+    assert_eq!(code(&start_at(&bench, &state.path, true, &["review", "54"])), Some(1));
+    assert_eq!(read(&only(&state.path).join("ci")), "ci: unread\n");
+}
+
+#[test]
+fn test_WB_MON_4_a_review_refused_at_the_ci_leaves_check_ci_and_status_1_in_outcome() {
+    let bench = bench();
+    let state = folder_named("state");
+    bench.changes("issue-54", &["174"]);
+    bench.checks("red\n", 0);
+    assert_eq!(code(&start_at(&bench, &state.path, true, &["review", "54"])), Some(1));
+    let lines = lines_of(&only(&state.path), "outcome");
+    assert_eq!(&lines[..3], ["outcome: refused", "check: ci", "status: 1"]);
+    assert!(lines[3].starts_with("message: the CI of change 174 is red"), "{:?}", lines);
+}
+
+#[test]
+fn test_WB_BUILD_14_a_review_refused_at_the_ci_makes_no_view() {
+    let bench = bench();
+    let state = folder_named("state");
+    issue_file(&bench, "54", "[]");
+    bench.changes("issue-54", &["174"]);
+    bench.checks("red\n", 0);
+    let run = start_at(&bench, &state.path, true, &["review", "54"]);
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    let folder = only(&state.path);
+    assert!(!folder.join("view").exists() && !folder.join("back").exists(), "{:?}", everything(&folder));
+    assert!(!text(&run.stderr).contains("bubblewrap"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_14_the_prompt_of_a_started_review_carries_nothing_of_the_ci() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    bench.checks("green\n", 0);
+    let printed = bench.start(true, &["review", "54", "--prompt"]);
+    ok(&printed);
+    ok(&bench.start(true, &["review", "54"]));
+    assert_eq!(read(&bench.at("start.prompt")), text(&printed.stdout));
+}

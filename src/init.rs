@@ -164,6 +164,15 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
             ("change_comment", format!("gh pr comment {{change}} --repo {} --body-file -", repository)),
             ("change_comments", first_lines("change")),
             ("change_of_branch", format!("gh pr list --repo {} --head {{branch}} --state open --json number --jq '.[].number'", repository)),
+            // The CI of a change (#127), as one word: `red` where a check failed or was cancelled, `pending` where one has
+            // not ended, has a bucket that is not known, or none is reported, else `green`: only `pass` and `skipping` are. `gh` ends with 1 where a pull request has no checks.
+            (
+                "change_checks",
+                format!(
+                    "gh pr checks {{change}} --repo {} --json bucket --jq '[.[].bucket] | if length == 0 then \"pending\" elif any(. == \"fail\" or . == \"cancel\") then \"red\" elif all(. == \"pass\" or . == \"skipping\") then \"green\" else \"pending\" end'",
+                    repository
+                ),
+            ),
             // The open issues, for `wb status` (#139): the number, a tab and the title, one issue to a line. A line break in a title is written as a space.
             (
                 "open_issues",
@@ -211,6 +220,15 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
                 "open_issues",
                 format!(
                     "{} '{}/issues?state=opened&per_page=100' --paginate --output ndjson | jq -r '\"\\(.iid)\\t\\(.title | gsub(\"[\\n\\r]\"; \" \"))\"'",
+                    api, project
+                ),
+            ),
+            // The CI of a merge request (#127), as one word: the status of its head pipeline. Only `success` is green; a
+            // merge request with no pipeline, or one that is running, waiting or blocked, is pending.
+            (
+                "change_checks",
+                format!(
+                    "{} {}/merge_requests/{{change}} | jq -r 'if (.iid | type) != \"number\" then error(\"not a merge request\") else (.head_pipeline.status // \"none\") as $s | if $s == \"success\" then \"green\" elif $s == \"failed\" or $s == \"canceled\" then \"red\" else \"pending\" end end'",
                     api, project
                 ),
             ),

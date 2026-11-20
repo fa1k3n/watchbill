@@ -705,13 +705,22 @@ pub fn accept(root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &
     }
     let _ = writeln!(out, "wb accept: will commit {} alone, with the message \"{}\", as {} <{}>.", shown_accepted, commit_message(issue), name, email);
     let _ = out.flush();
-    match commit_alone(root, issue) {
-        Ok(()) => {
+    match commit_alone(root, issue, &name, &email) {
+        Ok(held) => {
             let short = crate::detect::git_output(&["-C", root, "rev-parse", "--short", "HEAD"], None)
                 .filter(|run| run.status.success())
                 .map(|run| String::from_utf8_lossy(&run.stdout).trim().to_string())
                 .unwrap_or_default();
             let branch = current_branch(root).unwrap_or_default();
+            if held.iter().any(|path| path != &shown_accepted) {
+                let _ = writeln!(
+                    err,
+                    "wb accept: the commit {} is not alone: it holds {}. A hook of git added files to it. Nothing more is done: undo or amend it as you decide.",
+                    short,
+                    held.iter().map(|path| self::shown(path)).collect::<Vec<_>>().join(", ")
+                );
+                return 1;
+            }
             let _ = writeln!(out, "wb accept: committed {} alone ({}). What was staged before stays staged.", shown_accepted, short);
             let _ = writeln!(out, "wb accept: wb pushes nothing. Push the branch {} so that the history elsewhere holds the acceptance.", branch);
             0
@@ -720,7 +729,7 @@ pub fn accept(root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &
             let _ = writeln!(err, "wb accept: the commit failed: {}", why);
             let _ = writeln!(
                 err,
-                "wb accept: {} is written and stays. Commit it alone, so the history holds it before any work it allows:\n  {}",
+                "wb accept: {} is written and stays, and is unstaged again. Commit it alone, so the history holds it before any work it allows:\n  {}",
                 shown_accepted,
                 commit_command(issue)
             );
@@ -785,11 +794,12 @@ fn ready_to_commit(root: &str, issue: &str) -> Result<(), String> {
 }
 
 /// Commits the acceptance of the issue alone: `git add` of the one file, then `git commit --only` of it,
-/// so what else is staged stays staged and out of the commit. The author is git's own `user.name` and
-/// `user.email`. Err holds what git said.
-fn commit_alone(root: &str, issue: &str) -> Result<(), String> {
+/// so what else is staged stays staged and out of the commit. The author is the name and email of the line
+/// `by:`, whatever the environment says. Ok holds the paths the commit holds. When the commit fails, the
+/// acceptance is unstaged again, so the index is as it was; Err holds what git said.
+fn commit_alone(root: &str, issue: &str, name: &str, email: &str) -> Result<Vec<String>, String> {
     let path = format!("{}/{}.accepted", FOLDER, issue);
-    let run = |args: &[&str]| -> Result<(), String> {
+    let run = |args: &[&str]| -> Result<String, String> {
         let output = std::process::Command::new("git")
             .arg("-C")
             .arg(root)
@@ -798,14 +808,28 @@ fn commit_alone(root: &str, issue: &str) -> Result<(), String> {
             .output()
             .map_err(|error| format!("git could not be run ({})", error))?;
         if output.status.success() {
-            return Ok(());
+            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
         }
         let said = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
         let said: String = said.trim().chars().filter(|c| !c.is_control() || *c == '\n').collect();
         Err(if said.is_empty() { format!("git ended with {}", output.status) } else { said })
     };
-    run(&["add", "--", &path])?;
-    run(&["commit", "-q", "-m", &commit_message(issue), "--only", "--", &path])
+    let unstage = || {
+        // The acceptance is a new file: with a HEAD the index is reset to it, with none the entry is removed.
+        let has_head = run(&["rev-parse", "--verify", "-q", "HEAD"]).is_ok();
+        let _ = if has_head { run(&["reset", "-q", "--", &path]) } else { run(&["rm", "--cached", "--quiet", "--", &path]) };
+    };
+    if let Err(why) = run(&["add", "--", &path]) {
+        unstage();
+        return Err(why);
+    }
+    let author = format!("{} <{}>", name, email);
+    if let Err(why) = run(&["commit", "-q", "-m", &commit_message(issue), "--author", &author, "--only", "--", &path]) {
+        unstage();
+        return Err(why);
+    }
+    let held = run(&["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", "HEAD"])?;
+    Ok(held.lines().map(|line| line.to_string()).collect())
 }
 
 /// Refuses the key `breakdown` of `watchbill.yml` by name (#116). Until revision 0.0.8, `breakdown: none`

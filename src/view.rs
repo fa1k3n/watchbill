@@ -381,10 +381,10 @@ impl Back {
             text.push_str(&format!("not taken: {} {}\n", commit, subject));
         }
         for path in &self.uncommitted {
-            text.push_str(&format!("uncommitted: {}\n", path));
+            text.push_str(&format!("uncommitted: {}\n", crate::issue::shown(path)));
         }
         if let Some(why) = &self.failed {
-            text.push_str(&format!("failed: {}\n", why));
+            text.push_str(&format!("failed: {}\n", crate::issue::shown(why)));
         }
         match kept {
             Some(folder) => text.push_str(&format!("view: kept {}\n", folder.display())),
@@ -462,17 +462,17 @@ fn changes_of(store: &Path, parent: &str, commit: &str) -> Result<Vec<Change>, S
 fn not_allowed(path: &str, changes: &[String], build_files: &[String]) -> Option<String> {
     let found = parts(path);
     if found.first() == Some(&".watchbill") {
-        return Some(format!("{} is under .watchbill/", path));
+        return Some(format!("{} is under .watchbill/", crate::issue::shown(path)));
     }
     if let Some(build) = build_files.iter().find(|build| crate::starter::meet(path, build)) {
-        return Some(format!("{} is under `build_files` of watchbill.yml: {}", path, build));
+        return Some(format!("{} is under `build_files` of watchbill.yml: {}", crate::issue::shown(path), build));
     }
     let inside = changes.iter().any(|entry| {
         let entry = parts(entry);
         !entry.is_empty() && found.len() >= entry.len() && found[..entry.len()] == entry[..]
     });
     if !inside {
-        return Some(format!("{} is outside `changes`", path));
+        return Some(format!("{} is outside `changes`", crate::issue::shown(path)));
     }
     None
 }
@@ -485,7 +485,7 @@ struct Raw {
 
 impl Raw {
     fn subject(&self) -> String {
-        String::from_utf8_lossy(&self.message).lines().next().unwrap_or("").to_string()
+        crate::issue::shown(String::from_utf8_lossy(&self.message).lines().next().unwrap_or(""))
     }
 }
 
@@ -594,7 +594,7 @@ fn commits(root: &str, view: &View, store: &Path, changes: &[String], build_file
         } else {
             let found = changes_of(store, &parent, &commit)?;
             let mut faults: Vec<String> = found.iter().filter_map(|change| not_allowed(&change.path, changes, build_files)).collect();
-            faults.extend(found.iter().filter(|change| change.mode == "160000").map(|change| format!("{} is a submodule", change.path)));
+            faults.extend(found.iter().filter(|change| change.mode == "160000").map(|change| format!("{} is a submodule", crate::issue::shown(&change.path))));
             if faults.is_empty() {
                 wanted.push((commit.clone(), raw, found));
                 parent = commit;
@@ -773,6 +773,11 @@ fn uncommitted(root: &str, store: &Path, view: &Path, head_of_checkout: &str, no
     Ok(found)
 }
 
+/// Paths as `wb` says them, each with its control characters escaped (#167), joined by commas.
+fn shown_all(paths: &[String]) -> String {
+    paths.iter().map(|path| crate::issue::shown(path)).collect::<Vec<_>>().join(", ")
+}
+
 /// How many paths left uncommitted are named on the terminal; the whole list is in the file `back`.
 const SHOWN: usize = 20;
 
@@ -799,14 +804,14 @@ fn said(name: &str, view: &View, back: Back, list: Option<&Path>, err: &mut dyn 
             name,
             back.uncommitted.len(),
             SHOWN,
-            back.uncommitted[..SHOWN].join(", "),
+            shown_all(&back.uncommitted[..SHOWN]),
             place
         );
     } else if !back.uncommitted.is_empty() {
-        let _ = writeln!(err, "{}: left uncommitted in the view, and not taken: {}", name, back.uncommitted.join(", "));
+        let _ = writeln!(err, "{}: left uncommitted in the view, and not taken: {}", name, shown_all(&back.uncommitted));
     }
     if let Some(why) = &back.failed {
-        let _ = writeln!(err, "{}: {}", name, why);
+        let _ = writeln!(err, "{}: {}", name, crate::issue::shown(why));
     }
     back
 }

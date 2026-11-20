@@ -31,8 +31,8 @@ What `wb <role> <issue>` checks, posts and starts. One path for a person and, af
 | WB-BUILD-25 | While the session runs, an interrupt (SIGINT) or a quit (SIGQUIT) sent to `wb <role>` shall not end it, and it shall end with the status that WB-BUILD-6 gives. Issue: #84. | T | Implemented |
 | WB-BUILD-26 | The README shall show a worked `start` for Claude Code and one for goose with an Ollama model, and say that where a `start` leaves out `{model}` or `{effort}`, the stamp's model or effort is not what ran. Issue: #84. | I | Implemented |
 | WB-BUILD-27 | The stamp that `wb <role>` posts shall hold on its line `round:` the round of its first line, for every role, also where the text of the role has no `{round}`. Issue: #136. | T | Implemented |
-| WB-BUILD-28 | `wb review <issue>` and `wb fix <issue>` shall say on standard error, before the stamp is posted, the issue, the change, and whether the change was found from the branch, naming it, or given. Issue: #162. | T | Draft |
-| WB-BUILD-29 | `wb review --change <n>` and `wb fix --change <n>` with no issue shall say the change on standard error before the stamp is posted. Issue: #162. | T | Draft |
+| WB-BUILD-28 | `wb review <issue>` and `wb fix <issue>` shall say on standard error, before the checks, the issue, the change, and whether the change was found from the branch, naming it, or given. Issue: #162. | T | Implemented |
+| WB-BUILD-29 | `wb review --change <n>` and `wb fix --change <n>` with no issue shall say the change on standard error before the checks. Issue: #162. | T | Implemented |
 | WB-BUILD-30 | Before the stamp is posted, for a role that runs in a view, `wb` shall name each path of the view whose file in the working tree differs from `HEAD`, and end with 1. Issue: #172. | T | Draft |
 | WB-BUILD-31 | Before the stamp is posted, for a role that runs in a view, `wb` shall name each untracked file under a path of `changes`, and end with 1. Issue: #172. | T | Draft |
 | WB-BUILD-32 | `--ignore-local` shall let the start go on when every local change is under the role's `reads` only. Issue: #172. | T | Draft |

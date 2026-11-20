@@ -87,7 +87,8 @@ fn test_WB_INIT_39_dash_dash_alone_does_as_no_command() {
     let folder = folder();
     let run = wb(&folder.path, &["--"], "");
     assert_eq!(code(&run), Some(2));
-    assert_eq!(text(&run.stdout), USAGE);
+    assert_eq!(text(&run.stdout), text(&wb(&folder.path, &["help"], "").stdout));
+    assert!(text(&run.stdout).starts_with("usage: wb <command>"), "{}", text(&run.stdout));
     assert_eq!(text(&run.stderr), "");
 }
 

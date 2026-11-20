@@ -384,7 +384,7 @@ impl Back {
             text.push_str(&format!("uncommitted: {}\n", crate::issue::shown(path)));
         }
         if let Some(why) = &self.failed {
-            text.push_str(&format!("failed: {}\n", why));
+            text.push_str(&format!("failed: {}\n", crate::issue::shown(why)));
         }
         match kept {
             Some(folder) => text.push_str(&format!("view: kept {}\n", folder.display())),
@@ -811,7 +811,7 @@ fn said(name: &str, view: &View, back: Back, list: Option<&Path>, err: &mut dyn 
         let _ = writeln!(err, "{}: left uncommitted in the view, and not taken: {}", name, shown_all(&back.uncommitted));
     }
     if let Some(why) = &back.failed {
-        let _ = writeln!(err, "{}: {}", name, why);
+        let _ = writeln!(err, "{}: {}", name, crate::issue::shown(why));
     }
     back
 }

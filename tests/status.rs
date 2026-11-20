@@ -700,7 +700,7 @@ fn test_WB_STATUS_35_one_issue_that_is_not_in_the_flow_is_read_and_said_not_to_b
     git(&folder.path, &["update-ref", "-d", "refs/remotes/origin/issue-41-work"]);
     let (out, status) = stdout(&folder.path, &["status", "41"]);
     assert_eq!(status, Some(0));
-    assert!(out.starts_with("Fixed:\n  41\n\nWorked out from:\n  not in the flow: "), "{}", out);
+    assert!(out.starts_with("Fixed:\n  41\n\nWorked out from:\n  not in the flow: no branch of the issue holds a commit that "), "{}", out);
     assert!(out.contains("[stamp] fix round 1"), "{}", out);
     // The list does not have it.
     assert_eq!(stdout(&folder.path, &["status"]), (String::new(), Some(0)));
@@ -867,4 +867,85 @@ fn test_WB_STATUS_42_an_open_change_does_not_decide_the_step() {
     branch(&folder.path, "3", true);
     let (out, _) = stdout(&folder.path, &["status"]);
     assert_eq!(out, "Built:\n  3  issue-3-work  #7\n");
+}
+
+// ---- An issue that is done under squash merges (#155, the owner's decision of 2026-11-20) ----
+
+/// Squash-merges the issue's branch into the checked-out default branch, and keeps the branch.
+fn squash(folder: &Path, issue: &str) {
+    git(folder, &["merge", "-q", "--squash", &format!("issue-{}-work", issue)]);
+    git(folder, &["commit", "-q", "-m", &format!("Issue {} (#{})", issue, issue)]);
+}
+
+#[test]
+fn test_WB_STATUS_32_a_branch_whose_whole_change_is_a_squash_commit_on_the_default_branch_is_done() {
+    let folder = set_up();
+    for issue in ["41", "42", "43"] {
+        comments(&folder.path, issue, &[]);
+        branch(&folder.path, issue, true);
+    }
+    // 41 is squashed and its branches kept, 42 is squashed and then has one more commit, 43 is not merged.
+    squash(&folder.path, "41");
+    squash(&folder.path, "42");
+    commit_on(&folder.path, "issue-42-work", "later.txt");
+    at_origin(&folder.path, "issue-42-work");
+    let (out, status) = stdout(&folder.path, &["status"]);
+    assert_eq!(status, Some(0));
+    assert_eq!(out, "Accepted:\n  42  issue-42-work\n  43  issue-43-work\n");
+}
+
+#[test]
+fn test_WB_STATUS_32_a_squash_with_another_diff_than_the_branchs_is_not_found_and_the_issue_stays() {
+    let folder = set_up();
+    comments(&folder.path, "41", &[]);
+    branch(&folder.path, "41", true);
+    // The squash commit holds one more file than the branch: its change is not the branch's.
+    git(&folder.path, &["merge", "-q", "--squash", "issue-41-work"]);
+    put(&folder.path, "extra.txt", "edited in the web page\n");
+    git(&folder.path, &["add", "--", "extra.txt"]);
+    git(&folder.path, &["commit", "-q", "-m", "Issue 41 (#41)"]);
+    let (out, _) = stdout(&folder.path, &["status"]);
+    assert_eq!(out, "Accepted:\n  41  issue-41-work\n");
+}
+
+#[test]
+fn test_WB_STATUS_32_a_local_branch_whose_upstream_is_gone_is_done() {
+    let folder = set_up();
+    for issue in ["5", "6", "7"] {
+        comments(&folder.path, issue, &[]);
+        branch(&folder.path, issue, true);
+    }
+    // 5 and 6 follow a branch at origin; at 5 it was deleted (as after `git fetch --prune`), 6 still has it, 7 follows none.
+    for issue in ["5", "6"] {
+        let name = format!("issue-{}-work", issue);
+        git(&folder.path, &["config", &format!("branch.{}.remote", name), "origin"]);
+        git(&folder.path, &["config", &format!("branch.{}.merge", name), &format!("refs/heads/{}", name)]);
+    }
+    git(&folder.path, &["update-ref", "-d", "refs/remotes/origin/issue-5-work"]);
+    let (out, status) = stdout(&folder.path, &["status"]);
+    assert_eq!(status, Some(0));
+    assert_eq!(out, "Accepted:\n  6  issue-6-work\n  7  issue-7-work\n");
+}
+
+#[test]
+fn test_WB_STATUS_32_a_refs_listing_that_fails_ends_with_2_and_lists_nothing() {
+    let folder = set_up();
+    comments(&folder.path, "1", &[]);
+    open(&folder.path, &["1"]);
+    fs::write(folder.path.join(".git/packed-refs"), "garbage\n").unwrap();
+    let run = wb(&folder.path, &["status"], "");
+    assert_eq!(code(&run), Some(2), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).is_empty(), "{}", text(&run.stdout));
+    assert!(text(&run.stderr).starts_with("wb status:"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_STATUS_37_a_malformed_issue_address_does_not_fail_the_list_that_never_runs_it() {
+    let folder = set_up();
+    add_patterns(&folder.path, "issue_address: [one, two]\n");
+    comments(&folder.path, "1", &[]);
+    open(&folder.path, &["1"]);
+    let (out, status) = stdout(&folder.path, &["status"]);
+    assert_eq!(status, Some(0));
+    assert_eq!(out, "Not broken down:\n  1  issue-1-work\n");
 }

@@ -399,7 +399,6 @@ issue_comments: 'gh api repos/example/brake-controller/issues/{issue}/comments -
 change_comment: 'gh pr comment {change} --repo example/brake-controller --body-file -'
 change_comments: 'gh api repos/example/brake-controller/issues/{change}/comments --paginate --jq ''.[].body | split("\n")[0]'''
 change_of_branch: 'gh pr list --repo example/brake-controller --head {branch} --state open --json number --jq ''.[].number'''
-open_issues: 'gh issue list --repo example/brake-controller --state open --limit 1000 --json number,title --jq ''.[] | "\(.number)\t\(.title | gsub("[\n\r]"; " "))"'''
 change_checks: 'gh pr checks {change} --repo example/brake-controller --json bucket --jq ''[.[].bucket] | if length == 0 then "pending" elif any(. == "fail" or . == "cancel") then "red" elif all(. == "pass" or . == "skipping") then "green" else "pending" end'''
 issue_comment_bodies: 'gh api repos/example/brake-controller/issues/{issue}/comments --paginate --jq ''.[] | .body + "\u0000"'''
 change_comment_bodies: 'gh api repos/example/brake-controller/issues/{change}/comments --paginate --jq ''.[] | .body + "\u0000"'''
@@ -409,7 +408,7 @@ draft_change: 'gh pr create --repo example/brake-controller --head {branch} --dr
 - `issue_comment` and `change_comment` post a comment from standard input. `issue_comments` and `change_comments` print the first line of each comment, one to a line. `change_of_branch` prints the numbers of the open changes from `{branch}`, one to a line. At GitHub the comments of a pull request are those of an issue, so `change_comments` reads them the same way.
 - `issue_comment_bodies` and `change_comment_bodies` print each comment whole, followed by a NUL byte. One line break straight after a NUL is not read as part of the next comment: `gh --jq` and `jq -r` print one. `wb answer` reads them ([Answering the questions](#answering-the-questions)); no role needs them.
 - `draft_change` is the command that opens the change of `{branch}` as a draft, its title and description filled from the commits. `wb build` says it, filled, after a session; it never runs it.
-- `open_issues` prints the open issues, one to a line: the number, a tab and the title, with a line break in a title written as a space. For GitHub it stops at 1000 open issues. `wb status` reads it ([Where each issue stands](#where-each-issue-stands)); no role needs it.
+- `open_issues` is no longer read (#155): `wb init` does not write it, and a line that is there is passed over. Listing the tracker's issues is the tracker's own program's job.
 - Each is one line for `/bin/sh -c`, run in the root of the checkout, as an agent runs the addresses. The values filled in (`{issue}`, `{change}`, `{branch}`) are plain names, as for the addresses. A value given that is not is refused with 2, by its option. A branch worked out that is not is refused with 1, saying to give `--change`.
 - A repository set up before these lines, or with another server, adds them by hand. Without them, `wb prompt` asks for `--change` and `--round` as before, and `wb <role>` is refused, naming the line it needs.
 - `wb <role>` asks nothing of the network but through these lines and the runner's `start`.
@@ -422,7 +421,6 @@ issue_comments: 'glab api --hostname gitlab.example.com projects/brakes%2Fcontro
 change_comment: 'glab api --hostname gitlab.example.com --method POST projects/brakes%2Fcontroller/merge_requests/{change}/notes -F body=@-'
 change_comments: 'glab api --hostname gitlab.example.com projects/brakes%2Fcontroller/merge_requests/{change}/notes --paginate --output ndjson | jq -r ''select(.system == false) | .body | split("\n")[0]'''
 change_of_branch: 'glab mr list --repo https://gitlab.example.com/brakes/controller --source-branch {branch} -F json --jq ''.[].iid'''
-open_issues: 'glab api --hostname gitlab.example.com ''projects/brakes%2Fcontroller/issues?state=opened&per_page=100'' --paginate --output ndjson | jq -r ''"\(.iid)\t\(.title | gsub("[\n\r]"; " "))"'''
 issue_address: 'glab issue view {issue} --repo https://gitlab.example.com/brakes/controller --comments'
 change_address: 'glab mr view {change} --repo https://gitlab.example.com/brakes/controller --comments'
 change_checks: 'glab api --hostname gitlab.example.com projects/brakes%2Fcontroller/merge_requests/{change} | jq -r ''if (.iid | type) != "number" then error("not a merge request") else (.head_pipeline.status // "none") as $s | if $s == "success" then "green" elif $s == "failed" or $s == "canceled" then "red" else "pending" end end'''
@@ -518,20 +516,20 @@ Each command posts its stamp and starts its session. The person answers the ques
 
 ## Where each issue stands
 
-`wb status` lists the issues in the flow under headings, as `git status` lists files under theirs: each issue under the last step it has done, with its title. It only reads, and it says what is, never what to do. It runs anywhere inside the repository.
+`wb status` lists the issues in the flow under headings, as `git status` lists files under theirs: each issue under the last step it has done, with its branch. It only reads, and it says what is, never what to do. It runs anywhere inside the repository.
 
 ```
 Not broken down:
-  178  howl export takes a range of dates
+  178  issue-178
 
 Broken down:
-  176  The page shows how old the ledger is
+  176  issue-176  #181  2 not pushed
 
 Accepted:
-  175  An event says where its task came from
+  175  issue-175-event-source  #180
 
 Reviewed:
-  177  A review round is counted the same everywhere
+  177  issue-177
 
 Questions open:
   176  176.q1, 176.q2
@@ -551,10 +549,12 @@ Questions open:
 - **Who answered.** `issue_comments` prints the first line of each comment and no author, so `wb` cannot yet tell an answer of a person from another. Until it reads who wrote a comment (#83), each `[answers]` and `[answer]` line counts as a person's; a line that starts with `[question]` or `[questions]` is never an answer. It reads first lines only, so an answer below the first line of a comment is not seen, which errs towards "open"; and a choice number is not held against the choices of the question (`wb answer` holds it when it posts): `[answer] 5.q1 7` closes `5.q1` whatever its choices are.
 - **Without `issue_comments`** in `watchbill.yml` no stamp, question or answer is read, so each issue is at `Accepted` or below; `wb status` says so once on standard error.
 - **Which issues, and their titles:** the open issues from the pattern `open_issues` of `watchbill.yml` ([The patterns](#the-patterns)), one to a line: number, a tab, title. `wb init` writes it for a GitHub and a GitLab `origin`. Without it, the issues are those with a branch of the pattern `branch` (local or at `origin`) or a file under `.watchbill/issues/`, with no title. A title is printed escaped: control characters, line and paragraph separators, bidi controls and the backslash are written as escapes (#167). A line of `open_issues` whose first field is not a plain issue name is listed under `Not read`.
-- **`wb status <issue>`** prints that issue's heading and line and, under them, `Worked out from:` and the lines it was worked out from: its stamps, questions and answers, and the branch and files it found.
+- **An issue that is done** is not listed, also when its file is on the default branch. Its branch is done when it is merged into the default branch; or when its whole change is one commit on it, found by `git patch-id --stable` of the diff from the merge base to the branch against each commit since the merge base (a squash merge, as a pull request is merged); or when it is a local branch whose upstream at `origin` is gone, as after `git fetch --prune`. The limits: a squash whose diff differs from the branch's (a branch not brought up to date with the default branch, or a squash edited at the server) is not found, and the issue stays listed; an issue merged since the last fetch stays listed until a fetch, and a branch that is only on the server shows once it is fetched.
+- **The line of an issue:** its number, its branch and, once there is one, its open change from `change_of_branch` as `#<n>`; where the local branch holds commits that the branch at `origin` does not (or `origin` has none of that name), how many: `129  issue-129  #178  1 not pushed`. It says what is, never what to run. No title is printed in the list. A branch with no issue's file on it yet is under `Not broken down`.
+- **`wb status <issue>`** prints that issue whatever its state, with its title (the first line of `issue_address`, escaped) last on its line, and under it `Worked out from:` and the lines it was worked out from: its stamps, questions and answers, and the branch and files it found. An issue that is not in the flow has the line `not in the flow: ...` first.
 - **`wb status --stage <heading>`** prints only that heading, for example `wb status --stage "not broken down"`. The names are matched without regard to case; `Questions open` and `Not read` too. A name that is not known is used wrongly.
-- **What it reads:** the issue's file and its acceptance from the branch with `git show`, never by switching branches, and the comments through `issue_comments`. It writes nothing, and asks the network only through `open_issues` and `issue_comments`.
-- **The exit status:** 0 when every issue could be read; 1 when a pattern failed for an issue (it is listed last, under `Not read`, with why; the others are printed), or `open_issues` itself failed; 2 when it was used wrongly or Watchbill is not set up.
+- **What it reads:** the branches with git, the issue's file and its acceptance from the branch with `git show`, never by switching branches, and the comments through `issue_comments` and the change through `change_of_branch`, each once for each issue listed (`issue_address` for one issue). It writes nothing, and asks the network only through those patterns.
+- **The exit status:** 0 when every issue could be read; 1 when a pattern failed for an issue (it is listed last, under `Not read`, with why; the others are printed); 2 when it was used wrongly, Watchbill is not set up, or no default branch is found.
 - **It is not a dashboard** ([Not goals](#not-goals)): a list in the terminal, of now, for one repository. The sessions that run on this machine are for #140.
 
 ## Answering the questions

@@ -1276,14 +1276,14 @@ fn test_WB_VIEW_33_a_path_under_a_file_entry_of_changes_is_refused_named_and_not
     let bench = bench();
     let head = bench.head();
     bench.session("mkdir src/new.c && echo x > src/new.c/x && git add src/new.c/x && git commit -q -m 'Under a new file'\n");
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
     refused_back(&bench, &run, &head, &["src/new.c/x", "Under a new file", "outside `changes`"]);
 
     // `src/brake.c` is a file in HEAD: it is taken out and a folder put in its place.
     let bench = self::bench();
     let head = bench.head();
     bench.session("git rm -q src/brake.c && mkdir src/brake.c && echo x > src/brake.c/x && git add src/brake.c/x && git commit -q -m 'A folder for a file'\n");
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
     refused_back(&bench, &run, &head, &["src/brake.c/x", "A folder for a file"]);
 }
 
@@ -1313,7 +1313,7 @@ fn test_WB_VIEW_33_a_folder_in_head_and_a_new_path_ending_in_a_slash_cover_the_p
         "mkdir -p src/a docs/deep && echo 'int b;' > src/a/b.c && echo x > docs/deep/y.md\n\
          git add src/a/b.c docs/deep/y.md && git commit -q -m 'Under folders'\n",
     );
-    ok(&bench.start(&["build", "54"]));
+    ok(&bench.start(&["start", "build", "54"]));
     assert_eq!(bench.git_text(&["log", "--format=%s", &format!("{}..HEAD", head)]), "Under folders\n");
     assert_eq!(read(&bench.repo.path.join("src/a/b.c")), "int b;\n");
     assert_eq!(read(&bench.repo.path.join("docs/deep/y.md")), "x\n");
@@ -1327,14 +1327,14 @@ fn test_WB_VIEW_33_a_new_path_without_a_slash_is_a_file_and_covers_itself_only()
     let bench = bench_for(FOLDERS);
     let head = bench.head();
     bench.session("echo x > notes && git add notes && git commit -q -m 'The file'\nmkdir -p other && echo y > other/z && git add other/z && git commit -q -m 'Elsewhere'\n");
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
     assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
     assert_eq!(bench.git_text(&["log", "--format=%s", &format!("{}..HEAD", head)]), "The file\n");
 
     let bench = bench_for(FOLDERS);
     let head = bench.head();
     bench.session("rm -f notes && mkdir notes && echo x > notes/z && git add notes/z && git commit -q -m 'Below a new file'\n");
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
     refused_back(&bench, &run, &head, &["notes/z", "Below a new file"]);
 }
 
@@ -1362,7 +1362,7 @@ fn test_WB_VIEW_34_a_path_with_a_part_dot_git_in_any_case_is_refused_named_and_n
             plumbed(parent, name, "A git folder")
         };
         bench.session(&body);
-        let run = bench.start(&["build", "54"]);
+        let run = bench.start(&["start", "build", "54"]);
         refused_back(&bench, &run, &head, &[path, "A git folder", "git does not take"]);
     }
 }
@@ -1431,14 +1431,14 @@ fn test_WB_VIEW_35_a_commit_whose_taken_tree_differs_from_the_view_s_is_refused_
     let bench = bench();
     let head = bench.head();
     bench.session(odd);
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
     refused_back(&bench, &run, &head, &["A name twice"]);
 
     // The commits before it are taken, as before a commit refused for its paths.
     let bench = self::bench();
     let head = bench.head();
     bench.session(&format!("echo 'int a;' > src/brake.c && git commit -q -a -m 'First, kept'\n{}", odd));
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
     assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
     assert!(text_of(&run.stderr).contains("A name twice"), "{}", text_of(&run.stderr));
     assert_eq!(bench.git_text(&["log", "--format=%s", &format!("{}..HEAD", head)]), "First, kept\n");
@@ -1469,7 +1469,7 @@ fn test_WB_VIEW_33_an_entry_that_is_a_file_in_head_covers_that_path_only_also_wh
     let bench = bench_for(SLASHED);
     let head = bench.head();
     bench.session("git rm -q src/brake.c && mkdir src/brake.c && echo x > src/brake.c/x && git add src/brake.c/x && git commit -q -m 'A folder for a file'\n");
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
     refused_back(&bench, &run, &head, &["src/brake.c/x", "A folder for a file"]);
 }
 
@@ -1497,7 +1497,7 @@ fn test_WB_VIEW_35_a_tree_with_a_name_twice_one_copy_as_in_head_is_refused_named
     let bench = bench();
     let head = bench.head();
     bench.session(&odd_src(body, "Brake twice"));
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
     refused_back(&bench, &run, &head, &["Brake twice"]);
 }
 
@@ -1513,7 +1513,7 @@ fn test_WB_VIEW_35_a_tree_with_a_mode_git_rewrites_is_refused_named_and_not_put_
     let bench = bench();
     let head = bench.head();
     bench.session(&odd_src(body, "A mode git rewrites"));
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
     refused_back(&bench, &run, &head, &["A mode git rewrites"]);
 }
 

@@ -40,6 +40,75 @@ pub fn paths(issue: &crate::issue::Issue, role: &str) -> Vec<String> {
     found
 }
 
+/// A local change that a view would miss (#172): a path of the view whose file in the working tree differs from
+/// `HEAD`, or an untracked file under a path of `changes`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Local {
+    pub path: String,
+    /// It is under a path of `changes`, and no flag passes it. Otherwise it is under `reads` only.
+    pub changes: bool,
+}
+
+/// Whether `path` is `listed` or lies under it.
+fn under(path: &str, listed: &str) -> bool {
+    let listed = listed.trim_end_matches('/');
+    path == listed || path.strip_prefix(listed).is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// The local changes the view of `role` would miss, sorted: a view is made from `HEAD`, so a file of its paths that
+/// is changed, staged or deleted in the working tree, and an untracked file under a path of `changes`, would
+/// not be in it. Reads only. Each path is as the working tree says it, not escaped.
+pub fn local_changes(root: &str, issue: &crate::issue::Issue, role: &str) -> Result<Vec<Local>, String> {
+    let listed = paths(issue, role);
+    let root = Path::new(root);
+    let split = |output: Vec<u8>| -> Vec<String> {
+        output.split(|byte| *byte == 0).filter(|name| !name.is_empty()).map(|name| String::from_utf8_lossy(name).to_string()).collect()
+    };
+    let mut command: Vec<&str> = vec!["--literal-pathspecs", "diff", "HEAD", "--name-only", "-z", "--"];
+    command.extend(listed.iter().map(String::as_str));
+    let mut names = split(git(root, &command, &[], None)?);
+    if !issue.changes.is_empty() {
+        let mut command: Vec<&str> = vec!["--literal-pathspecs", "ls-files", "--others", "--exclude-standard", "-z", "--"];
+        command.extend(issue.changes.iter().map(String::as_str));
+        names.extend(split(git(root, &command, &[], None)?));
+    }
+    names.sort();
+    names.dedup();
+    Ok(names
+        .into_iter()
+        .map(|path| {
+            let changes = issue.changes.iter().any(|listed| under(&path, listed));
+            Local { path, changes }
+        })
+        .collect())
+}
+
+/// What the start says of local changes it refuses (#172), after `wb start <role>:`. `ignore` is whether
+/// `--ignore-local` was given.
+pub fn local_message(found: &[Local], ignore: bool) -> String {
+    let list = |changes: bool| -> String {
+        found.iter().filter(|local| local.changes == changes).map(|local| crate::issue::shown(&local.path)).collect::<Vec<_>>().join(", ")
+    };
+    let (changes, reads) = (list(true), list(false));
+    let mut text = String::from(
+        "a local change to a file of the view stops the start. This is a guard: the view is made from HEAD, and a session in it would not see the change",
+    );
+    if !changes.is_empty() {
+        text.push_str(&format!("\n  changes: {}", changes));
+    }
+    if !reads.is_empty() {
+        text.push_str(&format!("\n  reads: {}", reads));
+    }
+    if changes.is_empty() {
+        text.push_str("\nCommit or put the change away, or give --ignore-local to start without it: the session sees HEAD");
+    } else if ignore {
+        text.push_str("\nA local change under changes cannot be overridden, with --ignore-local or otherwise: the session's commits would not come back over it. Commit it or put it away");
+    } else {
+        text.push_str("\nA local change under changes cannot be overridden: commit it or put it away. --ignore-local passes a change under reads only");
+    }
+    text
+}
+
 /// The list of paths as the session folder holds it and the stamp hashes it: one to a line.
 pub fn list(paths: &[String]) -> String {
     paths.iter().map(|path| format!("{}\n", path)).collect()

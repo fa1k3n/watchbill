@@ -479,6 +479,8 @@ struct Words {
     /// `--prompt` of `wb start <role>`: print the prompt, as `wb prompt` does.
     print: bool,
     runner: Option<String>,
+    /// `--ignore-local` of `wb start <role>`: a local change under `reads` does not stop the start (#172).
+    ignore_local: bool,
 }
 
 impl Words {
@@ -505,7 +507,7 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
     let mut role: Option<String> = role.map(str::to_string);
     let mut issue_word: Option<String> = None;
     let mut values: Vec<(&'static str, String)> = Vec::new();
-    let (mut parts, mut stamp, mut print) = (false, false, false);
+    let (mut parts, mut stamp, mut print, mut ignore_local) = (false, false, false, false);
     let mut runner: Option<String> = None;
     loop {
         let found = match next(parser) {
@@ -514,10 +516,11 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
             Err(refused) => return Err(used(err, name, &format!("'{}' is not known", refused))),
         };
         match found {
-            Word::Long(option) if option == "parts" || option == "stamp" || (starter && option == "prompt") => {
+            Word::Long(option) if option == "parts" || option == "stamp" || (starter && (option == "prompt" || option == "ignore-local")) => {
                 let flag = match option.as_str() {
                     "parts" => &mut parts,
                     "stamp" => &mut stamp,
+                    "ignore-local" => &mut ignore_local,
                     _ => &mut print,
                 };
                 if *flag {
@@ -609,7 +612,7 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
             return Err(used(err, name, &why));
         }
     }
-    Ok(Words { role, values, parts, stamp, print, runner })
+    Ok(Words { role, values, parts, stamp, print, runner, ignore_local })
 }
 
 /// A prompt handed out: the values it was filled with, what was put together, and what was read for it.
@@ -780,7 +783,7 @@ fn now() -> Result<u64, String> {
 
 /// The stamp of what is handed out (`docs/revision.md`, point 12), as `wb prompt --stamp` prints it, with the
 /// time `seconds`, as `now` gives it.
-fn stamp_of(role: &str, handed: &Handed, runner: &str, seconds: Result<u64, String>) -> Result<String, String> {
+fn stamp_of(role: &str, handed: &Handed, runner: &str, local: Option<usize>, seconds: Result<u64, String>) -> Result<String, String> {
     let model = model_of(role, handed.cleared.as_ref())?;
     let revision = manifest::revision_hash(manifest::PACKAGE_FOLDER).map_err(|why| why.to_string())?;
     let time = prompt::utc(seconds?);
@@ -790,6 +793,7 @@ fn stamp_of(role: &str, handed: &Handed, runner: &str, seconds: Result<u64, Stri
     };
     let said = prompt::Stamp {
         view: &view,
+        local,
         role,
         model: &model.model,
         effort: &model.effort,
@@ -803,6 +807,13 @@ fn stamp_of(role: &str, handed: &Handed, runner: &str, seconds: Result<u64, Stri
     Ok(prompt::stamp(&said, &given, &handed.found))
 }
 
+/// The local changes the view of a session of `role` would miss (#172): none looked for where the session runs
+/// without a view.
+fn local_of(role: &str, handed: &Handed, root: &str) -> Option<Result<Vec<view::Local>, String>> {
+    let file = handed.file.as_ref()?;
+    issue::ROLES.contains(&role).then(|| view::local_changes(root, &file.issue, role))
+}
+
 /// The paths of the view a session of `role` runs in (#126): those of the issue's file for the role, when the
 /// role is one the file lists paths for and a file is used. `None`: the session runs without a view, as the
 /// breakdown, which reads the whole code by its role, and a role started with no issue's file (#116) do.
@@ -814,7 +825,7 @@ fn view_paths(role: &str, handed: &Handed) -> Option<Vec<String>> {
 /// Prints what was handed out, as `wb prompt` prints it: the stamp, the parts, or the text.
 fn print(name: &str, words: &Words, handed: &Handed, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     if words.stamp {
-        match stamp_of(&words.role, handed, words.runner.as_deref().unwrap_or_default(), now()) {
+        match stamp_of(&words.role, handed, words.runner.as_deref().unwrap_or_default(), None, now()) {
             Ok(text) => {
                 let _ = out.write_all(text.as_bytes());
             }
@@ -968,10 +979,17 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         }
     };
     let root = handed.root.as_str();
+    // The local changes the view would miss (#172), looked at now so that the stamp says what is ignored; they stop
+    // the start at the view's check, below.
+    let local = local_of(role, &handed, root);
+    let ignored = match &local {
+        Some(Ok(found)) if words.ignore_local && !found.is_empty() && found.iter().all(|local| !local.changes) => Some(found.len()),
+        _ => None,
+    };
     // The stamp, as it will be posted; made now, so that a start refused before it is posted leaves it.
     let round = value_of(&handed.values, "round").map(str::to_string);
     let stamp = match &round {
-        Some(round) => stamp_of(role, &handed, &runner, seconds).map(|stamp| format!("[stamp] {} round {}\n{}", role, round, stamp)),
+        Some(round) => stamp_of(role, &handed, &runner, ignored, seconds).map(|stamp| format!("[stamp] {} round {}\n{}", role, round, stamp)),
         None => Err("no round was given or worked out. Give --round".to_string()),
     };
     let refused = |lines: &mut sessions::Lines, err: &mut dyn Write, check: &'static str, why: &str| {
@@ -1083,8 +1101,16 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
             }
         }
     }
-    // 7. The view (#126): a session of an issue with an accepted file runs in one, in bubblewrap. Its binds, the
-    // sandbox and the view itself are made sure of before anything is posted.
+    // 7. The view (#126): a session of an issue with an accepted file runs in one, in bubblewrap. A local change to
+    // a file of it stops the start (#172) before its binds, the sandbox and the view itself are made sure of; none
+    // of it is posted.
+    match &local {
+        Some(Err(why)) => return refused(&mut lines, err, "local", &format!("the local changes to the view could not be looked at: {}", why)),
+        Some(Ok(found)) if !found.is_empty() && ignored.is_none() => {
+            return refused(&mut lines, err, "local", &view::local_message(found, words.ignore_local));
+        }
+        _ => {}
+    }
     let paths = view_paths(role, &handed);
     let mut prepared: Option<Prepared> = None;
     if let Some(paths) = &paths {
@@ -1121,6 +1147,10 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     lines.open(Some(stamp), err);
     if let Some(paths) = &paths {
         lines.write("view", &view::list(paths), err);
+    }
+    if let (Some(Ok(found)), Some(_)) = (&local, ignored) {
+        let named: String = found.iter().map(|local| format!("{}\n", issue::shown(&local.path))).collect();
+        lines.write("local", &named, err);
     }
     let _ = write!(err, "{}: will post on {} {}, by `{}` of watchbill.yml:\n{}", name, word, on, post, stamp);
     match starter::run(root, post, &line.replace(&format!("{{{}}}", word), &on), Some(stamp.as_bytes())) {

@@ -275,12 +275,13 @@ fn test_WB_VIEW_1_the_view_holds_only_the_listed_paths_as_in_head_in_one_commit_
         return;
     }
     let bench = bench();
-    // A change in the checkout that is not committed is not in the view: the view is HEAD's.
-    put(&bench.repo.path, "src/brake.c", "int brake(void) { return 9; }\n");
+    // A change in the checkout that is not committed is not in the view: the view is HEAD's. A change under
+    // `reads` is let by `--ignore-local` (#172); one under `changes` stops the start.
+    put(&bench.repo.path, "src/brake.h", "int brake(int);\n");
     bench.session(
         "git ls-files > {log}/files\n\
          find . -path ./.git -prune -o -type f -print | sort > {log}/found\n\
-         cat src/brake.c > {log}/brake\n\
+         cat src/brake.h > {log}/brake\n\
          git rev-list --all --count > {log}/count\n\
          git remote > {log}/remotes\n\
          git cat-file --batch-all-objects --batch-check='%(objecttype) %(objectname)' > {log}/objects\n",
@@ -292,13 +293,13 @@ fn test_WB_VIEW_1_the_view_holds_only_the_listed_paths_as_in_head_in_one_commit_
     let older = bench.git_text(&["rev-parse", "HEAD~1:src/secret.c"]).trim().to_string();
     let commits = bench.git_text(&["rev-list", "--all"]);
 
-    ok(&bench.start(&["start", "build", "54"]));
+    ok(&bench.start(&["start", "build", "54", "--ignore-local"]));
 
     let listed = "include/a.h\ninclude/b.h\nsrc/brake.c\nsrc/brake.h\ntests/test_brake.c\n";
     assert_eq!(bench.left("files"), listed);
     let found: String = listed.lines().map(|path| format!("./{}\n", path)).collect();
     assert_eq!(bench.left("found"), found);
-    assert_eq!(bench.left("brake"), "int brake(void) { return 1; }\n");
+    assert_eq!(bench.left("brake"), "int brake(void);\n");
     assert_eq!(bench.left("count").trim(), "1");
     assert_eq!(bench.left("remotes"), "");
     let objects = bench.left("objects");

@@ -4,6 +4,8 @@
 #   sudo dnf install build/rpm/RPMS/$(uname -m)/watchbill-[0-9]*.rpm
 # Needs: rpm-build git-core cargo rust cargo-rpm-macros rust-yaml-rust2-devel rust-sha2-devel rust-lexopt-devel
 # On Enterprise Linux 9 cargo-rpm-macros and the crates are in EPEL.
+# In a container image of Fedora, which leaves out the documents of a package (tsflags=nodocs), install
+# them with --setopt=tsflags= : a crate includes its README.md, which is a document.
 set -eu
 
 here=$(cd "$(dirname "$0")/.." && pwd)

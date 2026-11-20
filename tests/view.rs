@@ -1432,7 +1432,7 @@ fn test_WB_VIEW_35_a_commit_whose_taken_tree_differs_from_the_view_s_is_refused_
     let head = bench.head();
     bench.session(odd);
     let run = bench.start(&["build", "54"]);
-    refused_back(&bench, &run, &head, &["A name twice", "differs"]);
+    refused_back(&bench, &run, &head, &["A name twice"]);
 
     // The commits before it are taken, as before a commit refused for its paths.
     let bench = self::bench();

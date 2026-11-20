@@ -35,11 +35,7 @@ pub const USAGE: &str = "usage:
             [--requirements <text>] [--round <text>] [--checkout <text>]
             [--branch <text>] [--issue_address <text>]
             [--change_address <text>] [--runner <name>] [--parts] [--stamp]
-  wb breakdown <issue> [--runner <name>] [--prompt] [the options of prompt]
-  wb tester <issue> [--runner <name>] [--prompt] [the options of prompt]
-  wb build <issue> [--runner <name>] [--prompt] [the options of prompt]
-  wb review [<issue>] [--runner <name>] [--prompt] [the options of prompt]
-  wb fix [<issue>] [--runner <name>] [--prompt] [the options of prompt]
+  wb start <role> [<issue>] [--runner <name>] [--prompt] [the options of prompt]
   wb revision
   wb accept <issue> [--no-commit]
   wb status [<issue>] [--stage <heading>]
@@ -83,8 +79,10 @@ pub const USAGE: &str = "usage:
             file, and --parts adds the level and the runner. Ends with 0 when
             the prompt is printed, 1 when it is refused, 2 when it was used
             wrongly or the repository is not set up. Writes nothing
-  breakdown, tester, build, review, fix
-            start a session of the role: check what prompt checks, that a fix
+  start     start a session of one role, breakdown, tester, build, review or
+            fix: the role is the word after start. The issue is needed by
+            all but the review and the fix, which may be given --change
+            and no issue. It checks what prompt checks, that a fix
             follows a review, that no classed code is in its way (classed: of
             watchbill.yml), that the runner has start in the organisation's
             file, and that standard input and output are a terminal; then say
@@ -249,6 +247,7 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
         Ok(Some(Word::Value(value))) => match value.to_str() {
             Some(name @ ("help" | "init" | "check" | "prompt" | "revision" | "accept" | "status" | "revert" | "answer")) => name.to_string(),
             Some(name) if STARTED.contains(&name) => name.to_string(),
+            Some("start") => "start".to_string(),
             _ => {
                 let _ = write!(err, "wb: no command '{}'\n\n{}", word(value.as_bytes()), USAGE);
                 return 2;
@@ -276,7 +275,7 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
         "status" => run_status(&mut parser, out, err),
         "revert" => run_revert(&mut parser, err),
         "answer" => run_answer(&mut parser, input, out, err),
-        role if STARTED.contains(&role) => {
+        "start" => {
             use std::io::IsTerminal;
             let terminal = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
             let state = sessions::state_folder();
@@ -288,8 +287,10 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
                 sandbox: Path::new(view::BWRAP),
                 home: home.as_deref(),
             };
-            run_start(role, &mut parser, None, &machine, out, err)
+            run_start_word(&mut parser, None, &machine, out, err)
         }
+        // `wb <role>` was the form before `wb start <role>` (#175).
+        _ if STARTED.contains(&command.as_str()) => old_form(args, err),
         _ => run_revision(&mut parser, Path::new(manifest::PACKAGE_FOLDER), out, err),
     }
 }
@@ -401,14 +402,12 @@ fn home_folder() -> Option<std::path::PathBuf> {
     std::env::var_os("HOME").map(std::path::PathBuf::from).filter(|path| path.is_absolute())
 }
 
-/// `wb <role>`, as `start` runs it, on the machine `machine` says.
+/// `wb start <role>`, as `start` runs it, on the machine `machine` says.
 pub fn start_on(args: &[OsString], folder: &Path, machine: &Machine, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let mut parser = Parser::from_args(args.iter().cloned());
     match next(&mut parser) {
-        Ok(Some(Word::Value(value))) if value.to_str().is_some_and(|role| STARTED.contains(&role)) => {
-            let role = word(value.as_bytes());
-            run_start(&role, &mut parser, Some(folder), machine, out, err)
-        }
+        Ok(Some(Word::Value(value))) if value.to_str() == Some("start") => run_start_word(&mut parser, Some(folder), machine, out, err),
+        Ok(Some(Word::Value(value))) if value.to_str().is_some_and(|role| STARTED.contains(&role)) => old_form(args, err),
         _ => {
             let _ = write!(err, "wb: no command '{}'\n\n{}", word(args.first().map(|arg| arg.as_bytes()).unwrap_or_default()), USAGE);
             2
@@ -416,7 +415,32 @@ pub fn start_on(args: &[OsString], folder: &Path, machine: &Machine, out: &mut d
     }
 }
 
-/// The roles that are commands of their own: `wb <role>` starts a session of the role (#84).
+/// `wb start <role> …`: the word after `start` is the role, or the start is refused with 2, naming the roles.
+fn run_start_word(parser: &mut Parser, folder: Option<&Path>, machine: &Machine, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let roles = STARTED.join(", ");
+    match next(parser) {
+        Ok(Some(Word::Value(value))) if value.to_str().is_some_and(|role| STARTED.contains(&role)) => {
+            let role = word(value.as_bytes());
+            run_start(&role, parser, folder, machine, out, err)
+        }
+        Ok(None) => used(err, "wb start", &format!("a role is needed: {}", roles)),
+        Ok(Some(found)) => {
+            let given = named(found, parser);
+            used(err, "wb start", &format!("'{}' is not a role of the revision: {}", given.escape_debug(), roles))
+        }
+        Err(given) => used(err, "wb start", &format!("'{}' is not a role of the revision: {}", given.escape_debug(), roles)),
+    }
+}
+
+/// `wb <role> …`, which `wb start <role> …` replaced (#175): ends with 2 and says the new form, with the words
+/// as they were given.
+fn old_form(args: &[OsString], err: &mut dyn Write) -> i32 {
+    let words: Vec<String> = args.iter().map(|arg| word(arg.as_bytes())).collect();
+    let _ = writeln!(err, "wb: {} is not a command any more: use: wb start {}", words[0], words.join(" "));
+    2
+}
+
+/// The roles that `wb start` starts a session of (#84, #175).
 const STARTED: [&str; 5] = ["breakdown", "tester", "build", "review", "fix"];
 
 /// Says that a command was used wrongly, then the usage, and gives 2.
@@ -837,7 +861,7 @@ fn refusal_in(name: &str, said: &[u8]) -> String {
 /// or as it would have been, the outcome (`sessions`), and for a view `view` and `back`.
 fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &Machine, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let (organisation, terminal, state) = (machine.organisation, machine.terminal, machine.state);
-    let name = format!("wb {}", role);
+    let name = format!("wb start {}", role);
     let name = name.as_str();
     let mut words = match read_words(parser, name, Some(role), err) {
         Ok(words) => words,

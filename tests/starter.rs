@@ -241,9 +241,9 @@ fn same_as_prompt(bench: &Bench, role: &str, words: &[&str]) {
     assert_ne!(code(&by_prompt), Some(0), "{:?}: wb prompt did not refuse", words);
     assert_eq!(code(&by_start), code(&by_prompt), "{:?}: {}", words, text(&by_start.stderr));
     assert_eq!(text(&by_start.stdout), "");
-    let said = text(&by_prompt.stderr).replace("wb prompt:", &format!("wb {}:", role));
+    let said = text(&by_prompt.stderr).replace("wb prompt:", &format!("wb start {}:", role));
     // The line that names the folder of the start's lines is the one WB-MON-2 asks for, in addition (#124).
-    let folder = format!("wb {}: will write the lines of this start in ", role);
+    let folder = format!("wb start {}: will write the lines of this start in ", role);
     let by_start: String = text(&by_start.stderr).lines().filter(|line| !line.starts_with(&folder)).map(|line| format!("{}\n", line)).collect();
     assert_eq!(by_start, said, "{:?}", words);
     assert!(!bench.any_posted() && !bench.started(), "{:?}: {:?}", words, bench.calls());
@@ -503,10 +503,10 @@ fn test_WB_BUILD_8_prompt_prints_what_wb_prompt_prints_and_posts_and_starts_noth
         let mut started = words.to_vec();
         started.push("--prompt");
         let by_start = bench.start(false, &started);
-        let by_prompt = bench.prompt(words);
+        let by_prompt = bench.prompt(&words[1..]);
         ok(&by_start);
         assert_eq!(text(&by_start.stdout), text(&by_prompt.stdout), "{:?}", words);
-        assert_eq!(text(&by_start.stderr), text(&by_prompt.stderr).replace("wb prompt:", &format!("wb {}:", words[0])), "{:?}", words);
+        assert_eq!(text(&by_start.stderr), text(&by_prompt.stderr).replace("wb prompt:", &format!("wb start {}:", words[1])), "{:?}", words);
     }
     assert!(!bench.any_posted() && !bench.started(), "{:?}", bench.calls());
 }
@@ -547,8 +547,10 @@ fn test_WB_BUILD_8_the_program_takes_each_role_as_a_command() {
 
 #[test]
 fn test_WB_BUILD_8_the_usage_names_the_commands_of_the_roles() {
+    assert!(USAGE.contains("wb start <role> "), "{}", USAGE);
     for role in ["breakdown", "tester", "build", "review", "fix"] {
-        assert!(USAGE.contains(&format!("wb {} ", role)), "{}", role);
+        assert!(USAGE.contains(role), "{}", role);
+        assert!(!USAGE.contains(&format!("wb {} ", role)), "{}", role);
     }
 }
 

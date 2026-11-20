@@ -728,7 +728,7 @@ fn test_WB_BUILD_13_the_round_and_the_change_and_where_they_came_from_are_said_b
     ok(&run);
     let err = text(&run.stderr);
     let worked = err.find("round 2 (1 review stamp on issue 54)").unwrap_or_else(|| panic!("{}", err));
-    let change = err.find("change 174 (the one open change from issue-54)").unwrap_or_else(|| panic!("{}", err));
+    let change = err.find("issue 54, change 174 (from the branch issue-54)").unwrap_or_else(|| panic!("{}", err));
     let post = err.find("will post").unwrap();
     assert!(worked < post && change < post, "{}", err);
 }
@@ -1622,4 +1622,77 @@ fn test_WB_BUILD_38_a_role_that_is_not_known_after_start_ends_with_2_and_names_t
         }
         assert!(!bench.any_posted() && !bench.started(), "{:?}", bench.calls());
     }
+// ---- WB-BUILD-28 and 29: the change is said, and from where (#162) ----
+
+/// The lines of standard error that say a change: `wb start <role>: ` and then `issue ` or `change ` and a number.
+fn change_lines(err: &str) -> Vec<&str> {
+    err.lines().filter(|line| line.contains(": change ") || line.contains(": issue ")).filter(|line| line.contains(", change ") || line.contains(": change ")).collect()
+}
+
+#[test]
+fn test_WB_BUILD_28_a_review_says_the_issue_and_the_change_found_from_the_branch_once_before_the_checks() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    let run = bench.start(true, &["start", "review", "54"]);
+    ok(&run);
+    let err = text(&run.stderr);
+    let said = err.find("issue 54, change 174 (from the branch issue-54)").unwrap_or_else(|| panic!("{}", err));
+    assert!(said < err.find("will write the lines").unwrap_or(usize::MAX), "{}", err);
+    assert!(said < err.find("will post").unwrap(), "{}", err);
+    assert_eq!(change_lines(&err).len(), 1, "{}", err);
+    assert!(!err.contains("the one open change"), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_28_a_change_given_is_said_as_given() {
+    let bench = bench();
+    let run = bench.start(true, &["start", "review", "54", "--change", "178"]);
+    ok(&run);
+    let err = text(&run.stderr);
+    let said = err.find("issue 54, change 178 (given)").unwrap_or_else(|| panic!("{}", err));
+    assert!(said < err.find("will post").unwrap(), "{}", err);
+    assert_eq!(change_lines(&err).len(), 1, "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_28_a_fix_says_the_same() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    bench.comments("issue", "54", &["[stamp] review round 1"]);
+    let run = bench.start(true, &["start", "fix", "54"]);
+    ok(&run);
+    assert!(text(&run.stderr).contains("issue 54, change 174 (from the branch issue-54)"), "{}", text(&run.stderr));
+    let run = bench.start(true, &["start", "fix", "54", "--change", "178"]);
+    ok(&run);
+    assert!(text(&run.stderr).contains("issue 54, change 178 (given)"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_28_wb_prompt_says_it_too_and_prints_the_prompt_alone_on_standard_output() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    let run = bench.prompt(&["review", "54"]);
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stderr).contains("issue 54, change 174 (from the branch issue-54)"), "{}", text(&run.stderr));
+    let out = text(&run.stdout);
+    assert!(!out.contains("(from the branch") && !out.contains("(given)"), "{}", out);
+    let started = bench.start(true, &["start", "review", "54"]);
+    ok(&started);
+    assert_eq!(out, read(&bench.at("start.prompt")));
+}
+
+#[test]
+fn test_WB_BUILD_29_a_review_or_a_fix_with_no_issue_says_the_change_before_the_checks() {
+    let bench = bench();
+    let run = bench.start(true, &["start", "review", "--change", "178"]);
+    ok(&run);
+    let err = text(&run.stderr);
+    let said = err.find("wb start review: change 178\n").unwrap_or_else(|| panic!("{}", err));
+    assert!(said < err.find("will post").unwrap(), "{}", err);
+    assert_eq!(change_lines(&err), ["wb start review: change 178"], "{}", err);
+    bench.comments("change", "178", &["[stamp] review round 1"]);
+    let run = bench.start(true, &["start", "fix", "--change", "178"]);
+    ok(&run);
+    let err = text(&run.stderr);
+    assert_eq!(change_lines(&err), ["wb start fix: change 178"], "{}", err);
 }

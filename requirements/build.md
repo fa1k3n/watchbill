@@ -31,8 +31,8 @@ What `wb start <role> <issue>` checks, posts and starts. One path for a person a
 | WB-BUILD-25 | While the session runs, an interrupt (SIGINT) or a quit (SIGQUIT) sent to `wb start <role>` shall not end it, and it shall end with the status that WB-BUILD-6 gives. Issue: #84. | T | Implemented |
 | WB-BUILD-26 | The README shall show a worked `start` for Claude Code and one for goose with an Ollama model, and say that where a `start` leaves out `{model}` or `{effort}`, the stamp's model or effort is not what ran. Issue: #84. | I | Implemented |
 | WB-BUILD-27 | The stamp that `wb start <role>` posts shall hold on its line `round:` the round of its first line, for every role, also where the text of the role has no `{round}`. Issue: #136. | T | Implemented |
-| WB-BUILD-28 | `wb start review <issue>` and `wb start fix <issue>` shall say on standard error, before the stamp is posted, the issue, the change, and whether the change was found from the branch, naming it, or given. Issue: #162. | T | Draft |
-| WB-BUILD-29 | `wb start review --change <n>` and `wb start fix --change <n>` with no issue shall say the change on standard error before the stamp is posted. Issue: #162. | T | Draft |
+| WB-BUILD-28 | `wb start review <issue>` and `wb start fix <issue>` shall say on standard error, before the checks, the issue, the change, and whether the change was found from the branch, naming it, or given. Issue: #162. | T | Implemented |
+| WB-BUILD-29 | `wb start review --change <n>` and `wb start fix --change <n>` with no issue shall say the change on standard error before the checks. Issue: #162. | T | Implemented |
 | WB-BUILD-30 | Before the stamp is posted, for a role that runs in a view, `wb` shall name each path of the view whose file in the working tree differs from `HEAD`, and end with 1. Issue: #172. | T | Draft |
 | WB-BUILD-31 | Before the stamp is posted, for a role that runs in a view, `wb` shall name each untracked file under a path of `changes`, and end with 1. Issue: #172. | T | Draft |
 | WB-BUILD-32 | `--ignore-local` shall let the start go on when every local change is under the role's `reads` only. Issue: #172. | T | Draft |
@@ -42,3 +42,7 @@ What `wb start <role> <issue>` checks, posts and starts. One path for a person a
 | WB-BUILD-36 | `wb start <role> <issue>` shall do what `wb <role> <issue>` did, with the same options. Issue: #175. | T | Implemented |
 | WB-BUILD-37 | `wb <role> …` for a role of the revision shall end with 2 and say the form `wb start <role> …` with the same words. Issue: #175. | T | Implemented |
 | WB-BUILD-38 | `wb start` with a role that is not known shall end with 2 and name the roles. Issue: #175. | T | Implemented |
+| WB-BUILD-39 | Every command that runs a pattern of `watchbill.yml`, or reads `needs` or `build_files` from it, shall first compare the file in the working tree with `HEAD`, and refuse with 1, naming the file, where it differs or is not committed, before any pattern runs or anything is posted. Issue: #186. | T | Draft |
+| WB-BUILD-40 | No flag shall lift the refusal of WB-BUILD-39. Issue: #186. | T | Draft |
+| WB-BUILD-41 | The refusal of WB-BUILD-39 shall say that a person reads the change and commits it, or takes it back with git, before the next command. Issue: #186. | T | Draft |
+| WB-BUILD-42 | `wb init` and `wb upgrade` shall not be held by WB-BUILD-39, and `wb upgrade` shall say that the file is to be committed. Issue: #186. | T | Draft |

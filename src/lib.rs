@@ -449,6 +449,11 @@ fn used(err: &mut dyn Write, name: &str, why: &str) -> i32 {
     2
 }
 
+/// The value of a placeholder among the values of a prompt.
+fn value_of<'a>(values: &'a [(&'static str, String)], name: &str) -> Option<&'a str> {
+    values.iter().find(|(given, _)| *given == name).map(|(_, value)| value.as_str())
+}
+
 /// What `wb prompt <role> …` or `wb <role> …` was given.
 struct Words {
     role: String,
@@ -463,7 +468,7 @@ struct Words {
 
 impl Words {
     fn get(&self, name: &str) -> Option<&str> {
-        self.values.iter().find(|(given, _)| *given == name).map(|(_, value)| value.as_str())
+        value_of(&self.values, name)
     }
 
     /// Only what `wb prompt` does: print, and post and start nothing.
@@ -680,6 +685,22 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
     // What was worked out is said first, so that a person sees it (#84).
     if !worked.said.is_empty() {
         let _ = writeln!(err, "{}: {}", name, worked.said.join(", "));
+    }
+    // The change of a review or a fix, once, and from where (#162): shown to the person, never asked of them.
+    // It is from the branch where `--change` was not given and the change was worked out. `wb prompt` says it
+    // only for a change worked out, as before: a change given to it is not repeated.
+    if (role == "review" || role == "fix") && (starting || words.get("change").is_none()) {
+        if let Some(change) = value_of(&values, "change") {
+            let from = match (words.get("change"), value_of(&values, "branch")) {
+                (Some(_), _) => "given".to_string(),
+                (None, Some(branch)) => format!("from the branch {}", branch),
+                (None, None) => "worked out".to_string(),
+            };
+            let _ = match words.get("issue") {
+                Some(issue) => writeln!(err, "{}: issue {}, change {} ({})", name, issue, change, from),
+                None => writeln!(err, "{}: change {}", name, change),
+            };
+        }
     }
     // An issue's file that is there is used only when it and its acceptance are committed (#97). An issue
     // with no file is handed out as it is: a person may start any role alone (#116).
@@ -933,7 +954,7 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     };
     let root = handed.root.as_str();
     // The stamp, as it will be posted; made now, so that a start refused before it is posted leaves it.
-    let round = handed.values.iter().find(|(given, _)| *given == "round").map(|(_, value)| value.clone());
+    let round = value_of(&handed.values, "round").map(str::to_string);
     let stamp = match &round {
         Some(round) => stamp_of(role, &handed, &runner, seconds).map(|stamp| format!("[stamp] {} round {}\n{}", role, round, stamp)),
         None => Err("no round was given or worked out. Give --round".to_string()),
@@ -1026,7 +1047,7 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     // 6. The CI (#127): a review starts only on a change whose CI is green. The word is kept in the lines of the
     // start, whatever it is. The review's prompt does not get it, and never the CI's log.
     if role == "review" {
-        let change = handed.values.iter().find(|(given, _)| *given == "change").map(|(_, value)| value.as_str());
+        let change = value_of(&handed.values, "change");
         let found = starter::ci(root, change);
         lines.open(stamp.as_deref().ok(), err);
         let kept = match &found {

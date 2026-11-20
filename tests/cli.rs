@@ -17,11 +17,7 @@ const USAGE: &str = "usage:
             [--requirements <text>] [--round <text>] [--checkout <text>]
             [--branch <text>] [--issue_address <text>]
             [--change_address <text>] [--runner <name>] [--parts] [--stamp]
-  wb breakdown <issue> [--runner <name>] [--prompt] [the options of prompt]
-  wb tester <issue> [--runner <name>] [--prompt] [the options of prompt]
-  wb build <issue> [--runner <name>] [--prompt] [the options of prompt]
-  wb review [<issue>] [--runner <name>] [--prompt] [the options of prompt]
-  wb fix [<issue>] [--runner <name>] [--prompt] [the options of prompt]
+  wb start <role> [<issue>] [--runner <name>] [--prompt] [the options of prompt]
   wb revision
   wb accept <issue> [--no-commit]
   wb status [<issue>] [--stage <heading>]
@@ -65,8 +61,10 @@ const USAGE: &str = "usage:
             file, and --parts adds the level and the runner. Ends with 0 when
             the prompt is printed, 1 when it is refused, 2 when it was used
             wrongly or the repository is not set up. Writes nothing
-  breakdown, tester, build, review, fix
-            start a session of the role: check what prompt checks, that a fix
+  start     start a session of one role, breakdown, tester, build, review or
+            fix: the role is the word after start. The issue is needed by
+            all but the review and the fix, which may be given --change
+            and no issue. It checks what prompt checks, that a fix
             follows a review, that no classed code is in its way (classed: of
             watchbill.yml), that the runner has start in the organisation's
             file, and that standard input and output are a terminal; then say
@@ -215,7 +213,7 @@ fn test_WB_INIT_25_no_command_ends_with_2_and_the_usage() {
 
 #[test]
 fn test_WB_INIT_25_a_command_that_is_not_known_ends_with_2_and_the_usage_on_standard_error() {
-    for word in ["start", "--force", "", "Help", "--version=1"] {
+    for word in ["begin", "--force", "", "Help", "--version=1"] {
         let run = wb(&[word]);
 
         assert_eq!(run.status.code(), Some(2), "{:?}", word);
@@ -226,13 +224,13 @@ fn test_WB_INIT_25_a_command_that_is_not_known_ends_with_2_and_the_usage_on_stan
 
 #[test]
 fn test_WB_INIT_25_only_the_first_word_is_the_command() {
-    let run = wb(&["start", "--version"]);
+    let run = wb(&["begin", "--version"]);
 
     assert_eq!(run.status.code(), Some(2));
-    assert_eq!(text(&run.stderr), format!("wb: no command 'start'\n\n{}", USAGE));
+    assert_eq!(text(&run.stderr), format!("wb: no command 'begin'\n\n{}", USAGE));
 
     // Words after a known option change nothing, as in the Python `wb`.
-    let run = wb(&["--version", "start"]);
+    let run = wb(&["--version", "begin"]);
 
     assert_eq!(run.status.code(), Some(0));
     assert_eq!(text(&run.stdout), format!("{}\n", crate_version()));

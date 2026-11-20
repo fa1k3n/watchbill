@@ -287,7 +287,7 @@ fn test_WB_VIEW_1_the_view_holds_only_the_listed_paths_as_in_head_in_one_commit_
     let older = bench.git_text(&["rev-parse", "HEAD~1:src/secret.c"]).trim().to_string();
     let commits = bench.git_text(&["rev-list", "--all"]);
 
-    ok(&bench.start(&["build", "54"]));
+    ok(&bench.start(&["start", "build", "54"]));
 
     let listed = "include/a.h\ninclude/b.h\nsrc/brake.c\nsrc/brake.h\ntests/test_brake.c\n";
     assert_eq!(bench.left("files"), listed);
@@ -334,7 +334,7 @@ fn test_WB_VIEW_2_the_session_runs_in_the_view_at_the_checkout_with_the_system_r
          ls -a '{home}' > {{log}}/home-list 2> /dev/null\n"
     ));
 
-    ok(&bench.start(&["build", "54"]));
+    ok(&bench.start(&["start", "build", "54"]));
 
     assert_eq!(bench.left("pwd").trim(), bench.root());
     assert_eq!(bench.left("view-written"), "yes\n");
@@ -363,7 +363,7 @@ fn test_WB_VIEW_3_a_path_that_is_not_listed_cannot_be_read_as_a_file_or_from_the
          git log --all --format=%s > {log}/log 2>&1\n",
     );
 
-    ok(&bench.start(&["build", "54"]));
+    ok(&bench.start(&["start", "build", "54"]));
 
     for name in ["cat", "older", "head"] {
         assert_ne!(bench.left(&format!("{}.status", name)).trim(), "0", "{}: {}", name, bench.left(name));
@@ -391,7 +391,7 @@ fn test_WB_VIEW_4_the_checkout_s_git_its_watchbill_and_the_organisation_s_file_a
         folder = bench.org.path.display(),
     ));
 
-    ok(&bench.start(&["build", "54"]));
+    ok(&bench.start(&["start", "build", "54"]));
 
     assert!(bench.started());
     for name in ["watchbill", "head", "org", "org-folder"] {
@@ -431,7 +431,7 @@ fn test_WB_VIEW_4_a_bind_that_holds_the_checkout_the_organisation_s_folder_or_th
     for bad in [&parent, &bench.root(), &format!("{}/src", bench.root()), &org_folder, &state] {
         let text = read(&bench.organisation()).replace(&good, &format!("binds: ['{}']", bad));
         fs::write(bench.organisation(), text).unwrap();
-        let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["build", "54"]);
+        let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["start", "build", "54"]);
         assert_eq!(code(&run), Some(1), "{}: {}", bad, text_of(&run.stderr));
         assert!(text_of(&run.stderr).contains(bad.as_str()), "{}: {}", bad, text_of(&run.stderr));
         assert!(!bench.any_posted() && !bench.started(), "{}: {:?}", bad, bench.calls());
@@ -458,7 +458,7 @@ fn test_WB_CONF_25_a_runner_s_binds_are_inside_read_only_unless_marked_writable(
          touch {{log}}/rw-written && echo yes > {{log}}/rw-said\n"
     ));
 
-    ok(&bench.start(&["build", "54"]));
+    ok(&bench.start(&["start", "build", "54"]));
 
     assert_eq!(bench.left("ro-read"), "read me\n");
     assert_eq!(bench.left("ro-written"), "");
@@ -535,7 +535,7 @@ fn test_WB_VIEW_5_a_commit_that_touches_a_path_outside_changes_is_refused_with_1
     let head = bench.head();
     bench.session("echo 'int brake(int);' > src/brake.h && git commit -q -a -m 'Change a read'\n");
 
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
 
     refused_back(&bench, &run, &head, &["src/brake.h", "Change a read"]);
 }
@@ -548,14 +548,14 @@ fn test_WB_VIEW_5_a_commit_under_watchbill_or_under_build_files_is_refused_in_th
     let bench = bench();
     let head = bench.head();
     bench.session("mkdir -p .watchbill && echo x > .watchbill/x && git add .watchbill/x && git commit -q -m 'Under watchbill'\n");
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
     refused_back(&bench, &run, &head, &[".watchbill/x", "Under watchbill"]);
 
     // A path of `changes` that `build_files` names since the acceptance is refused for it.
     let bench = bench_with_build_files("[src/new.c]");
     let head = bench.head();
     bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A file of the build'\n");
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
     refused_back(&bench, &run, &head, &["src/new.c", "build_files", "A file of the build"]);
 }
 
@@ -581,7 +581,7 @@ fn test_WB_VIEW_5_the_commits_before_a_refused_one_are_taken_and_none_after_it()
          echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'Third, after it'\n",
     );
 
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
 
     assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
     let err = text_of(&run.stderr);
@@ -608,7 +608,7 @@ fn test_WB_VIEW_6_commits_inside_the_list_are_put_on_the_branch_in_order_with_th
          git add src/new.c && git commit -q -m 'Second: a new file' -m 'With a body.'\n",
     );
 
-    ok(&bench.start(&["build", "54"]));
+    ok(&bench.start(&["start", "build", "54"]));
 
     let log = bench.git_text(&["log", "--format=%an <%ae>|%B|", &format!("{}..HEAD", head)]);
     assert_eq!(
@@ -635,7 +635,7 @@ fn test_WB_VIEW_7_work_left_uncommitted_in_the_view_is_named_and_not_taken() {
     let head = bench.head();
     bench.session("echo 'int brake(void) { return 3; }' > src/brake.c\necho 'int fresh;' > src/new.c\n");
 
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
 
     ok(&run);
     let err = text_of(&run.stderr);
@@ -655,11 +655,11 @@ fn test_WB_VIEW_8_the_view_is_removed_when_all_was_taken_and_kept_and_named_when
     }
     let bench = bench();
     bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\n");
-    ok(&bench.start(&["build", "54"]));
+    ok(&bench.start(&["start", "build", "54"]));
     assert!(bench.below("views").is_empty(), "{:?}", bench.below("views"));
 
     bench.session("echo 'int brake(int);' > src/brake.h && git commit -q -a -m 'Change a read'\n");
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
     assert_eq!(code(&run), Some(1));
     let views = bench.below("views");
     assert_eq!(views.len(), 1, "{:?}", views);
@@ -697,7 +697,7 @@ fn test_WB_VIEW_9_the_stamp_posted_has_the_view_of_the_list_the_session_ran_in()
         return;
     }
     let bench = bench();
-    ok(&bench.start(&["build", "54"]));
+    ok(&bench.start(&["start", "build", "54"]));
     let posted = bench.posted();
     assert!(posted.starts_with("[stamp] build round 1\n"), "{}", posted);
     assert_eq!(line_of(&posted, "view"), Some(sha256(BUILD_LIST)), "{}", posted);
@@ -712,12 +712,12 @@ fn test_WB_VIEW_10_a_role_started_without_an_issue_s_file_runs_without_a_view_an
     bench.session("pwd > {log}/pwd\ntest -d .watchbill && echo yes > {log}/watchbill\n");
 
     // No bubblewrap is needed for it.
-    let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["build", "99"]);
+    let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["start", "build", "99"]);
 
     ok(&run);
     let err = text_of(&run.stderr);
     let said = err.lines().position(|line| line.contains("without a view")).unwrap_or_else(|| panic!("not said: {}", err));
-    let starts = err.lines().position(|line| line.starts_with("wb build: starts build")).unwrap();
+    let starts = err.lines().position(|line| line.starts_with("wb start build: starts build")).unwrap();
     assert!(said < starts, "{}", err);
     assert_eq!(bench.left("pwd").trim(), bench.root());
     assert_eq!(bench.left("watchbill"), "yes\n");
@@ -731,7 +731,7 @@ fn test_WB_VIEW_10_a_role_started_without_an_issue_s_file_runs_without_a_view_an
 #[test]
 fn test_WB_VIEW_11_with_no_bwrap_it_is_refused_with_1_saying_why_before_anything_is_posted() {
     let bench = bench();
-    let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["build", "54"]);
+    let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["start", "build", "54"]);
     assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
     let err = text_of(&run.stderr);
     assert!(err.contains("/nonexistent/no-bwrap") && err.contains("bubblewrap"), "{}", err);
@@ -746,7 +746,7 @@ fn test_WB_VIEW_11_with_user_namespaces_off_it_is_refused_with_1_saying_why_befo
     let bench = bench();
     let stand_in = bench.at("bwrap");
     script(&stand_in, "echo 'bwrap: No permissions to create a new namespace, likely because the kernel does not allow non-privileged user namespaces.' >&2\nexit 1\n");
-    let run = bench.start_by(&stand_in, &["build", "54"]);
+    let run = bench.start_by(&stand_in, &["start", "build", "54"]);
     assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
     let err = text_of(&run.stderr);
     assert!(err.contains("No permissions to create a new namespace"), "{}", err);
@@ -775,7 +775,7 @@ fn test_WB_MON_7_the_folder_of_a_session_in_a_view_holds_view_and_back() {
     }
     let bench = bench();
     bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\n");
-    ok(&bench.start(&["build", "54"]));
+    ok(&bench.start(&["start", "build", "54"]));
     let folder = bench.lines();
     assert_eq!(read(&folder.join("view")), BUILD_LIST);
     let back = read(&folder.join("back"));
@@ -785,7 +785,7 @@ fn test_WB_MON_7_the_folder_of_a_session_in_a_view_holds_view_and_back() {
 
     let bench = self::bench();
     bench.session("echo 'int brake(int);' > src/brake.h && git commit -q -a -m 'Change a read'\n");
-    assert_eq!(code(&bench.start(&["build", "54"])), Some(1));
+    assert_eq!(code(&bench.start(&["start", "build", "54"])), Some(1));
     let back = read(&bench.lines().join("back"));
     assert!(back.lines().any(|line| line.starts_with("refused: ") && line.contains("Change a read") && line.contains("src/brake.h")), "{}", back);
     assert!(back.lines().any(|line| line.starts_with("view: kept ")), "{}", back);
@@ -809,7 +809,7 @@ fn test_WB_VIEW_14_after_the_commits_are_taken_back_the_push_command_is_said_and
     let bench = bench();
     bench.session("echo 'int main(void) { return 1; }' > tests/test_brake.c && git commit -q -a -m 'A test'\n");
 
-    let run = bench.start(&["tester", "54"]);
+    let run = bench.start(&["start", "tester", "54"]);
 
     ok(&run);
     let err = text_of(&run.stderr);
@@ -824,7 +824,7 @@ fn test_WB_VIEW_14_after_the_commits_are_taken_back_the_push_command_is_said_and
 
     // A session that commits nothing gets no push command.
     let bench = self::bench();
-    let run = bench.start(&["tester", "54"]);
+    let run = bench.start(&["start", "tester", "54"]);
     ok(&run);
     assert!(!text_of(&run.stderr).contains("git push"), "{}", text_of(&run.stderr));
 }
@@ -838,7 +838,7 @@ fn test_WB_VIEW_15_after_a_build_the_command_that_opens_the_change_as_a_draft_is
     with_line(&bench, "draft_change: 'draft-stand-in --head {branch}'");
     bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\n");
 
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
 
     ok(&run);
     let err = text_of(&run.stderr);
@@ -857,7 +857,7 @@ fn test_WB_VIEW_15_without_draft_change_it_says_the_line_is_not_there() {
     let bench = bench();
     bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\n");
 
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
 
     ok(&run);
     let err = text_of(&run.stderr);
@@ -872,7 +872,7 @@ fn test_WB_VIEW_16_without_a_view_new_commits_on_the_branch_get_the_same_command
     git(&bench.repo.path, &["checkout", "-q", "issue-99"]);
     bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\n");
 
-    let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["build", "99"]);
+    let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["start", "build", "99"]);
 
     ok(&run);
     let err = text_of(&run.stderr);
@@ -883,7 +883,7 @@ fn test_WB_VIEW_16_without_a_view_new_commits_on_the_branch_get_the_same_command
     // A session that commits nothing gets no command.
     let bench = self::bench();
     git(&bench.repo.path, &["checkout", "-q", "issue-99"]);
-    let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["build", "99"]);
+    let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["start", "build", "99"]);
     ok(&run);
     assert!(!text_of(&run.stderr).contains("git push"), "{}", text_of(&run.stderr));
 }
@@ -909,7 +909,7 @@ fn test_WB_VIEW_17_a_path_the_checkout_ignores_is_not_work_left_and_the_view_is_
     commit_file(&bench, ".gitignore", "node_modules/\n*.o\n");
     bench.session("mkdir -p src/node_modules/pkg && echo x > src/node_modules/pkg/index.js && echo y > src/brake.o\n");
 
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
 
     ok(&run);
     let err = text_of(&run.stderr);
@@ -928,7 +928,7 @@ fn test_WB_VIEW_18_a_gitignore_written_in_the_view_does_not_hide_a_path_the_chec
     commit_file(&bench, ".gitignore", "node_modules/\n");
     bench.session("echo '*' > .gitignore\necho '*' > src/.gitignore\necho 'int fresh;' > src/new.c\nmkdir src/node_modules && echo x > src/node_modules/a\n");
 
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
 
     ok(&run);
     let err = text_of(&run.stderr);
@@ -946,7 +946,7 @@ fn test_WB_VIEW_18_the_exclude_file_of_the_checkout_is_read_too() {
     fs::write(bench.repo.path.join(".git/info/exclude"), "scratch/\n").unwrap();
     bench.session("mkdir -p src/scratch && echo x > src/scratch/a\necho y > src/kept.txt\n");
 
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
 
     ok(&run);
     let err = text_of(&run.stderr);
@@ -961,7 +961,7 @@ fn test_WB_VIEW_19_more_than_20_paths_left_are_said_as_a_count_20_paths_and_the_
     let bench = bench();
     bench.session("mkdir src/many\ni=1\nwhile [ $i -le 25 ]; do echo $i > src/many/f$(printf %02d $i); i=$((i+1)); done\n");
 
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
 
     ok(&run);
     let err = text_of(&run.stderr);
@@ -988,7 +988,7 @@ fn test_WB_VIEW_20_after_the_commits_are_taken_back_git_show_stat_is_said_for_ea
          echo 'int b;' > src/new.c && git add src/new.c && git commit -q -m 'Second'\n",
     );
 
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
 
     ok(&run);
     let err = text_of(&run.stderr);
@@ -1004,7 +1004,7 @@ fn test_WB_VIEW_20_after_the_commits_are_taken_back_git_show_stat_is_said_for_ea
 
     // A session that commits nothing gets none.
     let bench = self::bench();
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
     ok(&run);
     assert!(!text_of(&run.stderr).contains("git show"), "{}", text_of(&run.stderr));
 }
@@ -1024,7 +1024,7 @@ fn test_WB_VIEW_18_the_view_s_own_exclude_and_excludesfile_do_not_hide_a_path() 
          git config core.excludesFile /tmp/all\n",
     );
 
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
 
     ok(&run);
     let err = text_of(&run.stderr);
@@ -1058,7 +1058,7 @@ fn test_WB_VIEW_18_the_person_s_global_ignore_file_is_not_read() {
     std::env::set_var("HOME", &person);
     std::env::set_var("XDG_CONFIG_HOME", Path::new(&person).join(".config"));
 
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
 
     ok(&run);
     assert!(text_of(&run.stderr).contains("src/new.c"), "{}", text_of(&run.stderr));
@@ -1074,7 +1074,7 @@ fn test_WB_VIEW_18_the_rules_are_those_of_head_not_of_the_working_tree_of_the_ch
     fs::write(bench.repo.path.join(".gitignore"), "*\n").unwrap();
     bench.session("echo 'int fresh;' > src/new.c\nmkdir src/node_modules && echo x > src/node_modules/a\n");
 
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
 
     ok(&run);
     let err = text_of(&run.stderr);
@@ -1093,7 +1093,7 @@ fn test_WB_VIEW_18_an_exclude_file_that_is_passed_over_is_said_and_why() {
     std::os::unix::fs::symlink("../elsewhere", &exclude).unwrap();
     bench.session("mkdir -p src/scratch && echo x > src/scratch/a\n");
 
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
 
     ok(&run);
     let err = text_of(&run.stderr);
@@ -1103,7 +1103,7 @@ fn test_WB_VIEW_18_an_exclude_file_that_is_passed_over_is_said_and_why() {
     let bench = self::bench();
     let _ = fs::remove_file(bench.repo.path.join(".git/info/exclude"));
     bench.session("echo x > src/kept.txt\n");
-    let run = bench.start(&["build", "54"]);
+    let run = bench.start(&["start", "build", "54"]);
     ok(&run);
     assert!(!text_of(&run.stderr).contains("info/exclude"), "{}", text_of(&run.stderr));
 }

@@ -242,9 +242,9 @@ fn test_WB_INIT_21_a_token_in_the_address_of_origin_never_reaches_the_file_or_th
 fn test_WB_INIT_25_an_unknown_command_and_an_unknown_flag_end_with_2_and_the_usage() {
     let folder = repository(None);
 
-    let command = wb(&folder.path, &["start"], "");
+    let command = wb(&folder.path, &["begin"], "");
     assert_eq!(code(&command), Some(2));
-    assert!(text(&command.stderr).contains("no command 'start'"));
+    assert!(text(&command.stderr).contains("no command 'begin'"));
     assert!(text(&command.stderr).contains("usage:"));
 
     let flag = wb(&folder.path, &["init", "--force"], "");

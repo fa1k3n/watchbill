@@ -596,8 +596,8 @@ wb answer --change 174          # a change with no issue
 - **`<question> <answer>`** answers one question without asking: `tester.q1`, or `q1` for the breakdown, whose questions are `<issue>.q<n>`. The answer is read as at the terminal, and a number that is not a choice is refused with 1.
 - **The issue's file.** Where an answered question says `changes the issue's file: yes`, `wb answer` says after posting that the file is to be changed and accepted again (`wb accept`) before the role is started again; for the breakdown, that the breakdown is started again to fold the answers in. It never changes the file.
 - **A change with no issue:** `wb answer --change <n>` reads `change_comment_bodies` and posts through `change_comment`.
-- **What it reads:** the branches with git, the issue's file and its acceptance from the branch with `git show`, never by switching branches, and the comments through `issue_comments` and the change through `change_of_branch`, each once for each issue listed (`issue_address` for one issue). It writes nothing, and asks the network only through those patterns.
-- **The exit status:** 0 when every issue could be read; 1 when a pattern failed for an issue (it is listed last, under `Not read`, with why; the others are printed); 2 when it was used wrongly, Watchbill is not set up, or no default branch is found.
+- **What it reads:** the whole comments, through `issue_comment_bodies` of `watchbill.yml` ([The patterns](#the-patterns)). Without it, or without `issue_comment`, it is refused with 1, naming the line, and posts nothing.
+- **The exit status:** 0 when the answers are posted, or no question is open, which it says; 1 when it was refused, the input ended before every question was answered, or a pattern failed; 2 when it was used wrongly or Watchbill is not set up.
 
 ## Taking a step back
 
@@ -611,7 +611,7 @@ wb answer --change 174          # a change with no issue
 - **A later breakdown:** when a `[stamp] breakdown` stands after the stamp to be reverted, that stamp no longer counts, since the new breakdown took the issue back ([where each issue stands](#where-each-issue-stands)). `wb revert` is then refused with 1, saying so, and posts nothing.
 - **The breakdown** is not taken back by a marker. The issue's file and its acceptance are files of the repository, and git takes them back. `wb revert <issue> breakdown` is refused with 1, and says so.
 - **Refused with 1:** a role with no stamp on the issue that still counts (naming the role), a missing `issue_comments` or `issue_comment` (or the change's), a pattern that ends with anything but 0.
-- **The exit status:** 0 when every issue could be read; 1 when a pattern failed for an issue (it is listed last, under `Not read`, with why; the others are printed); 2 when it was used wrongly, Watchbill is not set up, or no default branch is found.
+- **The exit status:** 0 when the marker is posted; 1 when it was refused or the posting failed; 2 when it was used wrongly (no issue or role, a role the revision does not have, an option that is not known, a `--change` that is not a plain name, `--round` that is not a whole number from 1, an issue and `--change` together) or Watchbill is not set up.
 - **Not yet:** who may revert once the roles have accounts (#83). Until then any person who can post a comment can.
 
 ## Taking it on one role at a time

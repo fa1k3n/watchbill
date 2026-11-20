@@ -1254,7 +1254,7 @@ fn plumbed(parent: &str, name: &str, message: &str) -> String {
         format!(
             "top=$(git ls-tree HEAD:{parent}; printf '040000 tree %s\\t{name}\\n' \"$g\" | cat)\n\
              t=$(printf '%s\\n' \"$top\" | git mktree)\n\
-             root=$(git ls-tree HEAD | grep -v '\\t{parent}$'; printf '040000 tree %s\\t{parent}\\n' \"$t\")\n"
+             root=$(git ls-tree HEAD | sed '/\\t{parent}$/d'; printf '040000 tree %s\\t{parent}\\n' \"$t\")\n"
         )
     };
     format!(
@@ -1353,7 +1353,7 @@ fn test_WB_VIEW_34_a_path_with_a_part_dot_git_in_any_case_is_refused_named_and_n
              n=$(printf '040000 tree %s\\t.git\\n' \"$g\" | git mktree)\n\
              top=$(git ls-tree HEAD:src; printf '040000 tree %s\\tnew.c\\n' \"$n\")\n\
              t=$(printf '%s\\n' \"$top\" | git mktree)\n\
-             root=$(git ls-tree HEAD | grep -v '\\tsrc$'; printf '040000 tree %s\\tsrc\\n' \"$t\")\n\
+             root=$(git ls-tree HEAD | sed '/\\tsrc$/d'; printf '040000 tree %s\\tsrc\\n' \"$t\")\n\
              tree=$(printf '%s\\n' \"$root\" | git mktree)\n\
              c=$(git commit-tree \"$tree\" -p HEAD -m 'A git folder')\n\
              git update-ref refs/heads/issue-54 \"$c\"\n"
@@ -1416,19 +1416,23 @@ fn test_WB_VIEW_35_a_commit_whose_taken_tree_differs_from_the_view_s_is_refused_
     if !sandbox("test_WB_VIEW_35") {
         return;
     }
-    // A file of the mode 100664: git writes it back as 100644, so the commit `wb` puts together differs.
+    // A tree that names `src/new.c` twice, as git allows in a tree and never in an index: put on the branch,
+    // the commit would hold one of the two, and so not be the one made.
     let odd = "b=$(echo 'int fresh;' | git hash-object -w --stdin)\n\
-               s=$(git ls-tree HEAD:src; printf '100664 blob %s\\tnew.c\\n' \"$b\")\n\
-               s=$(printf '%s\\n' \"$s\" | git mktree)\n\
-               root=$(git ls-tree HEAD | grep -v '\\tsrc$'; printf '040000 tree %s\\tsrc\\n' \"$s\")\n\
+               d=$(echo 'int other;' | git hash-object -w --stdin)\n\
+               one=$(git ls-tree HEAD:src; printf '100644 blob %s\\tnew.c\\n' \"$b\")\n\
+               one=$(printf '%s\\n' \"$one\" | git mktree)\n\
+               two=$(printf '100644 blob %s\\tnew.c\\n' \"$d\" | git mktree)\n\
+               s=$( { git cat-file tree \"$one\"; git cat-file tree \"$two\"; } | git hash-object -t tree -w --literally --stdin)\n\
+               root=$(git ls-tree HEAD | sed '/\\tsrc$/d'; printf '040000 tree %s\\tsrc\\n' \"$s\")\n\
                tree=$(printf '%s\\n' \"$root\" | git mktree)\n\
-               c=$(git commit-tree \"$tree\" -p HEAD -m 'An odd mode')\n\
+               c=$(git commit-tree \"$tree\" -p HEAD -m 'A name twice')\n\
                git update-ref refs/heads/issue-54 \"$c\"\n";
     let bench = bench();
     let head = bench.head();
     bench.session(odd);
     let run = bench.start(&["build", "54"]);
-    refused_back(&bench, &run, &head, &["An odd mode", "differs"]);
+    refused_back(&bench, &run, &head, &["A name twice", "differs"]);
 
     // The commits before it are taken, as before a commit refused for its paths.
     let bench = self::bench();
@@ -1436,6 +1440,6 @@ fn test_WB_VIEW_35_a_commit_whose_taken_tree_differs_from_the_view_s_is_refused_
     bench.session(&format!("echo 'int a;' > src/brake.c && git commit -q -a -m 'First, kept'\n{}", odd));
     let run = bench.start(&["build", "54"]);
     assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
-    assert!(text_of(&run.stderr).contains("An odd mode"), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("A name twice"), "{}", text_of(&run.stderr));
     assert_eq!(bench.git_text(&["log", "--format=%s", &format!("{}..HEAD", head)]), "First, kept\n");
 }

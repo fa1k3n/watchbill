@@ -457,9 +457,79 @@ fn changes_of(store: &Path, parent: &str, commit: &str) -> Result<Vec<Change>, S
     Ok(found)
 }
 
-/// Why a path that a commit changes is not taken, if it is not: under `.watchbill/`, a file of the build, or
-/// outside `changes`.
-fn not_allowed(path: &str, changes: &[String], build_files: &[String]) -> Option<String> {
+/// Characters HFS+ ignores in a name, so that `.g<one of them>it` is `.git` there (git's `is_hfs_dotgit`).
+fn hfs_ignorable(c: char) -> bool {
+    matches!(c, '\u{200c}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{206a}'..='\u{206f}' | '\u{feff}')
+}
+
+/// Whether `name` is `dot` in a form git refuses: in any case, with the characters HFS+ ignores, or as NTFS has
+/// it (trailing dots and spaces, a stream after a colon). `shorts` are the short names NTFS gives it.
+fn is_dot(name: &str, dot: &str, shorts: &[&str]) -> bool {
+    let plain: String = name.chars().filter(|c| !hfs_ignorable(*c)).collect::<String>().to_ascii_lowercase();
+    if plain == dot {
+        return true;
+    }
+    let lower = name.to_ascii_lowercase();
+    let tail = |rest: &str| {
+        let rest = rest.trim_start_matches([' ', '.']);
+        rest.is_empty() || rest.starts_with(':')
+    };
+    std::iter::once(dot).chain(shorts.iter().copied()).any(|word| lower.strip_prefix(word).is_some_and(tail))
+}
+
+/// Why git does not take `path` as it is in a commit, if it does not: the rule of git's own `verify_path`, as it
+/// is when `core.protectNTFS` and `core.protectHFS` are on, which `wb` holds for every checkout. An empty part,
+/// `.` and `..`; a part `.git` in any case, or in a form HFS+ or NTFS reads as it; and `.gitmodules` as a link
+/// (`mode` is that of the entry). The backslash separates parts, as it does for NTFS.
+pub fn refused_by_git(path: &str, mode: &str) -> Option<String> {
+    let shorts = ["gi7eba~1", "gi7eba~2", "gi7eba~3", "gi7eba~4", "gi7eba~5", "gi7eba~6", "gi7eba~7", "gi7eba~8", "gi7eba~9", "gitmod~1"];
+    for part in path.split(['/', '\\']) {
+        if part.is_empty() || part == "." || part == ".." {
+            return Some("it has an empty part, `.` or `..`".to_string());
+        }
+        if is_dot(part, ".git", &["git~1"]) {
+            return Some("it has a part .git".to_string());
+        }
+        if mode == "120000" && is_dot(part, ".gitmodules", &shorts) {
+            return Some("it is a link named .gitmodules".to_string());
+        }
+    }
+    None
+}
+
+/// What an entry of `changes` covers: its parts, and whether it is a folder (every path below it) or a file
+/// (that path only).
+pub struct Covered {
+    parts: Vec<String>,
+    folder: bool,
+}
+
+/// Reads the entries of `changes` as the checkout's `head` has them (the trusted side, never the view): an entry
+/// that is a folder there, or ends with `/`, is a folder; a file there, or an entry that is not there and does not
+/// end with `/`, is a file.
+pub fn covered(root: &str, head: &str, changes: &[String]) -> Result<Vec<Covered>, String> {
+    let mut found = Vec::new();
+    for entry in changes {
+        let names: Vec<String> = parts(entry).into_iter().map(str::to_string).collect();
+        if names.is_empty() {
+            continue;
+        }
+        let mut folder = entry.ends_with('/');
+        if !folder {
+            let wanted = names.join("/");
+            let args = ["ls-tree", "-z", "--full-tree", head, "--", wanted.as_str()];
+            let listed = git(Path::new(root), &args, &[("GIT_LITERAL_PATHSPECS", Path::new("1"))], None)?;
+            let text = String::from_utf8_lossy(&listed);
+            folder = text.split('\0').any(|line| line.split_once('\t').is_some_and(|(meta, path)| meta.split(' ').nth(1) == Some("tree") && path == wanted));
+        }
+        found.push(Covered { parts: names, folder });
+    }
+    Ok(found)
+}
+
+/// Why a path that a commit changes is not taken, if it is not: under `.watchbill/`, a file of the build, a path
+/// git does not take, or outside `changes`.
+fn not_allowed(path: &str, mode: &str, changes: &[Covered], build_files: &[String]) -> Option<String> {
     let found = parts(path);
     if found.first() == Some(&".watchbill") {
         return Some(format!("{} is under .watchbill/", crate::issue::shown(path)));
@@ -467,9 +537,12 @@ fn not_allowed(path: &str, changes: &[String], build_files: &[String]) -> Option
     if let Some(build) = build_files.iter().find(|build| crate::starter::meet(path, build)) {
         return Some(format!("{} is under `build_files` of watchbill.yml: {}", crate::issue::shown(path), build));
     }
+    if let Some(why) = refused_by_git(path, mode) {
+        return Some(format!("{} is a path git does not take: {}", crate::issue::shown(path), why));
+    }
     let inside = changes.iter().any(|entry| {
-        let entry = parts(entry);
-        !entry.is_empty() && found.len() >= entry.len() && found[..entry.len()] == entry[..]
+        let n = entry.parts.len();
+        found.len() >= n && found[..n].iter().zip(&entry.parts).all(|(a, b)| a == b) && (entry.folder || found.len() == n)
     });
     if !inside {
         return Some(format!("{} is outside `changes`", crate::issue::shown(path)));
@@ -571,6 +644,7 @@ fn commits(root: &str, view: &View, store: &Path, changes: &[String], build_file
     if head == view.base {
         return Ok(());
     }
+    let covered = covered(root, &view.head, changes)?;
     if git(store, &["merge-base", "--is-ancestor", &view.base, &head], &[], None).is_err() {
         return Err(format!("the view's HEAD, {}, does not come from the commit the view was made with", short(&head)));
     }
@@ -593,7 +667,7 @@ fn commits(root: &str, view: &View, store: &Path, changes: &[String], build_file
             Some(format!("its parent is not {}", short(&parent)))
         } else {
             let found = changes_of(store, &parent, &commit)?;
-            let mut faults: Vec<String> = found.iter().filter_map(|change| not_allowed(&change.path, changes, build_files)).collect();
+            let mut faults: Vec<String> = found.iter().filter_map(|change| not_allowed(&change.path, &change.mode, &covered, build_files)).collect();
             faults.extend(found.iter().filter(|change| change.mode == "160000").map(|change| format!("{} is a submodule", crate::issue::shown(&change.path))));
             if faults.is_empty() {
                 wanted.push((commit.clone(), raw, found));
@@ -633,8 +707,9 @@ fn commits(root: &str, view: &View, store: &Path, changes: &[String], build_file
     git(root, &["read-tree", &view.head], &env, None)?;
     let zero = "0".repeat(view.head.len());
     let mut tip = view.head.clone();
+    let mut before = line(&git(root, &["rev-parse", &format!("{}^{{tree}}", view.head)], &[], None)?);
     let mut made: Vec<(String, String)> = Vec::new();
-    for (_, raw, found) in &wanted {
+    for (index, (commit, raw, found)) in wanted.iter().enumerate() {
         let mut info: Vec<u8> = Vec::new();
         for change in found {
             let line = if change.mode == "000000" { format!("0 {}\t{}", zero, change.path) } else { format!("{} {}\t{}", change.mode, change.object, change.path) };
@@ -643,14 +718,39 @@ fn commits(root: &str, view: &View, store: &Path, changes: &[String], build_file
         }
         git(root, &["update-index", "-z", "--index-info"], &env, Some(&info))?;
         let tree = line(&git(root, &["write-tree"], &env, None)?);
+        // The commit is taken as it was made: what it changes against the one before is what the view's commit
+        // changed, path for path, mode and file; or it is refused, and none after it is taken. The tree of the
+        // view holds fewer paths than the checkout's, so the changes are compared, not the trees.
+        let put = changes_of(root, &before, &tree)?;
+        let key = |change: &Change| (change.path.clone(), change.mode.clone(), change.object.clone());
+        let (mut put, mut made_in_view): (Vec<_>, Vec<_>) = (put.iter().map(key).collect(), found.iter().map(key).collect());
+        put.sort();
+        made_in_view.sort();
+        if put != made_in_view {
+            let mut after: Vec<(String, String)> = wanted[index + 1..].iter().map(|(commit, raw, _)| (commit.clone(), raw.subject())).collect();
+            if let Some((earlier, subject, _)) = back.refused.take() {
+                after.push((earlier, subject));
+            }
+            after.append(&mut back.after);
+            back.after = after;
+            let first = put.iter().chain(&made_in_view).find(|one| !(put.contains(one) && made_in_view.contains(one)));
+            let at = first.map(|(path, _, _)| format!(": at {}", crate::issue::shown(path))).unwrap_or_default();
+            let why = format!("the commit that would be put on the branch differs from the one made in the view{}", at);
+            back.refused = Some((commit.clone(), raw.subject(), why));
+            break;
+        }
         let (author, email, date) = &raw.author;
         let who = [("GIT_AUTHOR_NAME", Path::new(author)), ("GIT_AUTHOR_EMAIL", Path::new(email)), ("GIT_AUTHOR_DATE", Path::new(date))];
         tip = line(&git(root, &["commit-tree", &tree, "-p", &tip], &who, Some(&raw.message))?);
+        before = tree;
         made.push((tip.clone(), raw.subject()));
+    }
+    if made.is_empty() {
+        return Ok(());
     }
     // On the branch, by a fast-forward of the checkout: git refuses it where a change of the working tree would be lost.
     if let Err(why) = git(root, &["merge", "--ff-only", "-q", &tip], &[], None) {
-        back.after.splice(0..0, wanted.iter().map(|(commit, raw, _)| (commit.clone(), raw.subject())));
+        back.after.splice(0..0, wanted.iter().take(made.len()).map(|(commit, raw, _)| (commit.clone(), raw.subject())));
         return Err(format!(
             "the commits were made, up to {}, and could not be put on {}: {}. Put them there with `git merge --ff-only {}`",
             tip,

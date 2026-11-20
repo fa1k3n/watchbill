@@ -63,6 +63,10 @@ fn under(path: &str, listed: &str) -> bool {
 /// only: git is told not to take its optional locks. Each path is as the working tree says it, not escaped.
 pub fn local_changes(root: &str, issue: &crate::issue::Issue, role: &str) -> Result<Vec<Local>, String> {
     let listed = paths(issue, role);
+    // No path, no view to guard: git would take an empty list of paths as the whole checkout.
+    if listed.is_empty() {
+        return Ok(Vec::new());
+    }
     let root_path = Path::new(root);
     let split = |output: Vec<u8>| -> Vec<String> {
         output.split(|byte| *byte == 0).filter(|name| !name.is_empty()).map(|name| String::from_utf8_lossy(name).to_string()).collect()

@@ -30,7 +30,7 @@ What `wb status` says of the issues in the flow. It only reads.
 | WB-STATUS-24 | `wb status <issue>` shall print the lines it worked out from under the heading `Worked out from:`. Issue: #139. | T | Implemented |
 | WB-STATUS-25 | `wb status` shall list a line of `open_issues` whose first field is not a plain issue name under `Not read`, with why, and end with 1. `open_issues` is no longer read (#155). Issue: #139, #155. | T | Deprecated |
 | WB-STATUS-26 | Without `issue_comments`, `wb status` shall say so once on standard error. Issue: #139. | T | Implemented |
-| WB-STATUS-27 | `wb --help` shall name `wb status`. Issue: #139. | T | Implemented |
+| WB-STATUS-27 | `wb --help` shall name `wb status`. Replaced by WB-CMD-10. Issue: #139. | D | Deprecated |
 | WB-STATUS-28 | `wb status` shall run from any folder inside the repository. Issue: #139. | T | Implemented |
 | WB-STATUS-29 | `wb status` shall take `[answer] <issue> suggested` as an answer to every question asked before it, and to none asked after it. Issue: #139. | T | Implemented |
 | WB-STATUS-30 | `wb status` shall close a question by an `[answer]` of its name whatever follows the name, a choice number too. Issue: #139. | T | Implemented |

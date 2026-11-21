@@ -47,6 +47,7 @@ fn set_up() -> Folder {
     git(&folder.path, &["config", "user.email", "ada@example.org"]);
     let run = wb(&folder.path, &["init", "--yes"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    commit_config(&folder.path);
     folder
 }
 

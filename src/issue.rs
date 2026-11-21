@@ -528,6 +528,10 @@ pub fn accept(root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &
         let _ = writeln!(err, "wb accept: .watchbill/watchbill.yml is not there. Watchbill is not set up in this repository.");
         return 2;
     }
+    if let Err(why) = crate::starter::held(root) {
+        let _ = writeln!(err, "wb accept: {}. Nothing read, nothing written.", why);
+        return 1;
+    }
     let file = file_of(base, issue);
     let shown = format!("{}/{}.yml", FOLDER, issue);
     match fs::symlink_metadata(&file) {
@@ -571,10 +575,10 @@ pub fn accept(root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &
     }
     // `watchbill.yml`, through the one loader, for the files of the build and the pattern `needs` (#125).
     let from_root = |why: String| why.replace(&format!("{}/", root.trim_end_matches('/')), "").trim_end_matches('.').to_string();
-    let settings = match crate::yamlfile::load(base.join(".watchbill").join("watchbill.yml")) {
+    let settings = match crate::starter::settings(root) {
         Ok(document) => document,
         Err(why) => {
-            let _ = writeln!(err, "wb accept: {}. Nothing written.", from_root(why.to_string()));
+            let _ = writeln!(err, "wb accept: {}. Nothing written.", from_root(why));
             return 1;
         }
     };

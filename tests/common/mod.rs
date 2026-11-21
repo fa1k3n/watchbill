@@ -158,12 +158,54 @@ existing_tests_changed: []
 questions: []
 ";
 
+/// Commits `.watchbill/watchbill.yml` as it is in the working tree, when `HEAD` has it otherwise or has none:
+/// `wb` runs a pattern of the file only while it is as `HEAD` has it (#186). The commit has an identity of
+/// its own, given for it alone, so that a test of a missing identity is not spoilt.
+pub fn commit_config(folder: &Path) {
+    let held = Command::new("git")
+        .arg("-C")
+        .arg(folder)
+        .args(["show", "HEAD:.watchbill/watchbill.yml"])
+        .env_clear()
+        .envs(env())
+        .stderr(Stdio::null())
+        .output()
+        .expect("git could not be started");
+    if held.status.success() && held.stdout == fs::read(config(folder)).expect("watchbill.yml could not be read") {
+        return;
+    }
+    git(folder, &["add", "--", ".watchbill/watchbill.yml"]);
+    git(folder, &["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "The patterns"]);
+}
+
+/// As `commit_config`, and every other branch that stood at `HEAD` moves with it, so that the branches stand
+/// as they did: the one a test checked out is the only one that has the commit.
+pub fn commit_config_keeping_refs(folder: &Path) {
+    let text_of = |args: &[&str]| {
+        let run = Command::new("git").arg("-C").arg(folder).args(args).env_clear().envs(env()).stderr(Stdio::null()).output().expect("git could not be started");
+        String::from_utf8_lossy(&run.stdout).to_string()
+    };
+    let old = text_of(&["rev-parse", "HEAD"]).trim().to_string();
+    let current = text_of(&["symbolic-ref", "-q", "HEAD"]).trim().to_string();
+    commit_config(folder);
+    let new = text_of(&["rev-parse", "HEAD"]).trim().to_string();
+    if old == new || old.is_empty() {
+        return;
+    }
+    for name in text_of(&["for-each-ref", "--points-at", &old, "--format=%(refname)"]).lines() {
+        if name != current && !name.ends_with("/HEAD") {
+            git(folder, &["update-ref", name, &new, &old]);
+        }
+    }
+}
+
 /// Gives each of the issues a file with no requirement, accepted, and commits the files and the acceptances
 /// alone in one commit, so that a role may be handed out for the issue (#97). Gives git an identity.
 pub fn issues_ready(folder: &Path, issues: &[&str]) {
     git(folder, &["config", "user.name", "Ada Lovelace"]);
     git(folder, &["config", "user.email", "ada@example.org"]);
     git(folder, &["config", "commit.gpgsign", "false"]);
+    commit_config(folder);
     let mut added = Vec::new();
     for issue in issues {
         put(folder, &format!(".watchbill/issues/{}.yml", issue), &BARE_ISSUE.replace("{issue}", issue));
@@ -231,5 +273,6 @@ pub fn cleared(repository: &Path) -> (Folder, PathBuf) {
     let mut yml = read(&config(repository));
     yml.push_str("confidentiality: public\n");
     fs::write(config(repository), yml).expect("watchbill.yml could not be written");
+    commit_config(repository);
     (place, path)
 }

@@ -9,6 +9,7 @@
 //! `start` is a list of words, and is run with no shell.
 
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use crate::yamlfile::{self, Part};
@@ -19,10 +20,62 @@ const ROUNDS_OF_THEIR_OWN: [&str; 4] = ["breakdown", "tester", "build", "review"
 /// The longest word, with its closing zero byte, that Linux hands a program (`MAX_ARG_STRLEN`).
 pub const LONGEST_WORD: usize = 128 * 1024;
 
+/// The limit of #186: `watchbill.yml` at `root` is held as `HEAD` has it. A pattern of the file is run as the
+/// person, so a file that a session changed and nobody committed is never run. `Ok(Some(bytes))` where the file
+/// in the working tree is the file of `HEAD` byte for byte: the bytes are those of `HEAD`, and every pattern is
+/// parsed from them, so the file is not read again (`settings`). `Ok(None)` where there is no file in the working
+/// tree (the commands say that themselves); otherwise the refusal, which names the file. `HEAD` is read with no
+/// replace refs, which a session can write with nothing on the branch to show it. No flag lifts it.
+pub fn held_bytes(root: &str) -> Result<Option<Vec<u8>>, String> {
+    let place = format!("{}/{}", crate::init::CONFIG_FOLDER, crate::init::CONFIG_FILE);
+    let Ok(now) = std::fs::read(Path::new(root).join(&place)) else {
+        return Ok(None);
+    };
+    let head = Command::new("git")
+        .arg("--no-replace-objects")
+        .arg("-C")
+        .arg(root)
+        .arg("show")
+        .arg(format!("HEAD:{}", place))
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+    let said = match head {
+        Ok(output) if output.status.success() => {
+            if output.stdout == now {
+                return Ok(Some(output.stdout));
+            }
+            "differs from HEAD"
+        }
+        _ => "is not in HEAD",
+    };
+    Err(format!(
+        "{} {}, and a pattern of it is run as the person: a person reads the change and commits it, or takes it back with git, before the next command. Nothing is run and nothing is posted",
+        place, said
+    ))
+}
+
+/// As `held_bytes`, for the commands that read no pattern from the file themselves.
+pub fn held(root: &str) -> Result<(), String> {
+    held_bytes(root).map(|_| ())
+}
+
+/// `watchbill.yml` at `root`, read through the one loader from the bytes of `HEAD` that `held_bytes` read: the
+/// file is held (refused where it differs) and read once. Where there is no file in the working tree, it is read
+/// from there as before, and the loader says why it cannot be.
+pub fn settings(root: &str) -> Result<yamlfile::Document, String> {
+    let path = Path::new(root).join(crate::init::CONFIG_FOLDER).join(crate::init::CONFIG_FILE);
+    match held_bytes(root)? {
+        Some(bytes) => yamlfile::load_bytes(&path, bytes).map_err(|why| why.to_string()),
+        None => yamlfile::load(&path).map_err(|why| why.to_string()),
+    }
+}
+
 /// Runs one pattern, filled, as one line of `/bin/sh -c` in `root`, with `input` on standard input or
 /// nothing. Standard error is the person's. The result is what it printed on standard output; a command
 /// that cannot be run, or ends with anything but 0, is refused with the key of the pattern named.
 pub fn run(root: &str, key: &str, line: &str, input: Option<&[u8]>) -> Result<Vec<u8>, String> {
+    held(root)?;
     let mut command = Command::new("/bin/sh");
     command.arg("-c").arg(line).current_dir(root).stdout(Stdio::piped()).stderr(Stdio::inherit());
     command.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() });
@@ -214,8 +267,7 @@ pub(crate) fn parts(path: &str) -> Vec<&str> {
 /// The classed paths of `watchbill.yml` at `root` (#84): the list `classed`, or `None` when the file has none,
 /// and then every path is classed. A list that is not of relative paths without `..` is refused with its place.
 pub fn classed(root: &str) -> Result<Option<Vec<String>>, String> {
-    let config = std::path::Path::new(root).join(crate::init::CONFIG_FOLDER).join(crate::init::CONFIG_FILE);
-    let document = yamlfile::load(&config).map_err(|why| why.to_string())?;
+    let document = settings(root)?;
     let place = [Part::from("classed")];
     if !document.has(&place) {
         return Ok(None);

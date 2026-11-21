@@ -20,6 +20,7 @@ fn set_up() -> Folder {
     let folder = repository(None);
     let run = wb(&folder.path, &["init", "--yes"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    commit_config(&folder.path);
     folder
 }
 
@@ -37,6 +38,7 @@ fn with(level: Option<&str>, organisation: &str) -> (Folder, Folder, PathBuf) {
         let mut yml = read(&config(&folder.path));
         yml.push_str(&format!("confidentiality: {}\n", level));
         fs::write(config(&folder.path), yml).unwrap();
+        commit_config(&folder.path);
     }
     let place = folder_named("organisation");
     let path = place.path.join("organisation.yml");
@@ -193,6 +195,7 @@ fn test_WB_CONF_6_levels_or_runners_in_the_repository_s_settings_are_refused() {
         let mut yml = read(&config(&folder.path));
         yml.push_str(line);
         fs::write(config(&folder.path), yml).unwrap();
+        commit_config(&folder.path);
 
         let run = breakdown(&folder.path, &path, &["--runner", "claude-code"]);
 

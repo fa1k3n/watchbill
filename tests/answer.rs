@@ -480,6 +480,7 @@ fn test_WB_ANSWER_18_without_issue_comment_bodies_or_issue_comment_it_ends_with_
         let folder = two_roles();
         let kept: String = read(&config(&folder.path)).lines().filter(|line| !line.starts_with(&format!("{}:", key))).map(|line| format!("{}\n", line)).collect();
         fs::write(config(&folder.path), kept).unwrap();
+        commit_config(&folder.path);
         let run = answer(&folder.path, &["175", "--suggested"], "");
         assert_eq!(code(&run), Some(1), "{}: {}", key, text(&run.stderr));
         assert!(text(&run.stderr).contains(&format!("`{}`", key)), "{}: {}", key, text(&run.stderr));

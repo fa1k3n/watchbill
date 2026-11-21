@@ -700,6 +700,10 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
         let _ = writeln!(err, "{}: {}", name, why);
         1
     };
+    // `wb prompt` and a start read the patterns of `watchbill.yml`, and only while it is as `HEAD` has it (#186).
+    if let Err(why) = starter::held(&root) {
+        return Err(refused(err, &format!("{}.", why)));
+    }
     // What `wb check` says is for standard error here: standard output holds the prompt or nothing.
     let (mut said, mut why) = (Vec::new(), Vec::new());
     let status = check::check(&root, VERSION, Path::new(manifest::PACKAGE_FOLDER), &mut said, &mut why);
@@ -1392,7 +1396,7 @@ fn prepare_view(
         .state
         .ok_or("neither XDG_STATE_HOME nor HOME names an absolute folder, and a view is made below the state folder of Watchbill")?;
     view::works(machine.sandbox)?;
-    let settings = yamlfile::load(Path::new(root).join(init::CONFIG_FOLDER).join(init::CONFIG_FILE)).map_err(|why| why.to_string())?;
+    let settings = starter::settings(root)?;
     let build_files = issue::build_files_of(&settings)?.unwrap_or_default();
     let time = now().map(|seconds| prompt::utc(seconds).replace(':', ""))?;
     let base = format!("{}-{}-{}", time, role, issue.unwrap_or("none"));

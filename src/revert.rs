@@ -31,6 +31,10 @@ pub fn revert(root: &str, on: On, role: &str, round: Option<u64>, err: &mut dyn 
         );
         return 1;
     }
+    if let Err(why) = starter::held(root) {
+        let _ = writeln!(err, "wb revert: {}.", why);
+        return 1;
+    }
     let mut commands = Vec::new();
     for key in [read, post] {
         match prompt::pattern_of(root, key) {

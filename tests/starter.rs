@@ -86,6 +86,7 @@ impl Bench {
             kept.push(line.to_string());
         }
         fs::write(config(&self.repo.path), format!("{}\n", kept.join("\n"))).unwrap();
+        commit_config_keeping_refs(&self.repo.path);
     }
 
     fn organisation(&self, text: &str) {

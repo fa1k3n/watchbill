@@ -805,6 +805,7 @@ fn with_line(bench: &Bench, line: &str) {
     yml.push_str(line);
     yml.push('\n');
     fs::write(config(&bench.repo.path), yml).unwrap();
+    commit_config_keeping_refs(&bench.repo.path);
 }
 
 #[test]
@@ -874,8 +875,8 @@ fn test_WB_VIEW_15_without_draft_change_it_says_the_line_is_not_there() {
 #[test]
 fn test_WB_VIEW_16_without_a_view_new_commits_on_the_branch_get_the_same_commands() {
     let bench = bench();
-    with_line(&bench, "draft_change: 'draft-stand-in --head {branch}'");
     git(&bench.repo.path, &["checkout", "-q", "issue-99"]);
+    with_line(&bench, "draft_change: 'draft-stand-in --head {branch}'");
     bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\n");
 
     let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["start", "build", "99"]);
@@ -892,6 +893,21 @@ fn test_WB_VIEW_16_without_a_view_new_commits_on_the_branch_get_the_same_command
     let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["start", "build", "99"]);
     ok(&run);
     assert!(!text_of(&run.stderr).contains("git push"), "{}", text_of(&run.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_39_a_draft_change_the_session_wrote_and_did_not_commit_is_not_said() {
+    let bench = bench();
+    git(&bench.repo.path, &["checkout", "-q", "issue-99"]);
+    with_line(&bench, "draft_change: 'draft-stand-in --head {branch}'");
+    bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file' && echo \"draft_change: 'evil {branch}'\" >> .watchbill/watchbill.yml\n");
+
+    let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["start", "build", "99"]);
+
+    let err = text_of(&run.stderr);
+    assert!(err.contains("git push origin issue-99"), "{}", err);
+    assert!(err.contains("a person reads the change and commits it, or takes it back with git, before the next command"), "{}", err);
+    assert!(!err.contains("evil") && !err.contains("draft-stand-in"), "{}", err);
 }
 
 

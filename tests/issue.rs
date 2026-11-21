@@ -41,6 +41,7 @@ fn set_up() -> Folder {
     git(&folder.path, &["config", "user.email", "ada@example.org"]);
     let run = wb(&folder.path, &["init", "--yes"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    commit_config(&folder.path);
     folder
 }
 
@@ -379,6 +380,7 @@ fn test_WB_TASK_9_no_git_name_or_no_git_email_refuses_with_1() {
     for (key, other, value) in [("user.name", "user.email", "a@b.c"), ("user.email", "user.name", "Ada")] {
         let folder = repository(None);
         assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+        commit_config(&folder.path);
         git(&folder.path, &["config", other, value]);
         with_good(&folder);
         let before = snapshot(&folder.path);
@@ -395,6 +397,7 @@ fn test_WB_TASK_9_no_git_name_or_no_git_email_refuses_with_1() {
 fn test_WB_TASK_9_no_identity_at_all_refuses_with_1() {
     let folder = repository(None);
     assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+    commit_config(&folder.path);
     with_good(&folder);
 
     let run = wb_without_identity(&folder.path, &["accept", "54", "--no-commit"]);

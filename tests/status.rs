@@ -522,6 +522,7 @@ fn test_WB_STATUS_26_without_issue_comments_it_says_so_once_on_standard_error() 
     let file = config(&folder.path);
     let kept: String = read(&file).lines().filter(|line| !line.starts_with("issue_comments:")).map(|line| format!("{}\n", line)).collect();
     fs::write(&file, kept).unwrap();
+    commit_config(&folder.path);
     open(&folder.path, &["1", "2", "3"]);
     let run = wb(&folder.path, &["status"], "");
     assert_eq!(code(&run), Some(0));
@@ -618,6 +619,7 @@ fn default_branch(folder: &Path) -> String {
 fn add_patterns(folder: &Path, lines: &str) {
     let mut file = fs::OpenOptions::new().append(true).open(config(folder)).unwrap();
     file.write_all(lines.as_bytes()).unwrap();
+    commit_config(folder);
 }
 
 /// Commits a file on the branch, with the checkout back where it was.
@@ -747,6 +749,7 @@ fn test_WB_STATUS_38_it_runs_issue_comments_and_change_of_branch_once_for_each_i
     let file = config(&folder.path);
     let kept: String = read(&file).lines().filter(|line| !line.starts_with("issue_comments:")).map(|line| format!("{}\n", line)).collect();
     fs::write(&file, kept).unwrap();
+    commit_config(&folder.path);
     add_patterns(
         &folder.path,
         "issue_comments: \"mkdir -p .calls && echo {issue} >> .calls/issue_comments && cat .tracker/{issue}.comments\"

@@ -9,7 +9,7 @@
 
 A harness for AI agents in embedded software development, deployed at a fixed revision onto a project that already exists.
 
-**Status: an idea, written down 2026-11-16. Built: `wb init`, `wb check`, `wb prompt`, `wb accept`, `wb revision`, and `wb start <role>`, which starts a session of a role at a person's terminal. Nothing hands work from one role to the next yet.**
+**Status: 0.10.0. Built: `wb init`, `wb check`, `wb upgrade`, `wb prompt`, `wb accept`, `wb status`, `wb view`, `wb answer`, `wb revert`, `wb revision` and `wb start`, which starts a session of a role at a person's terminal. For an issue with an accepted file the session runs in a view: only the files its work needs, and none of the history. A person starts each role. Nothing hands work from one role to the next yet. A command that is planned is marked with its release.**
 
 ## What Watchbill is for
 
@@ -24,7 +24,7 @@ AI agents give such a team three problems:
 Watchbill sits between the team's tools and its agents, and is built to answer each:
 
 - **Roles.** The work is split into roles: breakdown, tests, build, review and fix. Each role has a fixed, versioned prompt. Where a limit of a role can be checked, the program checks it and refuses. No agent checks its own work, and no agent merges.
-- **Confidentiality.** A session is given only the files its work needs, and is started only with tools and a model the organisation has cleared for that code. Code that must stay on the premises is worked on there, by a model that runs there. One role reads the whole code to make the lists of files, and runs only where the organisation has cleared it.
+- **Confidentiality.** A session works in a view: a folder that holds only the files its work needs, and none of the history. The organisation says which tools and models may have a view of which code. Code that must stay on the premises is worked on there, by a model that runs there. One role, the breakdown, reads the whole code to make the lists of files, and runs only where the organisation has cleared it. A view is not a barrier against sending: the files in it go to the model of its runner ([What still leaks](#what-still-leaks)).
 - **Assessment.** The prompts and the rules are one pinned revision in the repository, the same on every machine and checked by hash. That is what the assessor reads.
 
 Not all of this is built. [Where it stands](#where-it-stands) says what holds today.
@@ -44,6 +44,7 @@ Watchbill is set up in an existing repository with one command, and uses the tra
 9. **A team starts strict and opens up as it learns.** It can begin with everything protected and a model on the premises. As it sees how the work goes, it finds the parts of the code that do not need full protection, and the organisation opens those parts, and only those. Where nothing is said, the strictest applies.
 10. **The process can be shown to an assessor.** What the agents are told, and what holds each rule, can be read in one place. A team's process with Watchbill in it can be assessed. Watchbill is not certified, and nothing here says it is.
 11. **It needs no other product.** One package to install. `wb` asks nothing of the network unless the command is about a system on the network.
+12. **Work is handed from one role to the next by the program.** When a session ends, the program checks the rule table and the next role is started, without a person starting each step. The rules, the gates and the stamps are the same as when a person starts it, and a person still accepts, answers and merges.
 
 ### When it works
 
@@ -58,14 +59,15 @@ At 0.10.0. An issue that changes a verdict changes its row.
 | 1. Fits the workflow | Partly: any tracker and git server with a command line, by a pattern the team writes. `wb init` writes the patterns for GitHub and GitLab only. The CI and the requirements tool are names and nothing more. `wb` installs on Fedora and Enterprise Linux only | |
 | 2. What the agents are told | Held for what `wb` hands out: the pinned revision, `wb check`. `wb start <role>` posts the stamp and starts the session with that prompt itself. A session started by hand is the word of the one who started it, and so is the effort of a runner whose `start` cannot set it | |
 | 3. Rules enforced | Partly: the pinned revision, the acceptance, the breakdown's runner and the placeholders are checked in code. What a session of an issue with an accepted file reads and changes is held by its view. No other limit of the rule table is | #28 names each limit and what holds it; then #88 and the pieces #28 writes |
-| 4. People keep the decisions | Partly: `wb accept` asks for a person's word, but cannot tell a person from an agent under one account. That an agent cannot merge rests on the git server's settings | The roles' accounts, #83, and the acceptance read at the tracker, #88. No issue yet checks that a role's account cannot merge |
-| 5. Duties separated | Partly: the rule table says it, and nothing knows who holds which role | #83 and #88, for work that is handed on. No issue yet for a session a person starts |
+| 4. People keep the decisions | Partly: `wb accept` asks for a person's word, but cannot tell a person from an agent under one account. That an agent cannot merge rests on the git server's settings | The roles' accounts, #83, and the acceptance read at the tracker, #88 (both planned for 0.11.0). No issue yet checks that a role's account cannot merge |
+| 5. Duties separated | Partly: the rule table says it, and nothing knows who holds which role | #83 and #88, for work that is handed on (both planned for 0.11.0). No issue yet for a session a person starts |
 | 6. Sees only the code it needs | Partly: a session that `wb start <role>` starts for an issue with an accepted file runs in a view, in bubblewrap. It sees the paths of its lists and no history, and its commits come back only where `changes` allows ([The view](#the-view)). `wb accept` checks that the lists hold what each file needs to build, by the team's own command `needs` ([below](#the-lists-checked-at-acceptance)). A session started by hand, for an issue with no file, or as the breakdown sees the whole checkout. What still leaks is [said below](#what-still-leaks) | No issue yet for a session started by hand |
 | 7. Code goes only where allowed | Partly: checked for the breakdown | The other roles, #11. No issue yet for a local model for them |
 | 8. Starts small | Held: `wb start <role>` starts any role alone, for an issue with no file, and a review or a fix of a change with no issue, and posts the stamp on the issue or the change ([one role at a time](#taking-it-on-one-role-at-a-time)) | |
 | 9. Starts strict, opens up | Not yet: one level for the whole repository, and no level given means the strictest | #11, #65, and a level for each path, which has no issue yet |
 | 10. Shown to an assessor | Partly: what the agents are told can be read. The rule table says more than the program enforces | #28 |
 | 11. Needs no other product | Held: one RPM, `git`, and a build with the network off | |
+| 12. Work is handed on by the program | Not yet: a person starts each role. `wb status` says where each issue stands, and nothing more | `wb handover` (#88) and the roles' accounts (#83) for 0.11.0; `wb listen` (#85), the officer (#86) and `wb run` (#183) for 0.12.0 |
 
 ### Not goals
 
@@ -76,12 +78,11 @@ At 0.10.0. An issue that changes a verdict changes its row.
 
 ### Later
 
-- Agents handing work to each other without a person starting each step. A convenience on top of the goals, not a goal.
 - Hardware in the loop: tests that run on the real device.
 
 ## The commands
 
-`wb` works as git does: run in the folder, one command per job, an exit status that scripts read. `wb help` lists the commands by group, and `wb help <command>` says more of one. A command that is not built yet is in the layout from 0.10.0: it ends with 2, writes nothing, asks nothing of the network, and says on standard error the release it is planned for and the issue that builds it (#171).
+`wb` works as git does: run in the folder, one command per job, an exit status that scripts read. The words of `wb`, and how each command and thing is like git and unlike it, are in [docs/words.md](docs/words.md). `wb help` lists the commands by group, and `wb help <command>` says more of one. A command that is not built yet is in the layout from 0.10.0: it ends with 2, writes nothing, asks nothing of the network, and says on standard error the release it is planned for and the issue that builds it (#171).
 
 | Group | Commands |
 |---|---|
@@ -185,13 +186,12 @@ The exit status:
 
 ```
 $ wb upgrade
-wb upgrade: the repository is pinned to version 0.0.8, revision 5f1ec546…; the installed wb is version 0.0.9, revision badac62e….
+wb upgrade: the repository is pinned to version 0.0.9, revision badac62e…; the installed wb is version 0.10.0, revision d31965c0….
 It writes these, in this order:
-  change  .watchbill/revision/roles/build.md
+  change  .watchbill/revision/roles/breakdown.md
   change  .watchbill/revision.sha256
-  set     .watchbill/watchbill.yml: watchbill: 0.0.9 (was 0.0.8)
-  set     .watchbill/watchbill.yml: revision: badac62e… (was '5f1ec546…')
-  add     .watchbill/watchbill.yml: draft_change: 'gh pr create --repo acme/brake-controller --head {branch} --draft --fill-verbose'
+  set     .watchbill/watchbill.yml: watchbill: 0.10.0 (was 0.0.9)
+  set     .watchbill/watchbill.yml: revision: d31965c0… (was 'badac62e…')
 
 Written.
 
@@ -199,7 +199,7 @@ The check of wb check:
 The repository is at the revision it is pinned to, and the installed wb is that revision.
 
 Nothing is committed. Commit the change alone, with nothing else in the commit; until .watchbill/watchbill.yml is committed, wb runs none of its patterns (#186):
-  git add --all -- ':/.watchbill' && git commit -m 'Watchbill 0.0.9' -- ':/.watchbill'
+  git add --all -- ':/.watchbill' && git commit -m 'Watchbill 0.10.0' -- ':/.watchbill'
 ```
 
 - **What it writes.** The files of the installed revision over `.watchbill/revision/`, removing each file and folder there that the installed revision does not have, and its manifest as `.watchbill/revision.sha256`. In `watchbill.yml`, the lines `watchbill:` and `revision:`, set to the installed version and hash as `wb init` writes them, and each pattern that the installed `wb init` would write for this repository (from its `git_server` and `repository`, and for GitLab the host of `origin`) and that the file does not have. A line that is there is never written over: a pattern with another value stays as it is. `classed` and `build_files` are settings a person decides, and are never added.
@@ -308,6 +308,16 @@ mv "$t/session.sha256" "$t/session.md" . && your-agent --prompt-file session.md
 
 ### Confidentiality
 
+Confidentiality is three questions, and the view ([below](#the-view)) is the answer to the first and the third.
+
+1. **What is in the view?** The paths the issue's file lists for the role. The breakdown writes the lists, `wb accept` checks them, and a person accepts them.
+2. **Who may have the view?** The organisation's file says which runner is cleared for which level. In this revision code checks it for the breakdown only; the other roles are #11.
+3. **What comes back?** The commits that keep to `changes`. Nothing else is taken.
+
+A view decides how much is seen. The level decides by whom. The network stays open, so every file in a view goes to the model of its runner: a view is not a barrier against sending.
+
+Three sessions run with no view and see the whole checkout: the breakdown, a role started for an issue with no file, and a session started by hand.
+
 Where an assignment may run is the organisation's to say, not the project's ([docs/revision.md](docs/revision.md), point 11). In this revision it is checked for the breakdown, which reads more of the code than any other role.
 
 The organisation lays out one file on each machine, by its own means: `/etc/watchbill/organisation.yml`. `wb` reads it from there and from nowhere else: no option and no environment variable changes the path, so a team cannot clear a runner for itself. It is read through the same loader as every YAML file of `wb`.
@@ -342,15 +352,51 @@ The repository states its own level, as the line `confidentiality:` of `.watchbi
 
 What it does not do yet (#11): the tester, the build, the review and the fix are not refused on a runner or a missing file, and the level of an issue is not read. It cannot stop a person from pasting code into another tool, or running a session with a prompt that `wb` did not hand out. The stamp on the issue is what shows where the work was handed out.
 
-#### What still leaks
+## The view
 
-A view ([below](#the-view)) keeps the rest of the code and the history away from a session. It does not keep everything:
+Three questions settle confidentiality ([above](#confidentiality)). The view answers the first and the third.
 
-- Every file of the lists goes to the model, as the session reads it. The level of the repository still decides which runner may have them.
-- A test that passes or fails tells one bit about code the session cannot read, at each try. A session that runs the tests many times learns more.
-- The runner's own settings and login are inside the view, as its `binds`. What the runner keeps there, the session can read.
-- Nothing stops a person from pasting code into another tool.
-- A session with no view, such as the breakdown, a role started for an issue with no file, or a session started by hand, writes the checkout itself, and so it can change `.watchbill/watchbill.yml`. `wb` runs the patterns of the file as the person, so it runs them only while the file is as `HEAD` has it ([The patterns](#the-patterns)). That stops an uncommitted change only. The same session runs as the person, with a shell: it can commit the changed file, move a ref or write a hook (`.git/hooks/` runs when `wb accept` commits), and a commit in the checkout lifts the limit. A person reads `git log -p -- .watchbill/watchbill.yml` before the next command. What a person commits there is run. A sandbox for every session is #202.
+A session of the tester, the build, the review or the fix of an issue with an accepted, committed file sees only the files its issue's file lists for it (#126). The program keeps this limit, not the prompt.
+
+- **What it holds.** A new folder, `<state>/watchbill/views/<time>-<role>-<issue>/`, made by `wb` from the paths of `changes` and of the role's `reads`, as they are in `HEAD` of the checkout. It is a new repository with one commit of those files, on a branch of the checkout's name, with no remote and no history of the repository. A path of `changes` that is not there yet is not made: the session may make it. A worktree or a sparse checkout would not do: `git show` reads every file from the history.
+- **A local change stops the start** (#172). The view is made from `HEAD`, so a path of it that differs from `HEAD` in the index or in the working tree (changed, staged, deleted; a rename is named by both its paths), or a file marked `assume-unchanged` or `skip-worktree` that is changed, or any untracked file under a path of `changes`, would not be seen by the session, and its commits might not come back over it. `wb` names each such path under its list, `changes` or `reads`, says that this is a guard, and ends with 1, before the stamp is posted and before the view is made. `--ignore-local` passes it when every such path is under `reads` only: the session sees `HEAD`'s file. A change under `changes` is never passed, and the message says so. A start that went on with it has the line `local: ignored <n>` in its stamp, after `view:`, and the file `local` in its session's folder; without it the stamp has no such line. An untracked file under `changes` is named also when it is ignored, by the checkout's rules or by the person's own: the fast-forward at the end writes over an ignored file without a word, so the most restrictive applies. An untracked file under `reads` is not in the view and is not named. More than 20 paths of one list are said as the first 20 and a count. The breakdown and a role with no issue's file run without a view, and are not checked.
+- **Where it runs.** In bubblewrap (`/usr/bin/bwrap`, from the package `bubblewrap`): the view at the path of the checkout, writable, so that `{checkout}` of the prompt is right. `/usr`, `/etc` and `/sys` are there read-only, `/tmp` and `/run` are its own, and the home folder is an empty one of its own, with the runner's `binds` in it. The checkout's `.git` and `.watchbill/`, the folder of the organisation's file and the person's other folders are not there. The variables `GIT_*` are not handed in. The network is the machine's, as the runner calls its model over it: the view limits the code that is there to send, not where it can be sent ([What still leaks](#what-still-leaks)). A network of its own is #195, planned for 0.11.0.
+- **A terminal.** Where the kernel lets a program type into its terminal (`TIOCSTI`), a session could type into the person's shell after it ends. `wb` gives a session in a view no controlling terminal then. Where `/proc/sys/dev/tty/legacy_tiocsti` is `0`, as on Fedora, the kernel refuses it, and the session keeps its terminal.
+- **What comes back.** When the session ends, `wb` takes each commit of the view, in order. A commit that touches a path outside `changes`, under `.watchbill/` or under `build_files` of `watchbill.yml`, a merge or a submodule is refused, with the paths named: nothing of it or after it is taken, and `wb` ends with 1. The commits before it are put on the checkout's branch, with their messages and authors, by a fast-forward. A file entry of `changes` covers that path only, never a path under it; a folder covers the paths under it (#192). `wb` decides it from `HEAD` of the checkout, never from the view, and asks `HEAD` first: an entry that is a folder there is a folder, and one that is a file there is a file, also when it is written with a `/`. For an entry that is not there, the `/` at its end decides: with it a folder, without it a file, so a new folder is written `docs/`. A path with a part `.git` in any case, or one git refuses to check out (the forms NTFS and HFS+ read as `.git`, `.gitmodules` as a link), is refused like a path outside `changes`. Before a commit is put on the branch, `wb` refuses a commit with a tree that is not in the form git writes (a name twice, a mode git rewrites such as `100664`, entries not in git's order), and checks that what the commit it made changes is what the view's commit changed, path for path, mode and file; a commit that differs is refused, and none after it is taken. Work left uncommitted in the view is named and not taken. What the project's git ignores is not work left (#159): `wb` judges it by every `.gitignore` of the checkout's `HEAD` and the checkout's `.git/info/exclude`, read from the checkout and never from the view, so a session cannot widen them, and a `node_modules/` that the project ignores neither keeps the view nor is listed. The person's global ignore file is not read. Where more than 20 paths are left, `wb` says how many, the first 20, and that the whole list is in the file `back` of the session's folder ([The lines it leaves](#the-lines-it-leaves)). A path from the view, and a commit's subject, is said and written escaped (#167: control characters, line and paragraph separators, bidi controls and the backslash), so a file name cannot add a line or send escape codes to the terminal.
+- **The push is the person's** (#145). A view has no remote, and the prompts of the tester, the build and the fix say to commit and not to push or open a change. When commits were taken onto the branch, `wb` says on standard error how to look at each commit taken, `git show --stat <commit>`, the command that pushes it, `git push origin <branch>`, and after a build the command that opens the change as a draft: `draft_change` of `watchbill.yml`, with `{branch}` filled ([The patterns](#the-patterns)). Without that line it says so. `wb` runs none of them. A role started without a view is told the push and the draft in its prompt, and `wb` says those two commands after it when the branch checked out has new commits; `git show --stat` is said after a view only. That `wb` pushes itself is #151.
+- **What is left.** The view is removed when all of it was taken back. It is kept, and named, when anything was refused or left uncommitted.
+- **How it is read.** Once the session has run, the `.git` of the view is the session's. `wb` never runs git with its settings, which would run outside the sandbox a command the session wrote there: it reads the view's objects through a repository of its own, and its `HEAD` from the files.
+- **Without a view.** A role started with no issue's file (#116), and the breakdown, which reads the whole code by its role, run as before, in the checkout. For a role with no file, `wb` says so on standard error before it starts. A person who starts it has decided to.
+- **The stamp** has the line `view:`, after `time:`: the SHA-256 of the list of paths, one to a line, as the file `view` of the lines holds it, or `none`. `wb prompt --stamp` gives the same line: it says what was handed out, as the model and the effort do.
+
+### Seeing a view first
+
+`wb view` shows what a session of a role will see, before it starts, and says for one file whether it is in the view and why (#173). A list that falls short is found before a session is spent on it.
+
+```sh
+wb view 54 build              # the paths of the build's view, its level and its view: line
+wb view 54 build --out        # what the view leaves out of HEAD, by folder
+wb view 54 src/brake.c        # in or out, for each role, and why
+```
+
+- **`wb view <issue> <role>`** prints the paths of the view of that role, one to a line: the list the start makes the view from, `changes` and then the role's `reads`. Then `level:`, the level of the repository as `--parts` of the breakdown gives it (the line `confidentiality:` of `watchbill.yml`, or the most restrictive of the organisation's file), and `view:`, the line the role's stamp would hold, made by the same function. Where a file of the view differs from `HEAD`, or an untracked file is under `changes`, an empty line follows and what the start would say of the local changes (#172). It ends with 0.
+- **`--in`** is that, and the default. **`--out`** prints in its place what the view leaves out of `HEAD`, one folder to a line, `<count><tab><folder>/`: a folder that holds no file of the view, at its top, with the count of its files; for a folder that holds some, the files left out directly in it. The files at the root are under `./`. `--in` and `--out` together end with 2.
+- **`wb view <issue> <path>`** takes a path from the root of the repository, as the issue's file writes it. A word that is a role is the role: a folder named `build` is written `./build`. It prints one line for each role with a view, the tester, the build, the review and the fix: `build: in: reads.build, line 9 of .watchbill/issues/54.yml: include`, with the list and the line of the issue's file that hold the path and the entry as written; or `review: out: <why>`. The reasons are, in this order: under `.watchbill/`; a path git does not take (#192); listed, and not in `HEAD`, with the list and the line (a session may make a path of `changes`); a submodule; ignored by the checkout, with the rule, and not in `HEAD`; not in `HEAD`; under `build_files` and not listed; not listed. A folder that is not listed, and holds paths that are, is out, and they are named. It ends with 0 when the path is in the view of at least one role, and with 1 when in none.
+- **Ignored** is asked of git in the checkout: the `.gitignore` files of the working tree and `.git/info/exclude`. The person's global file is not read.
+- **Without a view.** An issue with no file, or one not accepted or not committed, ends with 1: with no file, `wb view` says that the role would run without a view; otherwise it gives the reason `wb prompt` gives. `wb view <issue> breakdown` ends with 1: the breakdown runs without a view.
+- **It only reads.** It makes no view, runs no pattern of `watchbill.yml`, posts nothing, writes nothing, not in the state folder either, and asks nothing of the network. `watchbill.yml` is read as `HEAD` has it (#186): where it differs, `wb view` ends with 1. A word that is not known, or a path that starts with `/`, holds `..` or names the root, ends with 2.
+
+### What still leaks
+
+A view keeps the rest of the code and the history away from a session. It does not keep everything:
+
+- **The network is the machine's.** A session in a view shares the network of the machine, so it can reach every service that listens on this machine: `localhost`, a database, a local model server, `howl serve`, and anything else with no login. It can reach the rest of the network too. It is not held to its runner's model. Until the sandbox has a network of its own (#195, planned for 0.11.0), a team runs no service without a login on a machine while sessions run on it.
+- **Every file of the lists goes to the model**, as the session reads it. The level of the repository still decides which runner may have them. A view decides how much is seen, not where it is sent.
+- **A test that passes or fails tells one bit** about code the session cannot read, at each try. A session that runs the tests many times learns more.
+- **The runner's own settings and login are inside the view**, as its `binds`. What the runner keeps there, the session can read.
+- **Nothing stops a person** from pasting code into another tool.
+- **A stamp is a comment.** Anyone who can comment on the issue can write one, until each role has an account of its own (#83, planned for 0.11.0).
+- **A session with no view** writes the checkout itself, so it can change `.watchbill/watchbill.yml`. `wb` runs the patterns of the file as the person, so it runs them only while the file is as `HEAD` has it ([The patterns](#the-patterns)). That stops an uncommitted change only. The same session runs as the person, with a shell: it can commit the changed file, move a ref or write a hook (`.git/hooks/` runs when `wb accept` commits), and a commit in the checkout lifts the limit. A person reads `git log -p -- .watchbill/watchbill.yml` before the next command. What a person commits there is run. A sandbox for every session is #202, planned for 0.11.0.
 
 ## Starting a session
 
@@ -404,38 +450,6 @@ They are worked out, never asked. `--round` and `--change` are still taken, and 
 - **The stamp.** `wb` says on standard error what it will post. It then runs `issue_comment` with `{issue}` filled and the stamp on standard input: the line `[stamp] <role> round <n>`, then the lines `wb prompt --stamp` prints, with `runner:` the runner it starts. A review or a fix with no issue posts it by `change_comment`, with `{change}` filled. What the command prints goes to standard error. When it ends with anything but 0, nothing is started, and `wb` ends with 1.
 - **The session.** `wb` runs the runner's `start`, its words filled: `{model}` and `{effort}` are those of the stamp, and `{prompt}` is the whole prompt as one word. Nothing goes through a shell. It runs in the root of the checkout, in the foreground, in the person's terminal: for an issue with an accepted file in its view, and otherwise as it is, which `wb` says first. Ctrl-C and Ctrl-\ go to the session, and `wb` waits for it. `wb` ends with 0 when the session ends with 0, and with 1 otherwise.
 - **`--prompt`** prints the prompt as `wb prompt` does, and posts and starts nothing. `--stamp` and `--parts` do as with `wb prompt`, with `--prompt` or without. No `default` runner is taken then: the output is that of `wb prompt` for the same words.
-
-### The view
-
-A session of the tester, the build, the review or the fix of an issue with an accepted, committed file sees only the files its issue's file lists for it (#126). The program keeps this limit, not the prompt.
-
-- **What it holds.** A new folder, `<state>/watchbill/views/<time>-<role>-<issue>/`, made by `wb` from the paths of `changes` and of the role's `reads`, as they are in `HEAD` of the checkout. It is a new repository with one commit of those files, on a branch of the checkout's name, with no remote and no history of the repository. A path of `changes` that is not there yet is not made: the session may make it. A worktree or a sparse checkout would not do: `git show` reads every file from the history.
-- **A local change stops the start** (#172). The view is made from `HEAD`, so a path of it that differs from `HEAD` in the index or in the working tree (changed, staged, deleted; a rename is named by both its paths), or a file marked `assume-unchanged` or `skip-worktree` that is changed, or any untracked file under a path of `changes`, would not be seen by the session, and its commits might not come back over it. `wb` names each such path under its list, `changes` or `reads`, says that this is a guard, and ends with 1, before the stamp is posted and before the view is made. `--ignore-local` passes it when every such path is under `reads` only: the session sees `HEAD`'s file. A change under `changes` is never passed, and the message says so. A start that went on with it has the line `local: ignored <n>` in its stamp, after `view:`, and the file `local` in its session's folder; without it the stamp has no such line. An untracked file under `changes` is named also when it is ignored, by the checkout's rules or by the person's own: the fast-forward at the end writes over an ignored file without a word, so the most restrictive applies. An untracked file under `reads` is not in the view and is not named. More than 20 paths of one list are said as the first 20 and a count. The breakdown and a role with no issue's file run without a view, and are not checked.
-- **Where it runs.** In bubblewrap (`/usr/bin/bwrap`, from the package `bubblewrap`): the view at the path of the checkout, writable, so that `{checkout}` of the prompt is right. `/usr`, `/etc` and `/sys` are there read-only, `/tmp` and `/run` are its own, and the home folder is an empty one of its own, with the runner's `binds` in it. The checkout's `.git` and `.watchbill/`, the folder of the organisation's file and the person's other folders are not there. The variables `GIT_*` are not handed in. The network stays as the runner needs it: the view is what limits the code that can be sent.
-- **A terminal.** Where the kernel lets a program type into its terminal (`TIOCSTI`), a session could type into the person's shell after it ends. `wb` gives a session in a view no controlling terminal then. Where `/proc/sys/dev/tty/legacy_tiocsti` is `0`, as on Fedora, the kernel refuses it, and the session keeps its terminal.
-- **What comes back.** When the session ends, `wb` takes each commit of the view, in order. A commit that touches a path outside `changes`, under `.watchbill/` or under `build_files` of `watchbill.yml`, a merge or a submodule is refused, with the paths named: nothing of it or after it is taken, and `wb` ends with 1. The commits before it are put on the checkout's branch, with their messages and authors, by a fast-forward. A file entry of `changes` covers that path only, never a path under it; a folder covers the paths under it (#192). `wb` decides it from `HEAD` of the checkout, never from the view, and asks `HEAD` first: an entry that is a folder there is a folder, and one that is a file there is a file, also when it is written with a `/`. For an entry that is not there, the `/` at its end decides: with it a folder, without it a file, so a new folder is written `docs/`. A path with a part `.git` in any case, or one git refuses to check out (the forms NTFS and HFS+ read as `.git`, `.gitmodules` as a link), is refused like a path outside `changes`. Before a commit is put on the branch, `wb` refuses a commit with a tree that is not in the form git writes (a name twice, a mode git rewrites such as `100664`, entries not in git's order), and checks that what the commit it made changes is what the view's commit changed, path for path, mode and file; a commit that differs is refused, and none after it is taken. Work left uncommitted in the view is named and not taken. What the project's git ignores is not work left (#159): `wb` judges it by every `.gitignore` of the checkout's `HEAD` and the checkout's `.git/info/exclude`, read from the checkout and never from the view, so a session cannot widen them, and a `node_modules/` that the project ignores neither keeps the view nor is listed. The person's global ignore file is not read. Where more than 20 paths are left, `wb` says how many, the first 20, and that the whole list is in the file `back` of the session's folder ([The lines it leaves](#the-lines-it-leaves)). A path from the view, and a commit's subject, is said and written escaped (#167: control characters, line and paragraph separators, bidi controls and the backslash), so a file name cannot add a line or send escape codes to the terminal.
-- **The push is the person's** (#145). A view has no remote, and the prompts of the tester, the build and the fix say to commit and not to push or open a change. When commits were taken onto the branch, `wb` says on standard error how to look at each commit taken, `git show --stat <commit>`, the command that pushes it, `git push origin <branch>`, and after a build the command that opens the change as a draft: `draft_change` of `watchbill.yml`, with `{branch}` filled ([The patterns](#the-patterns)). Without that line it says so. `wb` runs none of them. A role started without a view is told the push and the draft in its prompt, and `wb` says those two commands after it when the branch checked out has new commits; `git show --stat` is said after a view only. That `wb` pushes itself is #151.
-- **What is left.** The view is removed when all of it was taken back. It is kept, and named, when anything was refused or left uncommitted.
-- **How it is read.** Once the session has run, the `.git` of the view is the session's. `wb` never runs git with its settings, which would run outside the sandbox a command the session wrote there: it reads the view's objects through a repository of its own, and its `HEAD` from the files.
-- **Without a view.** A role started with no issue's file (#116), and the breakdown, which reads the whole code by its role, run as before, in the checkout. For a role with no file, `wb` says so on standard error before it starts. A person who starts it has decided to.
-- **The stamp** has the line `view:`, after `time:`: the SHA-256 of the list of paths, one to a line, as the file `view` of the lines holds it, or `none`. `wb prompt --stamp` gives the same line: it says what was handed out, as the model and the effort do.
-
-### Seeing a view first
-
-`wb view` shows what a session of a role will see, before it starts, and says for one file whether it is in the view and why (#173). A list that falls short is found before a session is spent on it.
-
-```sh
-wb view 54 build              # the paths of the build's view, its level and its view: line
-wb view 54 build --out        # what the view leaves out of HEAD, by folder
-wb view 54 src/brake.c        # in or out, for each role, and why
-```
-
-- **`wb view <issue> <role>`** prints the paths of the view of that role, one to a line: the list the start makes the view from, `changes` and then the role's `reads`. Then `level:`, the level of the repository as `--parts` of the breakdown gives it (the line `confidentiality:` of `watchbill.yml`, or the most restrictive of the organisation's file), and `view:`, the line the role's stamp would hold, made by the same function. Where a file of the view differs from `HEAD`, or an untracked file is under `changes`, an empty line follows and what the start would say of the local changes (#172). It ends with 0.
-- **`--in`** is that, and the default. **`--out`** prints in its place what the view leaves out of `HEAD`, one folder to a line, `<count><tab><folder>/`: a folder that holds no file of the view, at its top, with the count of its files; for a folder that holds some, the files left out directly in it. The files at the root are under `./`. `--in` and `--out` together end with 2.
-- **`wb view <issue> <path>`** takes a path from the root of the repository, as the issue's file writes it. A word that is a role is the role: a folder named `build` is written `./build`. It prints one line for each role with a view, the tester, the build, the review and the fix: `build: in: reads.build, line 9 of .watchbill/issues/54.yml: include`, with the list and the line of the issue's file that hold the path and the entry as written; or `review: out: <why>`. The reasons are, in this order: under `.watchbill/`; a path git does not take (#192); listed, and not in `HEAD`, with the list and the line (a session may make a path of `changes`); a submodule; ignored by the checkout, with the rule, and not in `HEAD`; not in `HEAD`; under `build_files` and not listed; not listed. A folder that is not listed, and holds paths that are, is out, and they are named. It ends with 0 when the path is in the view of at least one role, and with 1 when in none.
-- **Ignored** is asked of git in the checkout: the `.gitignore` files of the working tree and `.git/info/exclude`. The person's global file is not read.
-- **Without a view.** An issue with no file, or one not accepted or not committed, ends with 1: with no file, `wb view` says that the role would run without a view; otherwise it gives the reason `wb prompt` gives. `wb view <issue> breakdown` ends with 1: the breakdown runs without a view.
-- **It only reads.** It makes no view, runs no pattern of `watchbill.yml`, posts nothing, writes nothing, not in the state folder either, and asks nothing of the network. `watchbill.yml` is read as `HEAD` has it (#186): where it differs, `wb view` ends with 1. A word that is not known, or a path that starts with `/`, holds `..` or names the root, ends with 2.
 
 ### The lines it leaves
 
@@ -581,10 +595,10 @@ Each command posts its stamp and starts its session. The person answers the ques
 
 ### What it does not do
 
-- Start a session without a terminal, for the listener (#85).
-- Run the breakdown, or a role with no issue's file, in a view.
-- Keep the session's last message and hand it on (#88).
-- Know whether a session of the same role already runs on the issue (#88).
+- Start a session without a terminal, for the listener (#85, planned for 0.12.0).
+- Run the breakdown, or a role with no issue's file, in a view. Every session in a sandbox is #202, planned for 0.11.0.
+- Keep the session's last message and hand it on (#88, planned for 0.11.0).
+- Know whether a session of the same role already runs on the issue (#88, planned for 0.11.0).
 - Say what the session does with its prompt. The stamp says what was handed out and started.
 
 ## Where each issue stands
@@ -628,7 +642,7 @@ Questions open:
 - **`wb status --stage <heading>`** prints only that heading, for example `wb status --stage "not broken down"`. The names are matched without regard to case; `Questions open` and `Not read` too. A name that is not known is used wrongly.
 - **What it reads:** the branches with git, the issue's file and its acceptance from the branch with `git show`, never by switching branches, and the comments through `issue_comments` and the change through `change_of_branch`, each once for each issue listed (`issue_address` for one issue). It writes nothing, and asks the network only through those patterns.
 - **The exit status:** 0 when every issue could be read; 1 when a pattern failed for an issue (it is listed last, under `Not read`, with why; the others are printed); 2 when it was used wrongly, Watchbill is not set up, or no default branch is found.
-- **It is not a dashboard** ([Not goals](#not-goals)): a list in the terminal, of now, for one repository. The sessions that run on this machine are for #140.
+- **It is not a dashboard** ([Not goals](#not-goals)): a list in the terminal, of now, for one repository. The sessions that run on this machine are for #140 (planned for 0.11.0).
 
 ## Answering the questions
 
@@ -686,7 +700,7 @@ wb answer --change 174          # a change with no issue
 - **The breakdown** is not taken back by a marker. The issue's file and its acceptance are files of the repository, and git takes them back. `wb revert <issue> breakdown` is refused with 1, and says so.
 - **Refused with 1:** a role with no stamp on the issue that still counts (naming the role), a missing `issue_comments` or `issue_comment` (or the change's), a pattern that ends with anything but 0.
 - **The exit status:** 0 when the marker is posted; 1 when it was refused or the posting failed; 2 when it was used wrongly (no issue or role, a role the revision does not have, an option that is not known, a `--change` that is not a plain name, `--round` that is not a whole number from 1, an issue and `--change` together) or Watchbill is not set up.
-- **Not yet:** who may revert once the roles have accounts (#83). Until then any person who can post a comment can.
+- **Not yet:** who may revert once the roles have accounts (#83, planned for 0.11.0). Until then any person who can post a comment can.
 
 ## Taking it on one role at a time
 
@@ -711,7 +725,7 @@ Then the team adds the rest when it is ready:
 - **The fix,** in the same way: `wb start fix --change 174`.
 - **Issues with no file:** the tester, the build, the review and the fix are handed out for an issue, and work from its own numbered items.
 - **The breakdown and the acceptance:** once an issue has a file, the chain's gates bind. The file must be accepted, and the file and its acceptance committed, before any role of the issue is handed out.
-- **The hand-on** from one role to the next always needs the whole chain: an accepted file for every issue. It is not built yet (#88, and the listener and the officer, #85 and #86).
+- **The hand-on** from one role to the next always needs the whole chain: an accepted file for every issue. It is not built yet: `wb handover` (#88, planned for 0.11.0), the listener (#85, 0.12.0) and the officer (#86, 0.12.0).
 
 ## The issue's file and its acceptance
 

@@ -17,7 +17,7 @@ pub const COMMANDS: [Command; 16] = [
     Command { name: "init", group: "set up", summary: "set Watchbill up in this repository" },
     Command { name: "check", group: "set up", summary: "say whether the repository is at its revision" },
     Command { name: "doctor", group: "set up", summary: "say what on this machine Watchbill needs" },
-    Command { name: "upgrade", group: "set up", summary: "bring the repository to a newer revision" },
+    Command { name: "upgrade", group: "set up", summary: "pin the repository to the installed revision" },
     Command { name: "accept", group: "work", summary: "accept the file of an issue" },
     Command { name: "start", group: "work", summary: "start a session of one role" },
     Command { name: "run", group: "work", summary: "run the whole flow of an issue" },
@@ -34,14 +34,13 @@ pub const COMMANDS: [Command; 16] = [
 
 /// The commands not built yet: the command, the release it is planned for and the issue that builds it.
 /// The piece that builds one removes its row, and adds its arm to the dispatch in `src/lib.rs`.
-pub const PLANNED: [(&str, &str, u32); 7] = [
-    ("doctor", "0.0.11", 178),
-    ("log", "0.0.11", 177),
-    ("clean", "0.0.11", 176),
-    ("compare", "0.0.11", 179),
-    ("run", "0.0.12", 183),
-    ("view", "0.0.10", 173),
-    ("upgrade", "0.0.10", 174),
+pub const PLANNED: [(&str, &str, u32); 6] = [
+    ("doctor", "0.11.0", 178),
+    ("log", "0.11.0", 177),
+    ("clean", "0.11.0", 176),
+    ("compare", "0.11.0", 179),
+    ("run", "0.12.0", 183),
+    ("view", "0.10.0", 173),
 ];
 
 /// Whether the layout has this command.

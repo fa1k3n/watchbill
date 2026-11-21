@@ -21,6 +21,7 @@ pub mod layout;
 pub mod sessions;
 pub mod starter;
 pub mod status;
+pub mod upgrade;
 pub mod view;
 mod word;
 pub mod yamlfile;
@@ -32,6 +33,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const USAGE: &str = "usage:
   wb init [--yes]
   wb check
+  wb upgrade [--dry-run]
   wb prompt <role> [<issue>] [--issue <text>] [--change <text>]
             [--requirements <text>] [--round <text>] [--checkout <text>]
             [--branch <text>] [--issue_address <text>]
@@ -58,6 +60,18 @@ pub const USAGE: &str = "usage:
             revision against the installed wb, and the project text for a
             placeholder the revision does not know. Ends with 0 when all of it
             holds, 1 when something differs. Writes nothing
+  upgrade   pin the repository to the installed revision: copy its files over
+            .watchbill/revision/, removing those it does not have, and its
+            manifest to .watchbill/revision.sha256, set the lines watchbill:
+            and revision: of watchbill.yml, and add each pattern the installed
+            wb init would write that the file lacks; no other line is changed.
+            It says each write first, then writes, runs the check of wb check
+            and says the command that commits the change: it commits nothing.
+            --dry-run says the same and writes nothing. Ends with 0 when it is
+            done and the check holds, or there is nothing to do; 1 when it is
+            refused (a change under .watchbill/ that is not committed, an
+            installed version older than the pinned one) or the check does not
+            hold; 2 when it was used wrongly or the repository is not set up
   prompt    print the prompt of a role on standard output and nothing else: the
             role's text of the pinned revision with each placeholder filled
             from the option of its name, such as --issue for {issue}, then the
@@ -277,6 +291,7 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
         }
         "init" => run_init(&mut parser, input, out, err),
         "check" => run_check(&mut parser, out, err),
+        "upgrade" => run_upgrade(&mut parser, out, err),
         "prompt" => run_prompt(&mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), out, err),
         "accept" => run_accept(&mut parser, out, err),
         "status" => run_status(&mut parser, out, err),
@@ -309,8 +324,8 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
 
 /// The commands of the layout that are built, each with an arm in `run`. A test holds that it is the
 /// layout without `layout::PLANNED`, so a piece that builds a command adds it here with its arm.
-pub const ARMS: [&str; 9] =
-    ["init", "check", "accept", "start", "status", "answer", "revert", "prompt", "revision"];
+pub const ARMS: [&str; 10] =
+    ["init", "check", "upgrade", "accept", "start", "status", "answer", "revert", "prompt", "revision"];
 
 /// `wb help`, and `wb help <command>`. `--help` and `-h` are this command too, and read the words after them.
 /// A word after the command is refused with 2.
@@ -404,6 +419,40 @@ fn run_check(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i
             2
         }
         Ok(Some(root)) => check::check(&root, VERSION, Path::new(manifest::PACKAGE_FOLDER), out, err),
+    }
+}
+
+/// `wb upgrade [--dry-run]`: pins the repository to the installed revision, saying each write first (#174).
+fn run_upgrade(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let mut dry_run = false;
+    loop {
+        let refused = match next(parser) {
+            Ok(None) => break,
+            Ok(Some(Word::Long(option))) if option == "dry-run" => {
+                if dry_run {
+                    return used(err, "wb upgrade", "'--dry-run' is given twice");
+                }
+                dry_run = true;
+                continue;
+            }
+            Ok(Some(found)) => named(found, parser),
+            Err(refused) => refused,
+        };
+        return used(err, "wb upgrade", &format!("'{}' is not known", refused));
+    }
+    match init::repository_root(None) {
+        Err(why) => {
+            let _ = writeln!(err, "wb upgrade: {}. Nothing written.", why);
+            2
+        }
+        Ok(None) => {
+            let _ = writeln!(err, "wb upgrade: this folder is not in a git repository. Watchbill is set up in one, by wb init.");
+            2
+        }
+        Ok(Some(root)) => {
+            interrupt::install();
+            upgrade::upgrade(&root, VERSION, Path::new(manifest::PACKAGE_FOLDER), dry_run, out, err)
+        }
     }
 }
 

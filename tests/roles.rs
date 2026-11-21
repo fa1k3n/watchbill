@@ -1278,3 +1278,20 @@ fn test_WB_ROLE_76_every_role_gives_its_model_and_effort_from_its_stamp() {
         assert!(text.contains("give `model` and `effort` in your last message from there"), "{}: {}", role, text);
     }
 }
+
+// A new folder in `changes` ends with `/` (#197): since #192 a path that is not in `HEAD` and has no `/` covers
+// that path only.
+
+#[test]
+fn test_WB_ROLE_92_the_breakdown_says_a_new_folder_in_changes_ends_with_a_slash_and_a_file_never_does() {
+    let body = part("breakdown", "## What you produce");
+    let found = body.split('\n').any(|line| {
+        let lower = line.to_lowercase();
+        lower.contains("`changes`")
+            && lower.contains("folder")
+            && lower.contains("not yet in the repository")
+            && lower.contains("ends with `/`")
+            && lower.contains("a file never does")
+    });
+    assert!(found, "no point says that a new folder in `changes` ends with `/` and a file never does: {}", body);
+}

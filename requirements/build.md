@@ -45,4 +45,4 @@ What `wb start <role> <issue>` checks, posts and starts. One path for a person a
 | WB-BUILD-39 | Every command that runs a pattern of `watchbill.yml`, or reads `needs` or `build_files` from it, shall first compare the file in the working tree with `HEAD`, and refuse with 1, naming the file, where it differs or is not committed, before any pattern runs or anything is posted. Issue: #186. | T | Implemented |
 | WB-BUILD-40 | No flag shall lift the refusal of WB-BUILD-39. Issue: #186. | T | Implemented |
 | WB-BUILD-41 | The refusal of WB-BUILD-39 shall say that a person reads the change and commits it, or takes it back with git, before the next command. Issue: #186. | T | Implemented |
-| WB-BUILD-42 | `wb init` and `wb upgrade` shall not be held by WB-BUILD-39, and `wb upgrade` shall say that the file is to be committed. Issue: #186. | T | Draft |
+| WB-BUILD-42 | `wb init` and `wb upgrade` shall not be held by WB-BUILD-39, and `wb upgrade` shall say that the file is to be committed. Issue: #186. | T | Implemented |

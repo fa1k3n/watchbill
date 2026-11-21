@@ -95,3 +95,4 @@ The role prompts: breakdown, tester, build, review and fix. The first revision h
 | WB-ROLE-89 | The last messages of the tester, the build and the fix shall name the last commit made in the field `committed`, with no field `pushed`, and the build's shall have no field `change`. Issue: #145. | T | Implemented |
 | WB-ROLE-90 | The build's prompt shall say that the message of its last commit names the issue, the requirements and anything in the change that a reviewer would not expect, since the change is opened from its commits. Issue: #145. | T | Implemented |
 | WB-ROLE-91 | The breakdown's prompt shall say to commit and then push to `{branch}`, and its last message shall name the commit that was pushed. Issue: #145. | T | Implemented |
+| WB-ROLE-92 | The breakdown's prompt shall say that a path in `changes` that is a folder not yet in the repository ends with `/`, and that a file never does. Issue: #197. | T | Implemented |

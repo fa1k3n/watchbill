@@ -275,12 +275,13 @@ fn test_WB_VIEW_1_the_view_holds_only_the_listed_paths_as_in_head_in_one_commit_
         return;
     }
     let bench = bench();
-    // A change in the checkout that is not committed is not in the view: the view is HEAD's.
-    put(&bench.repo.path, "src/brake.c", "int brake(void) { return 9; }\n");
+    // A change in the checkout that is not committed is not in the view: the view is HEAD's. A change under
+    // `reads` is let by `--ignore-local` (#172); one under `changes` stops the start.
+    put(&bench.repo.path, "src/brake.h", "int brake(int);\n");
     bench.session(
         "git ls-files > {log}/files\n\
          find . -path ./.git -prune -o -type f -print | sort > {log}/found\n\
-         cat src/brake.c > {log}/brake\n\
+         cat src/brake.h > {log}/brake\n\
          git rev-list --all --count > {log}/count\n\
          git remote > {log}/remotes\n\
          git cat-file --batch-all-objects --batch-check='%(objecttype) %(objectname)' > {log}/objects\n",
@@ -292,13 +293,13 @@ fn test_WB_VIEW_1_the_view_holds_only_the_listed_paths_as_in_head_in_one_commit_
     let older = bench.git_text(&["rev-parse", "HEAD~1:src/secret.c"]).trim().to_string();
     let commits = bench.git_text(&["rev-list", "--all"]);
 
-    ok(&bench.start(&["start", "build", "54"]));
+    ok(&bench.start(&["start", "build", "54", "--ignore-local"]));
 
     let listed = "include/a.h\ninclude/b.h\nsrc/brake.c\nsrc/brake.h\ntests/test_brake.c\n";
     assert_eq!(bench.left("files"), listed);
     let found: String = listed.lines().map(|path| format!("./{}\n", path)).collect();
     assert_eq!(bench.left("found"), found);
-    assert_eq!(bench.left("brake"), "int brake(void) { return 1; }\n");
+    assert_eq!(bench.left("brake"), "int brake(void);\n");
     assert_eq!(bench.left("count").trim(), "1");
     assert_eq!(bench.left("remotes"), "");
     let objects = bench.left("objects");
@@ -1243,6 +1244,150 @@ fn test_WB_VIEW_21_a_commit_subject_with_control_characters_is_escaped_taken_and
     }
 }
 
+// ---- WB-BUILD-30 to 35: a local change to a file of the view stops the start (#172) ----
+
+/// What a start refused for a local change said, and that nothing was posted, started or made.
+fn guarded(bench: &Bench, run: &Output) -> String {
+    assert_eq!(code(run), Some(1), "{}", text_of(&run.stderr));
+    assert!(!bench.any_posted() && !bench.started(), "{:?}", bench.calls());
+    assert!(bench.below("views").is_empty());
+    text_of(&run.stderr)
+}
+
+/// The guard comes before the view, so that it is made where no bubblewrap is.
+fn start_unsandboxed(bench: &Bench, args: &[&str]) -> Output {
+    bench.start_by(Path::new("/nonexistent/no-bwrap"), args)
+}
+
+#[test]
+fn test_WB_BUILD_30_a_changed_file_under_reads_is_refused_with_1_named_and_nothing_is_posted() {
+    let bench = bench();
+    put(&bench.repo.path, "src/brake.h", "int brake(int);\n");
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54"]));
+    assert!(err.contains("src/brake.h") && err.contains("guard"), "{}", err);
+    assert!(!err.contains("bubblewrap"), "{}", err);
+    // A file in a folder of `reads` is named as well.
+    let bench = self::bench();
+    put(&bench.repo.path, "include/a.h", "#define A 3\n");
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54"]));
+    assert!(err.contains("include/a.h"), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_30_a_staged_change_and_a_deleted_file_are_each_named() {
+    let bench = bench();
+    put(&bench.repo.path, "src/brake.h", "int brake(int);\n");
+    git(&bench.repo.path, &["add", "--", "src/brake.h"]);
+    fs::remove_file(bench.repo.path.join("include/b.h")).unwrap();
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54"]));
+    assert!(err.contains("src/brake.h") && err.contains("include/b.h"), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_30_a_file_that_is_not_of_the_view_is_no_local_change_and_neither_is_a_role_with_no_view() {
+    let bench = bench();
+    put(&bench.repo.path, "src/secret.c", "changed here\n");
+    put(&bench.repo.path, "include/untracked.h", "#define U 1\n");
+    // The start goes on to the view, which is where no bubblewrap is.
+    let err = text_of(&start_unsandboxed(&bench, &["start", "build", "54", "--ignore-local"]).stderr);
+    assert!(err.contains("bubblewrap") && !err.contains("guard") && !err.contains("src/secret.c"), "{}", err);
+    // A role with no issue's file runs without a view, and is not checked.
+    put(&bench.repo.path, "src/brake.h", "int brake(int);\n");
+    ok(&start_unsandboxed(&bench, &["start", "build", "99"]));
+    assert!(bench.started());
+}
+
+#[test]
+fn test_WB_BUILD_31_an_untracked_file_under_a_path_of_changes_is_refused_with_1_and_named() {
+    let bench = bench();
+    put(&bench.repo.path, "src/new.c", "int fresh;\n");
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54"]));
+    assert!(err.contains("src/new.c"), "{}", err);
+    // Under a folder of `changes`, and not under a folder of `reads`.
+    let file = ISSUE_54.replace("changes: [src/brake.c, tests/test_brake.c, src/new.c]", "changes: [src/brake.c, tests]");
+    let bench = bench_for(&file);
+    put(&bench.repo.path, "tests/test_new.c", "int main(void) { return 1; }\n");
+    put(&bench.repo.path, "include/untracked.h", "#define U 1\n");
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54", "--ignore-local"]));
+    assert!(err.contains("tests/test_new.c") && !err.contains("untracked.h"), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_32_ignore_local_lets_a_change_under_reads_go_on_and_the_stamp_and_the_lines_say_so() {
+    if !sandbox("test_WB_BUILD_32") {
+        return;
+    }
+    let bench = bench();
+    put(&bench.repo.path, "src/brake.h", "int brake(int);\n");
+    ok(&bench.start(&["start", "build", "54", "--ignore-local"]));
+    assert!(bench.started() && bench.any_posted());
+    let posted = bench.posted();
+    assert_eq!(line_of(&posted, "local").as_deref(), Some("ignored 1"), "{}", posted);
+    let names: Vec<&str> = posted.lines().map(|line| line.split(':').next().unwrap()).collect();
+    let view = names.iter().position(|name| *name == "view").unwrap();
+    assert_eq!(names[view + 1], "local", "{}", posted);
+    // The view's list is the same: the flag changes nothing of what the session sees.
+    assert_eq!(line_of(&posted, "view"), Some(sha256(BUILD_LIST)), "{}", posted);
+    assert_eq!(read(&bench.lines().join("local")), "src/brake.h\n");
+}
+
+#[test]
+fn test_WB_BUILD_34_with_no_local_change_the_stamp_has_no_local_line_and_the_lines_no_local_file() {
+    if !sandbox("test_WB_BUILD_34") {
+        return;
+    }
+    let bench = bench();
+    ok(&bench.start(&["start", "build", "54"]));
+    assert_eq!(line_of(&bench.posted(), "local"), None, "{}", bench.posted());
+    assert!(!bench.lines().join("local").exists());
+    // The flag with nothing to ignore changes nothing.
+    let bench = self::bench();
+    ok(&bench.start(&["start", "build", "54", "--ignore-local"]));
+    assert_eq!(line_of(&bench.posted(), "local"), None, "{}", bench.posted());
+    assert!(!bench.lines().join("local").exists());
+}
+
+#[test]
+fn test_WB_BUILD_33_a_change_under_changes_is_refused_also_with_ignore_local_saying_it_cannot_be_overridden() {
+    let bench = bench();
+    put(&bench.repo.path, "src/brake.c", "int brake(void) { return 2; }\n");
+    for words in [&["start", "build", "54"][..], &["start", "build", "54", "--ignore-local"][..]] {
+        let err = guarded(&bench, &start_unsandboxed(&bench, words));
+        assert!(err.contains("src/brake.c"), "{}", err);
+        if words.len() > 3 {
+            assert!(err.contains("cannot be overridden"), "{}", err);
+        }
+    }
+    // With a change under `reads` as well, the flag passes neither.
+    put(&bench.repo.path, "src/brake.h", "int brake(int);\n");
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54", "--ignore-local"]));
+    assert!(err.contains("src/brake.c") && err.contains("src/brake.h") && err.contains("cannot be overridden"), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_35_the_refusal_says_it_is_a_guard_names_the_paths_with_their_list_and_the_flag() {
+    let bench = bench();
+    put(&bench.repo.path, "src/brake.h", "int brake(int);\n");
+    put(&bench.repo.path, "src/brake.c", "int brake(void) { return 2; }\n");
+    let run = start_unsandboxed(&bench, &["start", "build", "54"]);
+    let err = guarded(&bench, &run);
+    assert!(err.contains("guard") && err.contains("--ignore-local"), "{}", err);
+    assert!(err.lines().any(|line| line.contains("changes") && line.contains("src/brake.c")), "{}", err);
+    assert!(err.lines().any(|line| line.contains("reads") && line.contains("src/brake.h")), "{}", err);
+    // The outcome of the lines is a refusal at a check of its own.
+    let outcome = read(&bench.lines().join("outcome"));
+    assert!(outcome.contains("outcome: refused\ncheck: local\nstatus: 1"), "{}", outcome);
+}
+
+#[test]
+fn test_WB_BUILD_35_a_path_with_a_line_break_is_named_escaped() {
+    let bench = bench();
+    put(&bench.repo.path, "include/a\nb.h", "#define A 3\n");
+    git(&bench.repo.path, &["add", "--", "include/a\nb.h"]);
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54"]));
+    assert!(err.contains("include/a\\nb.h") && !err.contains("a\nb.h"), "{}", err);
+}
+
 // ---- #192: a commit is taken only as it was made ----
 
 /// A session that commits, by git's plumbing, a tree made of `HEAD`'s with the folder `parent/<name>` holding
@@ -1532,5 +1677,100 @@ fn test_WB_VIEW_34_the_short_forms_ntfs_gives_gitmodules_are_refused_as_a_link()
     for name in ["gitmod~5", "gitmod~0", "gitmod~10", "gi7eba~", "gi7eba~a", "gi7ebb~1", "gi7eb~1a", "g~12345", "g~1234567", "~12345678x", "gitmo~12", "gi7eba~12"] {
         let path = format!("a/{}", name);
         assert!(refused(&path, "120000").is_none(), "{:?} is refused as a link", path);
+    }
+}
+
+// ---- #172, after the review: renames, the index, ignored files, assume-unchanged ----
+
+#[test]
+fn test_WB_BUILD_33_a_rename_from_changes_to_reads_names_both_paths_and_is_refused_also_with_ignore_local() {
+    let bench = bench();
+    git(&bench.repo.path, &["mv", "src/brake.c", "include/c.h"]);
+    for words in [&["start", "build", "54"][..], &["start", "build", "54", "--ignore-local"][..]] {
+        let err = guarded(&bench, &start_unsandboxed(&bench, words));
+        assert!(err.contains("src/brake.c") && err.contains("include/c.h"), "{}", err);
+        assert!(err.lines().any(|line| line.contains("changes") && line.contains("src/brake.c")), "{}", err);
+        assert!(err.contains("cannot be overridden"), "{}", err);
+    }
+}
+
+#[test]
+fn test_WB_BUILD_30_a_difference_in_the_index_only_is_named() {
+    // A file staged and then deleted from the working tree, and a change staged and then put back.
+    let bench = bench();
+    put(&bench.repo.path, "include/x.h", "#define X 1\n");
+    git(&bench.repo.path, &["add", "--", "include/x.h"]);
+    fs::remove_file(bench.repo.path.join("include/x.h")).unwrap();
+    put(&bench.repo.path, "src/brake.h", "int brake(int);\n");
+    git(&bench.repo.path, &["add", "--", "src/brake.h"]);
+    put(&bench.repo.path, "src/brake.h", "int brake(void);\n");
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54"]));
+    assert!(err.contains("include/x.h") && err.contains("src/brake.h"), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_31_an_ignored_file_under_changes_is_named_by_the_rules_of_the_checkout_and_of_the_person() {
+    // Ignored by the checkout's own `.git/info/exclude`.
+    let bench = bench();
+    put(&bench.repo.path, ".git/info/exclude", "src/new.c\n");
+    put(&bench.repo.path, "src/new.c", "int fresh;\n");
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54"]));
+    assert!(err.contains("src/new.c"), "{}", err);
+    // Ignored by the person's global file only: git would write over it too.
+    let bench = self::bench();
+    let global = bench.at("global-ignore");
+    fs::write(&global, "src/new.c\n").unwrap();
+    git(&bench.repo.path, &["config", "core.excludesFile", global.to_str().unwrap()]);
+    put(&bench.repo.path, "src/new.c", "int fresh;\n");
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54", "--ignore-local"]));
+    assert!(err.contains("src/new.c"), "{}", err);
+    // An ignored file under `reads` is not in the view, and is not named.
+    let bench = self::bench();
+    put(&bench.repo.path, ".git/info/exclude", "include/o.h\n");
+    put(&bench.repo.path, "include/o.h", "#define O 1\n");
+    let err = text_of(&start_unsandboxed(&bench, &["start", "build", "54"]).stderr);
+    assert!(!err.contains("guard") && err.contains("bubblewrap"), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_30_a_changed_file_marked_assume_unchanged_or_skip_worktree_is_named_and_an_unchanged_one_is_not() {
+    let bench = bench();
+    git(&bench.repo.path, &["update-index", "--assume-unchanged", "src/brake.h"]);
+    git(&bench.repo.path, &["update-index", "--skip-worktree", "src/brake.c"]);
+    // Marked and not changed: nothing to name.
+    let err = text_of(&start_unsandboxed(&bench, &["start", "build", "54"]).stderr);
+    assert!(!err.contains("guard") && err.contains("bubblewrap"), "{}", err);
+    put(&bench.repo.path, "src/brake.h", "int brake(int);\n");
+    put(&bench.repo.path, "src/brake.c", "int brake(void) { return 2; }\n");
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54", "--ignore-local"]));
+    assert!(err.lines().any(|line| line.contains("changes") && line.contains("src/brake.c")), "{}", err);
+    assert!(err.contains("src/brake.h") && err.contains("cannot be overridden"), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_35_a_long_list_is_said_as_the_first_20_and_a_count() {
+    let bench = bench();
+    for number in 0..25 {
+        put(&bench.repo.path, &format!("include/f{:02}.h", number), "#define F 1\n");
+        git(&bench.repo.path, &["add", "--", &format!("include/f{:02}.h", number)]);
+    }
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54"]));
+    assert!(err.contains("include/f19.h") && !err.contains("include/f20.h") && err.contains("5 more"), "{}", err);
+}
+
+// ---- #172, second look: an empty view has no paths to guard ----
+
+#[test]
+fn test_WB_BUILD_30_a_view_with_no_paths_checks_nothing_and_a_changed_file_elsewhere_does_not_stop_it() {
+    let file = ISSUE_54
+        .replace("changes: [src/brake.c, tests/test_brake.c, src/new.c]", "changes: []")
+        .replace("  tester: [src/brake.h, include]\n  build: [src/brake.h, include]\n  review: [src/brake.h]\n  fix: [src/brake.h]\n", "  tester: []\n  build: []\n  review: []\n  fix: []\n");
+    let bench = bench_for(&file);
+    put(&bench.repo.path, "src/secret.c", "changed here\n");
+    put(&bench.repo.path, "src/untracked.c", "int u;\n");
+    // It goes on to the view, which is where no bubblewrap is; with the flag too, and nothing is counted.
+    for words in [&["start", "build", "54"][..], &["start", "build", "54", "--ignore-local"][..]] {
+        let err = text_of(&start_unsandboxed(&bench, words).stderr);
+        assert!(!err.contains("guard") && !err.contains("src/secret.c") && err.contains("bubblewrap"), "{}", err);
     }
 }

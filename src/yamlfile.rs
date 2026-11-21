@@ -781,6 +781,11 @@ impl Document {
         self.find(place).is_some()
     }
 
+    /// The line a value at a place starts on, if it is there.
+    pub fn line(&self, place: &[Part]) -> Option<usize> {
+        self.find(place).map(|(node, _)| node.line)
+    }
+
     /// The refusal of the file at a place, with its line: the line of the key when `key` is true.
     pub fn fail(&self, place: &[Part], message: &str, key: bool) -> YamlError {
         let line = match self.find(place) {

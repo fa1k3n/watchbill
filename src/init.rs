@@ -262,14 +262,14 @@ fn read_failure(error: &io::Error) -> String {
 
 /// The revision of the package, as it is to be written: each file with its bytes, the manifest and
 /// its hash. Paths are relative to `.watchbill/`.
-struct Pin {
-    files: Vec<(String, Vec<u8>)>,
-    hash: String,
+pub(crate) struct Pin {
+    pub(crate) files: Vec<(String, Vec<u8>)>,
+    pub(crate) hash: String,
 }
 
 /// Reads the revision from the package. Each file is read once, and what was read must be what the
 /// manifest says of it, so that what is written is what is hashed.
-fn read_pin(package: &Path) -> Result<Pin, String> {
+pub(crate) fn read_pin(package: &Path) -> Result<Pin, String> {
     let manifest = manifest::manifest(package).map_err(|why| why.to_string())?;
     let mut files = Vec::new();
     for line in manifest.lines() {

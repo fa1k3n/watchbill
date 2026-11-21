@@ -18,15 +18,14 @@ const GROUPS: [(&str, &[&str]); 5] = [
 ];
 
 /// The commands not built when #171 is: the command, the release and the issue.
-const PLANNED: [(&str, &str, &str); 7] = [
-    ("doctor", "0.0.11", "#178"),
-    ("log", "0.0.11", "#177"),
-    ("clean", "0.0.11", "#176"),
-    ("compare", "0.0.11", "#179"),
-    ("run", "0.0.12", "#183"),
-    // Until #173 and #174 are built; the piece that builds one removes its row here and in `src/layout.rs`.
-    ("view", "0.0.10", "#173"),
-    ("upgrade", "0.0.10", "#174"),
+const PLANNED: [(&str, &str, &str); 6] = [
+    ("doctor", "0.11.0", "#178"),
+    ("log", "0.11.0", "#177"),
+    ("clean", "0.11.0", "#176"),
+    ("compare", "0.11.0", "#179"),
+    ("run", "0.12.0", "#183"),
+    // Until #173 is built; the piece that builds it removes its row here and in `src/layout.rs`.
+    ("view", "0.10.0", "#173"),
 ];
 
 fn built() -> Vec<&'static str> {

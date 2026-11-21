@@ -13,6 +13,7 @@ use std::process::{Command, Output};
 const USAGE: &str = "usage:
   wb init [--yes]
   wb check
+  wb upgrade [--dry-run]
   wb prompt <role> [<issue>] [--issue <text>] [--change <text>]
             [--requirements <text>] [--round <text>] [--checkout <text>]
             [--branch <text>] [--issue_address <text>]
@@ -39,6 +40,18 @@ const USAGE: &str = "usage:
             revision against the installed wb, and the project text for a
             placeholder the revision does not know. Ends with 0 when all of it
             holds, 1 when something differs. Writes nothing
+  upgrade   pin the repository to the installed revision: copy its files over
+            .watchbill/revision/, removing those it does not have, and its
+            manifest to .watchbill/revision.sha256, set the lines watchbill:
+            and revision: of watchbill.yml, and add each pattern the installed
+            wb init would write that the file lacks; no other line is changed.
+            It says each write first, then writes, runs the check of wb check
+            and says the command that commits the change: it commits nothing.
+            --dry-run says the same and writes nothing. Ends with 0 when it is
+            done and the check holds, or there is nothing to do; 1 when it is
+            refused (a change under .watchbill/ that is not committed, an
+            installed version older than the pinned one) or the check does not
+            hold; 2 when it was used wrongly or the repository is not set up
   prompt    print the prompt of a role on standard output and nothing else: the
             role's text of the pinned revision with each placeholder filled
             from the option of its name, such as --issue for {issue}, then the

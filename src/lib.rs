@@ -40,6 +40,8 @@ pub const USAGE: &str = "usage:
   wb revision
   wb accept <issue> [--no-commit]
   wb status [<issue>] [--stage <heading>]
+  wb view <issue> <role> [--in | --out]
+  wb view <issue> <path>
   wb revert <issue> <role> [--round <n>]
   wb revert --change <n> <role> [--round <n>]
   wb answer <issue> [--suggested | <question> <answer>]
@@ -123,6 +125,19 @@ pub const USAGE: &str = "usage:
             prints that heading only, whatever its case. Ends with 0 when
             every issue could be read, 1 when a pattern failed for one (it is
             listed under Not read), 2 when it was used wrongly or the
+            repository is not set up. Writes nothing
+  view      show what a session of a role will see, before it starts. wb view
+            <issue> <role> prints the paths of its view, one to a line, the
+            list the start makes the view from, then the level of the
+            repository and the line view: its stamp would hold, and the local
+            changes that would stop the start. --out prints in their place
+            what the view leaves out of HEAD, by folder, with a count for each.
+            wb view <issue> <path> says for each role whether the path, from
+            the root, is in its view: in, with the list and the line of the
+            issue's file that hold it, or out, and why. A path named as a role
+            is written ./<path>. Ends with 0 when the path is in the view of a
+            role or the view is shown, 1 when it is in none or the issue has
+            no accepted, committed file, 2 when it was used wrongly or the
             repository is not set up. Writes nothing
   revert    take an issue back to before a step, deleting nothing:
             wb revert <issue> <role> [--round <n>] posts, by issue_comment of
@@ -280,6 +295,7 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
         "prompt" => run_prompt(&mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), out, err),
         "accept" => run_accept(&mut parser, out, err),
         "status" => run_status(&mut parser, out, err),
+        "view" => run_view(&mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), out, err),
         "revert" => run_revert(&mut parser, err),
         "answer" => run_answer(&mut parser, input, out, err),
         "start" => {
@@ -309,8 +325,8 @@ pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err:
 
 /// The commands of the layout that are built, each with an arm in `run`. A test holds that it is the
 /// layout without `layout::PLANNED`, so a piece that builds a command adds it here with its arm.
-pub const ARMS: [&str; 9] =
-    ["init", "check", "accept", "start", "status", "answer", "revert", "prompt", "revision"];
+pub const ARMS: [&str; 10] =
+    ["init", "check", "accept", "start", "status", "view", "answer", "revert", "prompt", "revision"];
 
 /// `wb help`, and `wb help <command>`. `--help` and `-h` are this command too, and read the words after them.
 /// A word after the command is refused with 2.
@@ -839,10 +855,7 @@ fn stamp_of(role: &str, handed: &Handed, runner: &str, local: Option<usize>, sec
     let model = model_of(role, handed.cleared.as_ref())?;
     let revision = manifest::revision_hash(manifest::PACKAGE_FOLDER).map_err(|why| why.to_string())?;
     let time = prompt::utc(seconds?);
-    let view = match view_paths(role, handed) {
-        Some(paths) => view::hash(&paths),
-        None => "none".to_string(),
-    };
+    let view = view_hash(role, handed.file.as_ref());
     let said = prompt::Stamp {
         view: &view,
         local,
@@ -870,8 +883,22 @@ fn local_of(role: &str, handed: &Handed, root: &str) -> Option<Result<Vec<view::
 /// role is one the file lists paths for and a file is used. `None`: the session runs without a view, as the
 /// breakdown, which reads the whole code by its role, and a role started with no issue's file (#116) do.
 fn view_paths(role: &str, handed: &Handed) -> Option<Vec<String>> {
-    let file = handed.file.as_ref()?;
+    view_paths_of(role, handed.file.as_ref())
+}
+
+/// The paths of the view of `role` for the issue's file used, as `view_paths` gives them.
+fn view_paths_of(role: &str, file: Option<&issue::Used>) -> Option<Vec<String>> {
+    let file = file?;
     issue::ROLES.contains(&role).then(|| view::paths(&file.issue, role))
+}
+
+/// The stamp's `view:` (#126): the SHA-256 of the list of paths of the view, or `none` where the session runs
+/// without one. `wb view` prints it by this function (#173), so the two cannot differ.
+fn view_hash(role: &str, file: Option<&issue::Used>) -> String {
+    match view_paths_of(role, file) {
+        Some(paths) => view::hash(&paths),
+        None => "none".to_string(),
+    }
 }
 
 /// Prints what was handed out, as `wb prompt` prints it: the stamp, the parts, or the text.
@@ -1497,6 +1524,191 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
         }
         Ok(Some(root)) => status::status(&root, issue.as_deref(), stage, out, err),
     }
+}
+
+/// `wb view`, with the words after `view`, in the repository of `folder`, with the organisation's file at
+/// `organisation`: `run` gives the folder it runs in and the path fixed in `wb`; this is so that a test can give
+/// its own, as `prompt` does.
+pub fn view_command(args: &[OsString], folder: &Path, organisation: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    run_view(&mut Parser::from_args(args.iter().cloned()), Some(folder), organisation, out, err)
+}
+
+/// `wb view <issue> <role> [--in | --out]` and `wb view <issue> <path>` (#173): what a session of a role will see,
+/// and for one path whether it is in the view of each role, and why. It only reads: it makes no view, runs no
+/// pattern, writes nothing and asks nothing of the network.
+fn run_view(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let name = "wb view";
+    let mut words: Vec<String> = Vec::new();
+    let (mut inside, mut outside) = (false, false);
+    loop {
+        let found = match next(parser) {
+            Ok(None) => break,
+            Ok(Some(found)) => found,
+            Err(refused) => return used(err, name, &format!("'{}' is not known", refused)),
+        };
+        match found {
+            Word::Long(option) if option == "in" || option == "out" => {
+                let flag = if option == "in" { &mut inside } else { &mut outside };
+                if *flag {
+                    return used(err, name, &format!("'--{}' is given twice", option));
+                }
+                *flag = true;
+            }
+            Word::Value(value) if words.len() < 2 => words.push(word(value.as_bytes())),
+            found => {
+                let refused = named(found, parser);
+                return used(err, name, &format!("'{}' is not known", refused));
+            }
+        }
+    }
+    if inside && outside {
+        return used(err, name, "'--in' and '--out' are not used together");
+    }
+    let [issue, second] = words.as_slice() else {
+        return used(err, name, "an issue and a role or a path are needed");
+    };
+    if !issue::is_name(issue) {
+        return used(err, name, &format!("'{}' is not an issue: an issue is letters, digits, '.', '_' and '-', and does not start with '.'", issue.escape_debug()));
+    }
+    let role = STARTED.contains(&second.as_str()).then_some(second.as_str());
+    if role.is_none() {
+        if inside || outside {
+            return used(err, name, "'--in' and '--out' go with a role, not with a path");
+        }
+        let found = starter::parts(second);
+        if second.starts_with('/') || found.contains(&"..") || found.is_empty() {
+            return used(
+                err,
+                name,
+                &format!("'{}' is not a path from the root of the repository: it does not start with '/', holds no '..', and is not the root", second.escape_debug()),
+            );
+        }
+    }
+    let found_root = match folder {
+        None => init::repository_root(None),
+        Some(folder) => init::repository_root_of(folder),
+    };
+    let root = match found_root {
+        Err(why) => {
+            let _ = writeln!(err, "{}: {}.", name, why);
+            return 2;
+        }
+        Ok(None) => {
+            let _ = writeln!(err, "{}: this folder is not in a git repository. Watchbill is set up in one.", name);
+            return 2;
+        }
+        Ok(Some(root)) => root,
+    };
+    if !Path::new(&root).join(init::CONFIG_FOLDER).join(init::CONFIG_FILE).is_file() {
+        let _ = writeln!(err, "{}: .watchbill/watchbill.yml is not there. Watchbill is not set up in this repository.", name);
+        return 2;
+    }
+    let refused = |err: &mut dyn Write, why: &str| {
+        let _ = writeln!(err, "{}: {}", name, why);
+        1
+    };
+    if role == Some("breakdown") {
+        return refused(err, "the breakdown runs without a view: it reads the whole code by its role");
+    }
+    // `watchbill.yml` as `HEAD` has it (#186), as the start reads it.
+    let settings = match starter::settings(&root) {
+        Ok(settings) => settings,
+        Err(why) => return refused(err, &why),
+    };
+    let who = match role {
+        Some(role) => format!("a session of the {}", role),
+        None => "a session of any role".to_string(),
+    };
+    let not_started = "No prompt is handed out.";
+    let file = match issue::for_prompt(Path::new(&root), issue) {
+        Ok(Some(file)) => file,
+        Ok(None) => {
+            let why = format!(
+                "the issue {} has no file {}/{}.yml, so {} would run without a view: it sees the whole checkout and its history",
+                issue,
+                issue::FOLDER,
+                issue,
+                who
+            );
+            return refused(err, &why);
+        }
+        Err(why) => return refused(err, &why.replace(not_started, "wb start refuses it, so no session of it runs, in a view or without.")),
+    };
+    if let Err(why) = issue::committed(Path::new(&root), issue) {
+        return refused(err, &why.replace(not_started, "wb start refuses it, so no session of it runs, in a view or without."));
+    }
+    let Some(role) = role else {
+        // `wb view <issue> <path>`: for each role with a view, in or out, and why.
+        let build_files = match issue::build_files_of(&settings) {
+            Ok(found) => found.unwrap_or_default(),
+            Err(why) => return refused(err, &why),
+        };
+        let facts = match view::facts(&root, second) {
+            Ok(facts) => facts,
+            Err(why) => return refused(err, &why),
+        };
+        let mut any = false;
+        let mut text = String::new();
+        for role in issue::ROLES {
+            match view::judge(&root, &file, role, &facts, &build_files) {
+                Ok(view::Verdict::In { list, line, entry }) => {
+                    any = true;
+                    text.push_str(&format!("{}: in: {}, line {} of {}: {}\n", role, list, line, file.path, entry));
+                }
+                Ok(view::Verdict::Out(why)) => text.push_str(&format!("{}: out: {}\n", role, why)),
+                Err(why) => return refused(err, &why),
+            }
+        }
+        let _ = out.write_all(text.as_bytes());
+        return if any { 0 } else { 1 };
+    };
+    let paths = view::paths(&file.issue, role);
+    if outside {
+        return match view::left_out(&root, &paths) {
+            Ok(found) => {
+                let text: String = found.iter().map(|(folder, count)| format!("{}\t{}/\n", count, issue::shown(folder))).collect();
+                let _ = out.write_all(text.as_bytes());
+                0
+            }
+            Err(why) => refused(err, &why),
+        };
+    }
+    let level = match level_of(&root, &settings, organisation) {
+        Ok(level) => level,
+        Err(why) => {
+            let _ = writeln!(err, "{}: the level is not known: {}", name, why);
+            "not known".to_string()
+        }
+    };
+    let local = match view::local_changes(&root, &file.issue, role) {
+        Ok(found) => found,
+        Err(why) => return refused(err, &format!("the local changes to the view could not be looked at: {}", why)),
+    };
+    let mut text = view::list(&paths);
+    text.push_str(&format!("level: {}\nview: {}\n", level, view_hash(role, Some(&file))));
+    if !local.is_empty() {
+        text.push_str(&format!("\n{}\n", view::local_message(&local, false)));
+    }
+    let _ = out.write_all(text.as_bytes());
+    0
+}
+
+/// The level of the repository, as `--parts` of the breakdown gives it: by the organisation's file where it is
+/// there; else the line `confidentiality:` of `watchbill.yml`, which the organisation's list cannot be held to.
+/// The error says why it is not known.
+fn level_of(root: &str, settings: &yamlfile::Document, organisation: &Path) -> Result<String, String> {
+    if organisation.exists() {
+        let found = confidentiality::read(organisation)?;
+        return confidentiality::repository_level(Path::new(root), &found);
+    }
+    let place = [yamlfile::Part::from("confidentiality")];
+    if settings.has(&place) {
+        return settings.text(&place).map_err(|why| why.to_string());
+    }
+    Err(format!(
+        "there is no organisation's file {}, and watchbill.yml has no line confidentiality:, so the level is the most restrictive of a list that is not there",
+        organisation.display()
+    ))
 }
 
 /// `wb answer <issue> [--suggested | <question> <answer>]` and `wb answer --change <n> […]` (#145).

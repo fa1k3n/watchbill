@@ -1174,3 +1174,174 @@ pub fn tidy(name: &str, view: &View, back: &Back, err: &mut dyn Write) -> Option
 pub fn discard(view: &View) {
     let _ = remove(&view.folder);
 }
+
+// ---- `wb view` (#173): what a view holds, read without making it ----
+
+/// What `HEAD` of the checkout holds at or below each path: the path, its mode and its kind (`blob`, `tree`,
+/// `commit`), as `ls-tree` gives them. `recursive` lists the files below the paths, or the whole tree where
+/// `paths` is empty; otherwise each path itself. Reads only.
+fn head_entries(root: &str, paths: &[String], recursive: bool) -> Result<Vec<(String, String, String)>, String> {
+    let mut args = vec!["--no-optional-locks", "ls-tree", "-z", "--full-tree"];
+    if recursive {
+        args.push("-r");
+    }
+    args.extend(["HEAD", "--"]);
+    args.extend(paths.iter().map(String::as_str));
+    let listed = git(Path::new(root), &args, &[("GIT_LITERAL_PATHSPECS", Path::new("1"))], None)?;
+    Ok(listed
+        .split(|byte| *byte == 0)
+        .filter(|entry| !entry.is_empty())
+        .filter_map(|entry| {
+            let text = String::from_utf8_lossy(entry);
+            let (meta, path) = text.split_once('\t')?;
+            let words: Vec<&str> = meta.split(' ').collect();
+            Some((path.to_string(), words.first()?.to_string(), words.get(1)?.to_string()))
+        })
+        .collect())
+}
+
+/// What the view of `paths` leaves out of `HEAD` of the checkout, by folder, each with the count of its entries
+/// left out: a folder that holds no file of the view is counted whole, at its top; in a folder that holds some,
+/// the entries left out directly in it are counted under it. The root is `.`. Sorted by folder.
+pub fn left_out(root: &str, paths: &[String]) -> Result<Vec<(String, usize)>, String> {
+    let all = head_entries(root, &[], true)?;
+    let wanted: Vec<Vec<&str>> = paths.iter().map(|path| parts(path)).filter(|found| !found.is_empty()).collect();
+    let in_view = |path: &str, kind: &str| {
+        let found = parts(path);
+        kind == "blob" && wanted.iter().any(|entry| found.len() >= entry.len() && found[..entry.len()] == entry[..])
+    };
+    // Every folder that holds a file of the view, the root among them.
+    let mut kept: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (path, _, kind) in &all {
+        if in_view(path, kind) {
+            let found = parts(path);
+            for end in 0..found.len() {
+                kept.insert(found[..end].join("/"));
+            }
+        }
+    }
+    let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for (path, _, kind) in &all {
+        if in_view(path, kind) {
+            continue;
+        }
+        let found = parts(path);
+        let top = (1..found.len()).map(|end| found[..end].join("/")).find(|folder| !kept.contains(folder));
+        let folder = top.unwrap_or_else(|| found[..found.len().saturating_sub(1)].join("/"));
+        *counts.entry(if folder.is_empty() { ".".to_string() } else { folder }).or_default() += 1;
+    }
+    let mut found: Vec<(String, usize)> = counts.into_iter().collect();
+    found.sort_by_key(|(folder, _)| format!("{}/", folder));
+    Ok(found)
+}
+
+/// What the checkout says of one path, for `wb view <issue> <path>`: the path as its parts from the root, what
+/// `HEAD` has there (its mode and kind), and, for a path not in `HEAD`, the rule of the checkout that ignores it.
+pub struct Facts {
+    pub path: String,
+    pub at_head: Option<(String, String)>,
+    pub ignored: Option<String>,
+}
+
+/// Reads the facts of `path` from the checkout at `root`. Ignored is asked of git in the checkout, by the
+/// `.gitignore` files of the working tree and `.git/info/exclude`, and never the person's global file: it
+/// writes nothing, as a copy of `HEAD`'s rules would (#159).
+pub fn facts(root: &str, path: &str) -> Result<Facts, String> {
+    let path = parts(path).join("/");
+    let at_head = head_entries(root, std::slice::from_ref(&path), false)?
+        .into_iter()
+        .find(|(found, _, _)| *found == path)
+        .map(|(_, mode, kind)| (mode, kind));
+    let mut ignored = None;
+    if at_head.is_none() && refused_by_git(&path, "100644").is_none() {
+        let args = ["--no-optional-locks", "-c", "core.excludesFile=/dev/null", "check-ignore", "--no-index", "-v", "-z", "--stdin"];
+        let input: Vec<u8> = path.bytes().chain(std::iter::once(0)).collect();
+        match git(Path::new(root), &args, &[], Some(&input)) {
+            Ok(found) => {
+                let fields: Vec<String> = found.split(|byte| *byte == 0).map(|field| String::from_utf8_lossy(field).to_string()).collect();
+                if let [source, number, pattern, ..] = fields.as_slice() {
+                    if !pattern.starts_with('!') {
+                        ignored = Some(format!("{}, line {}: {}", crate::issue::shown(source), number, crate::issue::shown(pattern)));
+                    }
+                }
+            }
+            // git ends with 1 where nothing is ignored.
+            Err(why) if why == "`git --no-optional-locks` ended with 1" => {}
+            Err(why) => return Err(why),
+        }
+    }
+    Ok(Facts { path, at_head, ignored })
+}
+
+/// Whether the view of a role holds a path, and where the issue's file lists it.
+pub enum Verdict {
+    /// The list (`changes` or `reads.<role>`), the line of the file, and the entry as the file writes it.
+    In { list: String, line: usize, entry: String },
+    /// Why not.
+    Out(String),
+}
+
+/// Whether the path of `facts` is in the view of `role` of the issue's file `used`, and why. An entry holds a
+/// path as the view is made: a folder of `HEAD` holds every path below it, a file only itself; an entry that is
+/// not in `HEAD` is a folder where it ends with `/` (#192). The reasons are taken in a fixed order: under
+/// `.watchbill/`, a path git does not take, listed and not in `HEAD`, a submodule, ignored, not in `HEAD`,
+/// under `build_files`, not listed.
+pub fn judge(root: &str, used: &crate::issue::Used, role: &str, facts: &Facts, build_files: &[String]) -> Result<Verdict, String> {
+    let path = facts.path.as_str();
+    let found = parts(path);
+    let reads = format!("reads.{}", role);
+    if found.first() == Some(&".watchbill") {
+        return Ok(Verdict::Out("under .watchbill/, which no view holds".to_string()));
+    }
+    let mode = facts.at_head.as_ref().map(|(mode, _)| mode.as_str()).unwrap_or("100644");
+    if let Some(why) = refused_by_git(path, mode) {
+        return Ok(Verdict::Out(format!("a path git does not take: {}", why)));
+    }
+    let lists = std::iter::once(("changes".to_string(), &used.issue.changes))
+        .chain(used.issue.reads.iter().filter(|(name, _)| name == role).map(|(_, list)| (reads.clone(), list)));
+    let mut below: Vec<String> = Vec::new();
+    for (list, entries) in lists {
+        for entry in entries {
+            let Some(covered) = covered(root, "HEAD", std::slice::from_ref(entry))?.into_iter().next() else { continue };
+            let n = covered.parts.len();
+            let holds = found.len() >= n && found[..n].iter().zip(&covered.parts).all(|(a, b)| a == b) && (covered.folder || found.len() == n);
+            if !holds {
+                if n > found.len() && covered.parts[..found.len()].iter().zip(&found).all(|(a, b)| a == b) {
+                    below.push(crate::issue::shown(entry));
+                }
+                continue;
+            }
+            let line = used.listed.iter().find(|listed| listed.list == list && listed.path == *entry).map(|listed| listed.line).unwrap_or(0);
+            let at = format!("{}, line {} of {}: {}", list, line, used.path, crate::issue::shown(entry));
+            return Ok(match &facts.at_head {
+                None if list == "changes" => Verdict::Out(format!("not in HEAD, and the view is made from HEAD; it is listed in {}. A session may make it", at)),
+                None => Verdict::Out(format!("not in HEAD, and the view is made from HEAD; it is listed in {}", at)),
+                Some((_, kind)) if kind == "commit" => Verdict::Out(format!("a submodule, which no view holds; it is listed in {}", at)),
+                Some(_) => Verdict::In { list, line, entry: crate::issue::shown(entry) },
+            });
+        }
+    }
+    let unlisted = format!("not listed in changes or {}", reads);
+    if facts.at_head.is_none() {
+        return Ok(Verdict::Out(match &facts.ignored {
+            Some(rule) => format!("ignored by the checkout ({}), and not in HEAD", rule),
+            None => format!("not in HEAD, and {}", unlisted),
+        }));
+    }
+    if let Some(build) = build_files.iter().find(|build| crate::starter::meet(path, build)) {
+        return Ok(Verdict::Out(format!(
+            "under `build_files` of watchbill.yml ({}), and {}: a role never changes it, and sees it only where its reads list it",
+            crate::issue::shown(build),
+            unlisted
+        )));
+    }
+    if below.is_empty() {
+        return Ok(Verdict::Out(unlisted));
+    }
+    let more = below.len().saturating_sub(SHOWN);
+    below.truncate(SHOWN);
+    if more > 0 {
+        below.push(format!("and {} more", more));
+    }
+    Ok(Verdict::Out(format!("{}; the view holds paths below it: {}", unlisted, below.join(", "))))
+}

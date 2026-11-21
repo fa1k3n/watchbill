@@ -141,10 +141,30 @@ pub fn read(path: impl AsRef<Path>) -> Result<Issue, String> {
     issue_of(&document)
 }
 
-/// As `read`, for the bytes of the file that were read already.
-fn read_bytes(path: &Path, bytes: Vec<u8>) -> Result<Issue, String> {
+/// As `read`, for the bytes of the file that were read already, with where each path of its lists stands.
+fn read_bytes(path: &Path, bytes: Vec<u8>) -> Result<(Issue, Vec<Listed>), String> {
     let document = crate::yamlfile::load_bytes(path, bytes).map_err(fault)?;
-    issue_of(&document)
+    let issue = issue_of(&document)?;
+    let mut listed = Vec::new();
+    let lists = std::iter::once(("changes".to_string(), vec![Part::from("changes")], &issue.changes))
+        .chain(issue.reads.iter().map(|(role, list)| (format!("reads.{}", role), vec![Part::from("reads"), Part::from(role.as_str())], list)));
+    for (list, place, paths) in lists {
+        for (index, path) in paths.iter().enumerate() {
+            let mut at = place.clone();
+            at.push(Part::Index(index));
+            listed.push(Listed { list: list.clone(), path: path.clone(), line: document.line(&at).unwrap_or(0) });
+        }
+    }
+    Ok((issue, listed))
+}
+
+/// Where a path of a list stands in the issue's file (#173): the list, `changes` or `reads.<role>`, the path as
+/// the file writes it, and the line it is on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Listed {
+    pub list: String,
+    pub path: String,
+    pub line: usize,
 }
 
 fn issue_of(document: &Document) -> Result<Issue, String> {
@@ -251,6 +271,8 @@ pub struct Used {
     pub path: String,
     /// The SHA-256 of the file as it was read.
     pub hash: String,
+    /// Each path of `changes` and of `reads`, with its list and its line, in the order of the file.
+    pub listed: Vec<Listed>,
 }
 
 /// The most an issue's file may be: it is read whole, and a file larger than an issue needs is refused.
@@ -315,7 +337,7 @@ pub fn for_prompt(root: &Path, issue: &str) -> Result<Option<Used>, String> {
         ));
     }
     let prefix = format!("{}/", root.display().to_string().trim_end_matches('/'));
-    let read = read_bytes(&file, bytes).map_err(|why| format!("{}. No prompt is handed out.", why.replace(&prefix, "")))?;
+    let (read, listed) = read_bytes(&file, bytes).map_err(|why| format!("{}. No prompt is handed out.", why.replace(&prefix, "")))?;
     if read.issue != issue {
         return Err(format!("{} says the issue is {}, not {}. No prompt is handed out.", shown, self::shown(&read.issue), issue));
     }
@@ -346,7 +368,7 @@ pub fn for_prompt(root: &Path, issue: &str) -> Result<Option<Used>, String> {
             return Err(unsafe_in(&name));
         }
     }
-    Ok(Some(Used { issue: read, path: shown, hash }))
+    Ok(Some(Used { issue: read, path: shown, hash, listed }))
 }
 
 impl Used {

@@ -22,7 +22,7 @@ pub const COMMANDS: [Command; 16] = [
     Command { name: "start", group: "work", summary: "start a session of one role" },
     Command { name: "run", group: "work", summary: "run the whole flow of an issue" },
     Command { name: "status", group: "see", summary: "list the issues in the flow and where each stands" },
-    Command { name: "view", group: "see", summary: "make or show the view a session works in" },
+    Command { name: "view", group: "see", summary: "show what a session of a role sees, and whether a file is in it" },
     Command { name: "log", group: "see", summary: "show what was done to an issue" },
     Command { name: "answer", group: "see", summary: "answer the open questions of an issue" },
     Command { name: "revert", group: "take back", summary: "take an issue back to before a step" },
@@ -33,14 +33,14 @@ pub const COMMANDS: [Command; 16] = [
 ];
 
 /// The commands not built yet: the command, the release it is planned for and the issue that builds it.
-/// The piece that builds one removes its row, and adds its arm to the dispatch in `src/lib.rs`.
-pub const PLANNED: [(&str, &str, u32); 6] = [
+/// The piece that builds one removes its row, and adds its arm to the dispatch in `src/lib.rs`. After 0.0.9 the
+/// releases are 0.10.0, 0.11.0, 0.12.0 and 1.0.0, as the owner named them.
+pub const PLANNED: [(&str, &str, u32); 5] = [
     ("doctor", "0.11.0", 178),
     ("log", "0.11.0", 177),
     ("clean", "0.11.0", 176),
     ("compare", "0.11.0", 179),
     ("run", "0.12.0", 183),
-    ("view", "0.10.0", 173),
 ];
 
 /// Whether the layout has this command.

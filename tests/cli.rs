@@ -22,6 +22,8 @@ const USAGE: &str = "usage:
   wb revision
   wb accept <issue> [--no-commit]
   wb status [<issue>] [--stage <heading>]
+  wb view <issue> <role> [--in | --out]
+  wb view <issue> <path>
   wb revert <issue> <role> [--round <n>]
   wb revert --change <n> <role> [--round <n>]
   wb answer <issue> [--suggested | <question> <answer>]
@@ -117,6 +119,19 @@ const USAGE: &str = "usage:
             prints that heading only, whatever its case. Ends with 0 when
             every issue could be read, 1 when a pattern failed for one (it is
             listed under Not read), 2 when it was used wrongly or the
+            repository is not set up. Writes nothing
+  view      show what a session of a role will see, before it starts. wb view
+            <issue> <role> prints the paths of its view, one to a line, the
+            list the start makes the view from, then the level of the
+            repository and the line view: its stamp would hold, and the local
+            changes that would stop the start. --out prints in their place
+            what the view leaves out of HEAD, by folder, with a count for each.
+            wb view <issue> <path> says for each role whether the path, from
+            the root, is in its view: in, with the list and the line of the
+            issue's file that hold it, or out, and why. A path named as a role
+            is written ./<path>. Ends with 0 when the path is in the view of a
+            role or the view is shown, 1 when it is in none or the issue has
+            no accepted, committed file, 2 when it was used wrongly or the
             repository is not set up. Writes nothing
   revert    take an issue back to before a step, deleting nothing:
             wb revert <issue> <role> [--round <n>] posts, by issue_comment of

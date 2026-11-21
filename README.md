@@ -87,11 +87,11 @@ At 0.0.9. An issue that changes a verdict changes its row.
 |---|---|
 | set up | `init`, `check`, `doctor` (planned for 0.11.0, #178), `upgrade` |
 | work | `accept`, `start`, `run` (planned for 0.12.0, #183) |
-| see | `status`, `view` (planned for 0.10.0, #173), `log` (planned for 0.11.0, #177), `answer` |
+| see | `status`, `view` ([Seeing a view first](#seeing-a-view-first)), `log` (planned for 0.11.0, #177), `answer` |
 | take back | `revert`, `clean` (planned for 0.11.0, #176) |
 | plumbing | `prompt`, `revision`, `compare` (planned for 0.11.0, #179) |
 
-The releases after 0.0.9 are 0.10.0, 0.11.0, 0.12.0 and 1.0.0. A man page for each command is planned for 0.11.0.
+After 0.0.9 the releases are 0.10.0, 0.11.0, 0.12.0 and 1.0.0. A man page for each command is planned for 0.11.0.
 
 ## Setting it up in a repository
 
@@ -419,6 +419,23 @@ A session of the tester, the build, the review or the fix of an issue with an ac
 - **How it is read.** Once the session has run, the `.git` of the view is the session's. `wb` never runs git with its settings, which would run outside the sandbox a command the session wrote there: it reads the view's objects through a repository of its own, and its `HEAD` from the files.
 - **Without a view.** A role started with no issue's file (#116), and the breakdown, which reads the whole code by its role, run as before, in the checkout. For a role with no file, `wb` says so on standard error before it starts. A person who starts it has decided to.
 - **The stamp** has the line `view:`, after `time:`: the SHA-256 of the list of paths, one to a line, as the file `view` of the lines holds it, or `none`. `wb prompt --stamp` gives the same line: it says what was handed out, as the model and the effort do.
+
+### Seeing a view first
+
+`wb view` shows what a session of a role will see, before it starts, and says for one file whether it is in the view and why (#173). A list that falls short is found before a session is spent on it.
+
+```sh
+wb view 54 build              # the paths of the build's view, its level and its view: line
+wb view 54 build --out        # what the view leaves out of HEAD, by folder
+wb view 54 src/brake.c        # in or out, for each role, and why
+```
+
+- **`wb view <issue> <role>`** prints the paths of the view of that role, one to a line: the list the start makes the view from, `changes` and then the role's `reads`. Then `level:`, the level of the repository as `--parts` of the breakdown gives it (the line `confidentiality:` of `watchbill.yml`, or the most restrictive of the organisation's file), and `view:`, the line the role's stamp would hold, made by the same function. Where a file of the view differs from `HEAD`, or an untracked file is under `changes`, an empty line follows and what the start would say of the local changes (#172). It ends with 0.
+- **`--in`** is that, and the default. **`--out`** prints in its place what the view leaves out of `HEAD`, one folder to a line, `<count><tab><folder>/`: a folder that holds no file of the view, at its top, with the count of its files; for a folder that holds some, the files left out directly in it. The files at the root are under `./`. `--in` and `--out` together end with 2.
+- **`wb view <issue> <path>`** takes a path from the root of the repository, as the issue's file writes it. A word that is a role is the role: a folder named `build` is written `./build`. It prints one line for each role with a view, the tester, the build, the review and the fix: `build: in: reads.build, line 9 of .watchbill/issues/54.yml: include`, with the list and the line of the issue's file that hold the path and the entry as written; or `review: out: <why>`. The reasons are, in this order: under `.watchbill/`; a path git does not take (#192); listed, and not in `HEAD`, with the list and the line (a session may make a path of `changes`); a submodule; ignored by the checkout, with the rule, and not in `HEAD`; not in `HEAD`; under `build_files` and not listed; not listed. A folder that is not listed, and holds paths that are, is out, and they are named. It ends with 0 when the path is in the view of at least one role, and with 1 when in none.
+- **Ignored** is asked of git in the checkout: the `.gitignore` files of the working tree and `.git/info/exclude`. The person's global file is not read.
+- **Without a view.** An issue with no file, or one not accepted or not committed, ends with 1: with no file, `wb view` says that the role would run without a view; otherwise it gives the reason `wb prompt` gives. `wb view <issue> breakdown` ends with 1: the breakdown runs without a view.
+- **It only reads.** It makes no view, runs no pattern of `watchbill.yml`, posts nothing, writes nothing, not in the state folder either, and asks nothing of the network. `watchbill.yml` is read as `HEAD` has it (#186): where it differs, `wb view` ends with 1. A word that is not known, or a path that starts with `/`, holds `..` or names the root, ends with 2.
 
 ### The lines it leaves
 

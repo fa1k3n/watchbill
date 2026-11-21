@@ -85,7 +85,7 @@ At 0.10.0. An issue that changes a verdict changes its row.
 
 | Group | Commands |
 |---|---|
-| set up | `init`, `check`, `doctor` (planned for 0.11.0, #178), `upgrade` (planned for 0.10.0, #174) |
+| set up | `init`, `check`, `doctor` (planned for 0.11.0, #178), `upgrade` |
 | work | `accept`, `start`, `run` (planned for 0.12.0, #183) |
 | see | `status`, `view` ([Seeing a view first](#seeing-a-view-first)), `log` (planned for 0.11.0, #177), `answer` |
 | take back | `revert`, `clean` (planned for 0.11.0, #176) |
@@ -148,7 +148,7 @@ build_files: ['.gitlab-ci.yml']
 - **`watchbill` is the version of the package** the repository is set up for: the version of the `wb` that wrote the file. A revision is the version and the hash of its files together ([docs/revision.md](docs/revision.md)); the hash is the line `revision`, and is the one `wb revision` prints.
 - **What it finds, it finds in the repository:** the name of the folder, the address of `origin` (only its host and path; a user name or a token in it is dropped), a folder of requirements, and the file a CI driver is known by. It asks nothing of the network.
 - **The revision is copied, never edited.** The files under `.watchbill/revision/` are written by `wb` and never by hand. `cd .watchbill && sha256sum -c revision.sha256` checks them without `wb`.
-- **A file that is already there is never changed.** When any file `wb init` would write is there, or a folder on the way to one is a link or not a folder, or `.watchbill/revision` is there, it writes nothing at all and names the path. Bringing a repository to a newer revision is a command of its own, later. A write that fails part way removes what it had written.
+- **A file that is already there is never changed.** When any file `wb init` would write is there, or a folder on the way to one is a link or not a folder, or `.watchbill/revision` is there, it writes nothing at all and names the path. Bringing a repository to a newer revision is `wb upgrade` ([Upgrading it](#upgrading-it)). A write that fails part way removes what it had written.
 - **The project's own text goes in `.watchbill/project/`.** `all.md` is added to the prompt of every role and `<role>.md` (`build.md`, `review.md`, `fix.md`, `tester.md`) to that of one role. Both are optional. They are the project's files: not part of the revision, not in the manifest, and `wb check` does not fail on them, except for a placeholder that the revision does not know (see `wb check`). A prompt is the role's text of the revision, then one fixed line, then `all.md`, then `<role>.md`. This text says how things are done here: the commands, the board, the words. It never lifts a limit of a role. `wb init` leaves `project/README.md`, which says so. The placeholders of `revision/roles/placeholders.md` (`{issue}`, `{branch}` and the others) are filled in every part, and any other placeholder is refused. A placeholder is a lower-case word in braces: `{`, a letter a to z, letters a to z or `_`, then `}`, with no `$` just before it. Anything else in braces is text and stays as it is, such as `${BUILD_DIR}`, `{Issue}`, `{issue-id}` and `{ issue }`. A value that is filled in is never itself read for placeholders. The command that prints a prompt comes later.
 - **`build_files` is the build** ([The lists checked at acceptance](#the-lists-checked-at-acceptance)). `wb init` writes the file or folder of each CI driver it found in the repository, whatever the answer for the driver: `.github/workflows`, `.gitlab-ci.yml`, `Jenkinsfile`, `azure-pipelines.yml`, `bitbucket-pipelines.yml`, `.circleci`, `.zuul.yaml` and `zuul.d`. Where it found none, it writes no line. The rest of the build, such as `Makefile` or `CMakeLists.txt`, a person adds.
 - **`classed` is the code that is classed** ([Classed code](#classed-code)). `wb init` proposes `[]`, none, and `--yes` takes that. A person who answers gives paths from the root of the repository, separated by commas; a path that starts with `/`, holds `..` or is the root is not taken, and the question is asked again. A repository set up before this has no line `classed`, so every path counts as classed: add the line by hand.
@@ -178,6 +178,41 @@ The exit status:
 - **0**: all of it holds.
 - **1**: something differs, a placeholder in the project's text is not known, or the file `watchbill.yml` is refused. Each difference is on standard output.
 - **2**: `wb check` was used wrongly, the folder is not in a git repository, or `.watchbill/watchbill.yml` is not there, so Watchbill is not set up. The reason is on standard error.
+
+## Upgrading it
+
+`wb upgrade` pins a repository to the installed revision, in one command (#174). Run it anywhere inside the repository, after the new package is installed. It asks nothing of the network and commits nothing.
+
+```
+$ wb upgrade
+wb upgrade: the repository is pinned to version 0.0.8, revision 5f1ec546…; the installed wb is version 0.0.9, revision badac62e….
+It writes these, in this order:
+  change  .watchbill/revision/roles/build.md
+  change  .watchbill/revision.sha256
+  set     .watchbill/watchbill.yml: watchbill: 0.0.9 (was 0.0.8)
+  set     .watchbill/watchbill.yml: revision: badac62e… (was '5f1ec546…')
+  add     .watchbill/watchbill.yml: draft_change: 'gh pr create --repo acme/brake-controller --head {branch} --draft --fill-verbose'
+
+Written.
+
+The check of wb check:
+The repository is at the revision it is pinned to, and the installed wb is that revision.
+
+Nothing is committed. Commit the change alone, with nothing else in the commit; until .watchbill/watchbill.yml is committed, wb runs none of its patterns (#186):
+  git add --all -- ':/.watchbill' && git commit -m 'Watchbill 0.0.9' -- ':/.watchbill'
+```
+
+- **What it writes.** The files of the installed revision over `.watchbill/revision/`, removing each file and folder there that the installed revision does not have, and its manifest as `.watchbill/revision.sha256`. In `watchbill.yml`, the lines `watchbill:` and `revision:`, set to the installed version and hash as `wb init` writes them, and each pattern that the installed `wb init` would write for this repository (from its `git_server` and `repository`, and for GitLab the host of `origin`) and that the file does not have. A line that is there is never written over: a pattern with another value stays as it is. `classed` and `build_files` are settings a person decides, and are never added.
+- **It says each write first:** each file it adds, changes or removes, and each line it sets or adds, in the order it writes them. Then it writes, runs the check of `wb check` and says its result. `wb upgrade --dry-run` says the same and writes nothing.
+- **What it writes over** is only the revision's own: the files under `.watchbill/revision/`, the manifest, and the two lines. It does so only when git holds everything under `.watchbill/` as committed, so git gives back every byte it wrote over. A write that fails part way puts back what it had written.
+- **Refused with 1, writing nothing:** a path under `.watchbill/` that is changed, staged, not tracked or ignored by git; an installed version older than the one the repository is pinned to; a version that is not numbers separated by dots; a link under `.watchbill/revision/`, or for `.watchbill`, the manifest or `watchbill.yml`, which is never followed; a `watchbill.yml` the loader refuses, or one whose two lines are not one line each. Versions compare as numbers: 0.10.0 is newer than 0.0.9.
+- **Nothing to do:** a repository at the installed revision, its files, its manifest, its two lines and its patterns, ends with 0 and writes nothing. That is so right after an upgrade too, before the commit. The same version with another hash is upgraded.
+
+The exit status:
+
+- **0**: it wrote and the check holds, `--dry-run` said what it would write, or there was nothing to do.
+- **1**: it was refused and wrote nothing, or it wrote and the check does not hold. The differences are said, and what was written stays.
+- **2**: `wb upgrade` was used wrongly, the folder is not in a git repository, or `.watchbill/watchbill.yml` is not there; `wb init` sets Watchbill up.
 
 ## The prompt of an assignment
 
@@ -447,9 +482,9 @@ draft_change: 'gh pr create --repo example/brake-controller --head {branch} --dr
 - `draft_change` is the command that opens the change of `{branch}` as a draft, its title and description filled from the commits. `wb build` says it, filled, after a session; it never runs it.
 - `open_issues` is no longer read (#155): `wb init` does not write it, and a line that is there is passed over. Listing the tracker's issues is the tracker's own program's job.
 - Each is one line for `/bin/sh -c`, run in the root of the checkout, as an agent runs the addresses. The values filled in (`{issue}`, `{change}`, `{branch}`) are plain names, as for the addresses. A value given that is not is refused with 2, by its option. A branch worked out that is not is refused with 1, saying to give `--change`.
-- A repository set up before these lines, or with another server, adds them by hand. Without them, `wb prompt` asks for `--change` and `--round` as before, and `wb start <role>` is refused, naming the line it needs.
+- A repository set up before these lines gets them from `wb upgrade` ([Upgrading it](#upgrading-it)); one with another server adds them by hand. Without them, `wb prompt` asks for `--change` and `--round` as before, and `wb start <role>` is refused, naming the line it needs.
 - `wb start <role>` asks nothing of the network but through these lines and the runner's `start`.
-- **Only as `HEAD` has it** (#186). `wb` runs a pattern of `watchbill.yml`, reads `needs` and `build_files` from it, and fills a prompt from it, only while `.watchbill/watchbill.yml` in the working tree is the file that `HEAD` has. It reads the file of `HEAD` once, with no replace refs, and takes every pattern from those bytes. `wb start`, `wb prompt`, `wb status`, `wb answer`, `wb revert` and `wb accept` are refused with 1, naming the file, before anything runs or is posted, where the file differs from `HEAD`, is staged and not committed, or is not in `HEAD` at all. The command `draft_change` that `wb start build` says after a session is held the same way: where the file differs, `wb` says the refusal and no line. A person reads the change and commits it, or takes it back with git, before the next command. It is a limit: no option lifts it. **It stops an uncommitted change only.** A session with no view runs as the person, with a shell, and can commit a changed `watchbill.yml`, move a ref or write a hook. A commit in the checkout by anyone, the session included, lifts the limit, so a person reads `git log -p -- .watchbill/watchbill.yml` before the next command. Running every session in a sandbox is #202. `wb check` runs no pattern and is not held. `wb init` writes the file and is not held; nor is `wb upgrade` to be (#174).
+- **Only as `HEAD` has it** (#186). `wb` runs a pattern of `watchbill.yml`, reads `needs` and `build_files` from it, and fills a prompt from it, only while `.watchbill/watchbill.yml` in the working tree is the file that `HEAD` has. It reads the file of `HEAD` once, with no replace refs, and takes every pattern from those bytes. `wb start`, `wb prompt`, `wb status`, `wb answer`, `wb revert` and `wb accept` are refused with 1, naming the file, before anything runs or is posted, where the file differs from `HEAD`, is staged and not committed, or is not in `HEAD` at all. The command `draft_change` that `wb start build` says after a session is held the same way: where the file differs, `wb` says the refusal and no line. A person reads the change and commits it, or takes it back with git, before the next command. It is a limit: no option lifts it. **It stops an uncommitted change only.** A session with no view runs as the person, with a shell, and can commit a changed `watchbill.yml`, move a ref or write a hook. A commit in the checkout by anyone, the session included, lifts the limit, so a person reads `git log -p -- .watchbill/watchbill.yml` before the next command. Running every session in a sandbox is #202. `wb check` runs no pattern and is not held. `wb init` and `wb upgrade` write the file and are not held; `wb upgrade` says that the file is to be committed (#174).
 
 For a GitLab `origin`, `wb init` writes the same patterns with `glab`, here for `brakes/controller` on `gitlab.example.com`, and `issue_address` and `change_address` besides:
 

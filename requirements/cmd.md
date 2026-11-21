@@ -12,7 +12,7 @@ Which commands `wb` has, how they are grouped, and what a planned one says.
 | WB-CMD-6 | `wb help <command>` shall print the usage and the help of that command. Issue: #171. | T | Implemented |
 | WB-CMD-7 | `wb help` with a command that is not known shall end with 2. Issue: #171. | T | Implemented |
 | WB-CMD-8 | `wb --help`, and `wb` with no command, shall print what `wb help` prints. Issue: #171. | T | Implemented |
-| WB-CMD-9 | The usage, `wb help` and the commands `wb` takes shall be made from one list. Issue: #171. | T | Implemented |
+| WB-CMD-9 | `wb help` and the commands `wb` takes shall be made from one list of the commands, and the usage text `USAGE` shall name the same built commands, held by a test. Issue: #171. | T | Implemented |
 | WB-CMD-10 | `wb help` shall list `status` in the group see, and `wb help status` shall print its usage. Replaces WB-STATUS-27. Issue: #171. | T | Implemented |
 | WB-CMD-11 | `wb help <command>` with a word more shall end with 2 and name the word. Issue: #171. | T | Implemented |
 | WB-CMD-12 | `wb --help` and `wb -h` shall read the word after them as `wb help` does. Issue: #171. | T | Implemented |

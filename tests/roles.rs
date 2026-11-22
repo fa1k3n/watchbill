@@ -1061,7 +1061,7 @@ fn questions_form(role: &str) -> String {
 }
 
 #[test]
-fn test_WB_ANSWER_9_the_four_post_their_questions_in_one_comment_whose_first_line_names_them() {
+fn test_WB_ANSWER_43_the_four_post_their_questions_in_one_comment_whose_first_line_names_them() {
     for role in ASKERS {
         let point = asking_point(role);
         let first = format!("Its first line is `[questions] {}` and the name of each question it holds, as `[questions] {} q1 q2`.", questions_of(role), questions_of(role));
@@ -1071,14 +1071,14 @@ fn test_WB_ANSWER_9_the_four_post_their_questions_in_one_comment_whose_first_lin
 }
 
 #[test]
-fn test_WB_ANSWER_9_the_breakdown_posts_its_questions_in_one_comment_whose_first_line_names_them() {
+fn test_WB_ANSWER_43_the_breakdown_posts_its_questions_in_one_comment_whose_first_line_names_them() {
     let point = breakdown_point("## What you produce", "- The new questions are also posted on the issue, in one comment for the session,");
     assert!(point.contains("Its first line is `[questions] {issue}` and the name of each question it holds, as `[questions] {issue} q1 q2`."), "{}", point);
     assert!(point.contains("a question named `{issue}.q<n>` under `questions` is `q<n>` in the comment"), "{}", point);
 }
 
 #[test]
-fn test_WB_ANSWER_9_each_question_is_one_line_and_the_rest_is_folded_under_details() {
+fn test_WB_ANSWER_43_each_question_is_one_line_and_the_rest_is_folded_under_details() {
     for role in ROLES {
         let text = prompt(role);
         assert!(text.contains("- Each question is one line, its name and what is unclear. The rest is folded under `<details>`, which the tracker shows closed. The comment is in this form:"), "{}", role);
@@ -1219,7 +1219,7 @@ fn test_WB_ROLE_72_the_last_messages_of_the_four_end_with_needs_person_and_then_
 }
 
 #[test]
-fn test_WB_ROLE_87_a_question_holds_what_is_unclear_why_it_matters_the_choices_a_suggestion_and_whether_it_changes_the_file() {
+fn test_WB_ROLE_100_a_question_holds_what_is_unclear_why_it_matters_the_choices_with_their_roles_and_a_suggestion() {
     for role in ROLES {
         let text = prompt(role);
         for what in [
@@ -1236,7 +1236,7 @@ fn test_WB_ROLE_87_a_question_holds_what_is_unclear_why_it_matters_the_choices_a
 }
 
 #[test]
-fn test_WB_ROLE_87_a_question_is_never_edited_once_posted() {
+fn test_WB_ROLE_101_a_question_is_never_edited_once_posted() {
     for role in ROLES {
         let point = line_of(role, "- A question is never edited once posted,");
         assert!(point.contains("so that a number always means what it meant when the person answered."), "{}: {}", role, point);

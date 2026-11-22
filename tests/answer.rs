@@ -834,7 +834,7 @@ fn test_WB_ANSWER_42_a_question_of_0_10_0_is_answered_with_no_role_and_none_aske
 }
 
 #[test]
-fn test_WB_ANSWER_42_an_answer_that_names_a_role_closes_its_question() {
+fn test_WB_ANSWER_44_an_answer_that_names_a_role_closes_its_question() {
     let folder = set_up();
     let tester = ROLED.replace("54.build", "54.tester");
     bodies(&folder.path, "54", &[&tester, "[answers] 54.tester q3>tester q4>build\nq3: 1\nq4: 1\n"]);
@@ -842,4 +842,21 @@ fn test_WB_ANSWER_42_an_answer_that_names_a_role_closes_its_question() {
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(text(&run.stderr).contains("no open question"), "{}", text(&run.stderr));
     assert!(posted(&folder.path, "54").is_empty());
+}
+
+#[test]
+fn test_WB_ANSWER_45_a_word_in_brackets_that_is_no_role_is_a_choice_with_no_role() {
+    let folder = set_up();
+    let other = ROLED.replace("1. (build) The file", "1. (optional) The file");
+    bodies(&folder.path, "54", &[&other]);
+    // A pair takes the asking role for it.
+    let run = answer(&folder.path, &["54", "build.q3", "1", "build.q4", "1"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(posted(&folder.path, "54"), ["[answers] 54.build q3>tester q4>build\nq3: 1\nq4: 1\n"]);
+    // One by one, the person is asked.
+    let folder = set_up();
+    bodies(&folder.path, "54", &[&other]);
+    let run = answer(&folder.path, &["54"], "1\n1\nreview\n");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(posted(&folder.path, "54"), ["[answers] 54.build q3>tester q4>review\nq3: 1\nq4: 1\n"]);
 }

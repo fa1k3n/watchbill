@@ -12,7 +12,7 @@
 //!   and the first line of an answer names it after each question: `[answers] 54.build q3>tester q4>person`. An answer
 //!   in words, or a choice with no role, asks which role acts (the asking role by Enter); a pair and `--suggested`
 //!   take the role of the choice, and the asking role where it has none. The file is said to be changed only for
-//!   `person`; a question whose choices name no role (0.10.0 and before) is answered with no role, and its line
+//!   `person` (to a question of the breakdown, with the message of the breakdown); a question whose choices name no role (0.10.0 and before) is answered with no role, and its line
 //!   `changes the issue's file:` is read as before. The first lines of 0.10.0, `q3` alone, close and name no role.
 //! - **Which count:** `open_names` decides from first lines alone, so that `wb status` and `wb answer` agree. What a
 //!   `[revert]` marker took back counts for nothing (`starter::taken_back`).
@@ -69,6 +69,8 @@ pub struct Question {
     pub changes_file: Option<bool>,
     /// The role in brackets that starts a choice, as `1. (tester) …` (#226), by the number of the choice.
     pub roles: Vec<(u64, String)>,
+    /// Whether a question of its comment has a role on a choice: then each of them is asked in the form of 0.11.0.
+    pub comment_roled: bool,
 }
 
 impl Question {
@@ -77,9 +79,9 @@ impl Question {
         format!("{}.q{}", self.prefix, self.number)
     }
 
-    /// Whether its choices name the roles that act on them: a question of 0.11.0.
+    /// Whether it is asked in the form of 0.11.0: a choice of it, or of a question of its comment, names a role.
     pub fn roled(&self) -> bool {
-        !self.roles.is_empty()
+        !self.roles.is_empty() || self.comment_roled
     }
 
     /// Its role, or `breakdown` for a name with no role.
@@ -94,7 +96,8 @@ const ROLES: [&str; 6] = ["breakdown", "tester", "build", "review", "fix", "pers
 /// The role in brackets that starts the text of a choice: `(tester) Narrow it.`
 fn role_of_choice(text: &str) -> Option<String> {
     let role = text.strip_prefix('(')?.split_once(')')?.0;
-    (!role.is_empty() && role.chars().all(|c| c.is_ascii_lowercase() || c == '_' || c == '-')).then(|| role.to_string())
+    // Only a role of the revision, or `person`, is a role: any other word is a choice with no role.
+    ROLES.contains(&role).then(|| role.to_string())
 }
 
 /// The number of a word `q<n>`, written with a comma or a full stop after it or without.
@@ -138,7 +141,7 @@ fn roles_after(issue: &str, line: &str) -> Vec<(String, Option<String>)> {
         Some(prefix) if is_prefix(issue, prefix) => words
             .filter_map(|word| {
                 let (name, role) = word.split_once('>').map_or((word, None), |(name, role)| (name, Some(role)));
-                let role = role.filter(|role| !role.is_empty() && role.chars().all(|c| c.is_ascii_lowercase() || c == '_' || c == '-'));
+                let role = role.filter(|role| ROLES.contains(role));
                 number_of(name).map(|n| (format!("{}.q{}", prefix, n), role.map(str::to_string)))
             })
             .collect(),
@@ -147,9 +150,16 @@ fn roles_after(issue: &str, line: &str) -> Vec<(String, Option<String>)> {
 }
 
 /// The role and the question the newest answer names (#226): the last word `q<n>>role` of the last first line
-/// `[answers] …` that has one, from the lines that still count.
+/// `[answers] …` that has one, from the lines that still count. A `[stamp] <role>` after it clears it (the role has
+/// acted since); `person` has no stamp.
 pub fn waits_for(issue: &str, lines: &[String]) -> Option<(String, String)> {
-    lines.iter().rev().find_map(|line| roles_after(issue, line).into_iter().rev().find_map(|(name, role)| role.map(|role| (role, name))))
+    let (at, role, name) = lines
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(at, line)| roles_after(issue, line).into_iter().rev().find_map(|(name, role)| role.map(|role| (at, role, name))))?;
+    let stamped = lines[at + 1..].iter().any(|line| line.strip_prefix("[stamp] ").and_then(|rest| rest.split_whitespace().next()) == Some(role.as_str()));
+    (!stamped).then_some((role, name))
 }
 
 /// The names of the open questions of `issue`, in the order they were asked, from the first lines of its comments
@@ -276,7 +286,7 @@ fn read_parts(prefix: &str, number: u64, short: String, lines: Vec<String>) -> Q
         let words = text.rsplit_once(", because").map_or(text.as_str(), |(words, _)| words).trim().trim_end_matches('.').trim();
         (!words.is_empty()).then(|| Suggestion::Words(words.to_string()))
     });
-    Question { prefix: prefix.to_string(), number, short, lines, choices, suggested, changes_file, roles }
+    Question { prefix: prefix.to_string(), number, short, lines, choices, suggested, changes_file, roles, comment_roled: false }
 }
 
 /// The questions of one comment, in the order its first line names them. A comment of another form, or of
@@ -320,6 +330,8 @@ fn questions_of(issue: &str, body: &str) -> Vec<Question> {
             None => questions.push(read_parts(&prefix, n, String::new(), Vec::new())),
         }
     }
+    let roled = questions.iter().any(|question| !question.roles.is_empty());
+    questions.iter_mut().for_each(|question| question.comment_roled = roled);
     questions
 }
 

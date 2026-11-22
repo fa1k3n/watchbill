@@ -1032,3 +1032,44 @@ fn test_WB_STATUS_55_the_comments_are_read_once_for_each_issue_with_the_role_too
     assert!(out.contains("waits for: tester (54.build.q3)"), "{}", out);
     assert_eq!(fs::read_to_string(folder.path.join(".tracker/count")).unwrap().lines().count(), 1);
 }
+
+#[test]
+fn test_WB_STATUS_56_a_stamp_of_the_role_newer_than_the_answer_clears_waits_for() {
+    let folder = set_up();
+    open(&folder.path, &["54"]);
+    comments(&folder.path, "54", &["[stamp] build round 1", "[questions] 54.build q3", "[answers] 54.build q3>tester", "[stamp] tester round 2"]);
+    branch(&folder.path, "54", true);
+    let (out, _) = stdout(&folder.path, &["status", "54"]);
+    assert!(!out.contains("waits for"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_56_a_stamp_of_another_role_or_before_the_answer_does_not() {
+    let folder = set_up();
+    open(&folder.path, &["54"]);
+    comments(&folder.path, "54", &["[stamp] tester round 1", "[questions] 54.build q3", "[answers] 54.build q3>tester", "[stamp] build round 2"]);
+    branch(&folder.path, "54", true);
+    let (out, _) = stdout(&folder.path, &["status", "54"]);
+    assert!(out.contains("\nwaits for: tester (54.build.q3)\n"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_56_person_is_never_cleared_by_a_stamp() {
+    let folder = set_up();
+    open(&folder.path, &["54"]);
+    comments(&folder.path, "54", &["[questions] 54.build q3", "[answers] 54.build q3>person", "[stamp] build round 2", "[stamp] tester round 2"]);
+    branch(&folder.path, "54", true);
+    let (out, _) = stdout(&folder.path, &["status", "54"]);
+    assert!(out.contains("\nwaits for: person (54.build.q3)\n"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_57_a_word_that_is_no_role_closes_the_question_and_names_none() {
+    let folder = set_up();
+    open(&folder.path, &["54"]);
+    comments(&folder.path, "54", &["[stamp] build round 1", "[questions] 54.build q3", "[answers] 54.build q3>optional"]);
+    branch(&folder.path, "54", true);
+    let (out, _) = stdout(&folder.path, &["status", "54"]);
+    assert!(!out.contains("waits for"), "{}", out);
+    assert!(!out.contains("Questions open"), "{}", out);
+}

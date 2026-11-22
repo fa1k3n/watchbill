@@ -42,7 +42,7 @@ What `wb start <role> <issue>` checks, posts and starts. One path for a person a
 | WB-BUILD-36 | `wb start <role> <issue>` shall do what `wb <role> <issue>` did, with the same options. Issue: #175. | T | Implemented |
 | WB-BUILD-37 | `wb <role> …` for a role of the revision shall end with 2 and say the form `wb start <role> …` with the same words. Issue: #175. | T | Implemented |
 | WB-BUILD-38 | `wb start` with a role that is not known shall end with 2 and name the roles. Issue: #175. | T | Implemented |
-| WB-BUILD-39 | Every command that runs a pattern of `watchbill.yml`, or reads `needs` or `build_files` from it, shall first compare the file in the working tree with `HEAD`, and refuse with 1, naming the file, where it differs or is not committed, before any pattern runs or anything is posted. Issue: #186. | T | Implemented |
+| WB-BUILD-39 | `wb prompt`, `wb start`, `wb accept`, `wb answer` and `wb revert`, which hand something out or write, shall first compare `.watchbill/watchbill.yml` in the working tree with `HEAD`, and refuse with 1, naming the file, where it differs or is not committed, before any pattern runs or anything is posted. Issue: #186, #254. | T | Implemented |
 | WB-BUILD-40 | No flag shall lift the refusal of WB-BUILD-39. Issue: #186. | T | Implemented |
 | WB-BUILD-41 | The refusal of WB-BUILD-39 shall say that a person reads the change and commits it, or takes it back with git, before the next command. Issue: #186. | T | Implemented |
 | WB-BUILD-42 | `wb init` and `wb upgrade` shall not be held by WB-BUILD-39, and `wb upgrade` shall say that the file is to be committed. Issue: #186. | T | Implemented |
@@ -57,3 +57,8 @@ What `wb start <role> <issue>` checks, posts and starts. One path for a person a
 | WB-BUILD-51 | Where `.watchbill/signers` is not there, `wb start` shall write the stamp commit unsigned, count it, and `wb status` shall say that no signature is checked. Issue: #236. | T | Draft |
 | WB-BUILD-52 | Where `.watchbill/signers` is there and git has no signing key set, `wb start` shall refuse with 1 before it writes anything, and name the setting. Issue: #236. | T | Draft |
 | WB-BUILD-53 | Where `.watchbill/signers` is there and the signing key is not in the list with `start`, `wb start` shall refuse with 1 before it writes anything, and name the key. Issue: #236. | T | Draft |
+| WB-BUILD-58 | `wb status`, where `.watchbill/watchbill.yml` differs from `HEAD`, shall say so on standard error in one line naming the file, and go on, ending as it would with the file of `HEAD`. Issue: #254. | T | Draft |
+| WB-BUILD-59 | `wb status` shall run every pattern and read every key from `.watchbill/watchbill.yml` as `HEAD` has it, never from the working tree, so that a pattern changed only in the working tree is not run. Issue: #254. | T | Draft |
+| WB-BUILD-60 | `wb view`, where `.watchbill/watchbill.yml` differs from `HEAD`, shall say so on standard error in one line naming the file, and go on. Issue: #254. | T | Draft |
+| WB-BUILD-61 | `wb view` shall read `build_files` and `needs`, and run `needs`, from `.watchbill/watchbill.yml` as `HEAD` has it, never from the working tree. Issue: #254. | T | Draft |
+| WB-BUILD-62 | `wb status` and `wb view` shall end with 2, as for a repository that is not set up, where `.watchbill/watchbill.yml` is not in `HEAD` at all. Issue: #254. | T | Draft |

@@ -1,6 +1,6 @@
 # Where each issue stands
 
-What `wb status` says of the issues in the flow. It only reads.
+What `wb status` says of the issues in the flow. It only reads: it writes nothing but a temporary index in `$TMPDIR`, removed after, where it reads a view kept with work not taken back (#222).
 
 | ID | Requirement | Ver | Status |
 |---|---|---|---|
@@ -61,3 +61,14 @@ What `wb status` says of the issues in the flow. It only reads.
 | WB-STATUS-55 | `wb status <issue>` shall run `issue_comments` once for the issue, as before, also where it prints `waits for`. Issue: #226. | T | Implemented |
 | WB-STATUS-56 | `wb status <issue>` shall not print `waits for: <role>` once the issue has a stamp of that role newer than the answer, and shall still print it for a stamp of another role; `person` has no stamp and is never cleared. Issue: #226. | T | Implemented |
 | WB-STATUS-57 | `wb status <issue>` shall count as a role in an `[answers]` first line only a word of the roles of the revision or `person`; for another word, as `q3>optional`, it closes the question and prints no `waits for` line. Issue: #226. | T | Implemented |
+| WB-STATUS-58 | `wb status <issue>` shall print, for each view of the issue kept with work not taken back, from any role, a line `kept: <role> round <n>, <k> commits not taken, <folder>` (`1 commit` for one, and `, <m> paths uncommitted` where paths were left), and none for a view with nothing in it. Issue: #222. | T | Implemented |
+| WB-STATUS-59 | `wb status` with no issue shall say once on standard error how many views with work not taken back are kept on this machine, and say nothing of them where there are none. Issue: #222. | T | Implemented |
+| WB-STATUS-60 | `wb status <issue>` shall print `cut off: <role> round <n>, <folder>` for a session of the issue whose `outcome` says `running` and whose process ID is gone, or is not `wb`, or is of another start time. Issue: #222. | T | Implemented |
+| WB-STATUS-61 | `wb status <issue>` shall not call a session cut off whose `outcome` says `running` while a `wb` of that process ID is alive. Issue: #222. | T | Implemented |
+| WB-STATUS-62 | `wb status` shall read a kept view only through a repository of `wb`'s own: it shall run no hook and no setting of the view, and write nothing in it or in the state folder. Issue: #222. | T | Implemented |
+| WB-STATUS-63 | `wb status <issue>` shall find the commits not taken and the paths left uncommitted of a view whose session left no `back`, from the objects of the view. Issue: #222. | T | Implemented |
+| WB-STATUS-64 | Every git run on a kept view shall end after 3 seconds, the child killed and waited for, and the view shall count as `not read`: `wb status <issue>` shall print `kept: <role> round <n>, not read: <why>, <folder>` and `wb start` shall refuse naming it, in less than 10 seconds, also where an object of the view is a FIFO. Issue: #222. | T | Implemented |
+| WB-STATUS-65 | `wb status` shall skip a session whose `outcome` says `running` while its `wb` is alive: no `kept:` line for its view, no `cut off:` line, and no count of it on standard error. Issue: #222. | T | Implemented |
+| WB-STATUS-66 | `wb status` and the refusal of `wb start` shall read the subject of a commit of a kept view with a cap: a commit over 64 KiB is named by its size, and a subject is cut at 200 characters. Issue: #222. | T | Implemented |
+| WB-STATUS-67 | No filter driver or textconv defined in a config of the person or of the system shall run on a file of a kept view: every git run on a view reads neither, nor the view's own config. Issue: #222. | T | Implemented |
+| WB-STATUS-68 | `wb status` shall write nothing but a temporary index in `$TMPDIR`, removed after, where it reads a kept view: the folder is not left behind. Issue: #222. | T | Implemented |

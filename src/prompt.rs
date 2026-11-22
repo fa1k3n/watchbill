@@ -833,6 +833,8 @@ pub struct Stamp<'a> {
     pub level: Option<&'a str>,
     /// How many local changes `--ignore-local` let the start go on with (#172), or none: no line is written.
     pub local: Option<usize>,
+    /// How many kept views with work not taken back `--ignore-kept` let the start go on with (#222), or none.
+    pub kept: Option<usize>,
     /// An issue's file is used and the option `--requirements` was given: it won over the file (#76).
     pub requirements_given: bool,
 }
@@ -877,6 +879,9 @@ pub fn stamp(said: &Stamp, values: &[(&str, &str)], prompt: &Prompt) -> String {
     }
     if let Some(count) = said.local {
         text.push_str(&format!("local: ignored {}\n", count));
+    }
+    if let Some(count) = said.kept {
+        text.push_str(&format!("kept: ignored {}\n", count));
     }
     if said.requirements_given {
         text.push_str("requirements: given\n");

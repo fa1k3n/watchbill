@@ -12,6 +12,7 @@ pub mod confidentiality;
 pub mod detect;
 pub mod init;
 pub mod interrupt;
+pub mod kept;
 pub mod manifest;
 pub mod prompt;
 pub mod revert;
@@ -35,7 +36,7 @@ pub const USAGE: &str = "usage:
   wb check
   wb upgrade [--dry-run]
   wb accept <issue> [--no-commit]
-  wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [the options of prompt]
+  wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [--ignore-kept] [the options of prompt]
   wb status [<issue>] [--stage <heading>]
   wb view <issue> (<role> [--in | --out] | <path>)
   wb answer (<issue> | --change <n>) [--show | [--suggested] [<question> <answer>]...]
@@ -107,7 +108,10 @@ pub const USAGE: &str = "usage:
             is --runner, or the organisation's default. The round and the
             change are worked out from issue_comments, change_comments and
             change_of_branch; --round and --change win. --prompt, --stamp and
-            --parts print as prompt does, and post and start nothing. Ends with
+            --parts print as prompt does, and post and start nothing. A view
+            of the issue kept with work not taken back, from any role, stops the
+            start with 1 before anything is posted; --ignore-kept goes on
+            without it, and the stamp says so. Ends with
             the session: 0 when it ended with 0, else 1; 1 when it is refused,
             2 when it was used wrongly or the repository is not set up
   revision  print the version of the package, the hash of its revision and the
@@ -134,10 +138,16 @@ pub const USAGE: &str = "usage:
             commits are not pushed. The comments come from issue_comments.
             <issue> prints that issue, in the flow or not, with its title
             (issue_address) and what it was worked out from; --stage <heading>
-            prints that heading only, whatever its case. Ends with 0 when
+            prints that heading only, whatever its case. For one issue it also
+            prints a line kept: <role> round <n>, <k> commits not taken,
+            <folder> for each view kept with work not taken back, and cut off:
+            <role> round <n>, <folder> for each session whose wb ended before
+            it did. With no issue it says on standard error how many such
+            views are kept on this machine. Ends with 0 when
             every issue could be read, 1 when a pattern failed for one (it is
             listed under Not read), 2 when it was used wrongly or the
-            repository is not set up. Writes nothing
+            repository is not set up. Writes nothing but a temporary index in
+            $TMPDIR, removed after, where it reads a kept view
   view      show what a session of a role will see, before it starts. wb view
             <issue> <role> prints the paths of its view, one to a line, the
             list the start makes the view from, and nothing else. --in
@@ -604,6 +614,8 @@ struct Words {
     runner: Option<String>,
     /// `--ignore-local` of `wb start <role>`: a local change under `reads` does not stop the start (#172).
     ignore_local: bool,
+    /// `--ignore-kept` of `wb start <role>`: a view kept with work not taken back does not stop the start (#222).
+    ignore_kept: bool,
 }
 
 impl Words {
@@ -630,7 +642,7 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
     let mut role: Option<String> = role.map(str::to_string);
     let mut issue_word: Option<String> = None;
     let mut values: Vec<(&'static str, String)> = Vec::new();
-    let (mut parts, mut stamp, mut print, mut ignore_local) = (false, false, false, false);
+    let (mut parts, mut stamp, mut print, mut ignore_local, mut ignore_kept) = (false, false, false, false, false);
     let mut runner: Option<String> = None;
     loop {
         let found = match next(parser) {
@@ -639,11 +651,12 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
             Err(refused) => return Err(used(err, name, &format!("'{}' is not known", refused))),
         };
         match found {
-            Word::Long(option) if option == "parts" || option == "stamp" || (starter && (option == "prompt" || option == "ignore-local")) => {
+            Word::Long(option) if option == "parts" || option == "stamp" || (starter && (option == "prompt" || option == "ignore-local" || option == "ignore-kept")) => {
                 let flag = match option.as_str() {
                     "parts" => &mut parts,
                     "stamp" => &mut stamp,
                     "ignore-local" => &mut ignore_local,
+                    "ignore-kept" => &mut ignore_kept,
                     _ => &mut print,
                 };
                 if *flag {
@@ -735,7 +748,7 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
             return Err(used(err, name, &why));
         }
     }
-    Ok(Words { role, values, parts, stamp, print, runner, ignore_local })
+    Ok(Words { role, values, parts, stamp, print, runner, ignore_local, ignore_kept })
 }
 
 /// A prompt handed out: the values it was filled with, what was put together, and what was read for it.
@@ -928,7 +941,7 @@ fn now() -> Result<u64, String> {
 
 /// The stamp of what is handed out (`docs/revision.md`, point 12), as `wb prompt --stamp` prints it, with the
 /// time `seconds`, as `now` gives it.
-fn stamp_of(role: &str, handed: &Handed, runner: &str, local: Option<usize>, seconds: Result<u64, String>) -> Result<String, String> {
+fn stamp_of(role: &str, handed: &Handed, runner: &str, local: Option<usize>, kept: Option<usize>, seconds: Result<u64, String>) -> Result<String, String> {
     let model = model_of(role, handed.cleared.as_ref())?;
     let revision = manifest::revision_hash(manifest::PACKAGE_FOLDER).map_err(|why| why.to_string())?;
     let time = prompt::utc(seconds?);
@@ -937,6 +950,7 @@ fn stamp_of(role: &str, handed: &Handed, runner: &str, local: Option<usize>, sec
         view: &view,
         level: handed.level.as_deref(),
         local,
+        kept,
         role,
         model: &model.model,
         effort: &model.effort,
@@ -982,7 +996,7 @@ fn view_hash(role: &str, file: Option<&issue::Used>) -> String {
 /// Prints what was handed out, as `wb prompt` prints it: the stamp, the parts, or the text.
 fn print(name: &str, words: &Words, handed: &Handed, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     if words.stamp {
-        match stamp_of(&words.role, handed, words.runner.as_deref().unwrap_or_default(), None, now()) {
+        match stamp_of(&words.role, handed, words.runner.as_deref().unwrap_or_default(), None, None, now()) {
             Ok(text) => {
                 let _ = out.write_all(text.as_bytes());
             }
@@ -1143,10 +1157,21 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         Some(Ok(found)) if words.ignore_local && !found.is_empty() && found.iter().all(|local| !local.changes) => Some(found.len()),
         _ => None,
     };
+    // The views of this issue kept with work not taken back (#222), from any role: they stop the start, below, unless
+    // `--ignore-kept` passes them, and then the stamp says how many.
+    let kept_views = match (words.get("issue"), state) {
+        (Some(issue), Some(state)) if !words.ignore_kept => kept::scan(root, state, issue),
+        _ => Vec::new(),
+    };
+    // `--ignore-kept` runs no git on any view: it counts them, for the stamp.
+    let kept_ignored = match (words.get("issue"), state) {
+        (Some(issue), Some(state)) if words.ignore_kept => Some(kept::count(root, state, issue)).filter(|count| *count > 0),
+        _ => None,
+    };
     // The stamp, as it will be posted; made now, so that a start refused before it is posted leaves it.
     let round = value_of(&handed.values, "round").map(str::to_string);
     let stamp = match &round {
-        Some(round) => stamp_of(role, &handed, &runner, ignored, seconds).map(|stamp| format!("[stamp] {} round {}\n{}", role, round, stamp)),
+        Some(round) => stamp_of(role, &handed, &runner, ignored, kept_ignored, seconds).map(|stamp| format!("[stamp] {} round {}\n{}", role, round, stamp)),
         None => Err("no round was given or worked out. Give --round".to_string()),
     };
     let refused = |lines: &mut sessions::Lines, err: &mut dyn Write, check: &'static str, why: &str| {
@@ -1154,6 +1179,12 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         lines.close(stamp.as_deref().ok(), sessions::Outcome::Refused { check, status: 1, message: why.to_string() }, err);
         1
     };
+    // 1b. A view kept with work not taken back (#222): what a session left there is not on the branch, and the next
+    // session would not see it. Before anything is posted. Only `--ignore-kept` passes it.
+    if !kept_views.is_empty() && kept_ignored.is_none() {
+        let issue = words.get("issue").unwrap_or_default();
+        return refused(&mut lines, err, "kept", &kept::refusal(issue, &kept_views));
+    }
     // 2. The rule table: a fix follows a review. The number of rounds is no rule for a person (#84).
     if role == "fix" {
         let stamps = match &handed.stamps {
@@ -1305,6 +1336,13 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     if let Some(paths) = &paths {
         lines.write("view", &view::list(paths), err);
     }
+    // Where the view is, and what it was made from (#222): a `wb` ended before its session leaves no `back`, and the
+    // view is found by this file.
+    if let Some(prepared) = &prepared {
+        if let Some(text) = kept::folder_text(&prepared.view, words.get("issue")) {
+            lines.write("folder", &text, err);
+        }
+    }
     if let (Some(Ok(found)), Some(_)) = (&local, ignored) {
         let named: String = found.iter().map(|local| format!("{}\n", issue::shown(&local.path))).collect();
         lines.write("local", &named, err);
@@ -1327,6 +1365,8 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     let began = std::time::Instant::now();
     // The signals stay held until the commits are taken back and `back` and `outcome` are written (#221).
     let _held = interrupt::hold();
+    // `outcome` says `running` first (#222): a `wb` that is ended before its session leaves it so.
+    lines.running(err);
     let ran = match &prepared {
         None => {
             // A role started with no issue's file (#116) runs as in revision 0.0.8, and the person is told (#126).
@@ -1602,7 +1642,7 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
             let _ = writeln!(err, "wb status: this folder is not in a git repository. Watchbill is set up in one.");
             2
         }
-        Ok(Some(root)) => status::status(&root, issue.as_deref(), stage, out, err),
+        Ok(Some(root)) => status::status(&root, issue.as_deref(), stage, sessions::state_folder().as_deref(), out, err),
     }
 }
 

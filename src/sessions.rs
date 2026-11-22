@@ -1,6 +1,7 @@
 //! The lines a start leaves (#124): for each start of `wb start <role>`, a folder
 //! `<state>/watchbill/sessions/<time>-<role>-<issue>/` with the stamp and the outcome, on the machine where
-//! it ran. They are diagnostics, not a record: `wb` never reads them back. A folder that cannot be written
+//! it ran. They are diagnostics, not a record: only `wb start` and `wb status` read them back, to name a view
+//! kept with work not taken back and a session that was cut off (`kept`, #222). A folder that cannot be written
 //! is said, and changes neither the status nor whether the session starts.
 
 use std::fs::{self, OpenOptions};
@@ -151,14 +152,38 @@ impl Lines {
         }
     }
 
-    /// Writes `outcome`, in the folder made, or in a new one with `stamp` when none was made yet.
-    pub fn close(&mut self, stamp: Option<&str>, outcome: Outcome, err: &mut dyn Write) {
-        self.open(stamp, err);
+    /// Writes `outcome` as `running`, with the process ID of this `wb` and its start time, in the folder made,
+    /// before the session starts (#222): `close` replaces it. A `wb` that is ended before its session leaves it.
+    pub fn running(&mut self, err: &mut dyn Write) {
+        self.open(None, err);
         let Some(folder) = &self.made else { return };
-        if let Err(error) = new_file(&folder.join("outcome"), &outcome.text()) {
+        let started = crate::kept::start_time(std::process::id()).map(|ticks| format!("started: {}\n", ticks)).unwrap_or_default();
+        let text = format!("outcome: running\npid: {}\n{}", std::process::id(), started);
+        if let Err(error) = new_file(&folder.join("outcome"), &text) {
             let _ = writeln!(err, "{}: the lines of this start could not be written in {}: {}", self.name, folder.display(), error);
         }
     }
+
+    /// Writes `outcome`, in the folder made, or in a new one with `stamp` when none was made yet. It replaces the
+    /// `running` of `running`, by a file of its own that is moved onto it.
+    pub fn close(&mut self, stamp: Option<&str>, outcome: Outcome, err: &mut dyn Write) {
+        self.open(stamp, err);
+        let Some(folder) = &self.made else { return };
+        if let Err(error) = replace_file(&folder.join("outcome"), &outcome.text()) {
+            let _ = writeln!(err, "{}: the lines of this start could not be written in {}: {}", self.name, folder.display(), error);
+        }
+    }
+}
+
+/// Replaces a file wb wrote itself: the text goes to `<path>.new`, which is not there, and is moved onto the file.
+fn replace_file(path: &Path, text: &str) -> std::io::Result<()> {
+    let mut temporary = path.as_os_str().to_owned();
+    temporary.push(".new");
+    let temporary = PathBuf::from(temporary);
+    new_file(&temporary, text)?;
+    fs::rename(&temporary, path).inspect_err(|_| {
+        let _ = fs::remove_file(&temporary);
+    })
 }
 
 /// Writes a file that is not there.

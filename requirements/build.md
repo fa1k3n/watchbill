@@ -69,3 +69,15 @@ What `wb start <role> <issue>` checks, posts and starts. One path for a person a
 | WB-BUILD-63 | `wb status` and `wb view`, where `.watchbill/watchbill.yml` is not in the working tree but is in `HEAD`, shall count it as differing: say so as for a difference, and go on with the file of `HEAD`. Issue: #254. | T | Implemented |
 | WB-BUILD-64 | The mode in which `wb status` and `wb view` read `watchbill.yml` from `HEAD` shall end with the command, so that the refusal of WB-BUILD-39 holds again for whatever runs after it on the same thread. Issue: #254. | T | Implemented |
 | WB-BUILD-65 | `wb status` and `wb view` shall count `.watchbill/watchbill.yml` in the working tree as differing, and not read it, where it is not a plain file (a FIFO, a device, a folder, a symlink) or is larger than 1 MiB, and end as with the file of `HEAD`. Issue: #254. | T | Implemented |
+| WB-BUILD-66 | `wb start <role> <issue>` shall end with 1 and post nothing, before any view is made, where a view of the same issue is kept, started by any role, and holds a commit not taken back; it shall name the view's folder, the role and round of its stamp, and each commit not taken as `<commit> <subject>`. Issue: #222. | T | Implemented |
+| WB-BUILD-67 | `wb start <role> <issue>` shall end with 1 as for WB-BUILD-66 where the kept view holds paths left uncommitted and no commit, and shall name each path, escaped. Issue: #222. | T | Implemented |
+| WB-BUILD-68 | The refusal of a kept view shall say that taking it back is #223, say that the folder can be removed, and name `--ignore-kept`. Issue: #222. | T | Implemented |
+| WB-BUILD-69 | `--ignore-kept` shall let `wb start <role> <issue>` go on where views are kept with work not taken back. Issue: #222. | T | Implemented |
+| WB-BUILD-70 | A start that `--ignore-kept` let go on shall have the line `kept: ignored <n>` in its stamp, after `local:`, with `<n>` the number of views kept with work not taken back. Issue: #222. | T | Implemented |
+| WB-BUILD-71 | A view kept with no commit not taken and nothing left uncommitted shall not be named and shall not stop a start. Issue: #222. | T | Implemented |
+| WB-BUILD-72 | A view kept for another issue shall not stop a start. Issue: #222. | T | Implemented |
+| WB-BUILD-73 | A view kept by each of the roles `tester`, `build`, `review` and `fix` shall stop a start of any role of the same issue. Issue: #222. | T | Implemented |
+| WB-BUILD-74 | A start refused for a kept view shall write `outcome: refused` with `check: kept` in its folder, and shall start no session. Issue: #222. | T | Implemented |
+| WB-BUILD-75 | `--ignore-kept` shall pass the check of kept views alone: a local change under `changes` shall still be refused with it. Issue: #222. | T | Implemented |
+| WB-BUILD-76 | `--ignore-kept` shall count the views named by `back` and `folder` for the stamp's `kept: ignored <n>` without running git on any view, so that no view makes it wait. Issue: #222. | T | Implemented |
+| WB-BUILD-77 | `wb start` shall not take as kept a view of a session whose `outcome` says `running` while its `wb` is alive, and shall not read that view. Issue: #222. | T | Implemented |

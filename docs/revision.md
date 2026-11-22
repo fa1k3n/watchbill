@@ -255,7 +255,7 @@ The pieces that build this have their requirements reserved as Draft rows in `re
 | `WB-REV` | `requirements/rev.md` | #6 |
 | `WB-PIN` | `requirements/pin.md` | #7 |
 | `WB-CHECK` | `requirements/check.md` | #8, #240 |
-| `WB-PROMPT` | `requirements/prompt.md` | #9, #10, #68, #76, #78, #116, #236 |
+| `WB-PROMPT` | `requirements/prompt.md` | #9, #10, #68, #76, #78, #116, #211, #236 |
 | `WB-CONF` | `requirements/conf.md` | #11 |
 | `WB-TASK` | `requirements/task.md` | #74, #78, #116, #157, #235: the area keeps its name, and its rows say issue |
 | `WB-ACCT` | `requirements/acct.md` | #83 |

@@ -285,6 +285,7 @@ fn test_WB_VIEW_43_in_a_folder_prints_the_files_of_the_view_in_it_and_a_count_fo
     // A folder of the view that holds a folder: the count is of every file of the view under it.
     let file = ISSUE_54.replace("changes: [src/brake.c, tests/test_brake.c, src/new.c]", "changes: [src/brake.c, docs]");
     put(&bench.repo.path, ".watchbill/issues/54.yml", &file);
+    fs::remove_file(bench.repo.path.join(".watchbill/issues/54.accepted")).unwrap();
     let run = wb(&bench.repo.path, &["accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     git(&bench.repo.path, &["add", "--", ".watchbill/issues"]);

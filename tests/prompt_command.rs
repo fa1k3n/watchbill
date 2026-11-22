@@ -593,7 +593,11 @@ fn test_WB_PROMPT_19_a_stamp_is_the_thirteen_lines_in_order_and_the_parts_for_ea
         assert_eq!(code(&run), Some(0), "{}: {}", role, text(&run.stderr));
         assert_eq!(text(&run.stderr), "", "{}", role);
         let out = text(&run.stdout);
-        let found = fields(&out);
+        let mut found = fields(&out);
+        // The line `level:` follows `view:` for a role that runs in a view (#209); the lines after it are as before.
+        let has_level = ["tester", "build", "review", "fix"].contains(&role);
+        assert_eq!(found.iter().any(|(name, _)| name == "level"), has_level, "{}: {}", role, out);
+        found.retain(|(name, _)| name != "level");
         let names: Vec<&str> = found.iter().take(13).map(|(name, _)| name.as_str()).collect();
         assert_eq!(names, STAMP_NAMES, "{}", role);
         assert!(found.len() > 13, "{}: {}", role, out);
@@ -702,7 +706,7 @@ fn test_WB_PROMPT_21_the_part_lines_are_the_lines_of_parts_in_order() {
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let out = text(&run.stdout);
-    let lines: Vec<String> = out.lines().skip(14).map(|line| line.strip_prefix("part: ").unwrap().to_string()).collect();
+    let lines: Vec<String> = out.lines().filter(|line| line.starts_with("part: ")).map(|line| line.strip_prefix("part: ").unwrap().to_string()).collect();
     let expected: Vec<String> = parts.lines().map(|line| line.to_string()).collect();
     assert_eq!(lines.len(), 4);
     assert_eq!(lines, expected);

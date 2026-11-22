@@ -1200,39 +1200,55 @@ fn head_entries(root: &str, paths: &[String], recursive: bool) -> Result<Vec<(St
         .collect())
 }
 
-/// What the view of `paths` leaves out of `HEAD` of the checkout, by folder, each with the count of its entries
-/// left out: a folder that holds no file of the view is counted whole, at its top; in a folder that holds some,
-/// the entries left out directly in it are counted under it. The root is `.`. Sorted by folder.
-pub fn left_out(root: &str, paths: &[String]) -> Result<Vec<(String, usize)>, String> {
+/// What `wb view <issue> <role> --in [<folder>]` and `--out [<folder>]` find for a folder of `HEAD` (#209).
+pub enum Folder {
+    /// The folder is not in `HEAD`.
+    Missing,
+    /// The path is a file of `HEAD`.
+    File,
+    /// The lines to print.
+    Listed(String),
+}
+
+/// What of the files of `HEAD` the view of `paths` holds (`inside`) or leaves out, in `folder` (the root when
+/// it has no parts), one level deep: each file directly in it, as its path from the root, then each folder
+/// below it with the count of those files under it, as `<count><tab><folder>/`. Files first, each kind in
+/// the order of the bytes. A file of the view that is not in `HEAD` is not counted. Reads only.
+pub fn by_folder(root: &str, paths: &[String], folder: &str, inside: bool) -> Result<Folder, String> {
     let all = head_entries(root, &[], true)?;
+    let at = parts(folder);
     let wanted: Vec<Vec<&str>> = paths.iter().map(|path| parts(path)).filter(|found| !found.is_empty()).collect();
-    let in_view = |path: &str, kind: &str| {
+    let in_view = |found: &[&str]| wanted.iter().any(|entry| found.len() >= entry.len() && found[..entry.len()] == entry[..]);
+    let mut seen = at.is_empty();
+    let mut files: Vec<String> = Vec::new();
+    let mut folders: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for (path, _, kind) in &all {
         let found = parts(path);
-        kind == "blob" && wanted.iter().any(|entry| found.len() >= entry.len() && found[..entry.len()] == entry[..])
-    };
-    // Every folder that holds a file of the view, the root among them.
-    let mut kept: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for (path, _, kind) in &all {
-        if in_view(path, kind) {
-            let found = parts(path);
-            for end in 0..found.len() {
-                kept.insert(found[..end].join("/"));
-            }
-        }
-    }
-    let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
-    for (path, _, kind) in &all {
-        if in_view(path, kind) {
+        if found.len() > at.len() && found[..at.len()] == at[..] {
+            seen = true;
+        } else if found == at && !at.is_empty() {
+            return Ok(Folder::File);
+        } else {
             continue;
         }
-        let found = parts(path);
-        let top = (1..found.len()).map(|end| found[..end].join("/")).find(|folder| !kept.contains(folder));
-        let folder = top.unwrap_or_else(|| found[..found.len().saturating_sub(1)].join("/"));
-        *counts.entry(if folder.is_empty() { ".".to_string() } else { folder }).or_default() += 1;
+        if kind != "blob" || in_view(&found) != inside {
+            continue;
+        }
+        if found.len() == at.len() + 1 {
+            files.push(path.clone());
+        } else {
+            *folders.entry(found[..at.len() + 1].join("/")).or_default() += 1;
+        }
     }
-    let mut found: Vec<(String, usize)> = counts.into_iter().collect();
-    found.sort_by_key(|(folder, _)| format!("{}/", folder));
-    Ok(found)
+    if !seen {
+        return Ok(Folder::Missing);
+    }
+    files.sort();
+    let mut text: String = files.iter().map(|file| format!("{}\n", crate::issue::shown(file))).collect();
+    for (below, count) in folders {
+        text.push_str(&format!("{}\t{}/\n", count, crate::issue::shown(&below)));
+    }
+    Ok(Folder::Listed(text))
 }
 
 /// What the checkout says of one path, for `wb view <issue> <path>`: the path as its parts from the root, what

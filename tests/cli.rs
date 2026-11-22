@@ -17,7 +17,7 @@ const USAGE: &str = "usage:
   wb accept <issue> [--no-commit]
   wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [the options of prompt]
   wb status [<issue>] [--stage <heading>]
-  wb view <issue> (<role> [--in | --out] | <path>)
+  wb view <issue> (<role> [--in [<folder>] | --out [<folder>]] | <path>)
   wb answer (<issue> | --change <n>) [--show | --suggested | <question> <answer>]
   wb revert (<issue> | --change <n>) <role> [--round <n>]
   wb prompt <role> [<issue>] [--issue <text>] [--change <text>]
@@ -119,16 +119,20 @@ const USAGE: &str = "usage:
             repository is not set up. Writes nothing
   view      show what a session of a role will see, before it starts. wb view
             <issue> <role> prints the paths of its view, one to a line, the
-            list the start makes the view from, then the level of the
-            repository and the line view: its stamp would hold, and the local
-            changes that would stop the start. --out prints in their place
-            what the view leaves out of HEAD, by folder, with a count for each.
+            list the start makes the view from, and nothing else. --in
+            [<folder>] prints what of HEAD the view holds in the folder (the
+            root when none is given), one level deep: each file in it, and
+            <count><tab><folder>/ for each folder below it. --out prints the
+            same for what the view leaves out. A folder is a path from the
+            root, with or without a closing /. The level and the line view:
+            are in wb prompt <role> <issue> --stamp.
             wb view <issue> <path> says for each role whether the path, from
             the root, is in its view: in, with the list and the line of the
             issue's file that hold it, or out, and why. A path named as a role
             is written ./<path>. Ends with 0 when the path is in the view of a
-            role or the view is shown, 1 when it is in none or the issue has
-            no accepted, committed file, 2 when it was used wrongly or the
+            role or the view is shown, 1 when it is in none, the folder is not
+            in HEAD or the issue has no accepted, committed file, 2 when it
+            was used wrongly (a file given as the folder too) or the
             repository is not set up. Writes nothing
   revert    take an issue back to before a step, deleting nothing:
             wb revert <issue> <role> [--round <n>] posts, by issue_comment of

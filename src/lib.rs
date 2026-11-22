@@ -43,7 +43,8 @@ pub const USAGE: &str = "usage:
   wb prompt <role> [<issue>] [--issue <text>] [--change <text>]
             [--requirements <text>] [--round <text>] [--checkout <text>]
             [--branch <text>] [--issue_address <text>]
-            [--change_address <text>] [--runner <name>] [--parts] [--stamp]
+            [--change_address <text>] [--classed <text>]
+            [--classed_touched <text>] [--runner <name>] [--parts] [--stamp]
   wb revision
   wb --version
 
@@ -139,16 +140,20 @@ pub const USAGE: &str = "usage:
             repository is not set up. Writes nothing
   view      show what a session of a role will see, before it starts. wb view
             <issue> <role> prints the paths of its view, one to a line, the
-            list the start makes the view from, then the level of the
-            repository and the line view: its stamp would hold, and the local
-            changes that would stop the start. --out prints in their place
-            what the view leaves out of HEAD, by folder, with a count for each.
+            list the start makes the view from, and nothing else. --in
+            [<folder>] prints what of HEAD the view holds in the folder (the
+            root when none is given), one level deep: each file in it, and
+            <count><tab><folder>/ for each folder below it. --out prints the
+            same for what the view leaves out. A folder is a path from the
+            root, with or without a closing /. The level and the line view:
+            are in wb prompt <role> <issue> --stamp.
             wb view <issue> <path> says for each role whether the path, from
             the root, is in its view: in, with the list and the line of the
             issue's file that hold it, or out, and why. A path named as a role
             is written ./<path>. Ends with 0 when the path is in the view of a
-            role or the view is shown, 1 when it is in none or the issue has
-            no accepted, committed file, 2 when it was used wrongly or the
+            role or the view is shown, 1 when it is in none, the folder is not
+            in HEAD or the issue has no accepted, committed file, 2 when it
+            was used wrongly (a file given as the folder too) or the
             repository is not set up. Writes nothing
   revert    take an issue back to before a step, deleting nothing:
             wb revert <issue> <role> [--round <n>] posts, by issue_comment of
@@ -742,6 +747,8 @@ struct Handed {
     file: Option<issue::Used>,
     requirements_given: bool,
     stamps: Option<starter::Stamps>,
+    /// The level of the repository, for a session that runs in a view (#209): the stamp holds it.
+    level: Option<String>,
 }
 
 /// Everything `wb prompt` checks and does before it prints, for the words given: the check of `wb check`,
@@ -815,7 +822,12 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
     // The round and the change are worked out where the prompt holds them, and the round always for a
     // session that `wb start <role>` starts: its stamp's first line holds it (#84).
     let holds = prompt::used_by(Path::new(&root), role);
-    let need = prompt::Need { round: starting || holds.contains(&"round"), change: holds.contains(&"change"), strict: starting };
+    let need = prompt::Need {
+        round: starting || holds.contains(&"round"),
+        change: holds.contains(&"change"),
+        classed: holds.contains(&"classed") || holds.contains(&"classed_touched"),
+        strict: starting,
+    };
     let before = values.len();
     let (values, worked) = match prompt::derive_with(&root, role, &values, need) {
         Ok(found) => found,
@@ -881,7 +893,18 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
         Ok(found) => found,
         Err(why) => return Err(refused(err, &why)),
     };
-    Ok(Handed { root, values, found, cleared, file, requirements_given, stamps: worked.stamps })
+    // The level goes in the stamp of a session that runs in a view (#209), from the same place `--parts` has it.
+    let level = match view_paths_of(role, file.as_ref()) {
+        Some(_) => {
+            let (level, why) = stamp_level(&root, organisation);
+            if let Some(why) = why {
+                let _ = writeln!(err, "{}: the level of the stamp is {}: {}", name, level, why);
+            }
+            Some(level)
+        }
+        None => None,
+    };
+    Ok(Handed { root, values, found, cleared, file, requirements_given, stamps: worked.stamps, level })
 }
 
 /// The model and effort a role is handed out with: for the breakdown those its runner is cleared with, for
@@ -912,6 +935,7 @@ fn stamp_of(role: &str, handed: &Handed, runner: &str, local: Option<usize>, sec
     let view = view_hash(role, handed.file.as_ref());
     let said = prompt::Stamp {
         view: &view,
+        level: handed.level.as_deref(),
         local,
         role,
         model: &model.model,
@@ -1590,7 +1614,7 @@ pub fn view_command(args: &[OsString], folder: &Path, organisation: &Path, out: 
 /// `wb view <issue> <role> [--in | --out]` and `wb view <issue> <path>` (#173): what a session of a role will see,
 /// and for one path whether it is in the view of each role, and why. It only reads: it makes no view, runs no
 /// pattern, writes nothing and asks nothing of the network.
-fn run_view(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let name = "wb view";
     let mut words: Vec<String> = Vec::new();
     let (mut inside, mut outside) = (false, false);
@@ -1608,7 +1632,8 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, out
                 }
                 *flag = true;
             }
-            Word::Value(value) if words.len() < 2 => words.push(word(value.as_bytes())),
+            // The third word is the folder of `--in` or `--out`, and is checked below.
+            Word::Value(value) if words.len() < 3 => words.push(word(value.as_bytes())),
             found => {
                 let refused = named(found, parser);
                 return used(err, name, &format!("'{}' is not known", refused));
@@ -1618,8 +1643,11 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, out
     if inside && outside {
         return used(err, name, "'--in' and '--out' are not used together");
     }
-    let [issue, second] = words.as_slice() else {
-        return used(err, name, "an issue and a role or a path are needed");
+    let (issue, second, folder_given) = match words.as_slice() {
+        [issue, second] => (issue, second, None),
+        [issue, second, folder] if inside || outside => (issue, second, Some(folder.as_str())),
+        [_, _, third] => return used(err, name, &format!("'{}' is not known: a folder goes with '--in' or '--out'", third.escape_debug())),
+        _ => return used(err, name, "an issue and a role or a path are needed"),
     };
     if !issue::is_name(issue) {
         return used(err, name, &format!("'{}' is not an issue: an issue is letters, digits, '.', '_' and '-', and does not start with '.'", issue.escape_debug()));
@@ -1638,6 +1666,20 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, out
             );
         }
     }
+    let at = match folder_given {
+        None => String::new(),
+        Some(given) => {
+            let found = starter::parts(given);
+            if given.starts_with('/') || found.contains(&"..") {
+                return used(
+                    err,
+                    name,
+                    &format!("'{}' is not a folder from the root of the repository: it does not start with '/' and holds no '..'", given.escape_debug()),
+                );
+            }
+            found.join("/")
+        }
+    };
     let found_root = match folder {
         None => init::repository_root(None),
         Some(folder) => init::repository_root_of(folder),
@@ -1717,34 +1759,24 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, out
         return if any { 0 } else { 1 };
     };
     let paths = view::paths(&file.issue, role);
-    if outside {
-        return match view::left_out(&root, &paths) {
-            Ok(found) => {
-                let text: String = found.iter().map(|(folder, count)| format!("{}\t{}/\n", count, issue::shown(folder))).collect();
-                let _ = out.write_all(text.as_bytes());
-                0
-            }
-            Err(why) => refused(err, &why),
-        };
+    if !inside && !outside {
+        // Only the paths: why a file is in or out is `wb view <issue> <path>`, the level and `view:` are in the stamp.
+        let _ = out.write_all(view::list(&paths).as_bytes());
+        return 0;
     }
-    let level = match level_of(&root, &settings, organisation) {
-        Ok(level) => level,
-        Err(why) => {
-            let _ = writeln!(err, "{}: the level is not known: {}", name, why);
-            "not known".to_string()
+    match view::by_folder(&root, &paths, &at, inside) {
+        Ok(view::Folder::Listed(text)) => {
+            let _ = out.write_all(text.as_bytes());
+            0
         }
-    };
-    let local = match view::local_changes(&root, &file.issue, role) {
-        Ok(found) => found,
-        Err(why) => return refused(err, &format!("the local changes to the view could not be looked at: {}", why)),
-    };
-    let mut text = view::list(&paths);
-    text.push_str(&format!("level: {}\nview: {}\n", level, view_hash(role, Some(&file))));
-    if !local.is_empty() {
-        text.push_str(&format!("\n{}\n", view::local_message(&local, false)));
+        Ok(view::Folder::Missing) => refused(err, &format!("'{}' is not in HEAD, so it is not a folder to look into.", issue::shown(&at))),
+        Ok(view::Folder::File) => used(
+            err,
+            name,
+            &format!("'{}' is a file, not a folder. Use `wb view {} {}` to see whether it is in a view.", issue::shown(&at), issue, issue::shown(&at)),
+        ),
+        Err(why) => refused(err, &why),
     }
-    let _ = out.write_all(text.as_bytes());
-    0
 }
 
 /// The level of the repository, as `--parts` of the breakdown gives it: by the organisation's file where it is
@@ -1766,6 +1798,35 @@ fn level_of(root: &str, settings: &yamlfile::Document, organisation: &Path) -> R
 }
 
 /// `wb answer <issue> [--show | [--suggested] [<question> <answer>]...]` and `wb answer --change <n> […]` (#145).
+/// The level the stamp holds for a session in a view (#209), and why where it is not the level the repository
+/// gives. Where the organisation's file can be read, the rule decides: a `watchbill.yml` that gives no level
+/// that holds (a level not on the list, or `levels` or `runners`) is the organisation's most restrictive level,
+/// and the reason is returned to be said. Where the organisation's file is not there, the line `confidentiality:`
+/// of `watchbill.yml` is the level; with none there is no list to take the most restrictive of, so the level is
+/// `not known`, which says nothing on standard error. A file of the organisation that cannot be read is `not known`
+/// too, with its reason.
+fn stamp_level(root: &str, organisation: &Path) -> (String, Option<String>) {
+    let not_known = "not known".to_string();
+    let settings = match starter::settings(root) {
+        Ok(settings) => settings,
+        Err(why) => return (not_known, Some(why)),
+    };
+    if !organisation.exists() {
+        return match level_of(root, &settings, organisation) {
+            Ok(level) => (level, None),
+            Err(_) => (not_known, None),
+        };
+    }
+    match confidentiality::read(organisation) {
+        Err(why) => (not_known, Some(why)),
+        Ok(found) => match confidentiality::repository_level(Path::new(root), &found) {
+            Ok(level) => (level, None),
+            Err(why) => (found.strictest().to_string(), Some(why)),
+        },
+    }
+}
+
+/// `wb answer <issue> [--show | --suggested | <question> <answer>]` and `wb answer --change <n> […]` (#145).
 fn run_answer(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let used = |err: &mut dyn Write, why: String| {
         let _ = write!(err, "wb answer: {}\n\n{}", why, USAGE);

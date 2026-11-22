@@ -1305,3 +1305,37 @@ fn test_WB_ROLE_92_the_breakdown_says_a_new_folder_in_changes_ends_with_a_slash_
     });
     assert!(found, "no point says that a new folder in `changes` ends with `/` and a file never does: {}", body);
 }
+
+// ---- the review and classed code (#227) ----
+
+#[test]
+fn test_WB_ROLE_94_the_review_is_told_the_classed_paths_and_those_the_change_touches_by_the_program() {
+    let text = prompt("review");
+    assert!(text.contains("{classed}"), "the review does not use {{classed}}");
+    assert!(text.contains("{classed_touched}"), "the review does not use {{classed_touched}}");
+    assert!(text.contains("Say first whether the change touches classed code"), "{}", text);
+}
+
+#[test]
+fn test_WB_ROLE_95_the_review_names_the_issues_file_and_its_acceptance_as_the_process_own_files_and_no_finding() {
+    let text = prompt("review");
+    assert!(text.contains(".watchbill/issues/{issue}.yml"), "{}", text);
+    assert!(text.contains(".watchbill/issues/{issue}.accepted"), "{}", text);
+    assert!(text.contains("They are not part of what the issue asks and are not a finding."), "{}", text);
+    assert!(text.contains("A change to the issue's file after the acceptance is a finding."), "{}", text);
+}
+
+#[test]
+fn test_WB_ROLE_96_the_review_does_not_ask_the_session_to_find_which_code_is_classed() {
+    let text = prompt("review");
+    assert!(!text.contains("where the project says which code is classed"), "{}", text);
+    assert!(!text.contains("If you cannot tell, say that you cannot."), "{}", text);
+    assert!(text.contains("Never say that the classed code cannot be told where the program gave the paths."), "{}", text);
+}
+
+#[test]
+fn test_WB_ROLE_97_no_other_role_speaks_of_classed_code() {
+    for role in ["breakdown", "tester", "build", "fix"] {
+        assert!(!prompt(role).to_lowercase().contains("classed"), "{} speaks of classed code", role);
+    }
+}

@@ -1451,3 +1451,116 @@ fn test_WB_PROMPT_49_the_build_the_review_and_the_fix_take_the_one_branch_as_bef
         assert!(text(&run.stdout).contains("on the branch issue-42-x."), "{}: {}", role, text(&run.stdout));
     }
 }
+
+// ---- `{classed}` and `{classed_touched}` (#227) ----
+
+/// The words of a review with every placeholder given but the two of classed code.
+fn review_words() -> Vec<&'static str> {
+    ["prompt", "review"].into_iter().chain(ALL).collect()
+}
+
+/// What the review is printed as, for these values of the two placeholders.
+fn review_filled(classed: &str, touched: &str) -> String {
+    let all: Vec<(&str, &str)> = ALL_VALUES.iter().copied().chain([("classed", classed), ("classed_touched", touched)]).collect();
+    filled("review", &all)
+}
+
+/// The review printed holds both values, and is the text of the role with them filled in.
+#[track_caller]
+fn assert_review(run: &std::process::Output, classed: &str, touched: &str) {
+    let printed = text(&run.stdout);
+    assert!(printed.contains(&format!("\n{}\n", classed)), "{{classed}} is not in it: {}", printed);
+    assert!(printed.contains(&format!("\n{}\n", touched)), "{{classed_touched}} is not in it: {}", printed);
+    assert_eq!(printed, review_filled(classed, touched));
+}
+
+/// A repository set up as `set_up` does, with `classed:` as given (no line for `None`), the default branch
+/// `main` and the branch `issue-1` with one commit that writes each of `changed`, left checked out.
+fn classed_repository(classed: Option<&str>, changed: &[&str]) -> Folder {
+    let folder = set_up();
+    let yml: String = read(&config(&folder.path))
+        .lines()
+        .filter(|line| !line.starts_with("classed:"))
+        .chain(classed)
+        .map(|line| format!("{}\n", line))
+        .collect();
+    put(&folder.path, ".watchbill/watchbill.yml", &yml);
+    commit_config(&folder.path);
+    git(&folder.path, &["branch", "-M", "main"]);
+    git(&folder.path, &["checkout", "-q", "-b", "issue-1"]);
+    for path in changed {
+        put(&folder.path, path, "changed\n");
+        git(&folder.path, &["add", "--", path]);
+    }
+    git(&folder.path, &["commit", "-q", "-m", "The change"]);
+    folder
+}
+
+#[test]
+fn test_WB_PROMPT_65_classed_is_the_paths_of_watchbill_yml_one_to_a_line_and_none_for_an_empty_list() {
+    let folder = classed_repository(Some("classed: [src/safety, firmware/boot.c]"), &["src/other.rs"]);
+    let run = wb(&folder.path, &review_words(), "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_review(&run, "src/safety\nfirmware/boot.c", "none");
+
+    let folder = classed_repository(Some("classed: []"), &["src/safety/limits.rs"]);
+    let run = wb(&folder.path, &review_words(), "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_review(&run, "none", "none");
+}
+
+#[test]
+fn test_WB_PROMPT_66_classed_says_every_path_is_classed_where_watchbill_yml_has_no_classed() {
+    let folder = classed_repository(None, &["src/a.rs", "src/b.rs"]);
+    let run = wb(&folder.path, &review_words(), "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_review(&run, "every path (watchbill.yml has no `classed`)", "src/a.rs\nsrc/b.rs");
+}
+
+#[test]
+fn test_WB_PROMPT_67_classed_touched_is_the_paths_of_the_change_under_a_classed_path_or_none() {
+    let folder = classed_repository(Some("classed: [src/safety]"), &["src/safety/limits.rs", "src/other.rs"]);
+    let run = wb(&folder.path, &review_words(), "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_review(&run, "src/safety", "src/safety/limits.rs");
+
+    let folder = classed_repository(Some("classed: [src/safety]"), &["src/other.rs", "src/safety-not/x.rs"]);
+    let run = wb(&folder.path, &review_words(), "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_review(&run, "src/safety", "none");
+}
+
+#[test]
+fn test_WB_PROMPT_68_classed_touched_says_it_cannot_be_told_and_why_where_the_diff_is_not_there() {
+    // The branch of the change is not there.
+    let folder = classed_repository(Some("classed: [src/safety]"), &["src/safety/limits.rs"]);
+    let mut words = review_words();
+    let at = words.iter().position(|word| *word == "issue-1").unwrap();
+    words[at] = "nosuch";
+    let run = wb(&folder.path, &words, "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let told = "cannot be told: the branch nosuch is not there";
+    assert!(text(&run.stdout).contains(told), "{}", text(&run.stdout));
+    assert_eq!(text(&run.stdout), review_filled("src/safety", told).replace("issue-1", "nosuch"));
+
+    // No default branch to compare with.
+    let folder = classed_repository(Some("classed: [src/safety]"), &["src/safety/limits.rs"]);
+    git(&folder.path, &["branch", "-m", "main", "trunk"]);
+    let run = wb(&folder.path, &review_words(), "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_review(&run, "src/safety", "cannot be told: no default branch to compare with");
+}
+
+#[test]
+fn test_WB_PROMPT_69_the_two_placeholders_are_on_the_list_and_wb_check_takes_them_in_the_projects_text() {
+    for name in ["classed", "classed_touched"] {
+        assert!(listed().contains(&name.to_string()), "{} is not on the list", name);
+        assert!(watchbill::prompt::PLACEHOLDERS.contains(&name), "{} is not known to wb", name);
+    }
+    let folder = set_up();
+    put(&folder.path, ".watchbill/project/review.md", "Classed: {classed}. Touched: {classed_touched}.\n");
+
+    let run = wb(&folder.path, &["check"], "");
+
+    assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
+}

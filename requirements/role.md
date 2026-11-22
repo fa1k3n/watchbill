@@ -97,3 +97,7 @@ The role prompts: breakdown, tester, build, review and fix. The first revision h
 | WB-ROLE-91 | The breakdown's prompt shall say to commit and then push to `{branch}`, and its last message shall name the commit that was pushed. Issue: #145. | T | Implemented |
 | WB-ROLE-92 | The breakdown's prompt shall say that a path in `changes` that is a folder not yet in the repository ends with `/`, and that a file never does. Issue: #197. | T | Implemented |
 | WB-ROLE-93 | No role's prompt shall ask the session to check a clearance of its runner: none holds "local model" or "only where a person has cleared". Issue: #224. | T | Implemented |
+| WB-ROLE-94 | The review's prompt shall use `{classed}` and `{classed_touched}` and tell the session to say first whether the change touches classed code. Issue: #227. | T | Draft |
+| WB-ROLE-95 | The review's prompt shall name the issue's file and its acceptance as the process's own files that are not a finding, and a change to the issue's file after the acceptance as a finding. Issue: #227. | T | Draft |
+| WB-ROLE-96 | The review's prompt shall not ask the session to find which code is classed, and shall say that the classed code is never reported as cannot be told where the program gave the paths. Issue: #227. | T | Draft |
+| WB-ROLE-97 | No prompt of the breakdown, the tester, the build or the fix shall speak of classed code. Issue: #227. | T | Draft |

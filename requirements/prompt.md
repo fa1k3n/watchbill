@@ -63,3 +63,8 @@ How a prompt is put together from the revision and the project's own text, and t
 | WB-PROMPT-57 | No flag shall lift WB-PROMPT-56. Issue: #211. | T | Draft |
 | WB-PROMPT-58 | `wb prompt --stamp` shall print a line `job: <hash>`, besides the lines it printed before. Issue: #236. | T | Draft |
 | WB-PROMPT-59 | `wb prompt --stamp` shall print a line `base: <commit>`, the commit of `HEAD` the view was made from, besides the lines it printed before. Issue: #236. | T | Draft |
+| WB-PROMPT-65 | `wb prompt` shall fill `{classed}` with the paths of `classed` of `watchbill.yml`, one to a line, and with `none` where the list is `classed: []`. Issue: #227. | T | Draft |
+| WB-PROMPT-66 | `wb prompt` shall fill `{classed}` with `every path (watchbill.yml has no `classed`)` where `watchbill.yml` has no `classed`, and `{classed_touched}` then with every path of the change. Issue: #227. | T | Draft |
+| WB-PROMPT-67 | `wb prompt` shall fill `{classed_touched}` with the paths of the change, from the diff of its branch against the merge base with the default branch, that are a classed path or lie below one, one to a line, and with `none` where there are none. Issue: #227. | T | Draft |
+| WB-PROMPT-68 | `wb prompt` shall fill `{classed_touched}` with `cannot be told: the branch <name> is not there` where the branch of the change is not there, and with `cannot be told: no default branch to compare with` where no default branch is. Issue: #227. | T | Draft |
+| WB-PROMPT-69 | `{classed}` and `{classed_touched}` shall be on the list of `placeholders.md`, and `wb check` shall take them in the project's own text. Issue: #227. | T | Draft |

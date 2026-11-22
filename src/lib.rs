@@ -1706,7 +1706,17 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
     if role == Some("breakdown") {
         return refused(err, "the breakdown runs without a view: it reads the whole code by its role");
     }
-    // `watchbill.yml` as `HEAD` has it (#186), as the start reads it.
+    // `wb view` only reads (#254): a file that differs from `HEAD` is said, and `HEAD`'s file is the one read.
+    match starter::read_only(&root) {
+        Err(why) => {
+            let _ = writeln!(err, "{}: {}.", name, why);
+            return 2;
+        }
+        Ok(true) => {
+            let _ = writeln!(err, "{}.", starter::drift_line(name));
+        }
+        Ok(false) => {}
+    }
     let settings = match starter::settings(&root) {
         Ok(settings) => settings,
         Err(why) => return refused(err, &why),

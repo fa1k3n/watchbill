@@ -20,6 +20,49 @@ const ROUNDS_OF_THEIR_OWN: [&str; 4] = ["breakdown", "tester", "build", "review"
 /// The longest word, with its closing zero byte, that Linux hands a program (`MAX_ARG_STRLEN`).
 pub const LONGEST_WORD: usize = 128 * 1024;
 
+thread_local! {
+    /// Set by `read_only` for the command that only reads (#254): `held_bytes` then gives the file of `HEAD`.
+    static READ_ONLY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// `place` as `HEAD` has it, read with no replace refs; `None` where it is not in `HEAD`.
+fn head_file(root: &str, place: &str) -> Option<Vec<u8>> {
+    let output = Command::new("git")
+        .arg("--no-replace-objects")
+        .arg("-C")
+        .arg(root)
+        .arg("show")
+        .arg(format!("HEAD:{}", place))
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    output.status.success().then_some(output.stdout)
+}
+
+/// For a command that only reads (#254: `wb status`, `wb view`). `Err` where `watchbill.yml` is not in `HEAD` at
+/// all (the repository is not set up). Otherwise from here on every pattern and key is read from the file of
+/// `HEAD`, never the working tree's, and the result says whether the working tree's file differs from it: the
+/// command says so on standard error and goes on.
+pub fn read_only(root: &str) -> Result<bool, String> {
+    let place = format!("{}/{}", crate::init::CONFIG_FOLDER, crate::init::CONFIG_FILE);
+    let Some(head) = head_file(root, &place) else {
+        return Err(format!("{} is not in HEAD. Watchbill is not set up in this repository: commit the file first", place));
+    };
+    READ_ONLY.with(|flag| flag.set(true));
+    Ok(std::fs::read(Path::new(root).join(&place)).map(|now| now != head).unwrap_or(false))
+}
+
+/// The line that a command that only reads says where `read_only` found a difference.
+pub fn drift_line(name: &str) -> String {
+    format!(
+        "{}: {}/{} differs from HEAD, and goes on with the file as HEAD has it: a pattern changed only in the working tree is not run",
+        name,
+        crate::init::CONFIG_FOLDER,
+        crate::init::CONFIG_FILE
+    )
+}
+
 /// The limit of #186: `watchbill.yml` at `root` is held as `HEAD` has it. A pattern of the file is run as the
 /// person, so a file that a session changed and nobody committed is never run. `Ok(Some(bytes))` where the file
 /// in the working tree is the file of `HEAD` byte for byte: the bytes are those of `HEAD`, and every pattern is
@@ -31,23 +74,15 @@ pub fn held_bytes(root: &str) -> Result<Option<Vec<u8>>, String> {
     let Ok(now) = std::fs::read(Path::new(root).join(&place)) else {
         return Ok(None);
     };
-    let head = Command::new("git")
-        .arg("--no-replace-objects")
-        .arg("-C")
-        .arg(root)
-        .arg("show")
-        .arg(format!("HEAD:{}", place))
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output();
-    let said = match head {
-        Ok(output) if output.status.success() => {
-            if output.stdout == now {
-                return Ok(Some(output.stdout));
+    let said = match head_file(root, &place) {
+        Some(bytes) => {
+            // A command that only reads (`read_only`) goes on with the file of `HEAD`, whatever the working tree has.
+            if bytes == now || READ_ONLY.with(|flag| flag.get()) {
+                return Ok(Some(bytes));
             }
             "differs from HEAD"
         }
-        _ => "is not in HEAD",
+        None => "is not in HEAD",
     };
     Err(format!(
         "{} {}, and a pattern of it is run as the person: a person reads the change and commits it, or takes it back with git, before the next command. Nothing is run and nothing is posted",

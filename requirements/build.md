@@ -57,8 +57,8 @@ What `wb start <role> <issue>` checks, posts and starts. One path for a person a
 | WB-BUILD-51 | Where `.watchbill/signers` is not there, `wb start` shall write the stamp commit unsigned, count it, and `wb status` shall say that no signature is checked. Issue: #236. | T | Draft |
 | WB-BUILD-52 | Where `.watchbill/signers` is there and git has no signing key set, `wb start` shall refuse with 1 before it writes anything, and name the setting. Issue: #236. | T | Draft |
 | WB-BUILD-53 | Where `.watchbill/signers` is there and the signing key is not in the list with `start`, `wb start` shall refuse with 1 before it writes anything, and name the key. Issue: #236. | T | Draft |
-| WB-BUILD-58 | `wb status`, where `.watchbill/watchbill.yml` differs from `HEAD`, shall say so on standard error in one line naming the file, and go on, ending as it would with the file of `HEAD`. Issue: #254. | T | Draft |
-| WB-BUILD-59 | `wb status` shall run every pattern and read every key from `.watchbill/watchbill.yml` as `HEAD` has it, never from the working tree, so that a pattern changed only in the working tree is not run. Issue: #254. | T | Draft |
-| WB-BUILD-60 | `wb view`, where `.watchbill/watchbill.yml` differs from `HEAD`, shall say so on standard error in one line naming the file, and go on. Issue: #254. | T | Draft |
-| WB-BUILD-61 | `wb view` shall read `build_files` and `needs`, and run `needs`, from `.watchbill/watchbill.yml` as `HEAD` has it, never from the working tree. Issue: #254. | T | Draft |
-| WB-BUILD-62 | `wb status` and `wb view` shall end with 2, as for a repository that is not set up, where `.watchbill/watchbill.yml` is not in `HEAD` at all. Issue: #254. | T | Draft |
+| WB-BUILD-58 | `wb status`, where `.watchbill/watchbill.yml` differs from `HEAD`, shall say so on standard error in one line naming the file, and go on, ending as it would with the file of `HEAD`. Issue: #254. | T | Implemented |
+| WB-BUILD-59 | `wb status` shall run every pattern and read every key from `.watchbill/watchbill.yml` as `HEAD` has it, never from the working tree, so that a pattern changed only in the working tree is not run. Issue: #254. | T | Implemented |
+| WB-BUILD-60 | `wb view`, where `.watchbill/watchbill.yml` differs from `HEAD`, shall say so on standard error in one line naming the file, and go on. Issue: #254. | T | Implemented |
+| WB-BUILD-61 | `wb view` shall read `build_files` and `needs`, and run `needs`, from `.watchbill/watchbill.yml` as `HEAD` has it, never from the working tree. Issue: #254. | T | Implemented |
+| WB-BUILD-62 | `wb status` and `wb view` shall end with 2, as for a repository that is not set up, where `.watchbill/watchbill.yml` is not in `HEAD` at all. Issue: #254. | T | Implemented |

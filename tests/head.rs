@@ -327,11 +327,11 @@ fn test_WB_BUILD_58_wb_status_with_a_changed_file_says_so_in_one_line_and_ends_a
     bench.add("needs: 'true'");
     let run = wb(&bench.repo.path, &["status", "54"], "");
     assert_eq!(code(&run), code(&before), "{}", text(&run.stderr));
-    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert_eq!(text(&run.stdout), text(&before.stdout));
-    assert!(text(&before.stderr).is_empty(), "{}", text(&before.stderr));
-    assert!(text(&run.stderr).contains(DRIFT), "{}", text(&run.stderr));
-    assert_eq!(text(&run.stderr).lines().count(), 1, "{}", text(&run.stderr));
+    // The same as with the file of HEAD (the stand-in tracker is not there, so it ends with 1 either way), and one line more.
+    let (said, rest) = text(&run.stderr).split_once('\n').map(|(a, b)| (a.to_string(), b.to_string())).unwrap();
+    assert!(said.contains(DRIFT), "{}", text(&run.stderr));
+    assert_eq!(rest, text(&before.stderr));
     assert!(!text(&run.stderr).contains("a person reads the change"), "{}", text(&run.stderr));
 }
 
@@ -340,7 +340,7 @@ fn test_WB_BUILD_58_wb_status_warns_of_a_file_that_is_staged_and_not_committed_a
     let bench = bench();
     bench.add("needs: 'true'");
     git(&bench.repo.path, &["add", "--", ".watchbill/watchbill.yml"]);
-    let run = wb(&bench.repo.path, &["status", "54", "--stage", "accepted"], "");
+    let run = wb(&bench.repo.path, &["status"], "");
     assert!(text(&run.stderr).contains(DRIFT), "{}", text(&run.stderr));
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
 }

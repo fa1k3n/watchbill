@@ -326,10 +326,19 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, out: 
         let _ = writeln!(err, "wb status: .watchbill/watchbill.yml is not there. Watchbill is not set up in this repository.");
         return 2;
     }
-    // A file that is not as `HEAD` has it is refused (#186) after the refs are listed, so that a listing that fails
-    // still ends with 2: no pattern is read or run until then.
-    let held = starter::held(root);
-    let pattern = |key: &str| if held.is_ok() { prompt::pattern_of(root, key) } else { Ok(None) };
+    // `wb status` only reads (#254): a file that is not as `HEAD` has it is said, and every pattern is read from
+    // the file of `HEAD`. Where the file is not in `HEAD` at all, the repository is not set up.
+    match starter::read_only(root) {
+        Err(why) => {
+            let _ = writeln!(err, "wb status: {}.", why);
+            return 2;
+        }
+        Ok(true) => {
+            let _ = writeln!(err, "{}.", starter::drift_line("wb status"));
+        }
+        Ok(false) => {}
+    }
+    let pattern = |key: &str| prompt::pattern_of(root, key);
     // `issue_address` is read for one issue only: the list never runs it.
     let address = if only.is_some() { pattern("issue_address") } else { Ok(None) };
     let patterns = match (pattern("branch"), pattern("issue_comments"), pattern("change_of_branch"), address) {
@@ -353,10 +362,6 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, out: 
             return 2;
         }
     };
-    if let Err(why) = held {
-        let _ = writeln!(err, "wb status: {}.", why);
-        return 1;
-    }
     let mut issues: Vec<String> = match only {
         Some(one) => vec![one.to_string()],
         None => flow.iter().filter_map(|full| full.strip_prefix("refs/heads/").or_else(|| full.strip_prefix("refs/remotes/origin/"))).filter_map(|name| issue_of(&patterns.branch, name)).collect(),

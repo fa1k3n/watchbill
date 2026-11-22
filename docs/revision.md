@@ -250,7 +250,7 @@ The pieces that build this have their requirements reserved as Draft rows in `re
 
 | Area | File | Issue |
 |---|---|---|
-| `WB-ROLE` | `requirements/role.md` | #4, #69, #75, #78, #82, #95, #98, #113, #116, #125, #145, #197 |
+| `WB-ROLE` | `requirements/role.md` | #4, #69, #75, #78, #82, #95, #98, #113, #116, #125, #145, #197, #224 |
 | `WB-RULE` | `requirements/rule.md` | #5, #75, #95, #98, #113, #145 |
 | `WB-REV` | `requirements/rev.md` | #6 |
 | `WB-PIN` | `requirements/pin.md` | #7 |

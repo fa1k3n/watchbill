@@ -287,7 +287,7 @@ role: build
 model: claude-sonnet-5-5
 effort: medium
 runner:
-version: 0.10.0
+version: 0.11.0
 revision: 3f0c1d9e…
 issue: 12
 change:

@@ -38,6 +38,9 @@ Watchbill: a harness for AI agents in embedded software development, deployed at
 - The folder that holds the files of the revision is fixed when `wb` is built. No option and no environment variable changes it when `wb` runs.
 - `wb` is installed with `dnf` from an RPM ([packaging/](packaging/)). Nothing in the code or the texts assumes another way.
 - Every exit status means the same in every command: 0 it holds or it is done, 1 it does not hold or it was refused, 2 the command was used wrongly or the repository is not set up.
+- A new need is met by a flag of a command that is there. A new command is added only where no command fits it, and its issue says why.
+- There is no general `--force`. A check is passed only by a flag that names what it passes and passes that alone, as `--ignore-local` passes a local change for reads only (#172).
+- A flag that makes a list prints the list alone, one item to a line, with no other words, so that a script can read it (as `wb view --in`, #209).
 - A command that only reads writes nothing. A command that writes says what it will write first, and never writes over a file that is there.
 - `wb` asks nothing of the network unless the command is about a system on the network.
 - What a team programs itself meets `wb` as a process: text on standard input and output, and the exit status. There is no API inside `wb` for it.

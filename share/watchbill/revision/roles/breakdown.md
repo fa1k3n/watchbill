@@ -36,12 +36,11 @@ questions: [<what the issue leaves open, each starting with its name>]
 - What the issue leaves open goes under `questions`, one point each. You do not answer it, not even where an answer looks plain. A person answers on the issue, a second breakdown folds the answer into the file, and the file is accepted only when `questions` is empty. Each question starts with its name, `{issue}.q<n>`, where `<n>` is its number, and keeps it when others are removed. A new question takes the next number.
 - The new questions are also posted on the issue, in one comment for the session, before your last message. Its first line is `[questions] {issue}` and the name of each question it holds, as `[questions] {issue} q1 q2`. In it, a question named `{issue}.q<n>` under `questions` is `q<n>` in the comment. Each question says the place in the code or the issue it is about. You post no question twice: a question that stands on the issue already is not posted again.
 - `<n>` counts on from the highest number of the breakdown's questions already on the issue, in `[questions] {issue}` and `[question] {issue}.q<n>` comments, so that no name is used twice.
-- A question is written so that a person can answer it without opening the code. In plain words, it holds what is unclear, why it matters, the choices, a suggested answer and whether the answer changes the issue's file, and nothing else:
+- A question is written so that a person can answer it without opening the code. In plain words, it holds what is unclear, why it matters, the choices, each with the role that acts on it, a suggested answer, and nothing else:
   - What is unclear: one sentence, in the issue's own words where it has them.
   - Why it matters: what the change does differently by the answer, in one or two sentences, without the code's names unless the person needs them to answer.
-  - The choices, numbered from 1, where there are any.
+  - The choices, numbered from 1, where there are any. Each starts with the role that acts on it, in brackets: `1. (tester) Narrow the requirement.` The words are the roles of the revision (`breakdown`, `tester`, `build`, `review`, `fix`) and `person` for a person's own step. Each is `(breakdown)`, as a second breakdown folds every answer into the issue's file; `(person)` only for a step no role may do.
   - A suggested answer, marked as a suggestion, with its reason in one sentence: `Suggested: 1, because …`. It names its choice by number. You never act on it before a person answers.
-  - Whether the answer changes the issue's file: always `changes the issue's file: yes` for yours, as a second breakdown folds every answer into the file.
   - Nothing else: no recap of the issue, and no list of what you read.
 - Each question is one line, its name and what is unclear. The rest is folded under `<details>`, which the tracker shows closed. The comment is in this form:
 
@@ -52,12 +51,10 @@ q1: <what is unclear>
 
 Why it matters: <one or two sentences>
 
-1. <the first choice>
-2. <the second choice>
+1. (<role>) <the first choice>
+2. (<role>) <the second choice>
 
 Suggested: 1, because <the reason>
-
-changes the issue's file: yes
 
 </details>
 
@@ -70,7 +67,7 @@ q2: <what is unclear>
 ```
 
 - A question is never edited once posted, so that a number always means what it meant when the person answered. A question that has to change is posted again as a new question, with the next number.
-- A person answers with `wb answer`, in one comment whose first line is `[answers] {issue}` and the names of the questions it answers, then one line for each: `q1: 2`, or `q1: <words>`. An answer counts only from a person. Until the program reads from the tracker who wrote a comment, that is the account of the person who started the run, and a comment that starts with `[question]` or `[questions]` is never an answer.
+- A person answers with `wb answer`, in one comment whose first line is `[answers] {issue}` and the names of the questions it answers, then one line for each: `q1: 2`, or `q1: <words>`. `wb answer` writes the role that acts after each name in that first line, as `q1>tester`; an answer with no role closes its question and names none. An answer counts only from a person. Until the program reads from the tracker who wrote a comment, that is the account of the person who started the run, and a comment that starts with `[question]` or `[questions]` is never an answer.
 - An answer is read so:
   - By number: `q1: 2` takes choice 2 of that question, in its words.
   - In words: any other text after the name is the answer, such as "2, but only for the first command", or plain words. A number that is not one of the question's choices is no answer, and the question stays open.

@@ -8,6 +8,12 @@
 //!   of its own whose first line is `[question] <name>`, and is read the same way.
 //! - **An answer** is a comment whose first line is `[answers] <issue>.<role> q1 q2 …`, then a line `q<n>: <answer>`
 //!   for each. The lines of revision 0.0.8, `[answer] <name> …` and `[answer] <issue> suggested`, are read too.
+//! - **The role that acts** (#226): from revision 0.11.0 each choice starts with a role in brackets, `1. (tester) …`,
+//!   and the first line of an answer names it after each question: `[answers] 54.build q3>tester q4>person`. An answer
+//!   in words, or a choice with no role, asks which role acts (the asking role by Enter); a pair and `--suggested`
+//!   take the role of the choice, and the asking role where it has none. The file is said to be changed only for
+//!   `person` (to a question of the breakdown, with the message of the breakdown); a question whose choices name no role (0.10.0 and before) is answered with no role, and its line
+//!   `changes the issue's file:` is read as before. The first lines of 0.10.0, `q3` alone, close and name no role.
 //! - **Which count:** `open_names` decides from first lines alone, so that `wb status` and `wb answer` agree. What a
 //!   `[revert]` marker took back counts for nothing (`starter::taken_back`).
 //!
@@ -59,8 +65,12 @@ pub struct Question {
     /// The numbers of its choices.
     pub choices: Vec<u64>,
     pub suggested: Option<Suggestion>,
-    /// What its line `changes the issue's file:` says, where it has one.
+    /// What its line `changes the issue's file:` says, where it has one (a question of 0.10.0 or before).
     pub changes_file: Option<bool>,
+    /// The role in brackets that starts a choice, as `1. (tester) …` (#226), by the number of the choice.
+    pub roles: Vec<(u64, String)>,
+    /// Whether a question of its comment has a role on a choice: then each of them is asked in the form of 0.11.0.
+    pub comment_roled: bool,
 }
 
 impl Question {
@@ -69,10 +79,25 @@ impl Question {
         format!("{}.q{}", self.prefix, self.number)
     }
 
+    /// Whether it is asked in the form of 0.11.0: a choice of it, or of a question of its comment, names a role.
+    pub fn roled(&self) -> bool {
+        !self.roles.is_empty() || self.comment_roled
+    }
+
     /// Its role, or `breakdown` for a name with no role.
     pub fn role(&self) -> String {
         self.prefix.split_once('.').map_or("breakdown".to_string(), |(_, role)| role.to_string())
     }
+}
+
+/// The roles of the revision, and `person` for a person's own step (#226).
+const ROLES: [&str; 6] = ["breakdown", "tester", "build", "review", "fix", "person"];
+
+/// The role in brackets that starts the text of a choice: `(tester) Narrow it.`
+fn role_of_choice(text: &str) -> Option<String> {
+    let role = text.strip_prefix('(')?.split_once(')')?.0;
+    // Only a role of the revision, or `person`, is a role: any other word is a choice with no role.
+    ROLES.contains(&role).then(|| role.to_string())
 }
 
 /// The number of a word `q<n>`, written with a comma or a full stop after it or without.
@@ -102,9 +127,39 @@ fn names_after(issue: &str, start: &str, line: &str) -> Vec<String> {
     let Some(rest) = line.strip_prefix(start) else { return Vec::new() };
     let mut words = rest.split_whitespace();
     match words.next() {
-        Some(prefix) if is_prefix(issue, prefix) => words.filter_map(number_of).map(|n| format!("{}.q{}", prefix, n)).collect(),
+        Some(prefix) if is_prefix(issue, prefix) => words.filter_map(|word| number_of(word.split('>').next().unwrap_or_default())).map(|n| format!("{}.q{}", prefix, n)).collect(),
         _ => Vec::new(),
     }
+}
+
+/// The question and the role that each word `q<n>>role` of a first line `[answers] …` gives: no role for a word
+/// of 0.10.0, `q<n>` alone.
+fn roles_after(issue: &str, line: &str) -> Vec<(String, Option<String>)> {
+    let Some(rest) = line.strip_prefix("[answers] ") else { return Vec::new() };
+    let mut words = rest.split_whitespace();
+    match words.next() {
+        Some(prefix) if is_prefix(issue, prefix) => words
+            .filter_map(|word| {
+                let (name, role) = word.split_once('>').map_or((word, None), |(name, role)| (name, Some(role)));
+                let role = role.filter(|role| ROLES.contains(role));
+                number_of(name).map(|n| (format!("{}.q{}", prefix, n), role.map(str::to_string)))
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The role and the question the newest answer names (#226): the last word `q<n>>role` of the last first line
+/// `[answers] …` that has one, from the lines that still count. A `[stamp] <role>` after it clears it (the role has
+/// acted since); `person` has no stamp.
+pub fn waits_for(issue: &str, lines: &[String]) -> Option<(String, String)> {
+    let (at, role, name) = lines
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(at, line)| roles_after(issue, line).into_iter().rev().find_map(|(name, role)| role.map(|role| (at, role, name))))?;
+    let stamped = lines[at + 1..].iter().any(|line| line.strip_prefix("[stamp] ").and_then(|rest| rest.split_whitespace().next()) == Some(role.as_str()));
+    (!stamped).then_some((role, name))
 }
 
 /// The names of the open questions of `issue`, in the order they were asked, from the first lines of its comments
@@ -193,6 +248,7 @@ fn read_parts(prefix: &str, number: u64, short: String, lines: Vec<String>) -> Q
     let mut choices: Vec<u64> = Vec::new();
     let mut suggestion: Option<String> = None;
     let mut changes_file = None;
+    let mut roles: Vec<(u64, String)> = Vec::new();
     for line in &lines {
         let bare = line.trim();
         let digits: String = bare.chars().take_while(char::is_ascii_digit).collect();
@@ -200,6 +256,9 @@ fn read_parts(prefix: &str, number: u64, short: String, lines: Vec<String>) -> Q
             if let Ok(n) = digits.parse::<u64>() {
                 if !choices.contains(&n) {
                     choices.push(n);
+                    if let Some(role) = role_of_choice(bare[digits.len() + 2..].trim_start()) {
+                        roles.push((n, role));
+                    }
                 }
             }
         }
@@ -227,7 +286,7 @@ fn read_parts(prefix: &str, number: u64, short: String, lines: Vec<String>) -> Q
         let words = text.rsplit_once(", because").map_or(text.as_str(), |(words, _)| words).trim().trim_end_matches('.').trim();
         (!words.is_empty()).then(|| Suggestion::Words(words.to_string()))
     });
-    Question { prefix: prefix.to_string(), number, short, lines, choices, suggested, changes_file }
+    Question { prefix: prefix.to_string(), number, short, lines, choices, suggested, changes_file, roles, comment_roled: false }
 }
 
 /// The questions of one comment, in the order its first line names them. A comment of another form, or of
@@ -271,6 +330,8 @@ fn questions_of(issue: &str, body: &str) -> Vec<Question> {
             None => questions.push(read_parts(&prefix, n, String::new(), Vec::new())),
         }
     }
+    let roled = questions.iter().any(|question| !question.roles.is_empty());
+    questions.iter_mut().for_each(|question| question.comment_roled = roled);
     questions
 }
 
@@ -294,21 +355,23 @@ pub fn open_questions(issue: &str, bodies: &[String]) -> Vec<Question> {
     found
 }
 
-/// What a person's text gives for a question: the line `q<n>: …`, or why it is asked again.
-fn take(question: &Question, typed: &str) -> Result<String, String> {
+/// What a person's text gives for a question: the line `q<n>: …` and the role of the choice taken, if it has one,
+/// or why it is asked again.
+fn take(question: &Question, typed: &str) -> Result<(String, Option<String>), String> {
     let typed = typed.trim();
     let line = |answer: &str| format!("q{}: {}", question.number, answer);
+    let role_of = |n: u64| question.roles.iter().find(|(choice, _)| *choice == n).map(|(_, role)| role.clone());
     if typed.is_empty() {
         return match &question.suggested {
-            Some(Suggestion::Choice(n)) => Ok(line(&n.to_string())),
-            Some(Suggestion::Words(words)) => Ok(line(words)),
+            Some(Suggestion::Choice(n)) => Ok((line(&n.to_string()), role_of(*n))),
+            Some(Suggestion::Words(words)) => Ok((line(words), None)),
             None => Err(format!("{} has no suggested answer.", question.name())),
         };
     }
     if typed.chars().all(|c| c.is_ascii_digit()) {
         let n: Option<u64> = typed.parse().ok();
-        if n.is_some_and(|n| question.choices.contains(&n)) {
-            return Ok(line(typed));
+        if let Some(n) = n.filter(|n| question.choices.contains(n)) {
+            return Ok((line(typed), role_of(n)));
         }
         let choices: Vec<String> = question.choices.iter().map(u64::to_string).collect();
         let which = if choices.is_empty() { "it has none".to_string() } else { choices.join(", ") };
@@ -317,7 +380,31 @@ fn take(question: &Question, typed: &str) -> Result<String, String> {
     if typed.chars().any(char::is_control) {
         return Err("An answer is one line, with no control character.".to_string());
     }
-    Ok(line(typed))
+    Ok((line(typed), None))
+}
+
+/// One line typed in answer to `prompt`, or `None` where the input has ended.
+fn ask_line(input: &mut dyn BufRead, out: &mut dyn Write, prompt: &str) -> Option<String> {
+    let _ = write!(out, "{}", prompt);
+    let _ = out.flush();
+    let mut typed = Vec::new();
+    match input.read_until(b'\n', &mut typed) {
+        Ok(0) | Err(_) => {
+            let _ = writeln!(out);
+            None
+        }
+        Ok(_) => Some(String::from_utf8_lossy(&typed).trim_end_matches('\n').trim_end_matches('\r').to_string()),
+    }
+}
+
+/// Whether an answer says that the issue's file is to be changed: a `person` answer to a question whose choices
+/// name roles, and the line of a question of 0.10.0 that says so (#226).
+fn changes_file(question: &Question, role: &Option<String>) -> bool {
+    if question.roled() {
+        role.as_deref() == Some("person")
+    } else {
+        question.changes_file == Some(true)
+    }
 }
 
 /// How a question is shown: its name, where it stands among those shown, what is unclear, and the rest indented.
@@ -419,7 +506,9 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
         return 0;
     }
     // Each question answered, with its line `q<n>: …`, in the order asked.
-    let mut answered: Vec<(&Question, String)> = Vec::new();
+    let mut answered: Vec<(&Question, String, Option<String>)> = Vec::new();
+    // Where it is not given, the role that acts on a question whose choices name roles is the one that asked.
+    let settled = |question: &Question, role: Option<String>| if question.roled() { Some(role.unwrap_or_else(|| question.role())) } else { None };
     match asked {
         Asked::Pairs(pairs) | Asked::Suggested(pairs) => {
             // `run_answer` has refused a question named twice, before anything was read.
@@ -433,10 +522,10 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
                     }
                 }
             }
-            let mut taken: Vec<(&Question, String)> = Vec::new();
+            let mut taken: Vec<(&Question, String, Option<String>)> = Vec::new();
             for (question, text) in &given {
                 match take(question, text) {
-                    Ok(line) => taken.push((question, line)),
+                    Ok((line, role)) => taken.push((question, line, settled(question, role))),
                     Err(why) => {
                         let _ = writeln!(err, "wb answer: {} Nothing is posted.", why);
                         return 1;
@@ -445,10 +534,10 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
             }
             if let Asked::Suggested(_) = asked {
                 for question in &questions {
-                    match taken.iter().position(|(known, _)| known.name() == question.name()) {
+                    match taken.iter().position(|(known, _, _)| known.name() == question.name()) {
                         Some(at) => answered.push(taken.remove(at)),
                         None => match take(question, "") {
-                            Ok(line) => answered.push((question, line)),
+                            Ok((line, role)) => answered.push((question, line, settled(question, role))),
                             Err(_) => {
                                 let _ = writeln!(err, "wb answer: {} has no suggested answer, and is not answered.", question.name());
                             }
@@ -468,28 +557,36 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
             let _ = writeln!(out, "{} open question{} on {} {}.", questions.len(), if questions.len() == 1 { "" } else { "s" }, word, value);
             for (at, question) in questions.iter().enumerate() {
                 let _ = out.write_all(show(question, at + 1, questions.len()).as_bytes());
-                loop {
-                    let _ = write!(out, "{}> ", question.name());
+                let ended = |out: &mut dyn Write, err: &mut dyn Write, answered: usize| {
+                    let _ = writeln!(
+                        err,
+                        "wb answer: the input ended before every question was answered ({} of {}), so nothing is posted.",
+                        answered,
+                        questions.len()
+                    );
                     let _ = out.flush();
-                    let mut typed = Vec::new();
-                    match input.read_until(b'\n', &mut typed) {
-                        Ok(0) | Err(_) => {
-                            let _ = writeln!(out);
-                            let _ = writeln!(
-                                err,
-                                "wb answer: the input ended before every question was answered ({} of {}), so nothing is posted.",
-                                answered.len(),
-                                questions.len()
-                            );
-                            return 1;
-                        }
-                        Ok(_) => {}
-                    }
-                    let typed = String::from_utf8_lossy(&typed);
-                    let typed = typed.trim_end_matches('\n').trim_end_matches('\r');
-                    match take(question, typed) {
-                        Ok(line) => {
-                            answered.push((question, line));
+                    1
+                };
+                loop {
+                    let Some(typed) = ask_line(input, out, &format!("{}> ", question.name())) else { return ended(out, err, answered.len()) };
+                    match take(question, &typed) {
+                        Ok((line, mut role)) => {
+                            // A choice with no role, and words, leave it to the person who answers.
+                            while question.roled() && role.is_none() {
+                                let asking = question.role();
+                                let roles = ROLES.join(", ");
+                                let prompt = format!("{}: which role acts on it? Enter takes {}. The roles: {}.\n{} role> ", question.name(), asking, roles, question.name());
+                                let Some(typed) = ask_line(input, out, &prompt) else { return ended(out, err, answered.len()) };
+                                let typed = typed.trim();
+                                if typed.is_empty() {
+                                    role = Some(asking);
+                                } else if ROLES.contains(&typed) {
+                                    role = Some(typed.to_string());
+                                } else {
+                                    let _ = writeln!(out, "{} is not a role. Answer again.", issue::shown(typed));
+                                }
+                            }
+                            answered.push((question, line, role));
                             break;
                         }
                         Err(why) => {
@@ -501,18 +598,18 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
         }
     }
     // One comment per role, in the order the roles first asked.
-    let mut comments: Vec<(String, Vec<(&Question, String)>)> = Vec::new();
-    for (question, line) in answered {
+    let mut comments: Vec<(String, Vec<(&Question, String, Option<String>)>)> = Vec::new();
+    for (question, line, role) in answered {
         match comments.iter_mut().find(|(prefix, _)| *prefix == question.prefix) {
-            Some((_, kept)) => kept.push((question, line)),
-            None => comments.push((question.prefix.clone(), vec![(question, line)])),
+            Some((_, kept)) => kept.push((question, line, role)),
+            None => comments.push((question.prefix.clone(), vec![(question, line, role)])),
         }
     }
     let texts: Vec<String> = comments
         .iter()
         .map(|(prefix, kept)| {
-            let names: Vec<String> = kept.iter().map(|(question, _)| format!("q{}", question.number)).collect();
-            let lines: String = kept.iter().map(|(_, line)| format!("{}\n", line)).collect();
+            let names: Vec<String> = kept.iter().map(|(question, _, role)| format!("q{}{}", question.number, role.as_ref().map_or(String::new(), |role| format!(">{}", role)))).collect();
+            let lines: String = kept.iter().map(|(_, line, _)| format!("{}\n", line)).collect();
             format!("[answers] {} {}\n{}", prefix, names.join(" "), lines)
         })
         .collect();
@@ -539,7 +636,7 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
     let _ = writeln!(err, "wb answer: posted.");
     // An answer that changes the issue's file is taken by a person, never by `wb`.
     for (_, kept) in &comments {
-        let changing: Vec<String> = kept.iter().filter(|(question, _)| question.changes_file == Some(true)).map(|(question, _)| question.name()).collect();
+        let changing: Vec<String> = kept.iter().filter(|(question, _, role)| changes_file(question, role)).map(|(question, _, _)| question.name()).collect();
         if changing.is_empty() {
             continue;
         }

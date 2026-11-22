@@ -51,6 +51,8 @@ struct Found {
     title: Option<String>,
     step: &'static str,
     questions: Vec<String>,
+    /// The role and the question the newest answer that names a role waits for (#226).
+    waits: Option<(String, String)>,
     /// The lines it was worked out from, for `wb status <issue>`.
     from: Vec<String>,
 }
@@ -280,7 +282,8 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
         }
     }
     let questions = answer::open_names(number, &counted);
-    Ok(Found { number: number.to_string(), branch: shown.map(|branch| branch.name.clone()), changes, unpushed, title, step, questions, from })
+    let waits = answer::waits_for(number, &counted);
+    Ok(Found { number: number.to_string(), branch: shown.map(|branch| branch.name.clone()), changes, unpushed, title, step, questions, waits, from })
 }
 
 /// The patterns of `watchbill.yml` that `wb status` reads.
@@ -391,6 +394,10 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, out: 
     if show(NOT_READ) && !failed.is_empty() {
         let lines: String = failed.iter().map(|(number, why)| format!("  {}  {}\n", number, why)).collect();
         sections.push(format!("{}:\n{}", NOT_READ, lines));
+    }
+    // One issue: who the newest answer waits for (#226). It is a fact about the issue, not a command.
+    if let (Some(_), None, Some(Found { waits: Some((role, name)), .. })) = (only, stage, read.first()) {
+        sections.push(format!("waits for: {} ({})\n", issue::shown(role), issue::shown(name)));
     }
     // One issue: the lines it was worked out from, below what was printed of it.
     if let (Some(_), false, Some(found)) = (only, sections.is_empty(), read.first()) {

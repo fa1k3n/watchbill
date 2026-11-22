@@ -56,3 +56,8 @@ What `wb status` says of the issues in the flow. It only reads.
 | WB-STATUS-50 | `wb status --session` shall end with 1 and say which, when the prefix is not unique or names no stamp. Issue: #239. | T | Draft |
 | WB-STATUS-51 | `wb status --session` shall write nothing, and give the same output with the network off. Issue: #239. | T | Draft |
 | WB-STATUS-52 | `wb status` shall say of a job whose source has changed since `wb add` took it in, where the team gives a pattern that reads the source, that it has changed, and shall take nothing in. Issue: #240. | T | Draft |
+| WB-STATUS-53 | `wb status <issue>` shall print `waits for: <role> (<question>)` for the newest answer that names a role, `person` included, and no such line for the list. Issue: #226. | T | Implemented |
+| WB-STATUS-54 | `wb status <issue>` shall print no `waits for` line where no `[answers]` first line names a role. Issue: #226. | T | Implemented |
+| WB-STATUS-55 | `wb status <issue>` shall run `issue_comments` once for the issue, as before, also where it prints `waits for`. Issue: #226. | T | Implemented |
+| WB-STATUS-56 | `wb status <issue>` shall not print `waits for: <role>` once the issue has a stamp of that role newer than the answer, and shall still print it for a stamp of another role; `person` has no stamp and is never cleared. Issue: #226. | T | Implemented |
+| WB-STATUS-57 | `wb status <issue>` shall count as a role in an `[answers]` first line only a word of the roles of the revision or `person`; for another word, as `q3>optional`, it closes the question and prints no `waits for` line. Issue: #226. | T | Implemented |

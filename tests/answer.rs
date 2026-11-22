@@ -536,3 +536,92 @@ fn test_WB_ANSWER_20_an_issue_with_no_open_question_ends_with_0_and_posts_nothin
     assert!(text(&run.stderr).contains("no open question"), "{}", text(&run.stderr));
     assert!(posted(&folder.path, "175").is_empty());
 }
+
+// ---- WB-ANSWER-29 to 33: --show reads the questions and answers none (#225) ----
+
+#[test]
+fn test_WB_ANSWER_29_show_prints_each_open_question_in_full_and_posts_nothing() {
+    let folder = two_roles();
+    let run = answer(&folder.path, &["175", "--show"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let out = text(&run.stdout);
+    for part in [
+        "Which name does the event use for where its task came from?",
+        "the name goes into the schema of every event.",
+        "`task_from`, with the values `env` and `branch`.",
+        "Suggested: 1, because it is the issue's own example.",
+        "Is a clause with no test the tester may write left without one?",
+        "Leave the clause without a test.",
+    ] {
+        assert!(out.contains(part), "{}: {}", part, out);
+    }
+    assert!(out.find("175.q1").unwrap() < out.find("175.tester.q1").unwrap(), "{}", out);
+    assert!(out.contains("changes the issue's file: yes"), "{}", out);
+    assert!(out.contains("changes the issue's file: no"), "{}", out);
+    assert!(!out.contains("> "), "it asks nothing: {}", out);
+    assert!(out.contains("\n\n175.tester.q1"), "the questions are apart by an empty line: {}", out);
+    assert!(!out.contains("\n\n\n"), "and by no more than one: {}", out);
+    assert!(posted(&folder.path, "175").is_empty());
+}
+
+#[test]
+fn test_WB_ANSWER_30_show_prints_only_the_open_questions() {
+    let folder = two_roles();
+    bodies(&folder.path, "175", &[BREAKDOWN, STAMP, TESTER, "[answers] 175 q1 q2\nq1: 1\nq2: 1\n"]);
+    let run = answer(&folder.path, &["175", "--show"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let out = text(&run.stdout);
+    assert!(out.contains("175.tester.q1"), "{}", out);
+    assert!(!out.contains("175.q1"), "{}", out);
+    assert!(!out.contains("task came from"), "{}", out);
+    assert!(posted(&folder.path, "175").is_empty());
+}
+
+#[test]
+fn test_WB_ANSWER_31_show_says_so_and_ends_with_0_when_no_question_is_open() {
+    let folder = set_up();
+    bodies(&folder.path, "175", &[TESTER, "[answers] 175.tester q1\nq1: 1\n"]);
+    let run = answer(&folder.path, &["175", "--show"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stderr).contains("no open question"), "{}", text(&run.stderr));
+    assert!(posted(&folder.path, "175").is_empty());
+}
+
+#[test]
+fn test_WB_ANSWER_32_show_with_suggested_or_an_answer_ends_with_2() {
+    let folder = two_roles();
+    for args in [vec!["175", "--show", "--suggested"], vec!["175", "--show", "tester.q1", "2"], vec!["175", "tester.q1", "2", "--show"]] {
+        let run = answer(&folder.path, &args, "");
+        assert_eq!(code(&run), Some(2), "{:?}: {}", args, text(&run.stderr));
+        assert!(text(&run.stderr).starts_with("wb answer: "), "{:?}: {}", args, text(&run.stderr));
+        assert!(!text(&run.stderr).contains("is not known"), "--show is a known option: {:?}: {}", args, text(&run.stderr));
+        assert!(posted(&folder.path, "175").is_empty(), "{:?}", args);
+    }
+}
+
+#[test]
+fn test_WB_ANSWER_33_show_with_change_prints_the_open_questions_of_the_change() {
+    let folder = set_up();
+    bodies(&folder.path, "change-9", &[&TESTER.replace("175.", "9.")]);
+    let run = answer(&folder.path, &["--show", "--change", "9"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let out = text(&run.stdout);
+    assert!(out.contains("Is a clause with no test the tester may write left without one?"), "{}", out);
+    assert!(posted(&folder.path, "change-9").is_empty());
+}
+
+#[test]
+fn test_WB_ANSWER_34_show_needs_no_post_pattern() {
+    let folder = set_up();
+    bodies(&folder.path, "175", &[BREAKDOWN, STAMP, TESTER]);
+    let file = config(&folder.path);
+    let kept: String = fs::read_to_string(&file).unwrap().lines().filter(|line| !line.starts_with("issue_comment:")).map(|line| format!("{}\n", line)).collect();
+    fs::write(&file, kept).unwrap();
+    git(&folder.path, &["add", "--", ".watchbill"]);
+    git(&folder.path, &["commit", "-q", "-m", "No post pattern"]);
+    let run = answer(&folder.path, &["175", "--show"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("175.tester.q1"), "{}", text(&run.stdout));
+    let asked = answer(&folder.path, &["175"], "\n\n\n");
+    assert_eq!(code(&asked), Some(1), "answering still needs it: {}", text(&asked.stderr));
+}

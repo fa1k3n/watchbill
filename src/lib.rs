@@ -38,7 +38,7 @@ pub const USAGE: &str = "usage:
   wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [the options of prompt]
   wb status [<issue>] [--stage <heading>]
   wb view <issue> (<role> [--in | --out] | <path>)
-  wb answer (<issue> | --change <n>) [--suggested | <question> <answer>]
+  wb answer (<issue> | --change <n>) [--show | --suggested | <question> <answer>]
   wb revert (<issue> | --change <n>) <role> [--round <n>]
   wb prompt <role> [<issue>] [--issue <text>] [--change <text>]
             [--requirements <text>] [--round <text>] [--checkout <text>]
@@ -171,9 +171,13 @@ pub const USAGE: &str = "usage:
             Then it says what it will post and posts one [answers] comment per
             role by issue_comment. Nothing is posted before every question is
             answered, and nothing after Ctrl-C. --suggested takes every
-            suggestion and names the questions with none. <question> <answer>,
-            as tester.q1 2 (q1 for the breakdown), answers one question without
-            asking. --change <n> answers on a change with no issue, by
+            suggestion and names the questions with none. --show prints every
+            open question in full, as it is laid out when asked, to standard
+            output, and asks nothing, posts nothing and ends with 0; it takes
+            no --suggested and no answer. <question> <answer>, as
+            tester.q1 2 (q1 for the breakdown), answers one question
+            without asking. --change <n> answers on a change with no
+            issue, by
             change_comment_bodies and change_comment. It never changes the
             issue's file: where an answer does, it says so. Ends with 0 when
             the answers are posted or no question is open, 1 when it was
@@ -1757,7 +1761,7 @@ fn level_of(root: &str, settings: &yamlfile::Document, organisation: &Path) -> R
     ))
 }
 
-/// `wb answer <issue> [--suggested | <question> <answer>]` and `wb answer --change <n> […]` (#145).
+/// `wb answer <issue> [--show | --suggested | <question> <answer>]` and `wb answer --change <n> […]` (#145).
 fn run_answer(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let used = |err: &mut dyn Write, why: String| {
         let _ = write!(err, "wb answer: {}\n\n{}", why, USAGE);
@@ -1766,6 +1770,7 @@ fn run_answer(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write,
     let mut values: Vec<String> = Vec::new();
     let mut change: Option<String> = None;
     let mut suggested = false;
+    let mut show = false;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
@@ -1779,6 +1784,7 @@ fn run_answer(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write,
                 Err(_) => return used(err, "'--change' needs a change".to_string()),
             },
             Word::Long(option) if option == "suggested" && !suggested => suggested = true,
+            Word::Long(option) if option == "show" && !show => show = true,
             found => {
                 let refused = named(found, parser);
                 return used(err, format!("'{}' is not known", refused));
@@ -1790,7 +1796,14 @@ fn run_answer(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write,
         (None, [issue, rest @ ..]) => (issue.clone(), rest.to_vec()),
         (None, []) => return used(err, "an issue is needed, or --change and a change".to_string()),
     };
+    if show && suggested {
+        return used(err, "--show reads the questions and answers none, so it takes no --suggested".to_string());
+    }
+    if show && !rest.is_empty() {
+        return used(err, "--show reads the questions and answers none, so it takes no question and answer".to_string());
+    }
     let asked = match (suggested, rest.as_slice()) {
+        (false, []) if show => answer::Asked::Show,
         (false, []) => answer::Asked::Each,
         (true, []) => answer::Asked::Suggested,
         (false, [question, text]) => {

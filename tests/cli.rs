@@ -18,7 +18,7 @@ const USAGE: &str = "usage:
   wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [the options of prompt]
   wb status [<issue>] [--stage <heading>]
   wb view <issue> (<role> [--in | --out] | <path>)
-  wb answer (<issue> | --change <n>) [--suggested | <question> <answer>]
+  wb answer (<issue> | --change <n>) [--show | --suggested | <question> <answer>]
   wb revert (<issue> | --change <n>) <role> [--round <n>]
   wb prompt <role> [<issue>] [--issue <text>] [--change <text>]
             [--requirements <text>] [--round <text>] [--checkout <text>]
@@ -151,9 +151,13 @@ const USAGE: &str = "usage:
             Then it says what it will post and posts one [answers] comment per
             role by issue_comment. Nothing is posted before every question is
             answered, and nothing after Ctrl-C. --suggested takes every
-            suggestion and names the questions with none. <question> <answer>,
-            as tester.q1 2 (q1 for the breakdown), answers one question without
-            asking. --change <n> answers on a change with no issue, by
+            suggestion and names the questions with none. --show prints every
+            open question in full, as it is laid out when asked, to standard
+            output, and asks nothing, posts nothing and ends with 0; it takes
+            no --suggested and no answer. <question> <answer>, as
+            tester.q1 2 (q1 for the breakdown), answers one question
+            without asking. --change <n> answers on a change with no
+            issue, by
             change_comment_bodies and change_comment. It never changes the
             issue's file: where an answer does, it says so. Ends with 0 when
             the answers are posted or no question is open, 1 when it was

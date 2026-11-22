@@ -193,7 +193,8 @@ impl Bench {
     /// The session: a script run in the view, after it notes that it started. `{log}` is the log folder.
     fn session(&self, body: &str) {
         let l = self.log.path.to_str().unwrap();
-        script(&self.at("session.sh"), &format!("echo start >> {l}/calls\n{}", body.replace("{log}", l)));
+        let s = self.state.path.to_str().unwrap();
+        script(&self.at("session.sh"), &format!("echo start >> {l}/calls\n{}", body.replace("{log}", l).replace("{state}", s)));
     }
 
     fn start_by(&self, sandbox: &Path, args: &[&str]) -> Output {
@@ -1845,8 +1846,10 @@ const WAITS: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git c
 const TRAPS: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\ntrap 'echo got > {log}/got; kill $!; exit 0' TERM\nsleep 30 &\necho $$ > {log}/pid\nwait\n";
 
 /// A session that commits, then sends terminations to `wb` every few milliseconds from a process of its own,
-/// and ends at the first one it gets: the rest come while `wb` takes the commit back (#221, WB-BUILD-57).
-const STORM: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\nwb=$PPID\ntrap 'exit 0' TERM\n(n=0; while [ $n -lt 1000 ] && kill -TERM $wb 2>/dev/null; do n=$((n+1)); sleep 0.005; done) >/dev/null 2>&1 &\necho $$ > {log}/pid\nsleep 5 &\nwait\n";
+/// and ends at the first one it gets: the rest come while `wb` takes the commit back (#221, WB-BUILD-57). The
+/// sender stops at 1000, once the lines have an `outcome`, or once the process is no longer the test's helper, so
+/// it never signals a process of anyone else.
+const STORM: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\nwb=$PPID\ntrap 'exit 0' TERM\n(n=0; while [ $n -lt 1000 ] && ! ls {state}/watchbill/sessions/*/outcome >/dev/null 2>&1 && grep -qa a_helper_that_runs_wb /proc/$wb/cmdline 2>/dev/null && kill -TERM $wb 2>/dev/null; do n=$((n+1)); sleep 0.005; done) >/dev/null 2>&1 &\necho $$ > {log}/pid\nsleep 5 &\nwait\n";
 
 /// Not a test of a row: it does nothing unless a signal test started it. It is the part that runs `wb` in the process the signal tests start: it writes the folders it made, writes the
 /// status when `wb` ends, and waits for the parent to be done with the folders.
@@ -1982,8 +1985,10 @@ fn test_WB_BUILD_55_a_termination_sent_to_wb_alone_ends_the_session() {
 
 #[test]
 fn test_WB_BUILD_57_terminations_sent_while_the_commits_are_taken_back_do_not_end_wb_before_the_lines_are_written() {
+    // What `wb` wrote is the proof: a termination that ends `wb` during the take-back leaves no `outcome`. The
+    // helper's own status is not asserted: a last termination may come after the lines are written and the hold
+    // is let go, and end the helper then, which is right.
     let found = signalled("storm", None, None);
-    assert_eq!(found.status, 0, "wb ended at a termination, or did not end");
     assert!(found.back.lines().any(|line| line.starts_with("taken: ") && line.contains("A new file")), "{}", found.back);
     assert!(found.outcome.starts_with("outcome: ended\nstatus: 0\n"), "{}", found.outcome);
 }

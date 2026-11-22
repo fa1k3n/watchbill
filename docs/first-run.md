@@ -6,13 +6,13 @@ On 2026-11-17 two real tasks went through the roles of the first revision, each 
 
 - **The revision:** package 0.0.1, `share/watchbill/revision.sha256` at `444202f`. The SHA-256 of that file is `be95f6e6d527ef954eaa5a8fc64e00236322aee8e89558e025e72258e51d2fab`. The prompts were used as they stand, with the placeholders filled in.
 - **The project:** an open-source project of the owner's own, written in TypeScript and tested with `node:test`. Nothing of a client.
-- **Classed code** in that project, settled with the owner: its code classes `evidence` and `recording`.
-- **The plain task:** a tile on its dashboard, shown only in one case. Code of the class `reading`. Three requirements.
-- **The classed task:** a commit whose check results the writer always refuses is asked about at the usual pace and let go after a day. Code of the class `recording`. Three requirements, a fourth added during the run.
+- **Classed code** in that project, settled with the owner: two code classes of its own.
+- **The plain task:** a tile on its dashboard, shown only in one case. Code of no class. Three requirements.
+- **The classed task:** a change to how often a refused result is asked about. Code of one of the two classes. Three requirements, a fourth added during the run.
 - **Who started the sessions:** not the captain by hand, as #29 proposed. An agent session (Claude Opus 5.5) started them on the owner's word, one fresh session per role, and brought every `needs_person` to the owner, who decided each. #29's Run line asks for model fable; the session ran as Opus 5.5.
 - **What a session got:** the role's file, filled in, then a short note from the starting session marked as not part of the prompt: where to work, how to read the task, how to post. The prompts have no place for that (F-1).
 
-The project had no requirement IDs. Before the first session, the starting session numbered each task's requirements (R52.1 to R52.3, R162.1 to R162.4) and wrote into each task what may be read beside its files.
+The project had no requirement IDs. Before the first session, the starting session numbered each task's requirements (R1.1 to R1.3, R2.1 to R2.4) and wrote into each task what may be read beside its files.
 
 ## The sessions
 
@@ -37,8 +37,8 @@ The fix role had nothing to answer, so it did not run on this task, and there wa
 | 6 | build | 15 min | Built it in the one named file; listed three behaviours no test covers in the change's description. |
 | 7 | review, round 1 | 3 min | One `must`: after a refusal the gap doubled twice per ask, a regression the tests did not cover. Five `note`, one of them for a person. Classed: yes. |
 | 8 | fix, round 1 | 6 min | Fixed the `must`, test first. Also changed a helper of the tester's tests. |
-| 9 | tester | 1 min | Tests for R162.4, which the owner added from a note of round 1. Both red. |
-| 10 | build | 5 min | Built R162.4, adding a field to a stored file that the task did not name; said so in the description. |
+| 9 | tester | 1 min | Tests for R2.4, which the owner added from a note of round 1. Both red. |
+| 10 | build | 5 min | Built R2.4, adding a field to a stored file that the task did not name; said so in the description. |
 | 11 | review, round 2 | 3 min | Round 1's `must` fixed. A new `must` open. Classed: yes. |
 | 12 | fix, after round 2 | 11 min | The owner chose to fix the open `must`. Fixed, test first. The starting session checked it: the test fails on the code before and passes after. |
 
@@ -76,7 +76,7 @@ Each line names the issue that carries it, or says why it is left.
 - **F-4. Effort cannot be read back, and the exact model cannot be pinned by every starter.** Every session said effort `unknown`. Added to #31, which already proposes that the starter stamps them.
 - **F-5. A clause that already holds cannot be red.** "Every new test fails" met three guards ("as today", and a count the code already gave). The tester wrote them and said so; the prompt has no word for them. Issue #46.
 - **F-6. What may be read is not cut where the work needs it.** A task's file held both the interface and the body of the unit under test, so a tester opened the body to read the interface. Test helpers sit in files outside the list. A review may not read a function the change calls, and judged two "from how they are used". Issue #47.
-- **F-7. Tests from the requirement miss the cases the requirement does not name.** A requirement said "the same schedule as any watched head"; there were three kinds of head, and the tests covered one. Both `must` findings sat in the cases not named. Issue #48.
+- **F-7. Tests from the requirement miss the cases the requirement does not name.** A requirement said a rule held for every kind of a thing; there were three kinds, and the tests covered one. Both `must` findings sat in the cases not named. Issue #48.
 - **F-8. No step for a requirement added during a change, or for a fix after the last round.** A note became a requirement; the fix role answers `must` findings only, so a tester and a builder were started again on the same change. A `must` open after round 2 was fixed on the owner's word, and nothing says who checks that fix. Issue #49.
 - **F-9. The tester runs single test files, not the project's checks.** A task's "existing tests this changes: none" was wrong; only the type-check showed it, at the build. Issue #50.
 - **F-10. A helper of a test is not named as part of it.** The fixer gave the tester's helper a new argument. The change was harmless, but the prompt does not say whether a helper is part of the test it may not change. Part of #47.

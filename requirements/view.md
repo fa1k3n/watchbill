@@ -50,3 +50,11 @@ What a session of the tester, the build, the review or the fix sees when `wb sta
 | WB-VIEW-44 | A file line of `--in` and `--out` shall be the path alone, with no tab and no reason; `wb view <issue> <path>` is the place that says why. Issue: #209. | T | Implemented |
 | WB-VIEW-45 | `wb view` with `--in` or `--out` given a folder that is not in `HEAD` shall end with 1, saying it is not in `HEAD`. Issue: #209. | T | Implemented |
 | WB-VIEW-46 | `wb view` with `--in` or `--out` given a path that is a file shall end with 2, saying to use `wb view <issue> <path>`; a folder that starts with `/` or holds `..` shall end with 2. Issue: #209. | T | Implemented |
+| WB-VIEW-47 | A take-back shall refuse a commit that changes a path outside `changes`, under `.watchbill/` or `build_files`, a `.git` path, a tree not in git's form, or that is a merge, as the end of a session does: it shall end with 1, take nothing of that commit or after it, and keep the view. Issue: #223. | T | Draft |
+| WB-VIEW-48 | A take-back shall end with 1, naming the path and that the branch has moved on, and take nothing, where the checkout's `HEAD` is a descendant of the commit the view was made from whose changes touch a path that a commit of the view changes. Issue: #223. | T | Draft |
+| WB-VIEW-49 | A take-back shall put the commits on top of the checkout's `HEAD`, by a fast-forward, where it is a descendant of the commit the view was made from whose changes touch none of their paths. Issue: #223. | T | Draft |
+| WB-VIEW-50 | A take-back shall end with 1, naming the branch of the stamp, where the checkout is not on it, and take nothing. Issue: #223. | T | Draft |
+| WB-VIEW-51 | A take-back shall run no hook, filter, attribute or setting of the view. Issue: #223. | T | Draft |
+| WB-VIEW-52 | A take-back of a view that holds an object git would wait for (a FIFO) shall end with 1 within a bound, take nothing, and leave no temporary repository. Issue: #223. | T | Draft |
+| WB-VIEW-53 | A take-back shall name the paths left uncommitted in the view, not take them, end with 1 and keep the view. Issue: #223. | T | Draft |
+| WB-VIEW-54 | A take-back shall not take back the view of a session whose `outcome` says `running` while its `wb` is alive: it shall end with 1 saying the session still runs. Issue: #223. | T | Draft |

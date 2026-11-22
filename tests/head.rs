@@ -1,5 +1,6 @@
 //! `wb` runs a pattern of `watchbill.yml` only while the file is as `HEAD` has it (#186). Each command that runs
-//! a pattern, or reads `needs` or `build_files`, is refused with 1 where the file differs from `HEAD` or is not
+//! a pattern and hands something out or writes (not `wb status` and `wb view`, which only read: #254, below),
+//! is refused with 1 where the file differs from `HEAD` or is not
 //! committed, before anything runs or is posted. The patterns are stand-ins that write a file in a folder of the
 //! test: never the network.
 
@@ -124,7 +125,6 @@ type Command = fn(&Bench) -> Output;
 fn commands() -> Vec<(&'static str, Command)> {
     vec![
         ("wb start", |b| start_with(&b.repo.path, &b.org, true, &["start", "review", "54", "--change", "9"])),
-        ("wb status", |b| wb(&b.repo.path, &["status", "54"], "")),
         ("wb answer", |b| wb(&b.repo.path, &["answer", "54", "--suggested"], "")),
         ("wb revert", |b| wb(&b.repo.path, &["revert", "54", "review"], "")),
         ("wb accept", |b| {
@@ -202,7 +202,6 @@ fn test_WB_BUILD_40_no_option_that_a_command_takes_lifts_the_refusal() {
     put(&bench.repo.path, ".watchbill/issues/54.yml", ISSUE);
     let by_start = |words: &[&str]| start_with(&bench.repo.path, &bench.org, true, words);
     let runs: Vec<(&str, Output)> = vec![
-        ("wb status 54 --stage accepted", wb(&bench.repo.path, &["status", "54", "--stage", "accepted"], "")),
         ("wb accept 54 --no-commit", wb(&bench.repo.path, &["accept", "54", "--no-commit"], "")),
         ("wb answer 54 --suggested", wb(&bench.repo.path, &["answer", "54", "--suggested"], "")),
         ("wb revert 54 review --round 1", wb(&bench.repo.path, &["revert", "54", "review", "--round", "1"], "")),
@@ -262,7 +261,7 @@ fn test_WB_BUILD_39_wb_prompt_with_the_file_committed_runs_the_pattern_that_work
 fn test_WB_BUILD_41_the_refusal_names_the_file_and_says_what_a_person_does() {
     let bench = bench();
     bench.add("needs: 'true'");
-    let run = wb(&bench.repo.path, &["status"], "");
+    let run = wb(&bench.repo.path, &["revert", "54", "review"], "");
     assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
     held_words(&run);
     assert!(text(&run.stderr).contains("HEAD"), "{}", text(&run.stderr));
@@ -275,4 +274,320 @@ fn test_WB_BUILD_42_wb_init_is_not_held_where_the_file_is_not_in_head() {
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(config(&repo.path).is_file());
     assert!(!text(&run.stderr).contains("a person reads the change"));
+}
+
+// ---- #254: the two commands that only read say that the file differs, and go on with the file of HEAD ----
+
+const DRIFT: &str = ".watchbill/watchbill.yml differs from HEAD";
+
+/// The bench with the accepted file of issue 54 and the code it names committed: `wb view` reads them.
+fn view_bench() -> Bench {
+    let bench = bench();
+    put(&bench.repo.path, ".watchbill/issues/54.yml", ISSUE);
+    let run = wb(&bench.repo.path, &["accept", "54", "--no-commit"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    put(&bench.repo.path, "src/brake.c", "int brake_hold(void) { return 1; }\n");
+    put(&bench.repo.path, "build/Makefile", "all:\n");
+    git(&bench.repo.path, &["add", "--", ".watchbill/issues", "src", "build"]);
+    git(&bench.repo.path, &["commit", "-q", "-m", "The issue and the code"]);
+    bench
+}
+
+impl Bench {
+    /// Replaces the line of the key `key` in `watchbill.yml`, in the working tree only.
+    fn change(&self, key: &str, line: &str) {
+        let yml = read(&config(&self.repo.path));
+        let mut found = false;
+        let mut changed: Vec<String> = yml
+            .lines()
+            .map(|old| {
+                if old.starts_with(&format!("{}:", key)) {
+                    found = true;
+                    line.to_string()
+                } else {
+                    old.to_string()
+                }
+            })
+            .collect();
+        assert!(found, "no line for {}", key);
+        changed.push(String::new());
+        fs::write(config(&self.repo.path), changed.join("\n")).unwrap();
+    }
+
+    fn marker(&self) -> PathBuf {
+        self.log.path.join("marker")
+    }
+}
+
+#[test]
+fn test_WB_BUILD_58_wb_status_with_a_changed_file_says_so_in_one_line_and_ends_as_it_would_with_the_file_of_head() {
+    let same = bench();
+    let before = wb(&same.repo.path, &["status", "54"], "");
+    let bench = bench();
+    bench.add("needs: 'true'");
+    let run = wb(&bench.repo.path, &["status", "54"], "");
+    assert_eq!(code(&run), code(&before), "{}", text(&run.stderr));
+    assert_eq!(text(&run.stdout), text(&before.stdout));
+    // The same as with the file of HEAD (the stand-in tracker is not there, so it ends with 1 either way), and one line more.
+    let (said, rest) = text(&run.stderr).split_once('\n').map(|(a, b)| (a.to_string(), b.to_string())).unwrap();
+    assert!(said.contains(DRIFT), "{}", text(&run.stderr));
+    assert_eq!(rest, text(&before.stderr));
+    assert!(!text(&run.stderr).contains("a person reads the change"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_58_wb_status_warns_of_a_file_that_is_staged_and_not_committed_and_goes_on() {
+    let bench = bench();
+    bench.add("needs: 'true'");
+    git(&bench.repo.path, &["add", "--", ".watchbill/watchbill.yml"]);
+    let run = wb(&bench.repo.path, &["status"], "");
+    assert!(text(&run.stderr).contains(DRIFT), "{}", text(&run.stderr));
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_58_wb_status_with_the_file_as_head_has_it_says_nothing_of_it() {
+    let bench = bench();
+    let run = wb(&bench.repo.path, &["status", "54"], "");
+    assert!(!text(&run.stderr).contains("differs from HEAD"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_59_a_pattern_changed_only_in_the_working_tree_is_not_run_by_wb_status() {
+    let bench = bench();
+    let l = bench.log.path.to_str().unwrap();
+    bench.change("issue_comments", &format!("issue_comments: 'touch {l}/marker; {l}/comments.sh'"));
+    let run = wb(&bench.repo.path, &["status", "54"], "");
+    assert!(text(&run.stderr).contains(DRIFT), "{}", text(&run.stderr));
+    assert!(!bench.marker().exists(), "the pattern of the working tree ran");
+    // The pattern of HEAD ran.
+    assert_eq!(bench.ran(), "comments\n", "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_59_wb_status_takes_the_branch_pattern_from_head_not_the_working_tree() {
+    let bench = bench();
+    git(&bench.repo.path, &["checkout", "-q", "-b", "issue-77"]);
+    put(&bench.repo.path, "a.txt", "a\n");
+    git(&bench.repo.path, &["add", "--", "a.txt"]);
+    git(&bench.repo.path, &["commit", "-q", "-m", "Work"]);
+    git(&bench.repo.path, &["checkout", "-q", "main"]);
+    bench.add("branch: 'other-{issue}'");
+    let run = wb(&bench.repo.path, &["status"], "");
+    assert!(text(&run.stderr).contains(DRIFT), "{}", text(&run.stderr));
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("77"), "the branch pattern of HEAD was not read: {}", text(&run.stdout));
+}
+
+#[test]
+fn test_WB_BUILD_59_a_replace_ref_does_not_put_a_pattern_into_what_wb_status_runs() {
+    let bench = bench();
+    let l = bench.log.path.to_str().unwrap();
+    git(&bench.repo.path, &["checkout", "-q", "-b", "side"]);
+    bench.change("issue_comments", &format!("issue_comments: 'touch {l}/marker'"));
+    bench.commit();
+    git(&bench.repo.path, &["checkout", "-q", "main"]);
+    git(&bench.repo.path, &["replace", "--force", "main", "side"]);
+    git(&bench.repo.path, &["--no-replace-objects", "checkout", "-q", "side", "--", ".watchbill/watchbill.yml"]);
+    git(&bench.repo.path, &["--no-replace-objects", "reset", "-q", "--", ".watchbill/watchbill.yml"]);
+    let run = wb(&bench.repo.path, &["status", "54"], "");
+    assert!(!bench.marker().exists(), "{}", text(&run.stderr));
+    assert_eq!(bench.ran(), "comments\n", "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_60_wb_view_with_a_changed_file_says_so_in_one_line_and_goes_on() {
+    let bench = view_bench();
+    bench.add("needs: 'true'");
+    let run = wb(&bench.repo.path, &["view", "54", "build"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(text(&run.stdout), "src/brake.c\n");
+    assert_eq!(text(&run.stderr).lines().count(), 1, "{}", text(&run.stderr));
+    assert!(text(&run.stderr).contains(DRIFT), "{}", text(&run.stderr));
+    let again = wb(&bench.repo.path, &["view", "54", "src/other.c"], "");
+    assert!(text(&again.stderr).contains(DRIFT), "{}", text(&again.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_61_wb_view_reads_build_files_from_head_not_the_working_tree_and_runs_no_pattern() {
+    let bench = view_bench();
+    let l = bench.log.path.to_str().unwrap();
+    // HEAD has `build_files: [build]`; the working tree has another entry, which would change the listing.
+    bench.add("build_files: [build]");
+    bench.commit();
+    bench.change("build_files", "build_files: [docs]");
+    bench.add(&format!("needs: 'touch {l}/marker'"));
+    let run = wb(&bench.repo.path, &["view", "54", "build/Makefile"], "");
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    assert!(text(&run.stderr).contains(DRIFT), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("build: out: under `build_files` of watchbill.yml (build)"), "{}", text(&run.stdout));
+    assert!(!bench.marker().exists(), "a pattern ran");
+    assert_eq!(bench.ran(), "", "wb view ran a pattern");
+    let other = wb(&bench.repo.path, &["view", "54", "docs/a.md"], "");
+    assert!(!text(&other.stdout).contains("`build_files`"), "the working tree's build_files was read: {}", text(&other.stdout));
+}
+
+#[test]
+fn test_WB_BUILD_63_a_file_missing_from_the_working_tree_but_in_head_counts_as_differing_and_the_commands_go_on() {
+    let bench = view_bench();
+    fs::remove_file(config(&bench.repo.path)).unwrap();
+    let status = wb(&bench.repo.path, &["status"], "");
+    assert_eq!(code(&status), Some(0), "{}", text(&status.stderr));
+    assert!(text(&status.stderr).contains(DRIFT), "{}", text(&status.stderr));
+    let view = wb(&bench.repo.path, &["view", "54", "build"], "");
+    assert_eq!(code(&view), Some(0), "{}", text(&view.stderr));
+    assert_eq!(text(&view.stdout), "src/brake.c\n");
+    assert!(text(&view.stderr).contains(DRIFT), "{}", text(&view.stderr));
+    // The pattern of HEAD ran for the status of an issue.
+    let one = wb(&bench.repo.path, &["status", "54"], "");
+    assert_eq!(bench.ran(), "comments\n", "{}", text(&one.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_63_neither_in_the_working_tree_nor_in_head_ends_with_2_as_not_set_up() {
+    let repo = repository(None);
+    for words in [&["status"][..], &["view", "54", "build"]] {
+        let run = wb(&repo.path, words, "");
+        assert_eq!(code(&run), Some(2), "{:?}: {}", words, text(&run.stderr));
+        assert!(text(&run.stderr).contains("is not there. Watchbill is not set up"), "{}", text(&run.stderr));
+    }
+}
+
+#[test]
+fn test_WB_BUILD_64_the_read_only_mode_ends_with_the_guard_and_held_refuses_again_after_it() {
+    let bench = bench();
+    bench.add("needs: 'true'");
+    let root = bench.repo.path.to_str().unwrap();
+    assert!(watchbill::starter::held(root).is_err());
+    {
+        let (_guard, differs) = watchbill::starter::read_only(root).unwrap();
+        assert!(differs);
+        assert!(watchbill::starter::held(root).is_ok(), "the mode is not in force while the guard is held");
+    }
+    let why = watchbill::starter::held(root).unwrap_err();
+    assert!(why.contains(".watchbill/watchbill.yml differs from HEAD"), "{}", why);
+}
+
+#[test]
+fn test_WB_BUILD_58_the_warning_is_two_sentences_naming_the_file_and_the_command() {
+    let bench = bench();
+    bench.add("needs: 'true'");
+    let run = wb(&bench.repo.path, &["status"], "");
+    assert!(
+        text(&run.stderr).starts_with("wb status: .watchbill/watchbill.yml differs from HEAD. It goes on with the file as HEAD has it: a pattern changed only in the working tree is not run."),
+        "{}",
+        text(&run.stderr)
+    );
+}
+
+#[test]
+fn test_WB_BUILD_62_wb_status_and_wb_view_end_with_2_where_the_file_is_not_in_head_at_all() {
+    for words in [&["status", "54"][..], &["view", "54", "build"]] {
+        let bench = view_bench();
+        git(&bench.repo.path, &["rm", "-q", "--cached", "--", ".watchbill/watchbill.yml"]);
+        git(&bench.repo.path, &["commit", "-q", "-m", "Take the file out of git"]);
+        let run = wb(&bench.repo.path, words, "");
+        assert_eq!(code(&run), Some(2), "{:?}: {}", words, text(&run.stderr));
+        assert!(text(&run.stderr).contains(".watchbill/watchbill.yml is not in HEAD"), "{}", text(&run.stderr));
+        assert_eq!(bench.ran(), "", "{:?}", words);
+    }
+}
+
+#[test]
+fn test_WB_BUILD_39_wb_prompt_and_wb_start_are_still_refused_with_1_where_the_file_differs() {
+    let bench = bench();
+    bench.add("needs: 'true'");
+    let runs = [
+        wb(&bench.repo.path, &["prompt", "review", "54", "--change", "9"], ""),
+        start_with(&bench.repo.path, &bench.org, true, &["start", "review", "54", "--change", "9"]),
+    ];
+    for run in runs {
+        assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+        held_words(&run);
+    }
+    assert_eq!(bench.ran(), "");
+}
+
+/// `wb` run for at most `seconds`: a command that hangs is killed and ends the test with a failure, not the suite.
+fn wb_within(folder: &Path, args: &[&str], seconds: u64) -> Output {
+    // wb is started under a cap of 1 GiB, so that a wb that reads without end
+    // fails the test and does not take the memory of the machine.
+    // prlimit executes wb in its own place, so the child's ID is wb's.
+    let child = std::process::Command::new("prlimit")
+        .arg("--as=1073741824")
+        .arg("--")
+        .arg(env!("CARGO_BIN_EXE_wb"))
+        .args(args)
+        .current_dir(folder)
+        .env_clear()
+        .envs(env())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("wb could not be started");
+    let id = child.id();
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = send.send(child.wait_with_output());
+    });
+    match receive.recv_timeout(std::time::Duration::from_secs(seconds)) {
+        Ok(done) => done.expect("wb could not be waited for"),
+        Err(_) => {
+            // Only the child this test started is ended.
+            let _ = std::process::Command::new("kill").args(["-9", &id.to_string()]).status();
+            panic!("wb {:?} did not end within {} seconds", args, seconds);
+        }
+    }
+}
+
+/// What `wb status` and `wb view` print and end with where the file in the working tree is not a plain file of
+/// a size they read: the same as with the file of `HEAD`, and the warning.
+fn assert_goes_on_as_with_head(bench: &Bench, what: &str) {
+    for words in [&["status"][..], &["view", "54", "build"]] {
+        let run = wb_within(&bench.repo.path, words, 10);
+        assert_eq!(code(&run), Some(0), "{} {:?}: {}", what, words, text(&run.stderr));
+        assert!(text(&run.stderr).contains(DRIFT), "{} {:?}: {}", what, words, text(&run.stderr));
+    }
+    let view = wb_within(&bench.repo.path, &["view", "54", "build"], 10);
+    assert_eq!(text(&view.stdout), "src/brake.c\n", "{}", what);
+}
+
+#[test]
+fn test_WB_BUILD_65_a_fifo_in_the_place_of_the_file_counts_as_differing_and_is_not_read() {
+    let bench = view_bench();
+    fs::remove_file(config(&bench.repo.path)).unwrap();
+    let made = std::process::Command::new("mkfifo").arg(config(&bench.repo.path)).status().unwrap();
+    assert!(made.success());
+    assert_goes_on_as_with_head(&bench, "a FIFO");
+}
+
+#[test]
+fn test_WB_BUILD_65_a_symlink_in_the_place_of_the_file_counts_as_differing_and_is_not_followed() {
+    let bench = view_bench();
+    fs::remove_file(config(&bench.repo.path)).unwrap();
+    std::os::unix::fs::symlink("/dev/zero", config(&bench.repo.path)).unwrap();
+    assert_goes_on_as_with_head(&bench, "a symlink to /dev/zero");
+    // A wb that reads /dev/zero stops at the cap of wb_within and may still
+    // count the file as differing, so the case above can pass without the
+    // code. A symlink to a FIFO that no one writes to cannot: a wb that
+    // follows the link waits for ever and the test fails on the time.
+    let pipe = bench.log.path.join("pipe");
+    let made = std::process::Command::new("mkfifo").arg(&pipe).status().unwrap();
+    assert!(made.success());
+    fs::remove_file(config(&bench.repo.path)).unwrap();
+    std::os::unix::fs::symlink(&pipe, config(&bench.repo.path)).unwrap();
+    assert_goes_on_as_with_head(&bench, "a symlink to a FIFO");
+}
+
+#[test]
+fn test_WB_BUILD_65_a_file_over_1_mib_counts_as_differing_and_a_folder_does_too() {
+    let bench = view_bench();
+    let mut big = read(&config(&bench.repo.path));
+    big.push_str(&format!("# {}\n", "x".repeat(2 * 1024 * 1024)));
+    fs::write(config(&bench.repo.path), big).unwrap();
+    assert_goes_on_as_with_head(&bench, "a file over 1 MiB");
+    fs::remove_file(config(&bench.repo.path)).unwrap();
+    fs::create_dir(config(&bench.repo.path)).unwrap();
+    assert_goes_on_as_with_head(&bench, "a folder");
 }

@@ -1697,10 +1697,19 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
         }
         Ok(Some(root)) => root,
     };
-    if !Path::new(&root).join(init::CONFIG_FOLDER).join(init::CONFIG_FILE).is_file() {
-        let _ = writeln!(err, "{}: .watchbill/watchbill.yml is not there. Watchbill is not set up in this repository.", name);
-        return 2;
-    }
+    // `wb view` only reads (#254): a file that differs from `HEAD` is said, and `HEAD`'s file is the one read.
+    let _read_only = match starter::read_only(&root) {
+        Err(why) => {
+            let _ = writeln!(err, "{}: {}.", name, why);
+            return 2;
+        }
+        Ok((guard, differs)) => {
+            if differs {
+                let _ = writeln!(err, "{}", starter::drift_line(name));
+            }
+            guard
+        }
+    };
     let refused = |err: &mut dyn Write, why: &str| {
         let _ = writeln!(err, "{}: {}", name, why);
         1
@@ -1708,7 +1717,6 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
     if role == Some("breakdown") {
         return refused(err, "the breakdown runs without a view: it reads the whole code by its role");
     }
-    // `watchbill.yml` as `HEAD` has it (#186), as the start reads it.
     let settings = match starter::settings(&root) {
         Ok(settings) => settings,
         Err(why) => return refused(err, &why),

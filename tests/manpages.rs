@@ -119,3 +119,82 @@ fn test_WB_PKG_23_the_spec_installs_and_owns_the_pages() {
     assert!(spec.lines().any(|line| line == "%{_mandir}/man1/wb.1*"), "%files lacks wb.1");
     assert!(spec.lines().any(|line| line == "%{_mandir}/man1/wb-*.1*"), "%files lacks the pages of the commands");
 }
+
+/// The text of a page with the roff escapes out: `\-` is `-`, `\e` is `\`, `\&` and the font changes are gone.
+fn plain(text: &str) -> String {
+    text.replace("\\&", "").replace("\\fB", "").replace("\\fR", "").replace("\\fI", "").replace("\\fP", "").replace("\\-", "-").replace("\\e", "\\")
+}
+
+/// The lines of the section of a page, up to the next `.SH`.
+fn section(text: &str, name: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut inside = false;
+    for line in text.lines() {
+        if let Some(heading) = line.strip_prefix(".SH ") {
+            inside = heading == name;
+        } else if inside {
+            found.push(line.to_string());
+        }
+    }
+    found
+}
+
+#[test]
+fn test_WB_CMD_24_the_synopsis_is_the_usage_line_and_the_options_are_the_flags_of_the_usage() {
+    for command in built() {
+        let text = page(&format!("wb-{}.1", command));
+        // The synopsis, between .nf and .fi, against the usage lines of `wb help <command>`, word for word.
+        let synopsis: Vec<String> = plain(&section(&text, "SYNOPSIS").join("\n")).lines().filter(|line| !line.starts_with('.')).map(String::from).collect();
+        let page_words: Vec<String> = synopsis.join(" ").split_whitespace().map(String::from).collect();
+        let help = watchbill::layout::help_of(&command, watchbill::USAGE).unwrap();
+        let usage_part = help.split("\n\n").next().unwrap();
+        let usage_words: Vec<String> = usage_part.lines().skip(1).collect::<Vec<_>>().join(" ").split_whitespace().map(String::from).collect();
+        assert_eq!(page_words, usage_words, "{}: the SYNOPSIS is not the usage line", command);
+        // The flags of the `.B --...` lines of OPTIONS, exactly those of the usage.
+        let mut flags = BTreeSet::new();
+        for line in section(&text, "OPTIONS") {
+            if let Some(rest) = line.strip_prefix(".B ") {
+                for word in plain(rest).split(|c: char| c.is_whitespace() || c == ',') {
+                    if word.starts_with("--") {
+                        flags.insert(word.to_string());
+                    }
+                }
+            }
+        }
+        assert_eq!(flags, usage_flags(&command), "{}: the OPTIONS are not the flags of the usage", command);
+    }
+}
+
+/// The words of the lines of a text that are not requests, joined by one space.
+fn joined(text: &str) -> String {
+    plain(text).lines().filter(|line| !line.starts_with('.')).collect::<Vec<_>>().join(" ").split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+#[test]
+fn test_WB_CMD_25_each_sentence_of_the_help_is_in_the_page() {
+    for command in built() {
+        let help = watchbill::layout::help_of(&command, watchbill::USAGE).unwrap();
+        let paragraph = help.split("\n\n").nth(1).unwrap_or_else(|| panic!("{}: no paragraph", command));
+        let paragraph = paragraph.trim_start().strip_prefix(command.as_str()).unwrap().to_string();
+        let paragraph = paragraph.split_whitespace().collect::<Vec<_>>().join(" ");
+        let text = joined(&page(&format!("wb-{}.1", command)));
+        let sentences: Vec<&str> = paragraph.split(". ").map(|sentence| sentence.trim().trim_end_matches('.')).filter(|sentence| !sentence.is_empty()).collect();
+        assert!(sentences.len() >= 2, "{}", command);
+        for sentence in sentences {
+            // The help begins in lower case, after the name of the command; the page may begin in capitals.
+            let capital: String = sentence.chars().next().unwrap().to_uppercase().chain(sentence.chars().skip(1)).collect();
+            assert!(text.contains(sentence) || text.contains(&capital), "wb-{}.1 lacks: {}", command, sentence);
+        }
+    }
+}
+
+#[test]
+fn test_WB_CMD_26_the_exit_status_of_each_page_names_0_1_and_2() {
+    for command in built() {
+        let text = page(&format!("wb-{}.1", command));
+        let lines = section(&text, "EXIT STATUS");
+        for status in ["0", "1", "2"] {
+            assert!(lines.iter().any(|line| *line == format!(".B {}", status)), "wb-{}.1 does not name the status {}", command, status);
+        }
+    }
+}

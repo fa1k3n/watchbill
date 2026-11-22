@@ -27,3 +27,6 @@ Which commands `wb` has, how they are grouped, and what a planned one says.
 | WB-CMD-21 | The headings the completion offers after `--stage` shall be those of `wb status`: `STEPS`, `QUESTIONS` and `NOT_READ`. Issue: #220. | T | Implemented |
 | WB-CMD-22 | Each built command shall have a man page of section 1 in `packaging/man/`, `wb-<command>.1`, with its name and a line of NAME, that names every flag `wb help <command>` names for it, and no page shall be there for a command that is not built. Issue: #182. | T | Implemented |
 | WB-CMD-23 | The page `wb.1` shall name each built command and no other, each as a reference to its page. Issue: #182. | T | Implemented |
+| WB-CMD-24 | The SYNOPSIS of each man page shall be the usage line of its command, word for word, and the `.B` lines of its OPTIONS shall name exactly the flags `wb help <command>` names. Issue: #182. | T | Implemented |
+| WB-CMD-25 | Each sentence of the paragraph of `wb help <command>` shall be in the man page of the command, with the roff escapes out and the lines joined; a sentence only the page has is allowed. Issue: #182. | T | Implemented |
+| WB-CMD-26 | The EXIT STATUS of each man page shall name 0, 1 and 2. Issue: #182. | T | Implemented |

@@ -7,13 +7,17 @@ wb\-revision \- print the version, the revision and its manifest
 .fi
 .SH DESCRIPTION
 .PP
-Print the version of the package, the hash of its revision and the manifest: the hash of every file the revision holds.
-.PP
-It writes nothing.
+Print the version of the package, the hash of its revision and the manifest: the hash of every file the revision holds. Writes nothing.
 .SH EXIT STATUS
 .TP
 .B 0
 It is printed.
+.TP
+.B 1
+The manifest could not be made.
+.TP
+.B 2
+It was given a word: it takes none.
 .SH SEE ALSO
 .BR wb (1) ,
 .BR wb\-check (1) ,

@@ -132,3 +132,61 @@ fn test_WB_PKG_22_the_spec_installs_the_completion_and_a_link_for_watchbill() {
     }
     assert!(!spec.contains("Requires:       bash-completion"), "the package must not require bash-completion");
 }
+
+/// The word list of each `compgen -W` of the completion: the text of its quoted argument.
+fn word_lists(text: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for line in text.lines().filter(|line| !line.trim_start().starts_with('#')) {
+        let mut rest = line;
+        while let Some(at) = rest.find("compgen -W ") {
+            rest = &rest[at + "compgen -W ".len()..];
+            let body = rest.strip_prefix('"').expect("a word list of compgen -W is not in double quotes");
+            let end = body.find("\" --").expect("a word list of compgen -W has no end");
+            found.push(body[..end].to_string());
+            rest = &body[end..];
+        }
+    }
+    found
+}
+
+#[test]
+fn test_WB_CMD_20_no_word_list_of_compgen_is_made_by_a_command_or_holds_a_name_from_disk() {
+    // `compgen -W` expands its list a second time, so a file name in it would run as code. A list is made of
+    // the fixed lists of the file, the flags of a command that is one of those, and literal words.
+    let text = completion();
+    let lists = word_lists(&text);
+    assert!(lists.len() >= 4, "{:?}", lists);
+    let fixed = ["$_wb_commands", "$_wb_roles", "${!var-}"];
+    for list in &lists {
+        let mut left = list.clone();
+        for variable in fixed {
+            left = left.replace(variable, "");
+        }
+        assert!(!left.contains('$') && !left.contains('`') && !left.contains('\\') && !left.contains('('), "compgen -W \"{}\"", list);
+    }
+    assert!(!text.lines().any(|line| !line.trim_start().starts_with('#') && line.contains("eval ")), "the file uses eval");
+}
+
+#[test]
+fn test_WB_CMD_21_the_stage_words_of_the_completion_are_the_headings_of_wb_status() {
+    let source = fs::read_to_string(root().join("src/status.rs")).unwrap();
+    let quoted = |text: &str| -> BTreeSet<String> { text.split('"').skip(1).step_by(2).map(String::from).collect() };
+    let line_of = |start: &str| source.lines().find(|line| line.starts_with(start)).unwrap_or_else(|| panic!("{} not found", start)).to_string();
+    let mut headings = quoted(line_of("pub const STEPS").split_once('=').unwrap().1);
+    headings.extend(quoted(&line_of("pub const QUESTIONS")));
+    headings.extend(quoted(&line_of("pub const NOT_READ")));
+    assert_eq!(headings.len(), 9);
+    // `_wb_stages=("Not broken down" Accepted ...)`: words in double quotes, or bare.
+    let text = completion();
+    let line = text.lines().find(|line| line.starts_with("_wb_stages=(")).expect("no _wb_stages");
+    let inside = line.strip_prefix("_wb_stages=(").unwrap().strip_suffix(')').unwrap();
+    let mut found = BTreeSet::new();
+    for (i, part) in inside.split('"').enumerate() {
+        if i % 2 == 1 {
+            found.insert(part.to_string());
+        } else {
+            found.extend(part.split_whitespace().map(String::from));
+        }
+    }
+    assert_eq!(found, headings);
+}

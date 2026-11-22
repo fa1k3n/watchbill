@@ -23,3 +23,5 @@ Which commands `wb` has, how they are grouped, and what a planned one says.
 | WB-CMD-17 | The completion shall offer, for each command, the flags `USAGE` names for it, and no other. Issue: #220. | T | Implemented |
 | WB-CMD-18 | The completion shall offer the roles of the revision where a role goes, and the numbers of the files in `.watchbill/issues/` of the checkout where an issue goes. Issue: #220. | T | Implemented |
 | WB-CMD-19 | The completion shall run no `wb` and no pattern, ask nothing of the network, and write nothing. Issue: #220. | I | Implemented |
+| WB-CMD-20 | No word list that the completion gives to `compgen -W` shall be made by a command or hold a name read from disk: it shall be made of the fixed lists of the file, the flags of a command of those, and literal words; names of issues and paths shall be matched in bash. Issue: #220. | T | Implemented |
+| WB-CMD-21 | The headings the completion offers after `--stage` shall be those of `wb status`: `STEPS`, `QUESTIONS` and `NOT_READ`. Issue: #220. | T | Implemented |

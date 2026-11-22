@@ -18,27 +18,36 @@ _wb_flags_answer="--change --suggested"
 _wb_flags_revert="--change --round"
 _wb_flags_prompt="--issue --change --requirements --round --checkout --branch --issue_address --change_address --runner --parts --stamp"
 
-# The numbers of the files .watchbill/issues/<n>.yml of the checkout.
-_wb_issues() {
-    local top file
+# Adds to COMPREPLY the issues that start with $cur: the names of the files .watchbill/issues/<name>.yml of the
+# checkout that wb takes as an issue (letters, digits, . _ -, at most 64, not starting with a dot). A name read
+# from disk is only matched here, never expanded: it does not go through compgen -W, eval or a command.
+_wb_add_issues() {
+    local top file name
     top=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
     for file in "$top"/.watchbill/issues/*.yml; do
         [[ -e $file ]] || continue
-        file=${file##*/}
-        printf '%s\n' "${file%.yml}"
+        name=${file##*/}
+        name=${name%.yml}
+        [[ $name =~ ^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$ ]] || continue
+        [[ $name == "$cur"* ]] && COMPREPLY+=("$name")
     done
+    return 0
 }
 
 _wb() {
-    local cur=${COMP_WORDS[COMP_CWORD]} prev="" command word i position=0 flags var stage
+    local cur=${COMP_WORDS[COMP_CWORD]} prev="" command word i position=0 flags var stage files changed=0
     COMPREPLY=()
     ((COMP_CWORD > 0)) && prev=${COMP_WORDS[COMP_CWORD - 1]}
 
     if ((COMP_CWORD == 1)); then
-        COMPREPLY=($(compgen -W "$_wb_commands --version --help" -- "$cur"))
+        COMPREPLY=($(compgen -W "$_wb_commands help --version --help" -- "$cur"))
         return 0
     fi
     command=${COMP_WORDS[1]}
+    if [[ $command == help ]]; then
+        ((COMP_CWORD == 2)) && COMPREPLY=($(compgen -W "$_wb_commands" -- "$cur"))
+        return 0
+    fi
     case " $_wb_commands " in
     *" $command "*) ;;
     *) return 0 ;;
@@ -60,7 +69,7 @@ _wb() {
 
     if [[ $cur == --* ]]; then
         var=_wb_flags_$command
-        COMPREPLY=($(compgen -W "${!var}" -- "$cur"))
+        COMPREPLY=($(compgen -W "${!var-}" -- "$cur"))
         return 0
     fi
 
@@ -68,7 +77,11 @@ _wb() {
     for ((i = 2; i < COMP_CWORD; i++)); do
         word=${COMP_WORDS[i]}
         case $word in
-        --stage | --runner | --issue | --change | --requirements | --round | --checkout | --branch | --issue_address | --change_address)
+        --change)
+            changed=1
+            ((i++))
+            ;;
+        --stage | --runner | --issue | --requirements | --round | --checkout | --branch | --issue_address | --change_address)
             ((i++))
             ;;
         --*) ;;
@@ -76,28 +89,34 @@ _wb() {
         esac
     done
 
+    # --change <n> takes the place of the issue in revert and answer.
+    case $command in
+    revert | answer) position=$((position + changed)) ;;
+    esac
+
     case $command in
     prompt | start)
         case $position in
         0) COMPREPLY=($(compgen -W "$_wb_roles" -- "$cur")) ;;
-        1) COMPREPLY=($(compgen -W "$(_wb_issues)" -- "$cur")) ;;
+        1) _wb_add_issues ;;
         esac
         ;;
     revert)
         case $position in
-        0) COMPREPLY=($(compgen -W "$(_wb_issues)" -- "$cur")) ;;
+        0) _wb_add_issues ;;
         1) COMPREPLY=($(compgen -W "$_wb_roles" -- "$cur")) ;;
         esac
         ;;
     accept | status | answer)
-        ((position == 0)) && COMPREPLY=($(compgen -W "$(_wb_issues)" -- "$cur"))
+        ((position == 0)) && _wb_add_issues
         ;;
     view)
         case $position in
-        0) COMPREPLY=($(compgen -W "$(_wb_issues)" -- "$cur")) ;;
+        0) _wb_add_issues ;;
         1)
             COMPREPLY=($(compgen -W "$_wb_roles" -- "$cur"))
-            COMPREPLY+=($(compgen -f -- "$cur"))
+            mapfile -t files < <(compgen -f -- "$cur")
+            COMPREPLY+=("${files[@]}")
             compopt -o filenames 2>/dev/null
             ;;
         esac

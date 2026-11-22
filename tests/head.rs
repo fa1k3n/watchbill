@@ -439,9 +439,12 @@ fn test_WB_BUILD_62_wb_status_and_wb_view_end_with_2_where_the_file_is_not_in_he
 fn test_WB_BUILD_39_wb_prompt_and_wb_start_are_still_refused_with_1_where_the_file_differs() {
     let bench = bench();
     bench.add("needs: 'true'");
-    for words in [&["prompt", "review", "54", "--change", "9"][..], &["start", "review", "54", "--change", "9"]] {
-        let run = wb(&bench.repo.path, words, "");
-        assert_eq!(code(&run), Some(1), "{:?}: {}", words, text(&run.stderr));
+    let runs = [
+        wb(&bench.repo.path, &["prompt", "review", "54", "--change", "9"], ""),
+        start_with(&bench.repo.path, &bench.org, true, &["start", "review", "54", "--change", "9"]),
+    ];
+    for run in runs {
+        assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
         held_words(&run);
     }
     assert_eq!(bench.ran(), "");

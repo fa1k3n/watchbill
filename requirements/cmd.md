@@ -19,3 +19,7 @@ Which commands `wb` has, how they are grouped, and what a planned one says.
 | WB-CMD-13 | `wb help help` shall print the usage of `help`. Issue: #171. | T | Implemented |
 | WB-CMD-14 | The usage that `wb` prints on a wrong word shall name each built command once, at the start of a line, with its forms as alternatives on that line. Issue: #208. | T | Implemented |
 | WB-CMD-15 | The usage that `wb` prints on a wrong word shall list the built commands in the order of `wb help`. Issue: #208. | T | Implemented |
+| WB-CMD-16 | The bash completion of `wb` and `watchbill` shall offer the built commands of the one list, and no other, after `wb`. Issue: #220. | T | Draft |
+| WB-CMD-17 | The completion shall offer, for each command, the flags `USAGE` names for it, and no other. Issue: #220. | T | Draft |
+| WB-CMD-18 | The completion shall offer the roles of the revision where a role goes, and the numbers of the files in `.watchbill/issues/` of the checkout where an issue goes. Issue: #220. | T | Draft |
+| WB-CMD-19 | The completion shall run no `wb` and no pattern, ask nothing of the network, and write nothing. Issue: #220. | I | Draft |

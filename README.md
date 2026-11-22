@@ -71,7 +71,7 @@ At 0.11.0. An issue that changes a verdict changes its row.
 
 ### Not goals
 
-- Reports. `wb` keeps its state in git (decided, not built: [point 15](docs/revision.md#15-identity-history-and-trust)), and a report of it is for the team's own tools or a recorder, such as [Handover Ledger](https://github.com/fa1k3n/handover-ledger).
+- Reports. `wb` keeps its state in git (decided, not built: [point 15](docs/revision.md#15-identity-history-and-trust)), and a report of it is for the team's own tools or a recorder.
 - A backlog or priorities. What is built next, and in which order, is a person's.
 - Assignment of work to people, and discussion. Those stay at the tracker; `wb` posts notices there.
 - A dashboard.
@@ -395,7 +395,7 @@ wb view 54 src/brake.c        # in or out, for each role, and why
 
 A view keeps the rest of the code and the history away from a session. It does not keep everything:
 
-- **The network is the machine's.** A session in a view shares the network of the machine, so it can reach every service that listens on this machine: `localhost`, a database, a local model server, `howl serve`, and anything else with no login. It can reach the rest of the network too. It is not held to its runner's model. Until the sandbox has a network of its own (#195, planned for 0.12.0), a team runs no service without a login on a machine while sessions run on it.
+- **The network is the machine's.** A session in a view shares the network of the machine, so it can reach every service that listens on this machine: `localhost`, a database, a local model server, and anything else with no login. It can reach the rest of the network too. It is not held to its runner's model. Until the sandbox has a network of its own (#195, planned for 0.12.0), a team runs no service without a login on a machine while sessions run on it.
 - **Every file of the lists goes to the model**, as the session reads it. The level of the repository still decides which runner may have them. A view decides how much is seen, not where it is sent.
 - **A test that passes or fails tells one bit** about code the session cannot read, at each try. A session that runs the tests many times learns more.
 - **The runner's own settings and login are inside the view**, as its `binds`. What the runner keeps there, the session can read.
@@ -905,10 +905,6 @@ Every line ends in `OK` when the files are the revision. `revisions.txt` beside 
 ## The name
 
 A watch bill is a ship's posted list of who stands which watch at which station.
-
-## Beside Handover Ledger
-
-Watchbill is a product of its own. [Handover Ledger](https://github.com/fa1k3n/handover-ledger) records the handovers in a team and can be used to monitor a team that runs Watchbill. Watchbill does not need it.
 
 ## The revision
 

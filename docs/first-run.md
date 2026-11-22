@@ -5,9 +5,9 @@ On 2026-11-17 two real tasks went through the roles of the first revision, each 
 ## What was run
 
 - **The revision:** package 0.0.1, `share/watchbill/revision.sha256` at `444202f`. The SHA-256 of that file is `be95f6e6d527ef954eaa5a8fc64e00236322aee8e89558e025e72258e51d2fab`. The prompts were used as they stand, with the placeholders filled in.
-- **The project:** an open-source project of the owner's own, a ledger of handovers in teams of people and agents, written in TypeScript and tested with `node:test`. Nothing of a client.
+- **The project:** an open-source project of the owner's own, written in TypeScript and tested with `node:test`. Nothing of a client.
 - **Classed code** in that project, settled with the owner: its code classes `evidence` and `recording`.
-- **The plain task:** a tile on its dashboard shown only on a ledger that has agents. Code of the class `reading`. Three requirements.
+- **The plain task:** a tile on its dashboard, shown only in one case. Code of the class `reading`. Three requirements.
 - **The classed task:** a commit whose check results the writer always refuses is asked about at the usual pace and let go after a day. Code of the class `recording`. Three requirements, a fourth added during the run.
 - **Who started the sessions:** not the captain by hand, as #29 proposed. An agent session (Claude Opus 5.5) started them on the owner's word, one fresh session per role, and brought every `needs_person` to the owner, who decided each. #29's Run line asks for model fable; the session ran as Opus 5.5.
 - **What a session got:** the role's file, filled in, then a short note from the starting session marked as not part of the prompt: where to work, how to read the task, how to post. The prompts have no place for that (F-1).

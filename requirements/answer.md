@@ -32,3 +32,8 @@ What `wb answer` shows and posts, and the form the questions and answers take on
 | WB-ANSWER-26 | For an issue whose job has a questions commit on its ref, `wb` shall read no `[questions]` or `[answers]` from the tracker. Issue: #238. | T | Draft |
 | WB-ANSWER-27 | Where `.watchbill/signers` is there, an answer commit that is unsigned or signed by a key without `answer` shall answer nothing, and `wb status` shall say so. Issue: #238. | T | Draft |
 | WB-ANSWER-28 | Where `.watchbill/signers` is not there, an answer commit shall answer its question, and `wb status` shall say that no signature is checked. Issue: #238. | T | Draft |
+| WB-ANSWER-29 | `wb answer <issue> --show` shall print each open question of the issue in full, in the order asked, as `wb answer` lays it out when it asks, to standard output, ask nothing, post nothing and end with 0. Issue: #225. | T | Draft |
+| WB-ANSWER-30 | `wb answer <issue> --show` shall print only the questions that are open, none that an answer names. Issue: #225. | T | Draft |
+| WB-ANSWER-31 | `wb answer <issue> --show` shall say that no question is open, and end with 0, when none is. Issue: #225. | T | Draft |
+| WB-ANSWER-32 | `wb answer --show` shall end with 2 when it is given `--suggested`, or a question and its answer. Issue: #225. | T | Draft |
+| WB-ANSWER-33 | `wb answer --show --change <n>` shall print the open questions of a change with no issue as `--show` does for an issue. Issue: #225. | T | Draft |

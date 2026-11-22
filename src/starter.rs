@@ -40,23 +40,38 @@ fn head_file(root: &str, place: &str) -> Option<Vec<u8>> {
     output.status.success().then_some(output.stdout)
 }
 
+/// The read-only mode of `read_only`, held for the life of the command: dropping it ends the mode, so that the
+/// refusal of #186 holds again for whatever runs after it on the thread.
+#[must_use = "the mode ends when the guard is dropped"]
+pub struct ReadOnly(());
+
+impl Drop for ReadOnly {
+    fn drop(&mut self) {
+        READ_ONLY.with(|flag| flag.set(false));
+    }
+}
+
 /// For a command that only reads (#254: `wb status`, `wb view`). `Err` where `watchbill.yml` is not in `HEAD` at
-/// all (the repository is not set up). Otherwise from here on every pattern and key is read from the file of
-/// `HEAD`, never the working tree's, and the result says whether the working tree's file differs from it: the
-/// command says so on standard error and goes on.
-pub fn read_only(root: &str) -> Result<bool, String> {
+/// all (the repository is not set up). Otherwise, while the guard is held, every pattern and key is read from the
+/// file of `HEAD`, never the working tree's, and the result says whether the working tree's file differs from
+/// it (a file missing there counts as differing): the command says so on standard error and goes on.
+pub fn read_only(root: &str) -> Result<(ReadOnly, bool), String> {
     let place = format!("{}/{}", crate::init::CONFIG_FOLDER, crate::init::CONFIG_FILE);
     let Some(head) = head_file(root, &place) else {
+        if !Path::new(root).join(&place).is_file() {
+            return Err(format!("{} is not there. Watchbill is not set up in this repository", place));
+        }
         return Err(format!("{} is not in HEAD. Watchbill is not set up in this repository: commit the file first", place));
     };
     READ_ONLY.with(|flag| flag.set(true));
-    Ok(std::fs::read(Path::new(root).join(&place)).map(|now| now != head).unwrap_or(false))
+    let differs = std::fs::read(Path::new(root).join(&place)).map(|now| now != head).unwrap_or(true);
+    Ok((ReadOnly(()), differs))
 }
 
 /// The line that a command that only reads says where `read_only` found a difference.
 pub fn drift_line(name: &str) -> String {
     format!(
-        "{}: {}/{} differs from HEAD, and goes on with the file as HEAD has it: a pattern changed only in the working tree is not run",
+        "{}: {}/{} differs from HEAD. It goes on with the file as HEAD has it: a pattern changed only in the working tree is not run.",
         name,
         crate::init::CONFIG_FOLDER,
         crate::init::CONFIG_FILE
@@ -71,13 +86,18 @@ pub fn drift_line(name: &str) -> String {
 /// replace refs, which a session can write with nothing on the branch to show it. No flag lifts it.
 pub fn held_bytes(root: &str) -> Result<Option<Vec<u8>>, String> {
     let place = format!("{}/{}", crate::init::CONFIG_FOLDER, crate::init::CONFIG_FILE);
+    // A command that only reads (`read_only`) goes on with the file of `HEAD`, before the working tree is looked at.
+    if READ_ONLY.with(|flag| flag.get()) {
+        if let Some(bytes) = head_file(root, &place) {
+            return Ok(Some(bytes));
+        }
+    }
     let Ok(now) = std::fs::read(Path::new(root).join(&place)) else {
         return Ok(None);
     };
     let said = match head_file(root, &place) {
         Some(bytes) => {
-            // A command that only reads (`read_only`) goes on with the file of `HEAD`, whatever the working tree has.
-            if bytes == now || READ_ONLY.with(|flag| flag.get()) {
+            if bytes == now {
                 return Ok(Some(bytes));
             }
             "differs from HEAD"

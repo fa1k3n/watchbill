@@ -20,7 +20,6 @@
 //! choices is not seen.
 
 use std::io::Write;
-use std::path::Path;
 
 use crate::{answer, issue, prompt, starter};
 
@@ -322,22 +321,20 @@ fn line_of(found: &Found) -> String {
 /// pattern failed, 2 the repository is not set up or has no default branch. `stage`, when given, is a heading
 /// that `heading_of` knows.
 pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    if !Path::new(root).join(crate::init::CONFIG_FOLDER).join(crate::init::CONFIG_FILE).is_file() {
-        let _ = writeln!(err, "wb status: .watchbill/watchbill.yml is not there. Watchbill is not set up in this repository.");
-        return 2;
-    }
     // `wb status` only reads (#254): a file that is not as `HEAD` has it is said, and every pattern is read from
     // the file of `HEAD`. Where the file is not in `HEAD` at all, the repository is not set up.
-    match starter::read_only(root) {
+    let _read_only = match starter::read_only(root) {
         Err(why) => {
             let _ = writeln!(err, "wb status: {}.", why);
             return 2;
         }
-        Ok(true) => {
-            let _ = writeln!(err, "{}.", starter::drift_line("wb status"));
+        Ok((guard, differs)) => {
+            if differs {
+                let _ = writeln!(err, "{}", starter::drift_line("wb status"));
+            }
+            guard
         }
-        Ok(false) => {}
-    }
+    };
     let pattern = |key: &str| prompt::pattern_of(root, key);
     // `issue_address` is read for one issue only: the list never runs it.
     let address = if only.is_some() { pattern("issue_address") } else { Ok(None) };

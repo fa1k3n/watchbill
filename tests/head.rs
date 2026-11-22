@@ -409,17 +409,75 @@ fn test_WB_BUILD_60_wb_view_with_a_changed_file_says_so_in_one_line_and_goes_on(
 }
 
 #[test]
-fn test_WB_BUILD_61_wb_view_reads_build_files_and_runs_needs_from_head_not_the_working_tree() {
+fn test_WB_BUILD_61_wb_view_reads_build_files_from_head_not_the_working_tree_and_runs_no_pattern() {
     let bench = view_bench();
     let l = bench.log.path.to_str().unwrap();
-    // HEAD has no build_files: the folder `build` is a path like another there. The working tree names it.
+    // HEAD has `build_files: [build]`; the working tree has another entry, which would change the listing.
     bench.add("build_files: [build]");
+    bench.commit();
+    bench.change("build_files", "build_files: [docs]");
     bench.add(&format!("needs: 'touch {l}/marker'"));
     let run = wb(&bench.repo.path, &["view", "54", "build/Makefile"], "");
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
     assert!(text(&run.stderr).contains(DRIFT), "{}", text(&run.stderr));
-    assert!(!bench.marker().exists(), "a pattern of the working tree ran");
-    assert!(!text(&run.stdout).contains("build_files"), "{}", text(&run.stdout));
-    assert!(text(&run.stdout).contains("build: out: not listed"), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains("build: out: under `build_files` of watchbill.yml (build)"), "{}", text(&run.stdout));
+    assert!(!bench.marker().exists(), "a pattern ran");
+    assert_eq!(bench.ran(), "", "wb view ran a pattern");
+    let other = wb(&bench.repo.path, &["view", "54", "docs/a.md"], "");
+    assert!(!text(&other.stdout).contains("`build_files`"), "the working tree's build_files was read: {}", text(&other.stdout));
+}
+
+#[test]
+fn test_WB_BUILD_63_a_file_missing_from_the_working_tree_but_in_head_counts_as_differing_and_the_commands_go_on() {
+    let bench = view_bench();
+    fs::remove_file(config(&bench.repo.path)).unwrap();
+    let status = wb(&bench.repo.path, &["status"], "");
+    assert_eq!(code(&status), Some(0), "{}", text(&status.stderr));
+    assert!(text(&status.stderr).contains(DRIFT), "{}", text(&status.stderr));
+    let view = wb(&bench.repo.path, &["view", "54", "build"], "");
+    assert_eq!(code(&view), Some(0), "{}", text(&view.stderr));
+    assert_eq!(text(&view.stdout), "src/brake.c\n");
+    assert!(text(&view.stderr).contains(DRIFT), "{}", text(&view.stderr));
+    // The pattern of HEAD ran for the status of an issue.
+    let one = wb(&bench.repo.path, &["status", "54"], "");
+    assert_eq!(bench.ran(), "comments\n", "{}", text(&one.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_63_neither_in_the_working_tree_nor_in_head_ends_with_2_as_not_set_up() {
+    let repo = repository(None);
+    for words in [&["status"][..], &["view", "54", "build"]] {
+        let run = wb(&repo.path, words, "");
+        assert_eq!(code(&run), Some(2), "{:?}: {}", words, text(&run.stderr));
+        assert!(text(&run.stderr).contains("is not there. Watchbill is not set up"), "{}", text(&run.stderr));
+    }
+}
+
+#[test]
+fn test_WB_BUILD_64_the_read_only_mode_ends_with_the_guard_and_held_refuses_again_after_it() {
+    let bench = bench();
+    bench.add("needs: 'true'");
+    let root = bench.repo.path.to_str().unwrap();
+    assert!(watchbill::starter::held(root).is_err());
+    {
+        let (_guard, differs) = watchbill::starter::read_only(root).unwrap();
+        assert!(differs);
+        assert!(watchbill::starter::held(root).is_ok(), "the mode is not in force while the guard is held");
+    }
+    let why = watchbill::starter::held(root).unwrap_err();
+    assert!(why.contains(".watchbill/watchbill.yml differs from HEAD"), "{}", why);
+}
+
+#[test]
+fn test_WB_BUILD_58_the_warning_is_two_sentences_naming_the_file_and_the_command() {
+    let bench = bench();
+    bench.add("needs: 'true'");
+    let run = wb(&bench.repo.path, &["status"], "");
+    assert!(
+        text(&run.stderr).starts_with("wb status: .watchbill/watchbill.yml differs from HEAD. It goes on with the file as HEAD has it: a pattern changed only in the working tree is not run."),
+        "{}",
+        text(&run.stderr)
+    );
 }
 
 #[test]

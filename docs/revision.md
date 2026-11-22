@@ -1,6 +1,6 @@
 # What a revision contains
 
-A revision is what a project is set up for and what its agents run under: the same on every machine, and checkable by anyone. This page says exactly what it is. Each point was settled with the owner on 2026-11-16 (#3). Points 1 and 6 were changed on 2026-11-17, when the owner decided that `wb` is written in Rust and not in Python (#20). Nothing else on the page changed: the files of a revision and their hash are the same. Point 14 and the changes to points 10, 12 and 13 on accounts were settled with the owner on 2026-11-18 (#30), and are in revision 0.0.7 (#82). That a person can start any role alone was settled with the owner on 2026-11-19, and changed points 12, 13 and 14 (#116, revision 0.0.8). That every role asks on the issue, plainly and with a suggested answer, changed points 12 and 13 (#113, revision 0.0.8). That `wb accept` checks the lists by the project's `needs` and keeps the build out of `changes` changed point 13 (#125, revision 0.0.9). That a session sees only its files, in a view, changed points 3 and 12 (#126, revision 0.0.9). That a session asks in one comment, a person answers with `wb answer`, and a session in a view commits and a person pushes, changed points 3 and 13 (#145, revision 0.0.9).
+A revision is what a project is set up for and what its agents run under: the same on every machine, and checkable by anyone. This page says exactly what it is. Each point was settled with the owner on 2026-11-16 (#3). Points 1 and 6 were changed on 2026-11-17, when the owner decided that `wb` is written in Rust and not in Python (#20). Nothing else on the page changed: the files of a revision and their hash are the same. Point 14 and the changes to points 10, 12 and 13 on accounts were settled with the owner on 2026-11-18 (#30), and are in revision 0.0.7 (#82). That a person can start any role alone was settled with the owner on 2026-11-19, and changed points 12, 13 and 14 (#116, revision 0.0.8). That every role asks on the issue, plainly and with a suggested answer, changed points 12 and 13 (#113, revision 0.0.8). That `wb accept` checks the lists by the project's `needs` and keeps the build out of `changes` changed point 13 (#125, revision 0.0.9). That a session sees only its files, in a view, changed points 3 and 12 (#126, revision 0.0.9). That a session asks in one comment, a person answers with `wb answer`, and a session in a view commits and a person pushes, changed points 3 and 13 (#145, revision 0.0.9). Point 15, on identity, history and trust, was settled with the owner on 2026-11-22 (#219), and changes points 12, 13 and 14 as its pieces are built.
 
 ## In short
 
@@ -9,6 +9,7 @@ A revision is what a project is set up for and what its agents run under: the sa
 - `wb init` copies them into the repository, and `wb check` fails on any difference.
 - The levels of confidentiality and the runners are the organisation's and are not part of the revision.
 - Each role works under an account of its own, and a handover is an assignment at the tracker.
+- Decided, not built yet: `wb` keeps jobs, stamps, acceptances and handovers in git, signed, and a tracker is optional (point 15).
 
 ## 1. The files of a revision
 
@@ -164,6 +165,8 @@ A level that decides where an assignment may run. It is a second axis beside the
 
 ## 12. The stamp
 
+Point 15 moves the stamp to a commit on the job's ref, signed by the starter. Until that piece is built, this point holds.
+
 What a session ran as is said by the one who started it, not by the session. Settled with the owner on 2026-11-17 (#31), after two runs in which every session gave its effort as `unknown`.
 
 - **What is stamped:** the role; the model ID and the effort of the model table; the runner; the version of the package and the hash of the revision; the issue, the change and the round; the branch and the checkout; the time; the view, as the hash of its list of paths, or `none` (#126); the line `local: ignored <n>`, after the view, only where a start went on with local changes under `reads` that `--ignore-local` passed (#172); the line `requirements: given`, where the option was given; and the hash of each part of the prompt.
@@ -177,6 +180,8 @@ What a session ran as is said by the one who started it, not by the session. Set
 - **A session with no stamp:** its work is not taken as the work of a role, and nothing is handed on from it. Until a program hands work on (#66, the officer), a person keeps this rule: no stamp on the issue, no next role.
 
 ## 13. The issue's file
+
+Point 15 makes the acceptance a signed tag, and the questions and answers commits on the job's ref. Until those pieces are built, this point holds.
 
 A person's issue, read into a form `wb` reads. It was called the task's file until revision 0.0.6 (#78). Settled with the owner on 2026-11-18 (#64), after two runs in which every issue had to be made ready by hand before the tester could start.
 
@@ -198,6 +203,8 @@ A person's issue, read into a form `wb` reads. It was called the task's file unt
 
 ## 14. Accounts
 
+Point 15 makes the handover a signed commit on the job's ref, with the assignment at the tracker a notice. Until that piece is built, this point holds.
+
 Each role works under an account of its own at the git server and the tracker. Settled with the owner on 2026-11-18 (#30), after two runs in which every session ran under the owner's account, so that nothing told a person's decision from an agent's claim.
 
 - **One account per role:** tester, build, review, fix, officer and breakdown. Each is bound to one project, and none is a person's. It is not a pool of named agents: work in parallel is a matter of free places on a runner, and the stamp tells the sessions apart. An account bound to one project keeps the level of an assignment (point 11) from being raised by other projects.
@@ -215,6 +222,27 @@ Each role works under an account of its own at the git server and the tracker. S
 - **Local work:** `wb start build <n>` on a person's own machine runs under that person's account and counts as the person's. The stamp says an agent wrote it. That person's account holds build on the change, so the review is never that person. Classed code is refused in local work until a session sees only its files (#65).
 - **The tokens:** the program holds them and gives a session only its own.
 - **The rule table** keeps `may_not_also_hold` as it is.
+
+## 15. Identity, history and trust
+
+What identifies a job and a session, where their history lives, and who can be trusted to have written it. Settled with the owner on 2026-11-22 (#219), from #216 and #217. It is built in pieces after this point. Until a piece is built, points 12, 13 and 14 hold as they are written.
+
+- **Git is the store.** `wb` keeps its state in git, as git keeps its own: written with `hash-object`, `commit-tree` and `update-ref`. There is no store of `wb`'s own. A tracker is not needed.
+- **A job** is the text of what is to be built. It is stored as a blob, under the hash of its content, so changed text is a new job. Its name is a ref, `refs/watchbill/<name>`, that points at it. A job with no name is named by the first 12 hex digits of its hash. A tracker's number is a name, never the identity.
+- **Taking a job in:** `wb add` reads the text from standard input, from a file or from the command line, as `gh issue view 97 | wb add --name 97`. The pipe is the way in: no pattern is needed to read a tracker. `--source` keeps the link back. `wb add` only queues: a job still goes through the breakdown, the acceptance and a view.
+- **The job's text and the level:** the text is in every clone and cannot be deleted from them. `wb add` refuses a job whose level is above the repository's (point 11). Where the organisation's file allows it, a flag keeps only the hash and the source, not the text.
+- **A stamp is a commit** on the job's ref, each naming the one before. Its message is the stamp's lines as they are (point 12). Its tree holds what the view held: the view's list and the issue's file. A ref of its own, not the issue's branch: a commit on the branch restarts its checks, and a squash merge erases it.
+- **The lock is git's.** `wb start` pushes the stamp before the session starts, and a push that is not a fast-forward fails, so two starts of one role cannot both go on. The lock is for two honest starts. A forced push passes it, and a ref under `refs/watchbill/` cannot be protected at the server. The guard is that no session holds a login that can push (#153), and that each stamp is signed.
+- **Trust is a signature.** In git, an author is free text and a push records no pusher. So the acceptance is a signed tag on one exact hash, and the starter signs each stamp. `wb` checks every signature against a list of keys the project keeps. A signature that does not check counts for nothing.
+- **The handover is a commit** on the job's ref, signed by the officer or by a person. The listener reads the ref. An assignment at the tracker is a notice posted out.
+- **Questions and answers** are commits on the job's ref: the session's start writes the questions, and `wb answer` writes the answers.
+- **The commits of a session** carry a note that names the session's stamp. The lines of a start stay on the machine, as a reflog does (#124).
+- **A revert** is a new commit, a marker added. Nothing is rewritten.
+- **The tracker is kept in step one way each.** In: `wb add` again, a new copy under a new hash. A source that changed since it was taken in is said, and a person takes it in again. Out: notices, such as a stamp made, findings, a handover, a question, done. `wb` never reads a notice back. Never a merge of the two.
+- **Left outside git:** the change, its checks and its merge, at the git server; discussion between people, at the tracker.
+- **`wb init` and `wb upgrade`** write the fetch line for `refs/watchbill/*`, so a clone and the build server see the history.
+- **The names kept:** "job" is `wb`'s word, and an issue is the tracker's thing a job may come from. `.watchbill/issues/<issue>.yml` and the branch `issue-<n>` keep their names.
+- **What changes when it is built:** point 12, the stamp is kept on the job's ref, not on the issue; point 13, the acceptance is a signed tag, and the questions and answers are in git; point 14, the handover is a commit, not an assignment. #83, #88, #85 and #86 are rewritten by this point.
 
 ## The requirements
 

@@ -11,6 +11,7 @@ The words `wb` and its documents use, one line each, and how they are like git. 
 - **Runner:** the tool and model a session runs with, named and cleared in the organisation's file. Its `start` is the command.
 - **Level:** how confidential code is. The organisation's to set.
 - **Classed code:** paths that need a person as verifier.
+- **Job:** the text of what is to be built, stored in git under the hash of its content; its name is a ref. An issue is the tracker's thing a job may come from. Decided, built from 0.12.0 ([revision.md](revision.md), point 15). Until then `wb` takes an issue.
 - **Issue's file:** `.watchbill/issues/<issue>.yml`: the requirements, the interface, `changes` and each role's `reads`.
 - **Acceptance:** a person's word that the issue's file is right.
 - **`changes` and `reads`:** the paths a role may change, and the paths it may read.
@@ -61,6 +62,8 @@ The words `wb` and its documents use, one line each, and how they are like git. 
 | the organisation's file | `/etc/gitconfig` | a team cannot override it |
 | view | worktree | no object store, no remote |
 | stamp | commit trailer | lives at the tracker |
+| job (decided, point 15) | blob, its name a branch | its ref is under `refs/watchbill/` |
+| acceptance (decided, point 15) | signed tag | checked against the project's keys |
 | adapter (not built) | remote | declarative, for each tool |
 | `--ignore-local` | `--force` | waives one named guard only |
 

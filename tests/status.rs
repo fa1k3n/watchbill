@@ -19,6 +19,11 @@ const PATTERNS: &str = "issue_comments: \"cat .tracker/{issue}.comments\"
 
 /// A repository set up by `wb init --yes`, with a git identity, the stand-in patterns and the folder `.tracker/`.
 fn set_up() -> Folder {
+    set_up_with(PATTERNS)
+}
+
+/// The same, with the patterns the test gives.
+fn set_up_with(patterns: &str) -> Folder {
     let folder = repository(None);
     git(&folder.path, &["config", "user.name", "Ada Lovelace"]);
     git(&folder.path, &["config", "user.email", "ada@example.org"]);
@@ -26,7 +31,7 @@ fn set_up() -> Folder {
     let run = wb(&folder.path, &["init", "--yes"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let mut file = fs::OpenOptions::new().append(true).open(config(&folder.path)).unwrap();
-    file.write_all(PATTERNS.as_bytes()).unwrap();
+    file.write_all(patterns.as_bytes()).unwrap();
     git(&folder.path, &["add", "--", ".watchbill"]);
     git(&folder.path, &["commit", "-q", "-m", "Set up"]);
     folder
@@ -945,4 +950,85 @@ fn test_WB_STATUS_37_a_malformed_issue_address_does_not_fail_the_list_that_never
     let (out, status) = stdout(&folder.path, &["status"]);
     assert_eq!(status, Some(0));
     assert_eq!(out, "Not broken down:\n  1  issue-1-work\n");
+}
+
+// ---- WB-STATUS-53 to 55: who the newest answer waits for (#226) ----
+
+#[test]
+fn test_WB_STATUS_53_one_issue_says_which_role_the_newest_answer_waits_for() {
+    let folder = set_up();
+    open(&folder.path, &["54"]);
+    comments(&folder.path, "54", &["[stamp] build round 1", "[questions] 54.build q3 q4", "[answers] 54.build q3>tester q4>build"]);
+    branch(&folder.path, "54", true);
+    let (out, status) = stdout(&folder.path, &["status", "54"]);
+    assert_eq!(status, Some(0));
+    assert!(out.contains("\nwaits for: build (54.build.q4)\n"), "{}", out);
+    assert!(!out.contains("waits for: tester"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_53_the_newest_answer_that_names_a_role_decides() {
+    let folder = set_up();
+    open(&folder.path, &["54"]);
+    comments(
+        &folder.path,
+        "54",
+        &["[stamp] build round 1", "[questions] 54.build q3 q4", "[answers] 54.build q3>tester", "[answers] 54.build q4"],
+    );
+    branch(&folder.path, "54", true);
+    let (out, _) = stdout(&folder.path, &["status", "54"]);
+    assert!(out.contains("\nwaits for: tester (54.build.q3)\n"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_53_an_answer_for_a_person_says_person() {
+    let folder = set_up();
+    open(&folder.path, &["54"]);
+    comments(&folder.path, "54", &["[stamp] build round 1", "[questions] 54.build q3", "[answers] 54.build q3>person"]);
+    branch(&folder.path, "54", true);
+    let (out, _) = stdout(&folder.path, &["status", "54"]);
+    assert!(out.contains("\nwaits for: person (54.build.q3)\n"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_53_an_answer_of_the_breakdown_names_its_question_without_a_role_in_the_name() {
+    let folder = set_up();
+    open(&folder.path, &["54"]);
+    comments(&folder.path, "54", &["[questions] 54 q1", "[answers] 54 q1>breakdown"]);
+    let (out, _) = stdout(&folder.path, &["status", "54"]);
+    assert!(out.contains("\nwaits for: breakdown (54.q1)\n"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_53_the_list_prints_no_waits_for_line() {
+    let folder = set_up();
+    open(&folder.path, &["54"]);
+    comments(&folder.path, "54", &["[stamp] build round 1", "[questions] 54.build q3", "[answers] 54.build q3>tester"]);
+    branch(&folder.path, "54", true);
+    let (out, _) = stdout(&folder.path, &["status"]);
+    assert!(!out.contains("waits for"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_54_an_answer_of_0_10_0_closes_its_question_and_names_no_role() {
+    let folder = set_up();
+    open(&folder.path, &["54"]);
+    comments(&folder.path, "54", &["[stamp] build round 1", "[questions] 54.build q3", "[answers] 54.build q3"]);
+    branch(&folder.path, "54", true);
+    let (out, status) = stdout(&folder.path, &["status", "54"]);
+    assert_eq!(status, Some(0));
+    assert!(!out.contains("waits for"), "{}", out);
+    assert!(!out.contains("Questions open"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_55_the_comments_are_read_once_for_each_issue_with_the_role_too() {
+    let folder = set_up_with("issue_comments: \"echo run >> .tracker/count; cat .tracker/{issue}.comments\"\n");
+    open(&folder.path, &["54"]);
+    comments(&folder.path, "54", &["[stamp] build round 1", "[questions] 54.build q3", "[answers] 54.build q3>tester"]);
+    branch(&folder.path, "54", true);
+    let (out, status) = stdout(&folder.path, &["status", "54"]);
+    assert_eq!(status, Some(0));
+    assert!(out.contains("waits for: tester (54.build.q3)"), "{}", out);
+    assert_eq!(fs::read_to_string(folder.path.join(".tracker/count")).unwrap().lines().count(), 1);
 }

@@ -1086,7 +1086,7 @@ fn test_WB_ANSWER_9_each_question_is_one_line_and_the_rest_is_folded_under_detai
         let lines: Vec<&str> = form.split('\n').collect();
         assert_eq!(lines[1], "q1: <what is unclear>", "{}: {}", role, form);
         assert_eq!(lines[2], "<details>", "{}: {}", role, form);
-        for line in ["Why it matters: <one or two sentences>", "1. <the first choice>", "2. <the second choice>", "Suggested: 1, because <the reason>", "</details>", "q2: <what is unclear>"] {
+        for line in ["Why it matters: <one or two sentences>", "1. (<role>) <the first choice>", "2. (<role>) <the second choice>", "Suggested: 1, because <the reason>", "</details>", "q2: <what is unclear>"] {
             assert!(lines.contains(&line), "{}: {}: {}", role, line, form);
         }
         // The details end before the next question starts.
@@ -1097,24 +1097,30 @@ fn test_WB_ANSWER_9_each_question_is_one_line_and_the_rest_is_folded_under_detai
 }
 
 #[test]
-fn test_WB_ANSWER_9_each_question_says_whether_it_changes_the_issue_s_file() {
+fn test_WB_ROLE_99_the_form_of_a_question_has_a_role_on_each_choice_and_no_line_on_the_issue_s_file() {
     for role in ROLES {
         let form = questions_form(role);
-        let said: Vec<&str> = form.split('\n').filter(|line| line.starts_with("changes the issue's file: ")).collect();
-        assert!(!said.is_empty(), "{}: {}", role, form);
-        for line in said {
-            assert!(["changes the issue's file: yes", "changes the issue's file: no"].contains(&line), "{}: {}", role, line);
-        }
-        let point = line_of(role, "  - Whether the answer changes the issue's file:");
-        assert!(point.contains("`changes the issue's file: yes`"), "{}: {}", role, point);
+        assert!(!form.contains("changes the issue's file"), "{}: {}", role, form);
+        let choices: Vec<&str> = form.split('\n').filter(|line| line.starts_with(|c: char| c.is_ascii_digit())).collect();
+        assert_eq!(choices, ["1. (<role>) <the first choice>", "2. (<role>) <the second choice>"], "{}: {}", role, form);
+        assert!(!prompt(role).contains("changes the issue's file:"), "{}", role);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_98_each_choice_starts_with_the_role_that_acts_on_it_in_brackets() {
+    for role in ROLES {
+        let point = line_of(role, "  - The choices, numbered from 1, where there are any.");
+        assert!(point.contains("Each starts with the role that acts on it, in brackets: `1. (tester) Narrow the requirement.`"), "{}: {}", role, point);
+        assert!(point.contains("The words are the roles of the revision (`breakdown`, `tester`, `build`, `review`, `fix`) and `person` for a person's own step"), "{}: {}", role, point);
+    }
+    for role in ASKERS {
+        let point = line_of(role, "  - The choices, numbered from 1, where there are any.");
+        assert!(point.contains("A choice that changes the issue's file is `(person)`."), "{}: {}", role, point);
     }
     // A second breakdown folds every answer of the breakdown into the file.
-    let point = line_of("breakdown", "  - Whether the answer changes the issue's file:");
-    assert!(point.contains("always `changes the issue's file: yes`"), "{}", point);
-    for role in ASKERS {
-        let point = line_of(role, "  - Whether the answer changes the issue's file:");
-        assert!(point.contains("and `no` where it may not"), "{}: {}", role, point);
-    }
+    let point = line_of("breakdown", "  - The choices, numbered from 1, where there are any.");
+    assert!(point.contains("Each is `(breakdown)`, as a second breakdown folds every answer into the issue's file"), "{}", point);
 }
 
 #[test]
@@ -1217,12 +1223,11 @@ fn test_WB_ROLE_87_a_question_holds_what_is_unclear_why_it_matters_the_choices_a
     for role in ROLES {
         let text = prompt(role);
         for what in [
-            "A question is written so that a person can answer it without opening the code. In plain words, it holds what is unclear, why it matters, the choices, a suggested answer and whether the answer changes the issue's file, and nothing else:",
+            "A question is written so that a person can answer it without opening the code. In plain words, it holds what is unclear, why it matters, the choices, each with the role that acts on it, a suggested answer, and nothing else:",
             "  - What is unclear: one sentence, in the issue's own words where it has them.",
             "  - Why it matters: what the change does differently by the answer, in one or two sentences, without the code's names unless the person needs them to answer.",
             "  - The choices, numbered from 1, where there are any.",
             "  - A suggested answer, marked as a suggestion, with its reason in one sentence: `Suggested: 1, because …`. It names its choice by number. You never act on it before a person answers.",
-            "  - Whether the answer changes the issue's file: ",
             "  - Nothing else: no recap of the issue, and no list of what you read.",
         ] {
             assert!(text.contains(what), "{}: {}", role, what);

@@ -690,3 +690,156 @@ fn test_WB_ANSWER_38_a_question_named_twice_ends_with_2_and_posts_nothing() {
         assert!(posted(&folder.path, "175").is_empty(), "{:?}", args);
     }
 }
+
+// ---- WB-ANSWER-39 to 42: the role that acts on an answer (#226) ----
+
+/// Two questions of the build, whose choices name the role that acts on each.
+const ROLED: &str = "[questions] 54.build q3 q4
+q3: A test of the tester's is broader than its requirement. What is changed?
+<details>
+
+Why it matters: the test fails for a case the requirement does not name.
+
+1. (tester) Narrow the test to the function.
+2. (person) Change the issue's file and accept it again.
+
+Suggested: 1, because the requirement is the issue's own.
+
+</details>
+
+q4: Which message does the refusal say?
+<details>
+
+Why it matters: a person reads it.
+
+1. (build) The file is not there.
+2. The file cannot be read.
+
+Suggested: 1, because it says what happened.
+
+</details>
+";
+
+fn roled() -> Folder {
+    let folder = set_up();
+    bodies(&folder.path, "54", &[ROLED]);
+    folder
+}
+
+#[test]
+fn test_WB_ANSWER_39_the_role_of_the_choice_is_written_after_the_question_in_the_first_line() {
+    let folder = roled();
+    let run = answer(&folder.path, &["54", "build.q3", "1"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(posted(&folder.path, "54"), ["[answers] 54.build q3>tester\nq3: 1\n"]);
+}
+
+#[test]
+fn test_WB_ANSWER_39_several_pairs_give_each_its_role_in_one_line() {
+    let folder = roled();
+    let run = answer(&folder.path, &["54", "build.q3", "2", "build.q4", "1"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(posted(&folder.path, "54"), ["[answers] 54.build q3>person q4>build\nq3: 2\nq4: 1\n"]);
+}
+
+#[test]
+fn test_WB_ANSWER_39_the_questions_one_by_one_take_the_role_of_the_choice_without_asking() {
+    let folder = roled();
+    let run = answer(&folder.path, &["54"], "1\n1\n");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(posted(&folder.path, "54"), ["[answers] 54.build q3>tester q4>build\nq3: 1\nq4: 1\n"]);
+    assert!(!text(&run.stdout).contains("which role acts"), "{}", text(&run.stdout));
+}
+
+#[test]
+fn test_WB_ANSWER_39_suggested_takes_the_role_of_the_suggested_choice() {
+    let folder = roled();
+    let run = answer(&folder.path, &["54", "--suggested"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(posted(&folder.path, "54"), ["[answers] 54.build q3>tester q4>build\nq3: 1\nq4: 1\n"]);
+}
+
+#[test]
+fn test_WB_ANSWER_40_an_answer_in_words_asks_which_role_acts_and_enter_takes_the_asking_role() {
+    let folder = roled();
+    let run = answer(&folder.path, &["54"], "Narrow it, but only for the first command\n\n1\n");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("which role acts"), "{}", text(&run.stdout));
+    assert_eq!(posted(&folder.path, "54"), ["[answers] 54.build q3>build q4>build\nq3: Narrow it, but only for the first command\nq4: 1\n"]);
+}
+
+#[test]
+fn test_WB_ANSWER_40_the_role_that_is_typed_is_taken_and_a_word_that_is_no_role_asks_again() {
+    let folder = roled();
+    let run = answer(&folder.path, &["54"], "In words\nnobody\ntester\n1\n");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("nobody is not a role"), "{}", text(&run.stdout));
+    assert_eq!(posted(&folder.path, "54"), ["[answers] 54.build q3>tester q4>build\nq3: In words\nq4: 1\n"]);
+}
+
+#[test]
+fn test_WB_ANSWER_40_a_choice_with_no_role_asks_which_role_acts() {
+    let folder = roled();
+    let run = answer(&folder.path, &["54"], "1\n2\nreview\n");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(posted(&folder.path, "54"), ["[answers] 54.build q3>tester q4>review\nq3: 1\nq4: 2\n"]);
+}
+
+#[test]
+fn test_WB_ANSWER_40_a_pair_in_words_or_with_a_choice_of_no_role_takes_the_asking_role() {
+    let folder = roled();
+    let run = answer(&folder.path, &["54", "build.q3", "words of mine", "build.q4", "2"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(posted(&folder.path, "54"), ["[answers] 54.build q3>build q4>build\nq3: words of mine\nq4: 2\n"]);
+}
+
+#[test]
+fn test_WB_ANSWER_41_a_person_answer_says_the_file_is_to_be_changed_and_accepted_again() {
+    let folder = roled();
+    let run = answer(&folder.path, &["54", "build.q3", "2"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let err = text(&run.stderr);
+    let said = err.find("changes the issue's file").unwrap_or_else(|| panic!("{}", err));
+    assert!(err.find("POSTED 54").unwrap() < said, "{}", err);
+    assert!(err[said..].contains("wb accept 54"), "{}", err);
+}
+
+#[test]
+fn test_WB_ANSWER_41_an_answer_to_another_role_says_nothing_of_the_file() {
+    let folder = roled();
+    let run = answer(&folder.path, &["54", "build.q3", "1"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(!text(&run.stderr).contains("wb accept"), "{}", text(&run.stderr));
+    assert!(!text(&run.stderr).contains("changes the issue's file"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_ANSWER_41_a_line_on_the_file_in_the_question_is_not_read_where_the_choices_name_roles() {
+    let folder = set_up();
+    let line = ROLED.replace("</details>\n\nq4", "changes the issue's file: yes\n\n</details>\n\nq4");
+    bodies(&folder.path, "54", &[&line]);
+    let run = answer(&folder.path, &["54", "build.q3", "1"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(!text(&run.stderr).contains("wb accept"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_ANSWER_42_a_question_of_0_10_0_is_answered_with_no_role_and_none_asked() {
+    let folder = set_up();
+    bodies(&folder.path, "175", &[TESTER]);
+    let run = answer(&folder.path, &["175"], "In words\n");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(posted(&folder.path, "175"), ["[answers] 175.tester q1\nq1: In words\n"]);
+    assert!(!text(&run.stdout).contains("which role acts"), "{}", text(&run.stdout));
+}
+
+#[test]
+fn test_WB_ANSWER_42_an_answer_that_names_a_role_closes_its_question() {
+    let folder = set_up();
+    let tester = ROLED.replace("54.build", "54.tester");
+    bodies(&folder.path, "54", &[&tester, "[answers] 54.tester q3>tester q4>build\nq3: 1\nq4: 1\n"]);
+    let run = answer(&folder.path, &["54"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stderr).contains("no open question"), "{}", text(&run.stderr));
+    assert!(posted(&folder.path, "54").is_empty());
+}

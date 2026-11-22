@@ -1,0 +1,40 @@
+.TH WB\-ANSWER 1 "" "watchbill"
+.SH NAME
+wb\-answer \- answer the open questions of an issue
+.SH SYNOPSIS
+.nf
+\fBwb\fR answer (<issue> | \-\-change <n>) [\-\-show | [\-\-suggested] [<question> <answer>]...]
+.fi
+.SH DESCRIPTION
+.PP
+Answer the open questions of an issue: wb answer <issue> reads the whole comments by issue_comment_bodies of watchbill.yml, shows each open question in full, one at a time, and asks: Enter takes the suggestion, a number takes that choice, other text is the answer in words; a number that is not a choice is asked again. Then it says what it will post and posts one [answers] comment per role by issue_comment. Nothing is posted before every question is answered, and nothing after Ctrl\-C.
+.PP
+\-\-suggested takes every suggestion and names the questions with none. \-\-show prints every open question in full, as it is laid out when asked, to standard output, and asks nothing, posts nothing and ends with 0; it takes no \-\-suggested and no answer. <question> <answer>, as tester.q1 2 (q1 for the breakdown), answers a question without asking, and the pairs repeat; with \-\-suggested the suggestion is taken for every question they do not answer.
+.PP
+One comment per role is posted, or none when a pair is wrong (a question not open, a number not a choice: 1); a question named twice ends with 2. \-\-change <n> answers on a change with no issue, by change_comment_bodies and change_comment. It never changes the issue's file: where an answer does, it says so.
+.PP
+Ends with 0 when the answers are posted or no question is open, 1 when it was refused, the input ended or a pattern failed, 2 when it was used wrongly or the repository is not set up.
+.SH OPTIONS
+.TP
+.B \-\-suggested
+Take every suggestion and name the questions with none.
+.TP
+.B \-\-show
+Print every open question in full, as it is laid out when asked, to standard output, and ask nothing and post nothing. It takes no \-\-suggested and no answer.
+.TP
+.B \-\-change <n>
+Answer on a change with no issue, by change_comment_bodies and change_comment.
+.SH EXIT STATUS
+.TP
+.B 0
+The answers are posted, no question is open, or \-\-show printed them.
+.TP
+.B 1
+It was refused, the input ended or a pattern failed.
+.TP
+.B 2
+It was used wrongly or the repository is not set up.
+.SH SEE ALSO
+.BR wb (1) ,
+.BR wb\-status (1) ,
+.BR wb\-accept (1)

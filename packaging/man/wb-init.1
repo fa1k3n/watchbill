@@ -1,0 +1,28 @@
+.TH WB\-INIT 1 "" "watchbill"
+.SH NAME
+wb\-init \- set Watchbill up in this repository
+.SH SYNOPSIS
+.nf
+\fBwb\fR init [\-\-yes]
+.fi
+.SH DESCRIPTION
+.PP
+Set Watchbill up in the git repository of this folder: propose what the repository says about itself (its name, the git server of origin, a folder of requirements, the CI driver), ask one line per answer, show the file and write .watchbill/watchbill.yml at the root of the repository. \-\-yes (\-y) takes what it found and asks nothing. A file that is already there is never changed.
+.SH OPTIONS
+.TP
+.B \-\-yes, \-y
+Take what it found and ask nothing.
+.SH EXIT STATUS
+.TP
+.B 0
+The file is written.
+.TP
+.B 1
+It was refused.
+.TP
+.B 2
+It was used wrongly or the repository is not set up.
+.SH SEE ALSO
+.BR wb (1) ,
+.BR wb\-check (1) ,
+.BR wb\-upgrade (1)

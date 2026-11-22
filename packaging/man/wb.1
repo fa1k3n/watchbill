@@ -1,0 +1,69 @@
+.TH WB 1 "" "watchbill"
+.SH NAME
+wb, watchbill \- a harness for AI agents in embedded software development
+.SH SYNOPSIS
+.nf
+\fBwb\fR <command> [<args>]
+\fBwb help\fR [<command>]
+\fBwb \-\-version\fR
+.fi
+.SH DESCRIPTION
+.PP
+Watchbill is a harness for AI agents in embedded software development, deployed at a fixed revision onto a project that already exists. The command is wb, and watchbill is the same program.
+.PP
+wb help says the commands by group, and wb help <command> says more of one command. Each command has a page of its own, named wb\-<command>.
+.SH COMMANDS
+.TP
+.BR wb\-init (1)
+Set Watchbill up in this repository.
+.TP
+.BR wb\-check (1)
+Say whether the repository is at its revision.
+.TP
+.BR wb\-upgrade (1)
+Pin the repository to the installed revision.
+.TP
+.BR wb\-accept (1)
+Accept the file of an issue.
+.TP
+.BR wb\-start (1)
+Start a session of one role.
+.TP
+.BR wb\-status (1)
+List the issues in the flow and where each stands.
+.TP
+.BR wb\-view (1)
+Show what a session of a role sees.
+.TP
+.BR wb\-answer (1)
+Answer the open questions of an issue.
+.TP
+.BR wb\-revert (1)
+Take an issue back to before a step.
+.TP
+.BR wb\-prompt (1)
+Print the prompt of a role.
+.TP
+.BR wb\-revision (1)
+Print the version, the revision and its manifest.
+.SH EXIT STATUS
+Every command uses the same statuses.
+.TP
+.B 0
+It holds, or it is done.
+.TP
+.B 1
+It does not hold, or it was refused.
+.TP
+.B 2
+The command was used wrongly, or the repository is not set up.
+.SH FILES
+.TP
+.I .watchbill/watchbill.yml
+The settings of the project.
+.TP
+.I /etc/watchbill/organisation.yml
+The settings of the organisation.
+.TP
+.I /usr/share/watchbill
+The files of the revision.

@@ -12,4 +12,4 @@ What `wb start <role>` leaves on the machine where a session is started or refus
 | WB-MON-6 | `wb prompt`, `wb check` and `wb start <role> --prompt` shall write no folder. Issue: #124. | T | Implemented |
 | WB-MON-7 | The folder of a session started in a view shall hold `view`, the list of its paths, and `back`, what was taken back and what was refused and why. Issue: #126. | T | Implemented |
 | WB-MON-8 | The folder of a review that reaches the check of the CI (one not refused at `prompt`, `rule`, `class`, `start` or `terminal`) shall hold `ci`: `ci: <word>` with the word `change_checks` printed, `ci: not read` where there is none, and `ci: unread` where it printed another word or failed. Issue: #127. | T | Implemented |
-| WB-MON-9 | Where the session ended by SIGHUP or SIGTERM, `outcome` shall hold the line `signal: SIGHUP` or `signal: SIGTERM`. Issue: #221. | T | Draft |
+| WB-MON-9 | Where the session ended by SIGHUP or SIGTERM, `outcome` shall hold the line `signal: SIGHUP` or `signal: SIGTERM`. Issue: #221. | T | Implemented |

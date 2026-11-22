@@ -57,6 +57,6 @@ What `wb start <role> <issue>` checks, posts and starts. One path for a person a
 | WB-BUILD-51 | Where `.watchbill/signers` is not there, `wb start` shall write the stamp commit unsigned, count it, and `wb status` shall say that no signature is checked. Issue: #236. | T | Draft |
 | WB-BUILD-52 | Where `.watchbill/signers` is there and git has no signing key set, `wb start` shall refuse with 1 before it writes anything, and name the setting. Issue: #236. | T | Draft |
 | WB-BUILD-53 | Where `.watchbill/signers` is there and the signing key is not in the list with `start`, `wb start` shall refuse with 1 before it writes anything, and name the key. Issue: #236. | T | Draft |
-| WB-BUILD-54 | While the session runs, a hangup (SIGHUP) or a termination (SIGTERM) sent to `wb start <role>` shall not end it: it shall wait for the session, take back its commits, and end with the status that WB-BUILD-6 gives. Issue: #221. | T | Draft |
-| WB-BUILD-55 | A termination (SIGTERM) sent to `wb start <role>` while the session runs shall be sent on to the session. Issue: #221. | T | Draft |
-| WB-BUILD-56 | After the session has ended, `wb start <role>` shall not end with a different status, nor leave `back` or `outcome` unwritten, because a write to standard output or standard error fails. Issue: #221. | T | Draft |
+| WB-BUILD-54 | While the session runs, a hangup (SIGHUP) or a termination (SIGTERM) sent to `wb start <role>` shall not end it: it shall wait for the session, take back its commits, and end with the status that WB-BUILD-6 gives. Issue: #221. | T | Implemented |
+| WB-BUILD-55 | A termination (SIGTERM) sent to `wb start <role>` while the session runs shall be sent on to the session. Issue: #221. | T | Implemented |
+| WB-BUILD-56 | After the session has ended, `wb start <role>` shall not end with a different status, nor leave `back` or `outcome` unwritten, because a write to standard output or standard error fails. Issue: #221. | T | Implemented |

@@ -452,10 +452,10 @@ pub fn works(bwrap: &Path) -> Result<(), String> {
 }
 
 /// Runs the session in its view, in bubblewrap at `bwrap`, in the foreground, with the person's standard
-/// input, output and error, and no variable `GIT_*` of this process. While it runs, an interrupt or a quit at the
-/// terminal does not end `wb` (`interrupt::hold`).
+/// input, output and error, and no variable `GIT_*` of this process. While it runs, an interrupt, a quit or a hangup at the
+/// terminal does not end `wb`, and a termination is sent on to the session (`interrupt::hold`).
 pub fn run(bwrap: &Path, plan: &Plan) -> Result<ExitStatus, String> {
-    let _held = crate::interrupt::hold();
+    let held = crate::interrupt::hold();
     let mut command = Command::new(bwrap);
     command.args(arguments(plan)).current_dir(plan.checkout);
     for (name, _) in std::env::vars_os() {
@@ -464,7 +464,9 @@ pub fn run(bwrap: &Path, plan: &Plan) -> Result<ExitStatus, String> {
         }
     }
     command.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
-    command.status().map_err(|error| format!("the session could not be started: {} could not be run: {}", bwrap.display(), error))
+    let mut child = command.spawn().map_err(|error| format!("the session could not be started: {} could not be run: {}", bwrap.display(), error))?;
+    held.session(child.id());
+    child.wait().map_err(|error| format!("the session could not be waited for: {}", error))
 }
 
 /// What was done with the commits of a view.

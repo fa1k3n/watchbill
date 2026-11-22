@@ -193,7 +193,8 @@ impl Bench {
     /// The session: a script run in the view, after it notes that it started. `{log}` is the log folder.
     fn session(&self, body: &str) {
         let l = self.log.path.to_str().unwrap();
-        script(&self.at("session.sh"), &format!("echo start >> {l}/calls\n{}", body.replace("{log}", l)));
+        let s = self.state.path.to_str().unwrap();
+        script(&self.at("session.sh"), &format!("echo start >> {l}/calls\n{}", body.replace("{log}", l).replace("{state}", s)));
     }
 
     fn start_by(&self, sandbox: &Path, args: &[&str]) -> Output {
@@ -1810,4 +1811,227 @@ fn test_WB_BUILD_30_a_view_with_no_paths_checks_nothing_and_a_changed_file_elsew
         let err = text_of(&start_unsandboxed(&bench, words).stderr);
         assert!(!err.contains("guard") && !err.contains("src/secret.c") && err.contains("bubblewrap"), "{}", err);
     }
+}
+
+// ---- WB-BUILD-54 to 56, WB-MON-9: a hangup or a termination while the session runs (#221) ----
+//
+// A signal is sent to a process the test started, by its number. `wb` is run as the test binary itself, run
+// again with only `a_helper_that_runs_wb_for_the_signal_tests_and_checks_nothing` in it, so that it can be signalled without ending this
+// one. The `bwrap` is a stand-in that runs the session in the view, so these tests hold where bubblewrap cannot
+// make a sandbox, and as root.
+
+extern "C" {
+    fn kill(pid: i32, signal: i32) -> i32;
+}
+
+const SIGHUP: i32 = 1;
+const SIGTERM: i32 = 15;
+const CHILD_ENV: &str = "WB_SIGNAL_CHILD_FOLDER";
+const CHILD_SESSION: &str = "WB_SIGNAL_CHILD_SESSION";
+
+/// A `bwrap` that makes no sandbox: it answers the probe, and else runs the words in the view.
+fn stand_in_bwrap(bench: &Bench) -> PathBuf {
+    let path = bench.at("bwrap");
+    script(
+        &path,
+        "view=\nwhile [ $# -gt 0 ]; do\n  case \"$1\" in\n    --bind) view=$2; shift 3;;\n    --) shift; break;;\n    *) shift;;\n  esac\ndone\n[ \"$1\" = /usr/bin/true ] && exit 0\ncd \"$view\" && exec \"$@\"\n",
+    );
+    path
+}
+
+/// What the session of the signal tests does: it commits a file in its view, says its number, and waits.
+const WAITS: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\necho $$ > {log}/pid\nexec sleep 30\n";
+
+/// The same, but the session ends at a termination and says that it got it.
+const TRAPS: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\ntrap 'echo got > {log}/got; kill $!; exit 0' TERM\nsleep 30 &\necho $$ > {log}/pid\nwait\n";
+
+/// A session that commits, then sends terminations to `wb` every few milliseconds from a process of its own,
+/// and ends at the first one it gets: the rest come while `wb` takes the commit back (#221, WB-BUILD-57). The
+/// sender stops at 1000, once the lines have an `outcome`, or once the process is no longer the test's helper, so
+/// it never signals a process of anyone else.
+const STORM: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\nwb=$PPID\ntrap 'exit 0' TERM\n(n=0; while [ $n -lt 1000 ] && ! ls {state}/watchbill/sessions/*/outcome >/dev/null 2>&1 && grep -qa a_helper_that_runs_wb /proc/$wb/cmdline 2>/dev/null && kill -TERM $wb 2>/dev/null; do n=$((n+1)); sleep 0.005; done) >/dev/null 2>&1 &\necho $$ > {log}/pid\nsleep 5 &\nwait\n";
+
+/// Not a test of a row: it does nothing unless a signal test started it. It is the part that runs `wb` in the process the signal tests start: it writes the folders it made, writes the
+/// status when `wb` ends, and waits for the parent to be done with the folders.
+#[test]
+fn a_helper_that_runs_wb_for_the_signal_tests_and_checks_nothing() {
+    let Some(folder) = std::env::var_os(CHILD_ENV).map(PathBuf::from) else { return };
+    let bench = bench();
+    bench.session(match std::env::var("WB_SIGNAL_CHILD_SESSION").as_deref() {
+        Ok("traps") => TRAPS,
+        Ok("storm") => STORM,
+        _ => WAITS,
+    });
+    let sandbox = stand_in_bwrap(&bench);
+    let paths = format!("{}\n{}\n{}\n", bench.repo.path.display(), bench.log.path.display(), bench.state.path.display());
+    fs::write(folder.join("paths.tmp"), paths).unwrap();
+    fs::rename(folder.join("paths.tmp"), folder.join("paths")).unwrap();
+    let run = bench.start_by(&sandbox, &["start", "build", "54"]);
+    fs::write(folder.join("status.tmp"), format!("{}\n", code(&run).unwrap_or(-1))).unwrap();
+    fs::rename(folder.join("status.tmp"), folder.join("status")).unwrap();
+    for _ in 0..600 {
+        if folder.join("release").exists() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+/// Waits at most `seconds` for `ready` to be true.
+fn wait_for(seconds: u64, mut ready: impl FnMut() -> bool) -> bool {
+    let end = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+    while std::time::Instant::now() < end {
+        if ready() {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    ready()
+}
+
+/// What the run of `wb` with a signal left.
+struct Signalled {
+    /// The status of `wb`, or -2 when it had not ended after a minute.
+    status: i32,
+    outcome: String,
+    back: String,
+    subjects: String,
+    /// What a session that traps the termination wrote when it got it.
+    got: String,
+}
+
+/// Starts `wb start build 54`, sends `to_wb` to it when the session waits, then, after a moment, `to_session` to
+/// the session when there is one, and gathers what was left. Nothing waits longer than a minute.
+fn signalled(session_is: &str, to_wb: Option<i32>, to_session: Option<i32>) -> Signalled {
+    let parent = folder_named("signalled");
+    let folder = parent.path.clone();
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "a_helper_that_runs_wb_for_the_signal_tests_and_checks_nothing", "--nocapture", "--test-threads=1"])
+        .env(CHILD_ENV, &folder)
+        .env(CHILD_SESSION, session_is)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("the test binary could not be started");
+    let found = (|| {
+        if !wait_for(60, || folder.join("paths").exists()) {
+            return Err("the folders were not made".to_string());
+        }
+        let paths = read(&folder.join("paths"));
+        let mut at = paths.lines().map(PathBuf::from);
+        let (repo, log, state) = (at.next().unwrap(), at.next().unwrap(), at.next().unwrap());
+        if !wait_for(60, || read_if(&log.join("pid")).ends_with('\n')) {
+            return Err("the session did not start".to_string());
+        }
+        let session: i32 = read(&log.join("pid")).trim().parse().unwrap();
+        if let Some(signal) = to_wb {
+            if unsafe { kill(child.id() as i32, signal) } != 0 {
+                return Err("the signal could not be sent to wb".to_string());
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        if let Some(signal) = to_session {
+            if unsafe { kill(session, signal) } != 0 {
+                return Err("the signal could not be sent to the session".to_string());
+            }
+        }
+        let status = if wait_for(60, || folder.join("status").exists() || child.try_wait().ok().flatten().is_some()) && folder.join("status").exists() { read(&folder.join("status")).trim().parse().unwrap() } else { -2 };
+        let one = fs::read_dir(state.join("watchbill/sessions")).ok().and_then(|found| found.map(|entry| entry.unwrap().path()).next());
+        let (outcome, back) = match one {
+            Some(one) => (read_if(&one.join("outcome")), read_if(&one.join("back"))),
+            None => (String::new(), String::new()),
+        };
+        let log_of = Command::new("git").arg("-C").arg(&repo).args(["log", "--format=%s", "issue-54"]).env_clear().envs(env()).output();
+        Ok(Signalled { status, outcome, back, subjects: log_of.map(|run| text_of(&run.stdout)).unwrap_or_default(), got: read_if(&log.join("got")) })
+    })();
+    // The session of a run that went wrong is ended too, by its number.
+    let _ = fs::write(folder.join("release"), "");
+    if !wait_for(10, || child.try_wait().ok().flatten().is_some()) {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    found.unwrap_or_else(|why| panic!("{}", why))
+}
+
+fn read_if(path: &Path) -> String {
+    fs::read_to_string(path).unwrap_or_default()
+}
+
+#[test]
+fn test_WB_BUILD_54_a_hangup_sent_to_wb_while_the_session_runs_does_not_end_it_and_the_commit_is_taken_back() {
+    let found = signalled("waits", Some(SIGHUP), Some(SIGHUP));
+    assert_eq!(found.status, 1, "wb did not wait for the session and give its status");
+    assert_eq!(found.subjects.lines().next(), Some("A new file"), "{}", found.subjects);
+    assert!(found.back.lines().any(|line| line.starts_with("taken: ") && line.contains("A new file")), "{}", found.back);
+}
+
+#[test]
+fn test_WB_BUILD_54_a_termination_sent_to_wb_while_the_session_runs_does_not_end_it_before_the_commit_is_taken_back() {
+    let found = signalled("waits", Some(SIGTERM), None);
+    assert_eq!(found.status, 1);
+    assert_eq!(found.subjects.lines().next(), Some("A new file"), "{}", found.subjects);
+    assert!(found.back.lines().any(|line| line.starts_with("taken: ")), "{}", found.back);
+}
+
+#[test]
+fn test_WB_BUILD_55_a_termination_sent_to_wb_alone_ends_the_session() {
+    let found = signalled("traps", Some(SIGTERM), None);
+    // The test never signals the session: it got the termination from `wb`.
+    assert_eq!(found.got, "got\n", "the session was not sent the termination");
+    assert_ne!(found.status, -2, "the session was not ended");
+    assert!(found.outcome.starts_with("outcome: ended\n"), "{}", found.outcome);
+}
+
+#[test]
+fn test_WB_BUILD_57_terminations_sent_while_the_commits_are_taken_back_do_not_end_wb_before_the_lines_are_written() {
+    // What `wb` wrote is the proof: a termination that ends `wb` during the take-back leaves no `outcome`. The
+    // helper's own status is not asserted: a last termination may come after the lines are written and the hold
+    // is let go, and end the helper then, which is right.
+    let found = signalled("storm", None, None);
+    assert!(found.back.lines().any(|line| line.starts_with("taken: ") && line.contains("A new file")), "{}", found.back);
+    assert!(found.outcome.starts_with("outcome: ended\nstatus: 0\n"), "{}", found.outcome);
+}
+
+#[test]
+fn test_WB_MON_9_outcome_names_the_signal_that_ended_the_session() {
+    let found = signalled("waits", Some(SIGHUP), Some(SIGHUP));
+    assert!(found.outcome.lines().any(|line| line == "signal: SIGHUP"), "{}", found.outcome);
+    let found = signalled("waits", Some(SIGTERM), None);
+    assert!(found.outcome.lines().any(|line| line == "signal: SIGTERM"), "{}", found.outcome);
+}
+
+/// A terminal that is gone: every write fails once the session has started.
+struct Gone {
+    calls: PathBuf,
+}
+
+impl std::io::Write for Gone {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if read_if(&self.calls).lines().any(|call| call == "start") {
+            return Err(std::io::Error::from_raw_os_error(5));
+        }
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn test_WB_BUILD_56_a_write_that_fails_after_the_session_changes_neither_the_status_nor_the_lines() {
+    let bench = bench();
+    bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\n");
+    let sandbox = stand_in_bwrap(&bench);
+    let organisation = bench.organisation();
+    let machine = watchbill::Machine { organisation: &organisation, terminal: true, state: Some(&bench.state.path), sandbox: &sandbox, home: Some(&bench.home.path) };
+    let args: Vec<std::ffi::OsString> = ["start", "build", "54"].iter().map(std::ffi::OsString::from).collect();
+    let mut out = Gone { calls: bench.at("calls") };
+    let mut err = Gone { calls: bench.at("calls") };
+    let status = watchbill::start_on(&args, &bench.repo.path, &machine, &mut out, &mut err);
+    assert_eq!(status, 0);
+    let folder = bench.lines();
+    assert!(read(&folder.join("back")).lines().any(|line| line.starts_with("taken: ")));
+    assert!(read(&folder.join("outcome")).starts_with("outcome: ended\nstatus: 0\n"));
 }

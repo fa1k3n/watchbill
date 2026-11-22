@@ -434,14 +434,17 @@ pub fn fill(words: &[String], model: &str, effort: &str, prompt: &str) -> Vec<St
 /// the session and does not end `wb` (`interrupt::hold`). The result is the session's status.
 pub fn session(root: &str, words: &[String]) -> Result<std::process::ExitStatus, String> {
     let (program, rest) = words.split_first().ok_or_else(|| "`start` holds no word".to_string())?;
-    let _held = crate::interrupt::hold();
-    let status = Command::new(program)
+    let held = crate::interrupt::hold();
+    let mut child = Command::new(program)
         .args(rest)
         .current_dir(root)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .status()
+        .spawn()
         .map_err(|error| format!("the session could not be started: {} could not be run: {}", program, error))?;
-    Ok(status)
+    held.session(child.id());
+    let status = child.wait();
+    held.ended();
+    status.map_err(|error| format!("the session could not be waited for: {}", error))
 }

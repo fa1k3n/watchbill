@@ -57,6 +57,10 @@ export WB_SHARE=%{_datadir}/watchbill
 %install
 install -D -m 0755 target/rpm/wb %{buildroot}%{_bindir}/wb
 ln -s wb %{buildroot}%{_bindir}/watchbill
+# The completion of bash, for wb and watchbill. The path is written in full: Enterprise Linux 9 has no
+# %%{bash_completions_dir}. bash-completion is not required: without it the file does nothing.
+install -D -m 0644 packaging/wb.bash %{buildroot}/usr/share/bash-completion/completions/wb
+ln -s wb %{buildroot}/usr/share/bash-completion/completions/watchbill
 mkdir -p %{buildroot}%{_datadir}/watchbill
 cp -a share/watchbill/. %{buildroot}%{_datadir}/watchbill/
 
@@ -70,6 +74,10 @@ cp -a share/watchbill/. %{buildroot}%{_datadir}/watchbill/
 %doc README.md
 %{_bindir}/wb
 %{_bindir}/watchbill
+%dir /usr/share/bash-completion
+%dir /usr/share/bash-completion/completions
+/usr/share/bash-completion/completions/wb
+/usr/share/bash-completion/completions/watchbill
 %dir %{_datadir}/watchbill
 %dir %{_datadir}/watchbill/revision
 %dir %{_datadir}/watchbill/revision/roles

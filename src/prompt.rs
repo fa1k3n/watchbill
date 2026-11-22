@@ -829,6 +829,8 @@ pub struct Stamp<'a> {
     pub time: &'a str,
     /// The SHA-256 of the list of paths of the view the session runs in, or `none` (#126).
     pub view: &'a str,
+    /// The level of the repository, for a session that runs in a view (#209): the line follows `view:`.
+    pub level: Option<&'a str>,
     /// How many local changes `--ignore-local` let the start go on with (#172), or none: no line is written.
     pub local: Option<usize>,
     /// An issue's file is used and the option `--requirements` was given: it won over the file (#76).
@@ -869,6 +871,9 @@ pub fn stamp(said: &Stamp, values: &[(&str, &str)], prompt: &Prompt) -> String {
         } else {
             text.push_str(&format!("{}: {}\n", name, value));
         }
+    }
+    if let Some(level) = said.level {
+        text.push_str(&format!("level: {}\n", level));
     }
     if let Some(count) = said.local {
         text.push_str(&format!("local: ignored {}\n", count));

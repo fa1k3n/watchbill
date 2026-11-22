@@ -31,6 +31,8 @@ pub enum On<'a> {
 pub enum Asked {
     /// Show each open question and ask for its answer.
     Each,
+    /// Print each open question in full, and ask and post nothing.
+    Show,
     /// Take every suggestion.
     Suggested,
     /// Answer the question named, with the text given.
@@ -373,7 +375,9 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
         return 1;
     }
     let mut commands = Vec::new();
-    for key in [read, post] {
+    // `--show` posts nothing, so it needs only the pattern that reads.
+    let keys: &[&str] = if *asked == Asked::Show { &[read] } else { &[read, post] };
+    for &key in keys {
         match prompt::pattern_of(root, key) {
             Ok(Some(line)) if prompt::is_plain_name(value) => commands.push(line.replace(&format!("{{{}}}", word), value)),
             Ok(Some(_)) => {
@@ -402,6 +406,11 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
         let _ = writeln!(err, "wb answer: there is no open question on {} {} (from `{}` of watchbill.yml). Nothing is posted.", word, value, read);
         return 0;
     }
+    if *asked == Asked::Show {
+        let shown: Vec<String> = questions.iter().enumerate().map(|(at, question)| show(question, at + 1, questions.len())).collect();
+        let _ = out.write_all(shown.concat().trim_start_matches('\n').as_bytes());
+        return 0;
+    }
     // Each question answered, with its line `q<n>: …`, in the order asked.
     let mut answered: Vec<(&Question, String)> = Vec::new();
     match asked {
@@ -421,6 +430,7 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
                 }
             }
         }
+        Asked::Show => unreachable!("--show returned above"),
         Asked::Suggested => {
             for question in &questions {
                 match take(question, "") {

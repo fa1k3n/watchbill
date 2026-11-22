@@ -46,3 +46,13 @@ What `wb status` says of the issues in the flow. It only reads.
 | WB-STATUS-40 | Where the local branch of an issue holds commits that its branch at `origin` does not, `wb status` shall add how many to the issue's line, as `2 not pushed`. Issue: #155. | T | Implemented |
 | WB-STATUS-41 | `wb status` shall read the refs as they are, and fetch nothing. Issue: #155. | T | Implemented |
 | WB-STATUS-42 | `wb status` shall show on the line of an issue the change that `change_of_branch` prints for its branch, as `#<n>`, and none where it prints none. Issue: #155. | T | Implemented |
+| WB-STATUS-43 | `wb status` shall show the open questions of an issue as they are on the job's ref, with no tracker set up. Issue: #238. | T | Draft |
+| WB-STATUS-44 | `wb status` shall show a question as answered once `wb answer` has written a signed commit with its answer. Issue: #238. | T | Draft |
+| WB-STATUS-45 | `wb status` shall say, where it sees an open question, that an answer typed at the tracker is not read and is given with `wb answer`. Issue: #238. | T | Draft |
+| WB-STATUS-46 | `wb status --session <hash>`, the hash of a stamp commit or a unique prefix of 12 or more hex digits, shall print the stamp's lines, the base commit, the commits whose note names the stamp, newest last, and the last of them, and end with 0. Issue: #239. | T | Draft |
+| WB-STATUS-47 | `wb status --session` shall say that a session has no commits, and end with 0, when no note names its stamp. Issue: #239. | T | Draft |
+| WB-STATUS-48 | `wb status --session` shall say "not known on this machine" of how a session ended where the session did not run on this machine, and read how it ended from the lines of the start where it did. Issue: #239. | T | Draft |
+| WB-STATUS-49 | `wb status --session` shall end with 2 when the prefix it is given has fewer than 12 hex digits. Issue: #239. | T | Draft |
+| WB-STATUS-50 | `wb status --session` shall end with 1 and say which, when the prefix is not unique or names no stamp. Issue: #239. | T | Draft |
+| WB-STATUS-51 | `wb status --session` shall write nothing, and give the same output with the network off. Issue: #239. | T | Draft |
+| WB-STATUS-52 | `wb status` shall say of a job whose source has changed since `wb add` took it in, where the team gives a pattern that reads the source, that it has changed, and shall take nothing in. Issue: #240. | T | Draft |

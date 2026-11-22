@@ -24,3 +24,8 @@ What `wb answer` shows and posts, and the form the questions and answers take on
 | WB-ANSWER-18 | `wb answer` shall end with 1 and post nothing where `watchbill.yml` has no `issue_comment_bodies` or no `issue_comment` (`change_comment_bodies` or `change_comment` with `--change`), and name the line. Issue: #145. | T | Implemented |
 | WB-ANSWER-19 | `wb answer` shall end with 2 when it is used wrongly: no issue and no `--change`, an issue and `--change` together, `--suggested` with a question named, a question named with no answer, an issue that is not a name, or a word it does not take. Issue: #145. | T | Implemented |
 | WB-ANSWER-20 | `wb answer` shall end with 0, post nothing and say so when the issue has no open question. Issue: #145. | T | Implemented |
+| WB-ANSWER-21 | When a session ends, `wb start` shall write its `[questions]` as a commit on the job's ref, after its stamp, with the questions in the form point 13 gives them. Issue: #238. | T | Draft |
+| WB-ANSWER-22 | `wb answer` shall write the answers as a commit on the job's ref, signed by the person, and push it. Issue: #238. | T | Draft |
+| WB-ANSWER-23 | After it has written the commit, `wb answer` shall post the `[answers]` copy where a tracker is set up. Issue: #238. | T | Draft |
+| WB-ANSWER-24 | An `[answers]` comment on the tracker alone shall answer no question. Issue: #238. | T | Draft |
+| WB-ANSWER-25 | For an issue begun before this piece, whose questions are on the tracker, `wb` shall still read the forms of 0.0.8 and 0.0.9 from the tracker, and for no other issue. Issue: #238. | T | Draft |

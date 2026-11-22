@@ -559,6 +559,8 @@ fn test_WB_ANSWER_29_show_prints_each_open_question_in_full_and_posts_nothing() 
     assert!(out.contains("changes the issue's file: yes"), "{}", out);
     assert!(out.contains("changes the issue's file: no"), "{}", out);
     assert!(!out.contains("> "), "it asks nothing: {}", out);
+    assert!(out.contains("\n\n175.tester.q1"), "the questions are apart by an empty line: {}", out);
+    assert!(!out.contains("\n\n\n"), "and by no more than one: {}", out);
     assert!(posted(&folder.path, "175").is_empty());
 }
 
@@ -606,4 +608,20 @@ fn test_WB_ANSWER_33_show_with_change_prints_the_open_questions_of_the_change() 
     let out = text(&run.stdout);
     assert!(out.contains("Is a clause with no test the tester may write left without one?"), "{}", out);
     assert!(posted(&folder.path, "change-9").is_empty());
+}
+
+#[test]
+fn test_WB_ANSWER_34_show_needs_no_post_pattern() {
+    let folder = set_up();
+    bodies(&folder.path, "175", &[BREAKDOWN, STAMP, TESTER]);
+    let file = config(&folder.path);
+    let kept: String = fs::read_to_string(&file).unwrap().lines().filter(|line| !line.starts_with("issue_comment:")).map(|line| format!("{}\n", line)).collect();
+    fs::write(&file, kept).unwrap();
+    git(&folder.path, &["add", "--", ".watchbill"]);
+    git(&folder.path, &["commit", "-q", "-m", "No post pattern"]);
+    let run = answer(&folder.path, &["175", "--show"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("175.tester.q1"), "{}", text(&run.stdout));
+    let asked = answer(&folder.path, &["175"], "\n\n\n");
+    assert_eq!(code(&asked), Some(1), "answering still needs it: {}", text(&asked.stderr));
 }

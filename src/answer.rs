@@ -375,7 +375,9 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
         return 1;
     }
     let mut commands = Vec::new();
-    for key in [read, post] {
+    // `--show` posts nothing, so it needs only the pattern that reads.
+    let keys: &[&str] = if *asked == Asked::Show { &[read] } else { &[read, post] };
+    for &key in keys {
         match prompt::pattern_of(root, key) {
             Ok(Some(line)) if prompt::is_plain_name(value) => commands.push(line.replace(&format!("{{{}}}", word), value)),
             Ok(Some(_)) => {

@@ -37,3 +37,4 @@ What `wb answer` shows and posts, and the form the questions and answers take on
 | WB-ANSWER-31 | `wb answer <issue> --show` shall say that no question is open, and end with 0, when none is. Issue: #225. | T | Implemented |
 | WB-ANSWER-32 | `wb answer --show` shall end with 2 when it is given `--suggested`, or a question and its answer. Issue: #225. | T | Implemented |
 | WB-ANSWER-33 | `wb answer --show --change <n>` shall print the open questions of a change with no issue as `--show` does for an issue. Issue: #225. | T | Implemented |
+| WB-ANSWER-34 | `wb answer --show` shall work where `watchbill.yml` has no `issue_comment` (`change_comment` with `--change`), as it posts nothing. Issue: #225. | T | Implemented |

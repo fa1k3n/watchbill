@@ -154,9 +154,10 @@ const USAGE: &str = "usage:
             suggestion and names the questions with none. --show prints every
             open question in full, as it is laid out when asked, to standard
             output, and asks nothing, posts nothing and ends with 0; it takes
-            no --suggested and no answer. <question> <answer>,
-            as tester.q1 2 (q1 for the breakdown), answers one question without
-            asking. --change <n> answers on a change with no issue, by
+            no --suggested and no answer. <question> <answer>, as
+            tester.q1 2 (q1 for the breakdown), answers one question
+            without asking. --change <n> answers on a change with no
+            issue, by
             change_comment_bodies and change_comment. It never changes the
             issue's file: where an answer does, it says so. Ends with 0 when
             the answers are posted or no question is open, 1 when it was

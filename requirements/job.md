@@ -14,8 +14,8 @@ What `wb add` takes in and how a job is kept in git: its text a blob under its h
 | WB-JOB-8 | `wb add` given changed text under a name already taken shall write a new commit on the ref that names the commit before it and holds the new blob. Issue: #234. | T | Draft |
 | WB-JOB-9 | `wb add` given changed text under a name already taken shall say the hash of the text before and after. Issue: #234. | T | Draft |
 | WB-JOB-10 | `wb add` shall end with 1 and write nothing when the name is not a valid ref name. Issue: #234. | T | Draft |
-| WB-JOB-11 | `wb add --level <level>` shall end with 1 and write nothing when the level is above the repository's; with no `--level` the level is the repository's. Issue: #234. | T | Draft |
-| WB-JOB-12 | `wb add --hash-only` shall end with 1 and write nothing unless the organisation's file has `jobs: hash_only: allowed`, a key read through the one loader. Issue: #234. | T | Draft |
+| WB-JOB-11 | `wb add --level <level>` shall end with 1 and write nothing when the level is above the repository's. Issue: #234. | T | Draft |
+| WB-JOB-12 | `wb add --hash-only` shall end with 1 and write nothing unless the organisation's file has `jobs: hash_only: allowed`. Issue: #234. | T | Draft |
 | WB-JOB-13 | `wb add --hash-only`, where the organisation's file allows it, shall write no blob of the text, and `job.yml` shall hold the hash of the text and its source. Issue: #234. | T | Draft |
 | WB-JOB-14 | `wb add` shall say what it will write before it writes it. Issue: #234. | T | Draft |
 | WB-JOB-15 | `wb add` shall ask nothing of the network, and shall run with the network off. Issue: #234. | T | Draft |

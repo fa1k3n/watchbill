@@ -34,7 +34,7 @@ What `wb` reads of an issue's file and how a person accepts it. What the file is
 | WB-TASK-28 | When its commit fails, `wb accept` shall leave the acceptance written, say so, and end with 1. Issue: #157. | T | Implemented |
 | WB-TASK-29 | `wb accept --no-commit` shall write the acceptance, commit nothing, and print the command that commits it alone. Issue: #157. | T | Implemented |
 | WB-TASK-30 | `wb accept` shall write nothing but the acceptance, commit nothing but that file, and ask nothing of the network. Replaces WB-TASK-12. Issue: #157. | T | Implemented |
-| WB-TASK-31 | `wb accept` shall also make a signed tag `refs/tags/watchbill/accept/<name>/<12 hex digits>` on the blob of the issue's file, whose message holds the SHA-256 of the issue's file, the job's hash, the identity and the time, and shall leave `.accepted` written and read. Issue: #235. | T | Draft |
+| WB-TASK-31 | `wb accept` shall also make a signed tag `refs/tags/watchbill/accept/<name>/<12 hex digits>` on the blob of the issue's file, whose message holds the SHA-256 of the issue's file, the job's hash, the identity and the time. Issue: #235. | T | Draft |
 | WB-TASK-32 | `wb accept` shall refuse with 1, write nothing and name the setting when git has no signing key set. Issue: #235. | T | Draft |
 | WB-TASK-33 | Where `.watchbill/signers` is there, an acceptance whose tag is signed by a key in the list with the role `accept` shall be an acceptance. Issue: #235. | T | Draft |
 | WB-TASK-34 | An acceptance whose tag is unsigned, signed by a key not in `.watchbill/signers`, or signed by a key without `accept` shall count for nothing, and `wb status` shall say which of the three it is. Issue: #235. | T | Draft |
@@ -43,3 +43,6 @@ What `wb` reads of an issue's file and how a person accepts it. What the file is
 | WB-TASK-37 | Where there is no `.watchbill/signers`, `wb` shall read the acceptance from `.accepted`, and `wb status` shall say that no signature is checked. Issue: #235. | T | Draft |
 | WB-TASK-38 | An edit of the issue's file after its tag was made shall leave the issue not accepted. Issue: #235. | T | Draft |
 | WB-TASK-39 | The `[accepted]` comment shall be a notice that `wb` posts and never reads back. Issue: #235. | T | Draft |
+| WB-TASK-40 | `wb accept` shall leave the `.accepted` file written, and `wb` shall still read it. Issue: #235. | T | Draft |
+| WB-TASK-41 | After `wb add` has taken in changed text for a job that was accepted, `wb status` shall say that the issue is not accepted. Issue: #235. | T | Draft |
+| WB-TASK-42 | After `wb add` has taken in changed text for a job that was accepted, `wb prompt` of a later role shall refuse with 1. Issue: #235. | T | Draft |

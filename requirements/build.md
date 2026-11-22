@@ -47,9 +47,13 @@ What `wb start <role> <issue>` checks, posts and starts. One path for a person a
 | WB-BUILD-41 | The refusal of WB-BUILD-39 shall say that a person reads the change and commits it, or takes it back with git, before the next command. Issue: #186. | T | Implemented |
 | WB-BUILD-42 | `wb init` and `wb upgrade` shall not be held by WB-BUILD-39, and `wb upgrade` shall say that the file is to be committed. Issue: #186. | T | Implemented |
 | WB-BUILD-43 | `wb start <role>` shall write the stamp as a commit on `refs/watchbill/<name>` whose message holds the stamp's lines, `job: <hash>` and `base: <commit>`, and that names the commit before it on the ref. Issue: #236. | T | Draft |
-| WB-BUILD-44 | The commit of a stamp shall hold in its tree the job's tree, the view's list and the issue's file, and shall be signed by the starter's key, which `.watchbill/signers` lists with `start`. Issue: #236. | T | Draft |
+| WB-BUILD-44 | The commit of a stamp shall hold in its tree the job's tree, the view's list and the issue's file. Issue: #236. | T | Draft |
 | WB-BUILD-45 | `wb start` shall push the ref with no force before it starts the session, and shall end with 1, say that another start went first and start nothing when the push is refused as not a fast-forward. Issue: #236. | T | Draft |
 | WB-BUILD-46 | `wb start` with no remote shall keep the stamp on the local ref, start the session and say that the stamp is local. Issue: #236. | T | Draft |
 | WB-BUILD-47 | The round shall be counted from the stamp commits on the job's ref, so that two stamps of the tester give round 2 with no tracker set up. Issue: #236. | T | Draft |
-| WB-BUILD-48 | A stamp commit that is unsigned or signed by a key not in the list shall not be counted as a stamp, no next role shall be handed out from it, and `wb status` shall say so. Issue: #236. | T | Draft |
+| WB-BUILD-48 | Where `.watchbill/signers` is there, a stamp commit that is unsigned or signed by a key not in the list with `start` shall not be counted as a stamp, no next role shall be handed out from it, and `wb status` shall say so. Issue: #236. | T | Draft |
 | WB-BUILD-49 | Where a tracker is set up, `wb start` shall post the `[stamp]` comment as a copy of the commit; `wb` shall never read it back, so that a forged `[stamp]` comment changes no round. Issue: #236. | T | Draft |
+| WB-BUILD-50 | Where `.watchbill/signers` is there, the commit of a stamp shall be signed by the starter's key, which the list holds with `start`. Issue: #236. | T | Draft |
+| WB-BUILD-51 | Where `.watchbill/signers` is not there, `wb start` shall write the stamp commit unsigned, count it, and `wb status` shall say that no signature is checked. Issue: #236. | T | Draft |
+| WB-BUILD-52 | Where `.watchbill/signers` is there and git has no signing key set, `wb start` shall refuse with 1 before it writes anything, and name the setting. Issue: #236. | T | Draft |
+| WB-BUILD-53 | Where `.watchbill/signers` is there and the signing key is not in the list with `start`, `wb start` shall refuse with 1 before it writes anything, and name the key. Issue: #236. | T | Draft |

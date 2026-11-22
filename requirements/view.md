@@ -41,5 +41,8 @@ What a session of the tester, the build, the review or the fix sees when `wb sta
 | WB-VIEW-35 | Before it puts a commit of a view on the branch, `wb` shall refuse, naming the commit, one with a tree not in the form git writes (a name twice, a mode git rewrites, entries not in git's order), and shall compare what the commit it made changes with what the view's commit changed, path for path, mode and file, and where they differ refuse that commit and the ones after it, name the commit and end with 1. Issue: #192. | T | Implemented |
 | WB-VIEW-36 | `wb` shall write a note with `git notes --ref=refs/notes/watchbill` on each commit it takes back from a view, holding `stamp: <hash of the stamp commit>` and the role. Issue: #237. | T | Draft |
 | WB-VIEW-37 | `wb` shall write no note for a session that has no commit to take back. Issue: #237. | T | Draft |
-| WB-VIEW-38 | `wb init` and `wb upgrade` shall add the fetch line `+refs/notes/watchbill:refs/notes/watchbill` to the fetch lines of `origin`. Issue: #237. | T | Draft |
-| WB-VIEW-39 | The commits of a session, those whose note names its stamp, shall be found from a clone with no tracker set up. Issue: #237. | T | Draft |
+| WB-VIEW-38 | `wb init` and `wb upgrade` shall add the fetch line `+refs/notes/watchbill:refs/notes/watchbill` to the fetch lines of `origin`, and say so before they write. Issue: #237. | T | Draft |
+| WB-VIEW-39 | The commits of a session, those whose note names its stamp, shall be found with `git notes --ref=refs/notes/watchbill show <commit>` in a clone that fetched, with no tracker set up. Issue: #237. | T | Draft |
+| WB-VIEW-40 | `wb init` and `wb upgrade` shall leave the fetch line `+refs/notes/watchbill:refs/notes/watchbill` as it is where it is already there. Issue: #237. | T | Draft |
+| WB-VIEW-41 | `wb start` shall push `refs/notes/watchbill` with the stamp's ref after the commits are taken back, with no force. Issue: #237. | T | Draft |
+| WB-VIEW-42 | `wb start` shall say that the push of `refs/notes/watchbill` was refused when it is, and leave the commits taken back as they are. Issue: #237. | T | Draft |

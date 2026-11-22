@@ -680,6 +680,8 @@ wb answer 54                    # each open question, one at a time
 wb answer 54 --show             # read every open question in full, answer none
 wb answer 54 --suggested        # every suggestion
 wb answer 54 tester.q1 2        # one answer, without asking
+wb answer 54 tester.q1 2 q3 1   # several answers, in one call
+wb answer 54 --suggested q3 2   # every suggestion but the question named
 wb answer 54 q3 "only the first command"   # a question of the breakdown
 wb answer --change 174          # a change with no issue
 ```
@@ -690,6 +692,7 @@ wb answer --change 174          # a change with no issue
 - **`--show`** (#225) prints each open question in full, as it is laid out when `wb answer` asks, the questions apart by one empty line, to standard output, so it can be piped to a pager. It asks nothing, posts nothing and writes nothing, and ends with 0; with no question open it says so, as `wb answer` does. `wb answer --change <n> --show` does the same for a change. With `--suggested`, or with a question and its answer, it ends with 2.
 - **`--suggested`** takes every suggestion and names the questions that have none, which stay open. A suggestion is posted written out, as `q1: 1`.
 - **`<question> <answer>`** answers one question without asking: `tester.q1`, or `q1` for the breakdown, whose questions are `<issue>.q<n>`. The answer is read as at the terminal, and a number that is not a choice is refused with 1.
+- **Several answers** (#181): the pairs `<question> <answer>` repeat, and `--suggested` goes with them: the suggestion is taken for every open question the pairs do not answer. One `[answers]` comment is posted per role, in the order the questions are named (with `--suggested`, in the order asked). It is all or nothing: if any pair names a question that is not open, or a number that is not a choice, nothing is posted and it ends with 1. A question named twice, by one word or by two (`q1` and `breakdown.q1`), is refused with 2.
 - **The issue's file.** Where an answered question says `changes the issue's file: yes`, `wb answer` says after posting that the file is to be changed and accepted again (`wb accept`) before the role is started again; for the breakdown, that the breakdown is started again to fold the answers in. It never changes the file.
 - **A change with no issue:** `wb answer --change <n>` reads `change_comment_bodies` and posts through `change_comment`.
 - **What it reads:** the whole comments, through `issue_comment_bodies` of `watchbill.yml` ([The patterns](#the-patterns)). Without it, or without `issue_comment`, it is refused with 1, naming the line, and posts nothing.

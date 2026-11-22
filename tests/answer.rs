@@ -504,8 +504,9 @@ fn test_WB_ANSWER_19_it_used_wrongly_ends_with_2_and_posts_nothing() {
     for args in [
         vec![],
         vec!["175", "--change", "9"],
-        vec!["175", "--suggested", "tester.q1", "2"],
+        vec!["175", "--suggested", "tester.q1"],
         vec!["175", "tester.q1"],
+        vec!["175", "q1", "1", "tester.q1"],
         vec!["175", "tester.q1", "2", "more"],
         vec![".175"],
         vec!["175", "--soon"],
@@ -624,4 +625,68 @@ fn test_WB_ANSWER_34_show_needs_no_post_pattern() {
     assert!(text(&run.stdout).contains("175.tester.q1"), "{}", text(&run.stdout));
     let asked = answer(&folder.path, &["175"], "\n\n\n");
     assert_eq!(code(&asked), Some(1), "answering still needs it: {}", text(&asked.stderr));
+}
+
+// ---- WB-ANSWER-35 to 38: several answers in one call (#181) ----
+
+#[test]
+fn test_WB_ANSWER_35_two_pairs_of_two_roles_post_two_comments() {
+    let folder = two_roles();
+    let run = answer(&folder.path, &["175", "q1", "2", "tester.q1", "as it is"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(posted(&folder.path, "175"), ["[answers] 175 q1\nq1: 2\n", "[answers] 175.tester q1\nq1: as it is\n"]);
+    assert!(!text(&run.stdout).contains("Which name does the event use"), "{}", text(&run.stdout));
+}
+
+#[test]
+fn test_WB_ANSWER_35_two_pairs_of_one_role_post_one_comment() {
+    let folder = two_roles();
+    let run = answer(&folder.path, &["175", "q1", "2", "q2", "1"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(posted(&folder.path, "175"), ["[answers] 175 q1 q2\nq1: 2\nq2: 1\n"]);
+}
+
+#[test]
+fn test_WB_ANSWER_36_suggested_with_one_pair_takes_the_suggestion_of_every_other_question() {
+    let folder = two_roles();
+    let run = answer(&folder.path, &["175", "--suggested", "q1", "2"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(posted(&folder.path, "175"), ["[answers] 175 q1 q2\nq1: 2\nq2: 2\n", "[answers] 175.tester q1\nq1: 1\n"]);
+}
+
+#[test]
+fn test_WB_ANSWER_37_a_wrong_pair_posts_nothing() {
+    let folder = two_roles();
+    for args in [
+        vec!["175", "q1", "2", "tester.q1", "9"],
+        vec!["175", "q1", "2", "tester.q7", "1"],
+        vec!["175", "--suggested", "q1", "2", "tester.q1", "9"],
+    ] {
+        let run = answer(&folder.path, &args, "");
+        assert_eq!(code(&run), Some(1), "{:?}: {}", args, text(&run.stderr));
+        assert!(text(&run.stderr).starts_with("wb answer: "), "{:?}: {}", args, text(&run.stderr));
+        assert!(posted(&folder.path, "175").is_empty(), "{:?}", args);
+    }
+}
+
+#[test]
+fn test_WB_ANSWER_38_a_question_named_twice_ends_with_2_and_posts_nothing() {
+    let folder = two_roles();
+    for args in [
+        vec!["175", "q1", "1", "q1", "2"],
+        vec!["175", "q1", "1", "breakdown.q1", "2"],
+        vec!["175", "q1", "1", "175.q1", "1"],
+        vec!["175", "--suggested", "tester.q1", "1", "tester.q1", "2"],
+        // Named twice wins over a question that is not open or a number that is not a choice.
+        vec!["175", "q1", "1", "tester.q7", "1", "breakdown.q1", "2"],
+        vec!["175", "q9", "1", "breakdown.q9", "2"],
+        vec!["175", "q1", "9", "q1", "2"],
+    ] {
+        let run = answer(&folder.path, &args, "");
+        assert_eq!(code(&run), Some(2), "{:?}: {}", args, text(&run.stderr));
+        assert!(text(&run.stderr).contains("named twice"), "{:?}: {}", args, text(&run.stderr));
+        assert!(text(&run.stderr).contains("usage:"), "{:?}: {}", args, text(&run.stderr));
+        assert!(text(&run.stderr).starts_with("wb answer: "), "{:?}: {}", args, text(&run.stderr));
+        assert!(posted(&folder.path, "175").is_empty(), "{:?}", args);
+    }
 }

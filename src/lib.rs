@@ -37,8 +37,8 @@ pub const USAGE: &str = "usage:
   wb accept <issue> [--no-commit]
   wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [the options of prompt]
   wb status [<issue>] [--stage <heading>]
-  wb view <issue> (<role> [--in [<folder>] | --out [<folder>]] | <path>)
-  wb answer (<issue> | --change <n>) [--show | --suggested | <question> <answer>]
+  wb view <issue> (<role> [--in | --out] | <path>)
+  wb answer (<issue> | --change <n>) [--show | [--suggested] [<question> <answer>]...]
   wb revert (<issue> | --change <n>) <role> [--round <n>]
   wb prompt <role> [<issue>] [--issue <text>] [--change <text>]
             [--requirements <text>] [--round <text>] [--checkout <text>]
@@ -180,9 +180,13 @@ pub const USAGE: &str = "usage:
             open question in full, as it is laid out when asked, to standard
             output, and asks nothing, posts nothing and ends with 0; it takes
             no --suggested and no answer. <question> <answer>, as
-            tester.q1 2 (q1 for the breakdown), answers one question
-            without asking. --change <n> answers on a change with no
-            issue, by
+            tester.q1 2 (q1 for the breakdown), answers a question
+            without asking, and the pairs repeat; with --suggested the
+            suggestion is taken for every question they do not answer.
+            One comment per role is posted, or none when a pair is wrong
+            (a question not open, a number not a choice: 1); a question
+            named twice ends with 2. --change <n> answers on a change
+            with no issue, by
             change_comment_bodies and change_comment. It never changes the
             issue's file: where an answer does, it says so. Ends with 0 when
             the answers are posted or no question is open, 1 when it was
@@ -1793,6 +1797,7 @@ fn level_of(root: &str, settings: &yamlfile::Document, organisation: &Path) -> R
     ))
 }
 
+/// `wb answer <issue> [--show | [--suggested] [<question> <answer>]...]` and `wb answer --change <n> […]` (#145).
 /// The level the stamp holds for a session in a view (#209), and why where it is not the level the repository
 /// gives. Where the organisation's file can be read, the rule decides: a `watchbill.yml` that gives no level
 /// that holds (a level not on the list, or `levels` or `runners`) is the organisation's most restrictive level,
@@ -1838,7 +1843,7 @@ fn run_answer(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write,
             Err(refused) => return used(err, format!("'{}' is not known", refused)),
         };
         match found {
-            Word::Value(value) if values.len() < 3 => values.push(word(value.as_bytes())),
+            Word::Value(value) => values.push(word(value.as_bytes())),
             Word::Long(option) if option == "change" && change.is_none() => match parser.value() {
                 Ok(value) => change = Some(word(value.as_bytes())),
                 Err(_) => return used(err, "'--change' needs a change".to_string()),
@@ -1862,19 +1867,28 @@ fn run_answer(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write,
     if show && !rest.is_empty() {
         return used(err, "--show reads the questions and answers none, so it takes no question and answer".to_string());
     }
-    let asked = match (suggested, rest.as_slice()) {
-        (false, []) if show => answer::Asked::Show,
-        (false, []) => answer::Asked::Each,
-        (true, []) => answer::Asked::Suggested,
-        (false, [question, text]) => {
-            if text.chars().any(char::is_control) {
-                return used(err, "an answer is one line, with no control character".to_string());
-            }
-            answer::Asked::One(question.clone(), text.clone())
+    if rest.len() % 2 == 1 {
+        let why = match rest.len() {
+            1 => "a question is named with its answer: wb answer <issue> <question> <answer>".to_string(),
+            _ => "a question and its answer are two words, and the pairs repeat: put an answer of several words in quotes".to_string(),
+        };
+        return used(err, why);
+    }
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    for pair in rest.chunks(2) {
+        if pair[1].chars().any(char::is_control) {
+            return used(err, "an answer is one line, with no control character".to_string());
         }
-        (true, _) => return used(err, "--suggested answers every question, and takes no question".to_string()),
-        (false, [_]) => return used(err, "a question is named with its answer: wb answer <issue> <question> <answer>".to_string()),
-        (false, _) => return used(err, "a question and its answer are two words: put the answer in quotes".to_string()),
+        if pairs.iter().any(|(known, _)| answer::whole_name(&on_value, known) == answer::whole_name(&on_value, &pair[0])) {
+            return used(err, format!("the question '{}' is named twice", pair[0].escape_debug()));
+        }
+        pairs.push((pair[0].clone(), pair[1].clone()));
+    }
+    let asked = match (suggested, show, pairs.is_empty()) {
+        (_, true, _) => answer::Asked::Show,
+        (true, _, _) => answer::Asked::Suggested(pairs),
+        (false, _, true) => answer::Asked::Each,
+        (false, _, false) => answer::Asked::Pairs(pairs),
     };
     if change.is_none() && !issue::is_name(&on_value) {
         return used(err, format!("'{}' is not an issue: an issue is letters, digits, '.', '_' and '-', and does not start with '.'", on_value.escape_debug()));

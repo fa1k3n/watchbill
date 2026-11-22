@@ -1,4 +1,4 @@
-Run this session on a local model. Run it on another runner only where a person has cleared that runner for the breakdown. You read more of the code than any other role, and all that you read goes to the model that answers you.
+You read more of the code than any other role, and all that you read goes to the model that answers you. The program handed you this prompt only after the organisation's file cleared your runner for the breakdown at this repository's level; your stamp names the runner, the model and the effort. Do not judge the clearance yourself, and do not stop for it.
 
 # Breakdown
 

@@ -1,8 +1,8 @@
 # The model table: one exact model ID and one effort for each role that has a prompt, but the breakdown.
 # Never "latest", and never a name without a version. Read by src/rules.rs.
 # Where an issue names another model or effort, the table wins: an issue may ask for more, never for less.
-# These rows are for a vendor's runner. The breakdown has none: it runs on a local runner, or on
-# another runner only where a person has cleared it for the breakdown (docs/revision.md, point 5).
+# These rows are for a vendor's runner. The breakdown has none here: its runner, model and effort are
+# cleared in the organisation's file, and `wb` refuses a runner that is not (docs/revision.md, points 5 and 11).
 models:
   tester:
     model: claude-sonnet-5-5

@@ -1,6 +1,6 @@
 # The lines a start leaves
 
-What `wb start <role>` leaves on the machine where a session is started or refused. They are diagnostics, not a record. Only `wb start` and `wb status` read them back, to name a view kept with work not taken back (#222).
+What `wb start <role>` leaves on the machine where a session is started or refused. They are diagnostics, not a record. Only `wb start` and `wb status` read them back, to name a view kept with work not taken back and a session cut off (#222).
 
 | ID | Requirement | Ver | Status |
 |---|---|---|---|
@@ -16,3 +16,4 @@ What `wb start <role>` leaves on the machine where a session is started or refus
 | WB-MON-10 | `wb start <role>` shall write `outcome` first as `outcome: running`, with the lines `pid: <process ID of wb>` and `started: <its start time in clock ticks>`, before the session starts, so that a `wb` ended before its session leaves it. Issue: #222. | T | Implemented |
 | WB-MON-11 | `wb start <role>` shall replace `outcome` when the start ends with the lines of WB-MON-4, with no `pid` line, so that no start that ended leaves `running`. Issue: #222. | T | Implemented |
 | WB-MON-12 | The folder of a session started in a view shall hold `folder`, written before the session starts, with the lines `folder: <the view's folder>`, `base: <its first commit>`, `head: <the commit of the checkout it was made from>`, `branch: <refs/heads/name>` and `issue: <issue>`. Issue: #222. | T | Implemented |
+| WB-MON-13 | `wb start` and `wb status` shall not read, and shall not wait for, a file of the lines (`outcome`, `stamp`, `back`, `folder`) that is not a plain file, or is over 1 MiB. Issue: #222. | T | Implemented |

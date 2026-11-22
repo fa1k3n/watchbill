@@ -1,5 +1,5 @@
 //! `wb status` (#139, #155): the issues in the flow, under headings as `git status` lists files under theirs, each
-//! issue under the last step it has done. It only reads. It says what is, never what to do.
+//! issue under the last step it has done. It only reads, and writes nothing but a temporary index in $TMPDIR, removed after, to read a kept view (#222). It says what is, never what to do.
 //!
 //! The issues in the flow are those whose branch, by the pattern `branch`, local or at `origin`, holds a commit
 //! that the default branch of `origin` does not. They are found with git alone, from the refs as they are:

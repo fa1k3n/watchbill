@@ -1,6 +1,6 @@
 # Where each issue stands
 
-What `wb status` says of the issues in the flow. It only reads.
+What `wb status` says of the issues in the flow. It only reads: it writes nothing but a temporary index in `$TMPDIR`, removed after, where it reads a view kept with work not taken back (#222).
 
 | ID | Requirement | Ver | Status |
 |---|---|---|---|
@@ -67,3 +67,8 @@ What `wb status` says of the issues in the flow. It only reads.
 | WB-STATUS-61 | `wb status <issue>` shall not call a session cut off whose `outcome` says `running` while a `wb` of that process ID is alive. Issue: #222. | T | Implemented |
 | WB-STATUS-62 | `wb status` shall read a kept view only through a repository of `wb`'s own: it shall run no hook and no setting of the view, and write nothing in it or in the state folder. Issue: #222. | T | Implemented |
 | WB-STATUS-63 | `wb status <issue>` shall find the commits not taken and the paths left uncommitted of a view whose session left no `back`, from the objects of the view. Issue: #222. | T | Implemented |
+| WB-STATUS-64 | Every git run on a kept view shall end after 3 seconds, the child killed and waited for, and the view shall count as `not read`: `wb status <issue>` shall print `kept: <role> round <n>, not read: <why>, <folder>` and `wb start` shall refuse naming it, in less than 10 seconds, also where an object of the view is a FIFO. Issue: #222. | T | Implemented |
+| WB-STATUS-65 | `wb status` shall skip a session whose `outcome` says `running` while its `wb` is alive: no `kept:` line for its view, no `cut off:` line, and no count of it on standard error. Issue: #222. | T | Implemented |
+| WB-STATUS-66 | `wb status` and the refusal of `wb start` shall read the subject of a commit of a kept view with a cap: a commit over 64 KiB is named by its size, and a subject is cut at 200 characters. Issue: #222. | T | Implemented |
+| WB-STATUS-67 | No filter driver or textconv defined in a config of the person or of the system shall run on a file of a kept view: every git run on a view reads neither, nor the view's own config. Issue: #222. | T | Implemented |
+| WB-STATUS-68 | `wb status` shall write nothing but a temporary index in `$TMPDIR`, removed after, where it reads a kept view: the folder is not left behind. Issue: #222. | T | Implemented |

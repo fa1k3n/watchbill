@@ -9,29 +9,18 @@
 //! directly below the folder of the views.
 
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::view::{self, View};
 
-/// The most a file of the lines is read, and the most folders of them are looked at.
-const MOST_BYTES: u64 = 1024 * 1024;
+/// The most folders of the lines that are looked at.
 const MOST_FOLDERS: usize = 20_000;
 /// How many sessions cut off `wb status` names.
 pub const MOST_CUT_OFF: usize = 5;
 
-/// A small plain file, read with a bound: `None` for what is not a plain file, is too large or is not text.
+/// A small plain file, read with a bound (`view::small_file`: opened first, the open file looked at, read through a cap).
 fn small(path: &Path) -> Option<String> {
-    let found = fs::symlink_metadata(path).ok()?;
-    if !found.is_file() || found.len() > MOST_BYTES {
-        return None;
-    }
-    let mut bytes = Vec::new();
-    fs::File::open(path).ok()?.take(MOST_BYTES + 1).read_to_end(&mut bytes).ok()?;
-    if bytes.len() as u64 > MOST_BYTES {
-        return None;
-    }
-    String::from_utf8(bytes).ok()
+    view::small_file(path)
 }
 
 /// The value of the line `<name>: <value>` of a text, the first one.
@@ -99,15 +88,20 @@ impl Session {
         self.round.clone().unwrap_or_else(|| "?".to_string())
     }
 
-    /// Whether `outcome` still says `running` and the `wb` that wrote it is not alive.
-    fn cut_off(&self) -> bool {
-        let Some(outcome) = small(&self.folder.join("outcome")) else { return false };
+    /// Whether `outcome` still says `running`: `Some(true)` where the `wb` that wrote it is alive (the session runs),
+    /// `Some(false)` where it is not (the session was cut off), none where it says anything else.
+    fn running(&self) -> Option<bool> {
+        let outcome = small(&self.folder.join("outcome"))?;
         if outcome.lines().next() != Some("outcome: running") {
-            return false;
+            return None;
         }
-        let Some(pid) = value(&outcome, "pid").and_then(|pid| pid.parse::<u32>().ok()) else { return true };
+        let Some(pid) = value(&outcome, "pid").and_then(|pid| pid.parse::<u32>().ok()) else { return Some(false) };
         let started = value(&outcome, "started").and_then(|ticks| ticks.parse::<u64>().ok());
-        !is_wb(pid, started)
+        Some(is_wb(pid, started))
+    }
+
+    fn cut_off(&self) -> bool {
+        self.running() == Some(false)
     }
 }
 
@@ -180,7 +174,13 @@ pub struct Kept {
 }
 
 /// The view that `session` kept, where it kept one with work in it.
-fn kept_of(root: &str, state: &Path, session: &Session) -> Option<Kept> {
+///
+/// A session that runs, with its `wb` alive, is skipped: its view is the session's own, and is not read. With `look`
+/// false no git is run on any view: a view that git would have to read is counted, as `not looked at`.
+fn kept_of(root: &str, state: &Path, session: &Session, look: bool) -> Option<Kept> {
+    if session.running() == Some(true) {
+        return None;
+    }
     let made = |folder: PathBuf, commits, uncommitted, unread| Kept { role: session.role.clone(), round: session.round(), folder, commits, uncommitted, unread };
     let back = small(&session.folder.join("back"));
     // A start that ended with its view kept says so in `back`, and what was not taken.
@@ -200,6 +200,10 @@ fn kept_of(root: &str, state: &Path, session: &Session) -> Option<Kept> {
     }
     // No `back`, or one that failed: the view is read, as the file `folder` names it.
     let folder_of_back = back.as_deref().and_then(|back| back.lines().last()?.strip_prefix("view: kept ")).and_then(|folder| held_folder(state, folder));
+    let not_looked_at = |folder: PathBuf| made(folder, Vec::new(), Vec::new(), Some("not looked at".to_string()));
+    if !look {
+        return session.place.as_ref().map(|place| place.view.folder.clone()).or(folder_of_back).map(not_looked_at);
+    }
     let Some(place) = &session.place else {
         return folder_of_back.map(|folder| made(folder, Vec::new(), Vec::new(), Some("it was not read: its session left no file `folder`".to_string())));
     };
@@ -215,19 +219,26 @@ fn kept_of(root: &str, state: &Path, session: &Session) -> Option<Kept> {
 
 /// The views of `issue` kept with work not taken back, from any role, oldest first, each once.
 pub fn scan(root: &str, state: &Path, issue: &str) -> Vec<Kept> {
-    kept_all(root, state, Some(issue))
+    kept_all(root, state, Some(issue), true)
+}
+
+/// How many views of `issue` are kept with work, as `scan` finds them, for `--ignore-kept`: no git is run on any
+/// view. A view named by `back` with work in it is counted; one named by `folder` and a `back` that failed or none
+/// is counted, whatever it holds.
+pub fn count(root: &str, state: &Path, issue: &str) -> usize {
+    kept_all(root, state, Some(issue), false).len()
 }
 
 /// The same for every issue (`wb status` with no issue counts them).
 pub fn scan_all(root: &str, state: &Path) -> Vec<Kept> {
-    kept_all(root, state, None)
+    kept_all(root, state, None, true)
 }
 
-fn kept_all(root: &str, state: &Path, issue: Option<&str>) -> Vec<Kept> {
+fn kept_all(root: &str, state: &Path, issue: Option<&str>, look: bool) -> Vec<Kept> {
     let mut found: Vec<Kept> = Vec::new();
     // Newest first: a view named by two folders is the newest one's.
     for session in sessions(state, issue) {
-        if let Some(kept) = kept_of(root, state, &session) {
+        if let Some(kept) = kept_of(root, state, &session, look) {
             if !found.iter().any(|one| one.folder == kept.folder) {
                 found.push(kept);
             }
@@ -260,13 +271,17 @@ impl Kept {
 
     /// The line of `wb status`.
     pub fn line(&self) -> String {
-        let commits = match self.count() {
-            1 => "1 commit not taken".to_string(),
-            n => format!("{} commits not taken", n),
-        };
-        let paths = if self.uncommitted.is_empty() { String::new() } else { format!(", {} paths uncommitted", self.uncommitted.len()) };
-        let unread = self.unread.as_ref().map(|why| format!(", not read: {}", why)).unwrap_or_default();
-        format!("kept: {} round {}, {}{}{}, {}", self.role, self.round, commits, paths, unread, crate::issue::shown(&self.folder.display().to_string()))
+        let mut parts = vec![format!("kept: {} round {}", self.role, self.round)];
+        match (self.count(), &self.unread) {
+            (_, Some(why)) => parts.push(format!("not read: {}", why)),
+            (1, None) => parts.push("1 commit not taken".to_string()),
+            (n, None) => parts.push(format!("{} commits not taken", n)),
+        }
+        if !self.uncommitted.is_empty() {
+            parts.push(format!("{} paths uncommitted", self.uncommitted.len()));
+        }
+        parts.push(crate::issue::shown(&self.folder.display().to_string()));
+        parts.join(", ")
     }
 }
 

@@ -2426,3 +2426,232 @@ fn test_WB_STATUS_63_the_work_of_a_view_with_no_back_is_found_from_its_objects()
     assert!(err.contains("One") && err.contains("Two"), "{}", err);
     assert!(session.exists());
 }
+
+// ---- #222, the review of #264: a kept view cannot hang wb, a live session is not kept ----
+
+/// Runs a command and waits for it at most `seconds`; the child is killed by its PID when the time is up, and the
+/// result is none then.
+fn bounded(mut command: Command, seconds: u64) -> Option<(Output, std::time::Duration)> {
+    use std::io::Read;
+    let began = std::time::Instant::now();
+    let mut child = command.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
+    let (mut out, mut err) = (child.stdout.take().unwrap(), child.stderr.take().unwrap());
+    let reading = std::thread::spawn(move || {
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        let _ = out.read_to_end(&mut a);
+        let _ = err.read_to_end(&mut b);
+        (a, b)
+    });
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            let (stdout, stderr) = reading.join().unwrap();
+            return Some((Output { status, stdout, stderr }, began.elapsed()));
+        }
+        if began.elapsed() > std::time::Duration::from_secs(seconds) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+/// `wb` as `wb_state` runs it, with a bound.
+fn wb_state_bounded(bench: &Bench, args: &[&str], seconds: u64) -> Option<Output> {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_wb"));
+    command.args(args).current_dir(&bench.repo.path).env_clear().envs(env()).env("XDG_STATE_HOME", &bench.state.path);
+    bounded(command, seconds).map(|(run, _)| run)
+}
+
+/// `wb start build 54 …` in a thread of its own, as `Bench::start` runs it, with a bound.
+fn start_bounded(bench: &Bench, more: &[&str], seconds: u64) -> Option<Output> {
+    use std::os::unix::process::ExitStatusExt;
+    let repo = bench.repo.path.clone();
+    let organisation = bench.organisation();
+    let (state, home) = (bench.state.path.clone(), bench.home.path.clone());
+    let mut args: Vec<std::ffi::OsString> = ["start", "build", "54"].iter().map(std::ffi::OsString::from).collect();
+    args.extend(more.iter().map(std::ffi::OsString::from));
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let machine = watchbill::Machine { organisation: &organisation, terminal: true, state: Some(&state), sandbox: Path::new(watchbill::view::BWRAP), home: Some(&home) };
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let status = watchbill::start_on(&args, &repo, &machine, &mut out, &mut err);
+        let _ = sender.send(Output { status: std::process::ExitStatus::from_raw(status << 8), stdout: out, stderr: err });
+    });
+    receiver.recv_timeout(std::time::Duration::from_secs(seconds)).ok()
+}
+
+/// Puts a FIFO in place of the loose object of the view's newest commit: git blocks for ever opening it.
+fn fifo_for_head(view: &Path) {
+    let head = {
+        let run = Command::new("git").arg("-C").arg(view).args(["rev-parse", "HEAD"]).env_clear().envs(env()).output().unwrap();
+        text(&run.stdout).trim().to_string()
+    };
+    let object = view.join(".git/objects").join(&head[..2]).join(&head[2..]);
+    fs::remove_file(&object).unwrap();
+    assert!(Command::new("mkfifo").arg(&object).status().unwrap().success());
+}
+
+#[test]
+fn test_WB_STATUS_64_a_fifo_for_an_object_of_a_kept_view_does_not_hang_status_or_a_start() {
+    let bench = bench();
+    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &[], outcome: "outcome: running\npid: 1\n" });
+    fifo_for_head(&folder);
+    let run = wb_state_bounded(&bench, &["status", "54"], 10).expect("wb status did not end in 10 seconds");
+    let out = text_of(&run.stdout);
+    assert!(out.lines().any(|line| line.starts_with("kept: tester round 2, not read: ")), "{}", out);
+    // A start is refused, with the view named as not read, in time.
+    let run = start_bounded(&bench, &[], 10).expect("wb start did not end in 10 seconds");
+    assert_eq!(code(&run), Some(1));
+    assert!(text_of(&run.stderr).contains("not read"), "{}", text_of(&run.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_76_ignore_kept_counts_the_views_and_runs_no_git_on_them() {
+    let bench = bench();
+    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &[], outcome: RAN });
+    fifo_for_head(&folder);
+    // The terminal check ends the start after the stamp is made, and the stamp is kept in the lines.
+    let run = start_bounded(&bench, &["--ignore-kept"], 10).expect("wb start --ignore-kept did not end in 10 seconds");
+    let _ = run;
+    let found = bench.below("sessions");
+    let newest = found.iter().find(|one| !one.ends_with("2026-11-22T100000Z-tester-54")).unwrap();
+    assert!(read(&newest.join("stamp")).lines().any(|line| line == "kept: ignored 1"), "{}", read(&newest.join("stamp")));
+}
+
+#[test]
+fn test_WB_BUILD_77_a_session_that_runs_with_a_live_wb_is_not_kept_for_a_start() {
+    let bench = bench();
+    let (folder, session) = keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &[], outcome: "outcome: running\n" });
+    let lonely = repository(None);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wb"))
+        .arg("init")
+        .current_dir(&lonely.path)
+        .env_clear()
+        .envs(env())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    let is_wb = || fs::read_link(format!("/proc/{}/exe", pid)).ok().and_then(|exe| exe.file_name().map(|name| name == "wb")).unwrap_or(false);
+    for _ in 0..500 {
+        if is_wb() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(is_wb());
+    fs::write(session.join("outcome"), format!("outcome: running\npid: {}\n", pid)).unwrap();
+    // Its view is never read: a FIFO where git would read would hang.
+    fifo_for_head(&folder);
+    let run = start_bounded(&bench, &[], 10);
+    let status = wb_state_bounded(&bench, &["status", "54"], 10);
+    child.kill().unwrap();
+    child.wait().unwrap();
+    let run = run.expect("the start did not end in 10 seconds");
+    assert!(!text_of(&run.stderr).contains("is kept"), "{}", text_of(&run.stderr));
+    let out = text_of(&status.expect("status did not end").stdout);
+    assert!(!out.contains("kept:") && !out.contains("cut off"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_65_a_session_that_runs_with_a_live_wb_is_skipped_by_status() {
+    let bench = bench();
+    let (_, session) = keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &[], outcome: "outcome: running\n" });
+    let lonely = repository(None);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wb"))
+        .arg("init")
+        .current_dir(&lonely.path)
+        .env_clear()
+        .envs(env())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    let is_wb = || fs::read_link(format!("/proc/{}/exe", pid)).ok().and_then(|exe| exe.file_name().map(|name| name == "wb")).unwrap_or(false);
+    for _ in 0..500 {
+        if is_wb() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(is_wb());
+    fs::write(session.join("outcome"), format!("outcome: running\npid: {}\n", pid)).unwrap();
+    let out = text_of(&wb_state(&bench, &["status", "54"]).stdout);
+    let err = text_of(&wb_state(&bench, &["status"]).stderr);
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert!(!out.contains("kept:") && !out.contains("cut off"), "{}", out);
+    assert!(!err.contains("kept view"), "{}", err);
+}
+
+#[test]
+fn test_WB_STATUS_66_a_commit_message_of_many_mebibytes_is_not_read_whole_or_printed() {
+    let bench = bench();
+    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &[], uncommitted: &[], outcome: RAN });
+    let message = bench.log.path.join("message");
+    fs::write(&message, format!("{}\n", "x".repeat(5 * 1024 * 1024))).unwrap();
+    put(&folder, "huge.c", "int huge;\n");
+    git(&folder, &["add", "--", "huge.c"]);
+    git(&folder, &["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false", "commit", "-q", "-F", message.to_str().unwrap()]);
+    let run = start_bounded(&bench, &[], 10).expect("the start did not end");
+    assert_eq!(code(&run), Some(1));
+    assert!(run.stderr.len() < 64 * 1024, "{} bytes", run.stderr.len());
+    let out = wb_state_bounded(&bench, &["status", "54"], 10).expect("status did not end").stdout;
+    assert!(out.len() < 64 * 1024 && text_of(&out).contains("1 commit not taken"), "{} bytes", out.len());
+}
+
+#[test]
+fn test_WB_STATUS_67_a_filter_driver_of_the_global_config_is_not_run_on_the_files_of_a_view() {
+    let bench = bench();
+    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &[], outcome: "outcome: running\npid: 1\n" });
+    let marker = bench.log.path.join("filtered");
+    let driver = bench.log.path.join("driver.sh");
+    script(&driver, &format!("echo ran >> {}\ncat\n", marker.display()));
+    let global = bench.home.path.join(".gitconfig");
+    fs::write(&global, format!("[filter \"hostile\"]\n\tclean = {d}\n\tsmudge = {d}\n[diff \"hostile\"]\n\ttextconv = {d}\n", d = driver.display())).unwrap();
+    fs::write(folder.join(".gitattributes"), "* filter=hostile diff=hostile\n").unwrap();
+    // A file of the view that is in its commit and changed, so that git must look at its content.
+    fs::write(folder.join("src/brake.c"), "int changed;\n").unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_wb"));
+    command
+        .args(["status", "54"])
+        .current_dir(&bench.repo.path)
+        .env_clear()
+        .envs(env())
+        .env("XDG_STATE_HOME", &bench.state.path)
+        .env("HOME", &bench.home.path);
+    let (run, _) = bounded(command, 10).expect("status did not end");
+    assert!(text_of(&run.stdout).contains("kept: tester round 2"), "{}", text_of(&run.stdout));
+    assert!(!marker.exists(), "a filter driver of the global config ran on a file of the view");
+}
+
+#[test]
+fn test_WB_MON_13_a_file_of_the_lines_that_is_not_a_plain_file_is_not_read_and_not_waited_for() {
+    let bench = bench();
+    let (_, session) = keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &[], outcome: RAN });
+    for name in ["back", "stamp"] {
+        let _ = fs::remove_file(session.join(name));
+        assert!(Command::new("mkfifo").arg(session.join(name)).status().unwrap().success());
+    }
+    assert!(wb_state_bounded(&bench, &["status", "54"], 10).is_some(), "status did not end");
+    fs::remove_file(session.join("outcome")).unwrap();
+    assert!(Command::new("mkfifo").arg(session.join("outcome")).status().unwrap().success());
+    assert!(wb_state_bounded(&bench, &["status", "54"], 10).is_some(), "status did not end");
+}
+
+#[test]
+fn test_WB_STATUS_68_status_leaves_nothing_in_the_temporary_folder() {
+    let bench = bench();
+    keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &["a.c"], outcome: "outcome: running\npid: 1\n" });
+    let temporary = folder_named("tmp");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_wb"));
+    command.args(["status", "54"]).current_dir(&bench.repo.path).env_clear().envs(env()).env("XDG_STATE_HOME", &bench.state.path).env("TMPDIR", &temporary.path);
+    let (run, _) = bounded(command, 10).expect("status did not end");
+    assert!(text_of(&run.stdout).contains("kept: tester round 2, 1 commit not taken, 1 paths uncommitted"), "{}", text_of(&run.stdout));
+    assert_eq!(fs::read_dir(&temporary.path).unwrap().count(), 0);
+}

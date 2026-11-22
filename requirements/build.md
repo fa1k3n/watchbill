@@ -79,3 +79,5 @@ What `wb start <role> <issue>` checks, posts and starts. One path for a person a
 | WB-BUILD-73 | A view kept by each of the roles `tester`, `build`, `review` and `fix` shall stop a start of any role of the same issue. Issue: #222. | T | Implemented |
 | WB-BUILD-74 | A start refused for a kept view shall write `outcome: refused` with `check: kept` in its folder, and shall start no session. Issue: #222. | T | Implemented |
 | WB-BUILD-75 | `--ignore-kept` shall pass the check of kept views alone: a local change under `changes` shall still be refused with it. Issue: #222. | T | Implemented |
+| WB-BUILD-76 | `--ignore-kept` shall count the views named by `back` and `folder` for the stamp's `kept: ignored <n>` without running git on any view, so that no view makes it wait. Issue: #222. | T | Implemented |
+| WB-BUILD-77 | `wb start` shall not take as kept a view of a session whose `outcome` says `running` while its `wb` is alive, and shall not read that view. Issue: #222. | T | Implemented |

@@ -125,7 +125,8 @@ const USAGE: &str = "usage:
             views are kept on this machine. Ends with 0 when
             every issue could be read, 1 when a pattern failed for one (it is
             listed under Not read), 2 when it was used wrongly or the
-            repository is not set up. Writes nothing
+            repository is not set up. Writes nothing but a temporary index in
+            $TMPDIR, removed after, where it reads a kept view
   view      show what a session of a role will see, before it starts. wb view
             <issue> <role> prints the paths of its view, one to a line, the
             list the start makes the view from, and nothing else. --in

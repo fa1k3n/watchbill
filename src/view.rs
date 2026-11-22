@@ -181,8 +181,65 @@ pub fn hash(paths: &[String]) -> String {
 /// input. The result is standard output; a git that cannot be run, or ends with anything but 0, is the error, with
 /// the first line it said.
 fn git(at: &Path, args: &[&str], env: &[(&str, &Path)], input: Option<&[u8]>) -> Result<Vec<u8>, String> {
+    run_git(Some(at), &[], args, env, input)
+}
+
+thread_local! {
+    /// The time a git run may take, while a `Bounded` is held: a view is hostile, and git may wait on what it holds.
+    static BOUND: std::cell::Cell<Option<std::time::Duration>> = const { std::cell::Cell::new(None) };
+}
+
+/// Holds the time bound of `git` for this thread, until it is dropped (#222).
+struct Bounded(());
+
+impl Drop for Bounded {
+    fn drop(&mut self) {
+        BOUND.with(|bound| bound.set(None));
+    }
+}
+
+fn bounded(limit: std::time::Duration) -> Bounded {
+    BOUND.with(|bound| bound.set(Some(limit)));
+    Bounded(())
+}
+
+/// Waits for `child` at most `limit`: past it the child is killed, by its own process ID, and waited for, and the
+/// result is a `TimedOut` error. The output is read through a cap.
+fn wait_bounded(mut child: std::process::Child, limit: std::time::Duration) -> std::io::Result<std::process::Output> {
+    use std::io::Read;
+    fn reading(pipe: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<Vec<u8>> {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            if let Some(pipe) = pipe {
+                let _ = pipe.take(64 * 1024 * 1024).read_to_end(&mut bytes);
+            }
+            bytes
+        })
+    }
+    let (out, err) = (reading(child.stdout.take()), reading(child.stderr.take()));
+    let began = std::time::Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if began.elapsed() > limit {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(std::io::ErrorKind::TimedOut.into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    };
+    Ok(std::process::Output { status, stdout: out.join().unwrap_or_default(), stderr: err.join().unwrap_or_default() })
+}
+
+/// `git` as `git` runs it, with `before` words after `git`, in `at` where there is a folder.
+fn run_git(at: Option<&Path>, before: &[OsString], args: &[&str], env: &[(&str, &Path)], input: Option<&[u8]>) -> Result<Vec<u8>, String> {
+    let limit = BOUND.with(|bound| bound.get());
     let mut command = Command::new("git");
-    command.arg("-C").arg(at).args(args);
+    if let Some(at) = at {
+        command.arg("-C").arg(at);
+    }
+    command.args(before).args(args);
     for (name, _) in std::env::vars_os() {
         if name.to_string_lossy().starts_with("GIT_") {
             command.env_remove(name);
@@ -200,9 +257,18 @@ fn git(at: &Path, args: &[&str], env: &[(&str, &Path)], input: Option<&[u8]>) ->
                 let _ = stdin.write_all(input);
             });
         }
-        child.wait_with_output()
+        match limit {
+            None => child.wait_with_output(),
+            Some(limit) => wait_bounded(child, limit),
+        }
     })
-    .map_err(|error| format!("git could not be waited for: {}", error))?;
+    .map_err(|error| {
+        if error.kind() == std::io::ErrorKind::TimedOut {
+            format!("`git {}` took more than {} seconds and was ended", args.first().copied().unwrap_or(""), limit.map_or(0, |limit| limit.as_secs()))
+        } else {
+            format!("git could not be waited for: {}", error)
+        }
+    })?;
     if output.status.success() {
         return Ok(output.stdout);
     }
@@ -530,13 +596,30 @@ pub(crate) fn is_object(name: &str) -> bool {
     (name.len() == 40 || name.len() == 64) && name.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
 }
 
-/// A small file of the view's `.git`, read as it is: a plain file, never through a link.
-fn small_file(path: &Path) -> Option<String> {
-    let found = fs::symlink_metadata(path).ok()?;
-    if !found.is_file() || found.len() > 64 * 1024 * 1024 {
+/// The most a small file of a view or of the lines of a start is read.
+const MOST_BYTES: u64 = 1024 * 1024;
+
+/// A small file, read as it is: a plain file, never through a link. It is opened first, without waiting (a FIFO
+/// opens at once), and it is the open file that is looked at: a plain file of 1 MiB or less, read through a cap.
+/// What is not, or is not text, is none.
+pub(crate) fn small_file(path: &Path) -> Option<String> {
+    use std::io::Read;
+    use std::os::unix::fs::OpenOptionsExt;
+    if fs::symlink_metadata(path).ok()?.file_type().is_symlink() {
         return None;
     }
-    fs::read_to_string(path).ok()
+    // O_NONBLOCK, which is 0o4000 on Linux.
+    let file = fs::OpenOptions::new().read(true).custom_flags(0o4000).open(path).ok()?;
+    let found = file.metadata().ok()?;
+    if !found.is_file() || found.len() > MOST_BYTES {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    file.take(MOST_BYTES + 1).read_to_end(&mut bytes).ok()?;
+    if bytes.len() as u64 > MOST_BYTES {
+        return None;
+    }
+    String::from_utf8(bytes).ok()
 }
 
 /// The commit the view's `HEAD` names, read from the files of its `.git`, without git: a branch, loose or packed,
@@ -844,22 +927,53 @@ pub fn take_back(name: &str, root: &str, view: &View, changes: &[String], build_
 /// repository of `wb`'s own, never with the settings of the view: the commits of the view after the one it was made
 /// with (the first 200, the first parent only), each its name and subject, and the paths left uncommitted. Reads only.
 pub fn work_left(root: &str, view: &View) -> Result<(Vec<(String, String)>, Vec<String>), String> {
-    let store = Store::new(view)?;
+    // Every git run here ends after 3 seconds: a view is hostile, and git may wait for ever on what it holds.
+    let _bound = bounded(std::time::Duration::from_secs(3));
+    let objects = view.folder.join(".git").join("objects");
+    match fs::symlink_metadata(&objects) {
+        Ok(found) if found.is_dir() => {}
+        _ => return Err(format!("{} is not the folder it was made as, and nothing of the view is read through it", objects.display())),
+    }
     let head = head_of(&view.folder.join(".git"))?;
+    // The commits are read through the checkout's own repository, with the view's objects as alternates: nothing is
+    // written, and no setting of the view is read.
+    let gitdir = line(&git(Path::new(root), &["rev-parse", "--absolute-git-dir"], &[], None)?);
+    let env = [
+        ("GIT_ALTERNATE_OBJECT_DIRECTORIES", objects.as_path()),
+        ("GIT_CONFIG_NOSYSTEM", Path::new("1")),
+        ("GIT_CONFIG_GLOBAL", Path::new("/dev/null")),
+        ("GIT_ATTR_NOSYSTEM", Path::new("1")),
+    ];
+    let before = [OsString::from("--no-replace-objects"), OsString::from(format!("--git-dir={}", gitdir))];
+    let on = |args: &[&str]| run_git(None, &before, args, &env, None);
     let mut commits: Vec<(String, String)> = Vec::new();
     if head != view.base {
-        if git(&store.path, &["merge-base", "--is-ancestor", &view.base, &head], &[], None).is_err() {
+        if on(&["merge-base", "--is-ancestor", &view.base, &head]).is_err() {
             return Err(format!("the view's HEAD, {}, does not come from the commit the view was made with", short(&head)));
         }
         let range = format!("{}..{}", view.base, head);
-        let listed = git(&store.path, &["rev-list", "--first-parent", "--reverse", "--max-count=200", &range], &[], None)?;
-        for commit in String::from_utf8_lossy(&listed).lines() {
-            commits.push((commit.to_string(), raw_of(&store.path, commit)?.subject()));
+        let listed = on(&["rev-list", "--first-parent", "--reverse", "--max-count=200", &range])?;
+        for commit in String::from_utf8_lossy(&listed).lines().filter(|commit| is_object(commit)) {
+            commits.push((commit.to_string(), subject_capped(&on, commit)?));
         }
     }
+    let store = Store::new(view)?;
     let mut notes = Vec::new();
     let paths = uncommitted(root, &store.path, &view.folder, &view.head, &mut notes)?;
     Ok((commits, paths))
+}
+
+/// The subject of a commit of a view, read with a cap: a message over 64 KiB is not read, and a subject is cut at
+/// 200 characters.
+fn subject_capped(on: &dyn Fn(&[&str]) -> Result<Vec<u8>, String>, commit: &str) -> Result<String, String> {
+    let size: u64 = line(&on(&["cat-file", "-s", commit])?).parse().map_err(|_| format!("the size of the commit {} is not a number", short(commit)))?;
+    if size > 64 * 1024 {
+        return Ok(format!("(a commit of {} bytes, not read)", size));
+    }
+    let bytes = on(&["cat-file", "commit", commit])?;
+    let split = bytes.windows(2).position(|two| two == b"\n\n").map(|at| at + 2).unwrap_or(bytes.len());
+    let first = String::from_utf8_lossy(&bytes[split..]).lines().next().unwrap_or("").chars().take(200).collect::<String>();
+    Ok(crate::issue::shown(&first))
 }
 
 /// A repository of `wb`'s own, through which the objects of a view are read, and removed when it is dropped.
@@ -1111,8 +1225,16 @@ fn ignored(store: &Path, tree: &Path, paths: &[String]) -> Result<Vec<String>, S
 fn uncommitted(root: &str, store: &Path, view: &Path, head_of_checkout: &str, notes: &mut Vec<String>) -> Result<Vec<String>, String> {
     let head = head_of(&view.join(".git"))?;
     let index = store.join("index-of-the-view");
-    let env = [("GIT_INDEX_FILE", index.as_path()), ("GIT_WORK_TREE", view)];
-    let quiet = ["-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false"];
+    // No config of the person is read, so no filter driver or textconv can be defined for the view's files, and the
+    // view's own config is never read: the repository is `wb`'s own.
+    let env = [
+        ("GIT_INDEX_FILE", index.as_path()),
+        ("GIT_WORK_TREE", view),
+        ("GIT_CONFIG_NOSYSTEM", Path::new("1")),
+        ("GIT_CONFIG_GLOBAL", Path::new("/dev/null")),
+        ("GIT_ATTR_NOSYSTEM", Path::new("1")),
+    ];
+    let quiet = ["-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "core.attributesFile=/dev/null"];
     let with = |more: &[&str]| -> Vec<String> { quiet.iter().chain(more).map(|word| word.to_string()).collect() };
     let run = |more: &[&str]| -> Result<Vec<u8>, String> {
         let words = with(more);

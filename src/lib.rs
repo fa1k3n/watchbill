@@ -146,7 +146,8 @@ pub const USAGE: &str = "usage:
             views are kept on this machine. Ends with 0 when
             every issue could be read, 1 when a pattern failed for one (it is
             listed under Not read), 2 when it was used wrongly or the
-            repository is not set up. Writes nothing
+            repository is not set up. Writes nothing but a temporary index in
+            $TMPDIR, removed after, where it reads a kept view
   view      show what a session of a role will see, before it starts. wb view
             <issue> <role> prints the paths of its view, one to a line, the
             list the start makes the view from, and nothing else. --in
@@ -1159,10 +1160,14 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     // The views of this issue kept with work not taken back (#222), from any role: they stop the start, below, unless
     // `--ignore-kept` passes them, and then the stamp says how many.
     let kept_views = match (words.get("issue"), state) {
-        (Some(issue), Some(state)) => kept::scan(root, state, issue),
+        (Some(issue), Some(state)) if !words.ignore_kept => kept::scan(root, state, issue),
         _ => Vec::new(),
     };
-    let kept_ignored = (words.ignore_kept && !kept_views.is_empty()).then_some(kept_views.len());
+    // `--ignore-kept` runs no git on any view: it counts them, for the stamp.
+    let kept_ignored = match (words.get("issue"), state) {
+        (Some(issue), Some(state)) if words.ignore_kept => Some(kept::count(root, state, issue)).filter(|count| *count > 0),
+        _ => None,
+    };
     // The stamp, as it will be posted; made now, so that a start refused before it is posted leaves it.
     let round = value_of(&handed.values, "round").map(str::to_string);
     let stamp = match &round {

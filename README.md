@@ -52,7 +52,7 @@ A team takes an issue from its text to a merged change, and a person only accept
 
 ### Where it stands
 
-At 0.10.0. An issue that changes a verdict changes its row.
+At 0.11.0. An issue that changes a verdict changes its row.
 
 | Goal | Today | What will hold it |
 |---|---|---|
@@ -287,7 +287,7 @@ role: build
 model: claude-sonnet-5-5
 effort: medium
 runner:
-version: 0.10.0
+version: 0.11.0
 revision: 3f0c1d9e…
 issue: 12
 change:

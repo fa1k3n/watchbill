@@ -59,7 +59,7 @@ The role prompts: breakdown, tester, build, review and fix. The first revision h
 | WB-ROLE-53 | The breakdown's prompt shall say that the breakdown finds the guards among the existing tests. Issue: #75. | T | Implemented |
 | WB-ROLE-54 | The breakdown's prompt shall say that the breakdown lists for each role what it may read, as narrow as the work allows. Issue: #75. | T | Implemented |
 | WB-ROLE-55 | The breakdown's prompt shall say that the breakdown reads the settings of the project's checks, so that what a check needs, such as a built page or a generated file, is in the issue. Issue: #75. | T | Implemented |
-| WB-ROLE-56 | The first lines of the breakdown's prompt shall say that it runs on a local model unless a person has cleared another runner for the breakdown. Issue: #75. | T | Implemented |
+| WB-ROLE-56 | The first line of the breakdown's prompt shall say that the program handed it out only after the organisation's file cleared its runner for the breakdown, and that the session does not judge the clearance. Issue: #75, #224. | T | Implemented |
 | WB-ROLE-57 | The breakdown's last message shall have the fields `model`, `effort`, `file`, `requirements` (how many), `questions` and `needs_person`, in this order. Issue: #75. | T | Implemented |
 | WB-ROLE-58 | The list of placeholders shall hold `{issue}` and `{issue_address}`, and not `{task}` or `{task_address}`. Issue: #78. | T | Implemented |
 | WB-ROLE-59 | No file of the roles shall hold the placeholder `{task}` or `{task_address}`. Issue: #78. | T | Implemented |
@@ -96,3 +96,4 @@ The role prompts: breakdown, tester, build, review and fix. The first revision h
 | WB-ROLE-90 | The build's prompt shall say that the message of its last commit names the issue, the requirements and anything in the change that a reviewer would not expect, since the change is opened from its commits. Issue: #145. | T | Implemented |
 | WB-ROLE-91 | The breakdown's prompt shall say to commit and then push to `{branch}`, and its last message shall name the commit that was pushed. Issue: #145. | T | Implemented |
 | WB-ROLE-92 | The breakdown's prompt shall say that a path in `changes` that is a folder not yet in the repository ends with `/`, and that a file never does. Issue: #197. | T | Implemented |
+| WB-ROLE-93 | No role's prompt shall ask the session to check a clearance of its runner: none holds "local model" or "only where a person has cleared". Issue: #224. | T | Implemented |

@@ -757,14 +757,24 @@ fn test_WB_ROLE_55_the_breakdown_reads_the_settings_of_the_checks_so_that_what_a
 }
 
 #[test]
-fn test_WB_ROLE_56_the_first_lines_of_the_breakdown_say_it_runs_on_a_local_model_unless_a_person_cleared_another() {
+fn test_WB_ROLE_56_the_first_line_of_the_breakdown_says_the_program_cleared_the_runner_and_the_session_does_not_judge_it() {
     let text = prompt("breakdown");
-    // The line stood third, after the draft line, until the draft line went from the breakdown (#98).
     let first: Vec<&str> = text.split('\n').take(2).collect();
     assert_eq!(first.get(1).copied(), Some(""), "{:?}", first);
     let line = first.first().copied().unwrap_or_default();
-    assert!(line.starts_with("Run this session on a local model."), "{:?}", first);
-    assert!(line.contains("Run it on another runner only where a person has cleared that runner for the breakdown."), "{:?}", first);
+    assert!(line.starts_with("You read more of the code than any other role, and all that you read goes to the model that answers you."), "{:?}", first);
+    assert!(line.contains("The program handed you this prompt only after the organisation's file cleared your runner for the breakdown at this repository's level; your stamp names the runner, the model and the effort."), "{:?}", first);
+    assert!(line.contains("Do not judge the clearance yourself, and do not stop for it."), "{:?}", first);
+}
+
+#[test]
+fn test_WB_ROLE_93_no_role_text_asks_the_session_to_check_a_clearance_of_its_runner() {
+    for role in ROLES {
+        let text = prompt(role);
+        for phrase in ["local model", "only where a person has cleared"] {
+            assert!(!text.contains(phrase), "{} holds {:?}", role, phrase);
+        }
+    }
 }
 
 #[test]

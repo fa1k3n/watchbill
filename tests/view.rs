@@ -2075,7 +2075,7 @@ fn keep(bench: &Bench, keep: &Keep) -> (PathBuf, PathBuf) {
     fs::write(session.join("outcome"), keep.outcome).unwrap();
     fs::write(
         session.join("folder"),
-        format!("folder: {}\nbase: {}\nhead: {}\nbranch: {}\nissue: 54\n", made.folder.display(), made.base, made.head, made.branch),
+        format!("folder: {}\nbase: {}\nhead: {}\nbranch: {}\nissue: {}\n", made.folder.display(), made.base, made.head, made.branch, keep.session.rsplit('-').next().unwrap()),
     )
     .unwrap();
     (made.folder, session)

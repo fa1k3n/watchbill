@@ -15,7 +15,7 @@ const USAGE: &str = "usage:
   wb check
   wb upgrade [--dry-run]
   wb accept <issue> [--no-commit]
-  wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [the options of prompt]
+  wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [--ignore-kept] [the options of prompt]
   wb status [<issue>] [--stage <heading>]
   wb view <issue> (<role> [--in | --out] | <path>)
   wb answer (<issue> | --change <n>) [--show | [--suggested] [<question> <answer>]...]
@@ -87,7 +87,10 @@ const USAGE: &str = "usage:
             is --runner, or the organisation's default. The round and the
             change are worked out from issue_comments, change_comments and
             change_of_branch; --round and --change win. --prompt, --stamp and
-            --parts print as prompt does, and post and start nothing. Ends with
+            --parts print as prompt does, and post and start nothing. A view
+            of the issue kept with work not taken back, from any role, stops the
+            start with 1 before anything is posted; --ignore-kept goes on
+            without it, and the stamp says so. Ends with
             the session: 0 when it ended with 0, else 1; 1 when it is refused,
             2 when it was used wrongly or the repository is not set up
   revision  print the version of the package, the hash of its revision and the
@@ -114,7 +117,12 @@ const USAGE: &str = "usage:
             commits are not pushed. The comments come from issue_comments.
             <issue> prints that issue, in the flow or not, with its title
             (issue_address) and what it was worked out from; --stage <heading>
-            prints that heading only, whatever its case. Ends with 0 when
+            prints that heading only, whatever its case. For one issue it also
+            prints a line kept: <role> round <n>, <k> commits not taken,
+            <folder> for each view kept with work not taken back, and cut off:
+            <role> round <n>, <folder> for each session whose wb ended before
+            it did. With no issue it says on standard error how many such
+            views are kept on this machine. Ends with 0 when
             every issue could be read, 1 when a pattern failed for one (it is
             listed under Not read), 2 when it was used wrongly or the
             repository is not set up. Writes nothing

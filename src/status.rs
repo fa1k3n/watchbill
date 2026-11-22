@@ -320,7 +320,7 @@ fn line_of(found: &Found) -> String {
 /// `wb status [<issue>] [--stage <heading>]` in the repository at `root`: 0 every issue could be read, 1 a
 /// pattern failed, 2 the repository is not set up or has no default branch. `stage`, when given, is a heading
 /// that `heading_of` knows.
-pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state: Option<&std::path::Path>, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     // `wb status` only reads (#254): a file that is not as `HEAD` has it is said, and every pattern is read from
     // the file of `HEAD`. Where the file is not in `HEAD` at all, the repository is not set up.
     let _read_only = match starter::read_only(root) {
@@ -405,6 +405,32 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, out: 
     if let (Some(_), false, Some(found)) = (only, sections.is_empty(), read.first()) {
         let lines: String = found.from.iter().map(|line| format!("  {}\n", line)).collect();
         sections.push(format!("Worked out from:\n{}", lines));
+    }
+    // What the sessions of this machine left (#222): the views kept with work not taken back, and the sessions cut
+    // off, of one issue below what was printed of it; for the list, only the count of the views, on standard error.
+    // Only the state folder of this machine and the objects of a view are read, and the view's settings never.
+    if let Some(state) = state {
+        match (only, stage) {
+            (Some(number), None) => {
+                let mut lines: Vec<String> = crate::kept::scan(root, state, number).iter().map(|kept| kept.line()).collect();
+                lines.extend(crate::kept::cut_off(state, number).iter().map(|cut| cut.line()));
+                if !lines.is_empty() {
+                    sections.push(lines.iter().map(|line| format!("{}\n", line)).collect());
+                }
+            }
+            (None, _) => {
+                let count = crate::kept::scan_all(root, state).len();
+                if count > 0 {
+                    let _ = writeln!(
+                        err,
+                        "wb status: {} kept {} with work not taken back on this machine. `wb status <issue>` names them.",
+                        count,
+                        if count == 1 { "view" } else { "views" }
+                    );
+                }
+            }
+            _ => {}
+        }
     }
     let _ = out.write_all(sections.join("\n").as_bytes());
     if failed.is_empty() {

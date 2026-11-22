@@ -526,7 +526,7 @@ impl Back {
 }
 
 /// A name of an object: 40 or 64 small hexadecimal digits.
-fn is_object(name: &str) -> bool {
+pub(crate) fn is_object(name: &str) -> bool {
     (name.len() == 40 || name.len() == 64) && name.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
 }
 
@@ -809,7 +809,7 @@ fn raw_of(store: &Path, commit: &str) -> Result<Raw, String> {
 }
 
 /// A short name of a commit, as a person reads it.
-fn short(commit: &str) -> &str {
+pub(crate) fn short(commit: &str) -> &str {
     &commit[..commit.len().min(12)]
 }
 
@@ -838,6 +838,28 @@ pub fn take_back(name: &str, root: &str, view: &View, changes: &[String], build_
     }
     drop(store);
     said(name, view, back, list, err)
+}
+
+/// What a kept view holds that is not on the branch (#222), read as `take_back` reads a view and through a
+/// repository of `wb`'s own, never with the settings of the view: the commits of the view after the one it was made
+/// with (the first 200, the first parent only), each its name and subject, and the paths left uncommitted. Reads only.
+pub fn work_left(root: &str, view: &View) -> Result<(Vec<(String, String)>, Vec<String>), String> {
+    let store = Store::new(view)?;
+    let head = head_of(&view.folder.join(".git"))?;
+    let mut commits: Vec<(String, String)> = Vec::new();
+    if head != view.base {
+        if git(&store.path, &["merge-base", "--is-ancestor", &view.base, &head], &[], None).is_err() {
+            return Err(format!("the view's HEAD, {}, does not come from the commit the view was made with", short(&head)));
+        }
+        let range = format!("{}..{}", view.base, head);
+        let listed = git(&store.path, &["rev-list", "--first-parent", "--reverse", "--max-count=200", &range], &[], None)?;
+        for commit in String::from_utf8_lossy(&listed).lines() {
+            commits.push((commit.to_string(), raw_of(&store.path, commit)?.subject()));
+        }
+    }
+    let mut notes = Vec::new();
+    let paths = uncommitted(root, &store.path, &view.folder, &view.head, &mut notes)?;
+    Ok((commits, paths))
 }
 
 /// A repository of `wb`'s own, through which the objects of a view are read, and removed when it is dropped.

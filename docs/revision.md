@@ -250,12 +250,12 @@ The pieces that build this have their requirements reserved as Draft rows in `re
 
 | Area | File | Issue |
 |---|---|---|
-| `WB-ROLE` | `requirements/role.md` | #4, #69, #75, #78, #82, #95, #98, #113, #116, #125, #145, #197, #224 |
+| `WB-ROLE` | `requirements/role.md` | #4, #69, #75, #78, #82, #95, #98, #113, #116, #125, #145, #197, #224, #227 |
 | `WB-RULE` | `requirements/rule.md` | #5, #75, #95, #98, #113, #145 |
 | `WB-REV` | `requirements/rev.md` | #6 |
 | `WB-PIN` | `requirements/pin.md` | #7 |
 | `WB-CHECK` | `requirements/check.md` | #8, #240 |
-| `WB-PROMPT` | `requirements/prompt.md` | #9, #10, #68, #76, #78, #116, #211, #236 |
+| `WB-PROMPT` | `requirements/prompt.md` | #9, #10, #68, #76, #78, #116, #211, #227, #236 |
 | `WB-CONF` | `requirements/conf.md` | #11 |
 | `WB-TASK` | `requirements/task.md` | #74, #78, #116, #157, #235: the area keeps its name, and its rows say issue |
 | `WB-ACCT` | `requirements/acct.md` | #83 |

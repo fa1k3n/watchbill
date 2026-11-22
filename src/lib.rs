@@ -43,7 +43,8 @@ pub const USAGE: &str = "usage:
   wb prompt <role> [<issue>] [--issue <text>] [--change <text>]
             [--requirements <text>] [--round <text>] [--checkout <text>]
             [--branch <text>] [--issue_address <text>]
-            [--change_address <text>] [--runner <name>] [--parts] [--stamp]
+            [--change_address <text>] [--classed <text>]
+            [--classed_touched <text>] [--runner <name>] [--parts] [--stamp]
   wb revision
   wb --version
 
@@ -817,7 +818,12 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
     // The round and the change are worked out where the prompt holds them, and the round always for a
     // session that `wb start <role>` starts: its stamp's first line holds it (#84).
     let holds = prompt::used_by(Path::new(&root), role);
-    let need = prompt::Need { round: starting || holds.contains(&"round"), change: holds.contains(&"change"), strict: starting };
+    let need = prompt::Need {
+        round: starting || holds.contains(&"round"),
+        change: holds.contains(&"change"),
+        classed: holds.contains(&"classed") || holds.contains(&"classed_touched"),
+        strict: starting,
+    };
     let before = values.len();
     let (values, worked) = match prompt::derive_with(&root, role, &values, need) {
         Ok(found) => found,

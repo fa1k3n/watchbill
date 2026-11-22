@@ -2035,3 +2035,394 @@ fn test_WB_BUILD_56_a_write_that_fails_after_the_session_changes_neither_the_sta
     assert!(read(&folder.join("back")).lines().any(|line| line.starts_with("taken: ")));
     assert!(read(&folder.join("outcome")).starts_with("outcome: ended\nstatus: 0\n"));
 }
+
+// ---- #222: a view kept with work not taken back is seen ----
+
+/// What a kept view is made with in a test.
+struct Keep<'a> {
+    /// The name of the session's folder, `<time>-<role>-<issue>`.
+    session: &'a str,
+    role: &'a str,
+    round: u32,
+    /// The subjects of the commits made in the view.
+    commits: &'a [&'a str],
+    /// The paths left uncommitted in the view.
+    uncommitted: &'a [&'a str],
+    /// The text of `outcome`.
+    outcome: &'a str,
+}
+
+/// A view of the bench made as `wb` makes it, with what `keep` says in it, and the session's folder as a start
+/// leaves it, with no `back`: the `wb` that ran it was ended.
+fn keep(bench: &Bench, keep: &Keep) -> (PathBuf, PathBuf) {
+    let below = bench.state.path.join("watchbill").join("views");
+    let made = watchbill::view::make(&bench.root(), &["src/brake.c".to_string()], &below, keep.session).unwrap();
+    for (number, subject) in keep.commits.iter().enumerate() {
+        let path = format!("made-{}.c", number);
+        put(&made.folder, &path, "int made;\n");
+        git(&made.folder, &["add", "--", &path]);
+        git(
+            &made.folder,
+            &["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false", "commit", "-q", "-m", subject],
+        );
+    }
+    for path in keep.uncommitted {
+        put(&made.folder, path, "left\n");
+    }
+    let session = bench.state.path.join("watchbill").join("sessions").join(keep.session);
+    fs::create_dir_all(&session).unwrap();
+    fs::write(session.join("stamp"), format!("[stamp] {} round {}\nview: none\n", keep.role, keep.round)).unwrap();
+    fs::write(session.join("outcome"), keep.outcome).unwrap();
+    fs::write(
+        session.join("folder"),
+        format!("folder: {}\nbase: {}\nhead: {}\nbranch: {}\nissue: 54\n", made.folder.display(), made.base, made.head, made.branch),
+    )
+    .unwrap();
+    (made.folder, session)
+}
+
+const RAN: &str = "outcome: ended\nstatus: 0\nseconds: 5\n";
+
+/// The start of the build of 54, as a person runs it.
+fn start_54(bench: &Bench, more: &[&str]) -> Output {
+    let mut args = vec!["start", "build", "54"];
+    args.extend_from_slice(more);
+    bench.start(&args)
+}
+
+/// The text of the `outcome` of the newest folder of the lines of a start.
+fn newest_outcome(bench: &Bench) -> String {
+    let found = bench.below("sessions");
+    read(&found.last().unwrap().join("outcome"))
+}
+
+/// A process ID that is gone: a child that ended and was waited for.
+fn gone_pid() -> u32 {
+    let mut child = Command::new("true").spawn().unwrap();
+    let pid = child.id();
+    child.wait().unwrap();
+    pid
+}
+
+#[test]
+fn test_WB_BUILD_66_a_start_is_refused_naming_the_view_the_role_the_round_and_the_commit_not_taken() {
+    let bench = bench();
+    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["The tests of 54"], uncommitted: &[], outcome: RAN });
+    let run = start_54(&bench, &[]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    assert!(err.contains(&folder.display().to_string()), "{}", err);
+    assert!(err.contains("tester round 2"), "{}", err);
+    assert!(err.contains("The tests of 54"), "{}", err);
+    assert!(!bench.any_posted(), "{}", bench.left("calls"));
+    assert!(!bench.started());
+    // The refusal is before any view: only the kept one is there.
+    assert_eq!(bench.below("views"), vec![folder]);
+}
+
+#[test]
+fn test_WB_BUILD_66_a_view_kept_by_a_refused_commit_is_named_by_the_next_start() {
+    if !sandbox("test_WB_BUILD_66") {
+        return;
+    }
+    let bench = bench();
+    bench.session("echo 'int brake(int);' > src/brake.h && git commit -q -a -m 'Change a read'\n");
+    assert_eq!(code(&bench.start(&["start", "build", "54"])), Some(1));
+    let run = start_54(&bench, &[]);
+    assert_eq!(code(&run), Some(1));
+    let err = text_of(&run.stderr);
+    assert!(err.contains("is kept") && err.contains("build round 1") && err.contains("Change a read"), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_67_a_start_is_refused_naming_the_paths_left_uncommitted_in_a_kept_view() {
+    let bench = bench();
+    keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 1, commits: &[], uncommitted: &["tests/new_test.c"], outcome: RAN });
+    let run = start_54(&bench, &[]);
+    assert_eq!(code(&run), Some(1));
+    let err = text_of(&run.stderr);
+    assert!(err.contains("uncommitted: tests/new_test.c"), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_68_the_refusal_says_how_to_take_it_back_or_remove_it_and_names_the_flag() {
+    let bench = bench();
+    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 1, commits: &["Tests"], uncommitted: &[], outcome: RAN });
+    let err = text_of(&start_54(&bench, &[]).stderr);
+    assert!(err.contains("#223"), "{}", err);
+    assert!(err.contains(&format!("remove {}", folder.display())), "{}", err);
+    assert!(err.contains("--ignore-kept"), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_69_ignore_kept_lets_the_start_go_on_and_the_stamp_says_so() {
+    if !sandbox("test_WB_BUILD_69") {
+        return;
+    }
+    let bench = bench();
+    keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &[], outcome: RAN });
+    let run = start_54(&bench, &["--ignore-kept"]);
+    ok(&run);
+    assert!(bench.started());
+    let posted = bench.posted();
+    assert!(posted.lines().any(|line| line == "kept: ignored 1"), "{}", posted);
+    let stamp = read(&bench.below("sessions").last().unwrap().join("stamp"));
+    assert!(stamp.lines().any(|line| line == "kept: ignored 1"), "{}", stamp);
+}
+
+#[test]
+fn test_WB_BUILD_70_the_line_comes_after_local_and_a_start_with_none_kept_has_no_such_line() {
+    if !sandbox("test_WB_BUILD_70") {
+        return;
+    }
+    let bench = bench();
+    keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &["x.c"], outcome: RAN });
+    put(&bench.repo.path, "src/brake.h", "int brake(int);\n");
+    ok(&start_54(&bench, &["--ignore-kept", "--ignore-local"]));
+    let lines: Vec<String> = bench.posted().lines().map(str::to_string).collect();
+    let local = lines.iter().position(|line| line == "local: ignored 1").unwrap_or_else(|| panic!("{:?}", lines));
+    assert_eq!(lines[local + 1], "kept: ignored 1", "{:?}", lines);
+
+    let bench = self::bench();
+    ok(&start_54(&bench, &["--ignore-kept"]));
+    assert!(!bench.posted().contains("kept:"), "{}", bench.posted());
+}
+
+#[test]
+fn test_WB_BUILD_71_a_view_kept_with_nothing_in_it_is_not_named_and_does_not_stop_a_start() {
+    let bench = bench();
+    keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 1, commits: &[], uncommitted: &[], outcome: RAN });
+    let run = start_54(&bench, &[]);
+    assert!(!text_of(&run.stderr).contains("is kept"), "{}", text_of(&run.stderr));
+    assert!(!newest_outcome(&bench).contains("check: kept"), "{}", newest_outcome(&bench));
+}
+
+#[test]
+fn test_WB_BUILD_72_a_view_kept_for_another_issue_does_not_stop_a_start() {
+    let bench = bench();
+    keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-55", role: "tester", round: 1, commits: &["Tests"], uncommitted: &[], outcome: RAN });
+    let run = start_54(&bench, &[]);
+    assert!(!text_of(&run.stderr).contains("is kept"), "{}", text_of(&run.stderr));
+    assert!(!newest_outcome(&bench).contains("check: kept"));
+}
+
+#[test]
+fn test_WB_BUILD_73_a_view_kept_by_any_role_stops_a_start() {
+    for role in ["tester", "build", "review", "fix"] {
+        let bench = bench();
+        let name = format!("2026-11-22T100000Z-{}-54", role);
+        keep(&bench, &Keep { session: &name, role, round: 3, commits: &["Work"], uncommitted: &[], outcome: RAN });
+        let run = start_54(&bench, &[]);
+        assert_eq!(code(&run), Some(1), "{}: {}", role, text_of(&run.stderr));
+        assert!(text_of(&run.stderr).contains(&format!("{} round 3", role)), "{}", text_of(&run.stderr));
+    }
+}
+
+#[test]
+fn test_WB_BUILD_74_a_start_refused_for_a_kept_view_leaves_a_refused_outcome_of_the_check_kept() {
+    let bench = bench();
+    keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 1, commits: &["Tests"], uncommitted: &[], outcome: RAN });
+    assert_eq!(code(&start_54(&bench, &[])), Some(1));
+    let found = bench.below("sessions");
+    let outcome = read(&found.iter().find(|folder| !folder.ends_with("2026-11-22T100000Z-tester-54")).unwrap().join("outcome"));
+    assert!(outcome.starts_with("outcome: refused\ncheck: kept\nstatus: 1\n"), "{}", outcome);
+    assert!(!bench.started());
+}
+
+#[test]
+fn test_WB_BUILD_75_ignore_kept_passes_the_kept_views_alone() {
+    let bench = bench();
+    keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 1, commits: &["Tests"], uncommitted: &[], outcome: RAN });
+    put(&bench.repo.path, "src/brake.c", "int brake(void) { return 2; }\n");
+    let run = start_54(&bench, &["--ignore-kept", "--ignore-local"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("cannot be overridden") || newest_outcome(&bench).contains("check: local"), "{}", text_of(&run.stderr));
+    assert!(!bench.any_posted());
+}
+
+#[test]
+fn test_WB_MON_10_outcome_says_running_with_the_process_id_while_the_session_runs_and_ended_after() {
+    let bench = bench();
+    bench.session("cat {state}/watchbill/sessions/*/outcome > {log}/during\n");
+    let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["start", "build", "99"]);
+    ok(&run);
+    let during = bench.left("during");
+    let mut lines = during.lines();
+    assert_eq!(lines.next(), Some("outcome: running"), "{}", during);
+    assert_eq!(lines.next().map(|line| line.starts_with("pid: ") && line[5..].parse::<u32>().is_ok()), Some(true), "{}", during);
+    assert!(lines.next().map_or(false, |line| line.starts_with("started: ")), "{}", during);
+    // WB-MON-11: replaced when the start ends.
+    let after = read(&bench.lines().join("outcome"));
+    assert!(after.starts_with("outcome: ended\nstatus: 0\nseconds: "), "{}", after);
+    assert!(!after.contains("pid:") && !after.contains("running"), "{}", after);
+    assert!(!bench.lines().join("outcome.new").exists());
+}
+
+#[test]
+fn test_WB_MON_12_the_folder_of_a_session_in_a_view_holds_folder_before_the_session_starts() {
+    if !sandbox("test_WB_MON_12") {
+        return;
+    }
+    let bench = bench();
+    bench.session("echo 'int brake(int);' > src/brake.h && git commit -q -a -m 'Change a read'\n");
+    assert_eq!(code(&bench.start(&["start", "build", "54"])), Some(1));
+    let file = read(&bench.lines().join("folder"));
+    let views = bench.below("views");
+    assert_eq!(views.len(), 1);
+    let mut lines = file.lines();
+    assert_eq!(lines.next(), Some(format!("folder: {}", views[0].display()).as_str()), "{}", file);
+    assert!(lines.next().map_or(false, |line| line.starts_with("base: ") && line.len() >= 46), "{}", file);
+    assert_eq!(lines.next(), Some(format!("head: {}", bench.head()).as_str()), "{}", file);
+    assert_eq!(lines.next(), Some("branch: refs/heads/issue-54"), "{}", file);
+    assert_eq!(lines.next(), Some("issue: 54"), "{}", file);
+}
+
+/// `wb` run as a person runs it in the bench's repository, with the state folder of the bench.
+fn wb_state(bench: &Bench, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_wb"))
+        .args(args)
+        .current_dir(&bench.repo.path)
+        .env_clear()
+        .envs(env())
+        .env("XDG_STATE_HOME", &bench.state.path)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn test_WB_STATUS_58_status_of_an_issue_prints_a_kept_line_for_each_view_with_work_not_taken() {
+    let bench = bench();
+    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &[], outcome: RAN });
+    let (second, _) = keep(&bench, &Keep { session: "2026-11-22T110000Z-build-54", role: "build", round: 1, commits: &["One", "Two"], uncommitted: &["a.c", "b.c"], outcome: RAN });
+    keep(&bench, &Keep { session: "2026-11-22T120000Z-fix-54", role: "fix", round: 1, commits: &[], uncommitted: &[], outcome: RAN });
+    let run = wb_state(&bench, &["status", "54"]);
+    let out = text_of(&run.stdout);
+    assert!(out.lines().any(|line| line == format!("kept: tester round 2, 1 commit not taken, {}", folder.display())), "{}", out);
+    assert!(out.lines().any(|line| line == format!("kept: build round 1, 2 commits not taken, 2 paths uncommitted, {}", second.display())), "{}", out);
+    assert_eq!(out.matches("kept: ").count(), 2, "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_59_status_with_no_issue_says_the_count_once_on_standard_error() {
+    let bench = bench();
+    let run = wb_state(&bench, &["status"]);
+    assert!(!text_of(&run.stderr).contains("kept view"), "{}", text_of(&run.stderr));
+    keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &[], outcome: RAN });
+    keep(&bench, &Keep { session: "2026-11-22T110000Z-build-55", role: "build", round: 1, commits: &[], uncommitted: &["a.c"], outcome: RAN });
+    keep(&bench, &Keep { session: "2026-11-22T120000Z-fix-56", role: "fix", round: 1, commits: &[], uncommitted: &[], outcome: RAN });
+    let run = wb_state(&bench, &["status"]);
+    let err = text_of(&run.stderr);
+    assert_eq!(err.matches("2 kept views").count(), 1, "{}", err);
+    assert!(!text_of(&run.stdout).contains("kept"), "{}", text_of(&run.stdout));
+}
+
+#[test]
+fn test_WB_STATUS_60_a_session_whose_outcome_says_running_and_whose_wb_is_gone_is_cut_off() {
+    let bench = bench();
+    let session = bench.state.path.join("watchbill").join("sessions").join("2026-11-22T100000Z-tester-54");
+    fs::create_dir_all(&session).unwrap();
+    fs::write(session.join("stamp"), "[stamp] tester round 2\n").unwrap();
+    fs::write(session.join("outcome"), format!("outcome: running\npid: {}\n", gone_pid())).unwrap();
+    let out = text_of(&wb_state(&bench, &["status", "54"]).stdout);
+    assert!(out.lines().any(|line| line == format!("cut off: tester round 2, {}", session.display())), "{}", out);
+    // A process that is alive and is not `wb` is no `wb`: process IDs are reused.
+    let mut other = Command::new("sleep").arg("30").spawn().unwrap();
+    fs::write(session.join("outcome"), format!("outcome: running\npid: {}\n", other.id())).unwrap();
+    let out = text_of(&wb_state(&bench, &["status", "54"]).stdout);
+    other.kill().unwrap();
+    other.wait().unwrap();
+    assert!(out.contains("cut off: tester round 2"), "{}", out);
+    // A start that ended is not cut off.
+    fs::write(session.join("outcome"), RAN).unwrap();
+    assert!(!text_of(&wb_state(&bench, &["status", "54"]).stdout).contains("cut off"));
+}
+
+#[test]
+fn test_WB_STATUS_61_a_session_is_not_cut_off_while_its_wb_is_alive() {
+    let bench = bench();
+    let session = bench.state.path.join("watchbill").join("sessions").join("2026-11-22T100000Z-tester-54");
+    fs::create_dir_all(&session).unwrap();
+    fs::write(session.join("stamp"), "[stamp] tester round 2\n").unwrap();
+    // A `wb` that waits for what a person types.
+    let lonely = repository(None);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wb"))
+        .arg("init")
+        .current_dir(&lonely.path)
+        .env_clear()
+        .envs(env())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    let is_wb = || fs::read_link(format!("/proc/{}/exe", pid)).ok().and_then(|exe| exe.file_name().map(|name| name == "wb")).unwrap_or(false);
+    for _ in 0..500 {
+        if is_wb() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(is_wb());
+    fs::write(session.join("outcome"), format!("outcome: running\npid: {}\n", pid)).unwrap();
+    let out = text_of(&wb_state(&bench, &["status", "54"]).stdout);
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert!(!out.contains("cut off"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_62_status_reads_a_kept_view_through_a_repository_of_its_own_and_writes_nothing() {
+    let bench = bench();
+    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &["a.c"], outcome: "outcome: running\npid: 1\n" });
+    // The view's own settings and hooks must never run.
+    let marker = bench.log.path.join("ran");
+    let hook = bench.log.path.join("hook.sh");
+    script(&hook, &format!("echo ran >> {}\nexit 0\n", marker.display()));
+    let config = folder.join(".git/config");
+    let mut text = read(&config);
+    text.push_str(&format!(
+        "[core]\n\tfsmonitor = {h}\n\thooksPath = {l}\n\tpager = {h}\n[diff]\n\texternal = {h}\n[include]\n\tpath = {h}\n",
+        h = hook.display(),
+        l = bench.log.path.display()
+    ));
+    fs::write(&config, text).unwrap();
+    fs::write(folder.join(".gitattributes"), "* filter=hostile diff=hostile\n").unwrap();
+    let listing = |root: &Path| -> Vec<String> {
+        use std::os::unix::fs::MetadataExt;
+        let mut found = Vec::new();
+        let mut open = vec![root.to_path_buf()];
+        while let Some(at) = open.pop() {
+            for entry in fs::read_dir(&at).unwrap() {
+                let path = entry.unwrap().path();
+                let meta = fs::symlink_metadata(&path).unwrap();
+                found.push(format!("{} {} {}", path.display(), meta.len(), meta.mtime_nsec()));
+                if meta.is_dir() {
+                    open.push(path);
+                }
+            }
+        }
+        found.sort();
+        found
+    };
+    let before = (listing(&folder), listing(&bench.state.path));
+    let run = wb_state(&bench, &["status", "54"]);
+    let out = text_of(&run.stdout);
+    assert!(out.contains("kept: tester round 2, 1 commit not taken, 2 paths uncommitted"), "{}", out);
+    assert!(!marker.exists(), "a hook or setting of the view ran");
+    assert_eq!(before, (listing(&folder), listing(&bench.state.path)));
+}
+
+#[test]
+fn test_WB_STATUS_63_the_work_of_a_view_with_no_back_is_found_from_its_objects() {
+    let bench = bench();
+    let (_, session) = keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 1, commits: &["One", "Two"], uncommitted: &[], outcome: "outcome: running\npid: 1\n" });
+    let out = text_of(&wb_state(&bench, &["status", "54"]).stdout);
+    assert!(out.contains("kept: tester round 1, 2 commits not taken,"), "{}", out);
+    assert!(out.contains("cut off: tester round 1,"), "{}", out);
+    // The start names each commit of it.
+    let err = text_of(&start_54(&bench, &[]).stderr);
+    assert!(err.contains("One") && err.contains("Two"), "{}", err);
+    assert!(session.exists());
+}

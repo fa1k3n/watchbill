@@ -1,0 +1,26 @@
+.TH WB\-CHECK 1 "" "watchbill"
+.SH NAME
+wb\-check \- say whether the repository is at its revision
+.SH SYNOPSIS
+.nf
+\fBwb\fR check
+.fi
+.SH DESCRIPTION
+.PP
+Say whether the repository still is at the revision it is pinned to: each file under .watchbill/revision/ against the manifest, the manifest against the revision line of watchbill.yml, and that revision against the installed wb, and the project text for a placeholder the revision does not know.
+.PP
+It writes nothing.
+.SH EXIT STATUS
+.TP
+.B 0
+All of it holds.
+.TP
+.B 1
+Something differs.
+.TP
+.B 2
+It was used wrongly or the repository is not set up.
+.SH SEE ALSO
+.BR wb (1) ,
+.BR wb\-init (1) ,
+.BR wb\-upgrade (1)

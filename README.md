@@ -840,6 +840,8 @@ sudo dnf install build/rpm/RPMS/$(uname -m)/watchbill-[0-9]*.rpm      # puts wb 
 
 The package also installs a bash completion of `wb` and `watchbill` (`/usr/share/bash-completion/completions/wb`): with `bash-completion` installed, Tab completes the command, the role, the issue and the flags, and it runs no `wb`. zsh can load the file with `autoload -U +X bashcompinit && bashcompinit`, then `source /usr/share/bash-completion/completions/wb`.
 
+It also installs a man page of section 1 for `wb` and one for each command: `man wb` lists them, and `man wb-start` says what `wb help start` says, in the form of a page. The pages are written in roff in [packaging/man/](packaging/man/); nothing is fetched to make them.
+
 The package is built here from a checkout, and dated by the last commit of it: two builds of one commit into the same result folder (the argument of `rpm.sh`, `build/rpm` by default) give the same package. Another folder gives another `wb`, as the path of the build is in it. `rpm.sh` needs a git checkout and stops with 2 outside one. There is no repository to `dnf install watchbill` from yet; the RPMs of each version are on its release (below). Building needs `rpm-build`, `git-core`, and the Rust of the distribution: `cargo`, `rust` (1.97 or later), `cargo-rpm-macros` and the crates `yaml-rust2`, `sha2` and `lexopt` (`rust-yaml-rust2-devel`, `rust-sha2-devel`, `rust-lexopt-devel`). In a container image of Fedora, which leaves out the documents of a package, install the packages with `dnf install --setopt=tsflags= …`: a crate includes its `README.md`. On Enterprise Linux 9 it also needs **EPEL**: `cargo-rpm-macros` and the crates are only there.
 
 ```sh

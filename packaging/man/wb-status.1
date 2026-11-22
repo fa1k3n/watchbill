@@ -1,0 +1,35 @@
+.TH WB\-STATUS 1 "" "watchbill"
+.SH NAME
+wb\-status \- list the issues in the flow and where each stands
+.SH SYNOPSIS
+.nf
+\fBwb\fR status [<issue>] [\-\-stage <heading>]
+.fi
+.SH DESCRIPTION
+.PP
+List the issues in the flow under headings, as git status lists files: each issue under the last step it has done (Not broken down, Broken down, Accepted, Tested, Built, Reviewed, Fixed), and last the issues that have a question no [answers] or [answer] line has closed.
+.PP
+An issue is in the flow when its branch, local or at origin, holds a commit that the default branch of origin does not. Git alone says which, and nothing is fetched. Its line shows the branch, the open change as #<n> (change_of_branch) and how many commits are not pushed. The comments come from issue_comments.
+.PP
+It writes nothing.
+.SH OPTIONS
+.TP
+.B <issue>
+Print that issue, in the flow or not, with its title (issue_address) and what it was worked out from.
+.TP
+.B \-\-stage <heading>
+Print that heading only, whatever its case.
+.SH EXIT STATUS
+.TP
+.B 0
+Every issue could be read.
+.TP
+.B 1
+A pattern failed for one issue. It is listed under Not read.
+.TP
+.B 2
+It was used wrongly or the repository is not set up.
+.SH SEE ALSO
+.BR wb (1) ,
+.BR wb\-answer (1) ,
+.BR wb\-start (1)

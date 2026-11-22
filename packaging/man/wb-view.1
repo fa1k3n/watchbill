@@ -1,0 +1,35 @@
+.TH WB\-VIEW 1 "" "watchbill"
+.SH NAME
+wb\-view \- show what a session of a role sees
+.SH SYNOPSIS
+.nf
+\fBwb\fR view <issue> (<role> [\-\-in | \-\-out] | <path>)
+.fi
+.SH DESCRIPTION
+.PP
+Show what a session of a role will see, before it starts. wb view <issue> <role> prints the paths of its view, one to a line, the list the start makes the view from, and nothing else.
+.PP
+wb view <issue> <path> says for each role whether the path, from the root, is in its view: in, with the list and the line of the issue's file that hold it, or out, and why. A path named as a role is written ./<path>.
+.PP
+The level and the line view: are in wb prompt <role> <issue> \-\-stamp. It writes nothing.
+.SH OPTIONS
+.TP
+.B \-\-in [<folder>]
+Print what of HEAD the view holds in the folder (the root when none is given), one level deep: each file in it, and <count><tab><folder>/ for each folder below it.
+.TP
+.B \-\-out
+Print the same for what the view leaves out. A folder is a path from the root, with or without a closing /.
+.SH EXIT STATUS
+.TP
+.B 0
+The path is in the view of a role, or the view is shown.
+.TP
+.B 1
+The path is in none, the folder is not in HEAD, or the issue has no accepted, committed file.
+.TP
+.B 2
+It was used wrongly (a file given as the folder too) or the repository is not set up.
+.SH SEE ALSO
+.BR wb (1) ,
+.BR wb\-start (1) ,
+.BR wb\-prompt (1)

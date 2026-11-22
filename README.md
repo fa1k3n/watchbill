@@ -59,15 +59,15 @@ At 0.10.0. An issue that changes a verdict changes its row.
 | 1. Fits the workflow | Partly: any tracker and git server with a command line, by a pattern the team writes. `wb init` writes the patterns for GitHub and GitLab only. The CI and the requirements tool are names and nothing more. `wb` installs on Fedora and Enterprise Linux only | |
 | 2. What the agents are told | Held for what `wb` hands out: the pinned revision, `wb check`. `wb start <role>` posts the stamp and starts the session with that prompt itself. A session started by hand is the word of the one who started it, and so is the effort of a runner whose `start` cannot set it | |
 | 3. Rules enforced | Partly: the pinned revision, the acceptance, the breakdown's runner and the placeholders are checked in code. What a session of an issue with an accepted file reads and changes is held by its view. No other limit of the rule table is | #28 names each limit and what holds it; then #88 and the pieces #28 writes |
-| 4. People keep the decisions | Partly: `wb accept` asks for a person's word, but cannot tell a person from an agent under one account. That an agent cannot merge rests on the git server's settings | The roles' accounts, #83, and the acceptance read at the tracker, #88 (both planned for 0.11.0). No issue yet checks that a role's account cannot merge |
-| 5. Duties separated | Partly: the rule table says it, and nothing knows who holds which role | #83 and #88, for work that is handed on (both planned for 0.11.0). No issue yet for a session a person starts |
+| 4. People keep the decisions | Partly: `wb accept` asks for a person's word, but cannot tell a person from an agent under one account. That an agent cannot merge rests on the git server's settings | The roles' accounts, #83, and the acceptance read at the tracker, #88 (both planned for 0.12.0). No issue yet checks that a role's account cannot merge |
+| 5. Duties separated | Partly: the rule table says it, and nothing knows who holds which role | #83 and #88, for work that is handed on (both planned for 0.12.0). No issue yet for a session a person starts |
 | 6. Sees only the code it needs | Partly: a session that `wb start <role>` starts for an issue with an accepted file runs in a view, in bubblewrap. It sees the paths of its lists and no history, and its commits come back only where `changes` allows ([The view](#the-view)). `wb accept` checks that the lists hold what each file needs to build, by the team's own command `needs` ([below](#the-lists-checked-at-acceptance)). A session started by hand, for an issue with no file, or as the breakdown sees the whole checkout. What still leaks is [said below](#what-still-leaks) | No issue yet for a session started by hand |
 | 7. Code goes only where allowed | Partly: checked for the breakdown | The other roles, #11. No issue yet for a local model for them |
 | 8. Starts small | Held: `wb start <role>` starts any role alone, for an issue with no file, and a review or a fix of a change with no issue, and posts the stamp on the issue or the change ([one role at a time](#taking-it-on-one-role-at-a-time)) | |
 | 9. Starts strict, opens up | Not yet: one level for the whole repository, and no level given means the strictest | #11, #65, and a level for each path, which has no issue yet |
 | 10. Shown to an assessor | Partly: what the agents are told can be read. The rule table says more than the program enforces | #28 |
 | 11. Needs no other product | Held: one RPM, `git`, and a build with the network off | |
-| 12. Work is handed on by the program | Not yet: a person starts each role. `wb status` says where each issue stands, and nothing more | `wb handover` (#88) and the roles' accounts (#83) for 0.11.0; `wb listen` (#85), the officer (#86) and `wb run` (#183) for 0.12.0 |
+| 12. Work is handed on by the program | Not yet: a person starts each role. `wb status` says where each issue stands, and nothing more | `wb handover` (#88), the roles' accounts (#83), `wb listen` (#85), the officer (#86) and `wb run` (#183) for 0.12.0 |
 
 ### Not goals
 
@@ -86,11 +86,11 @@ At 0.10.0. An issue that changes a verdict changes its row.
 
 | Group | Commands |
 |---|---|
-| set up | `init`, `check`, `doctor` (planned for 0.11.0, #178), `upgrade` |
+| set up | `init`, `check`, `doctor` (planned for 0.12.0, #178), `upgrade` |
 | work | `accept`, `start`, `run` (planned for 0.12.0, #183) |
-| see | `status`, `view` ([Seeing a view first](#seeing-a-view-first)), `log` (planned for 0.11.0, #177), `answer` |
-| take back | `revert`, `clean` (planned for 0.11.0, #176) |
-| plumbing | `prompt`, `revision`, `compare` (planned for 0.11.0, #179) |
+| see | `status`, `view` ([Seeing a view first](#seeing-a-view-first)), `log` (planned for 0.12.0, #177), `answer` |
+| take back | `revert`, `clean` (planned for 0.12.0, #176) |
+| plumbing | `prompt`, `revision`, `compare` (planned for 0.12.0, #179) |
 
 After 0.0.9 the releases are 0.10.0, 0.11.0, 0.12.0 and 1.0.0. A man page for each command is planned for 0.11.0.
 
@@ -395,7 +395,7 @@ A view keeps the rest of the code and the history away from a session. It does n
 - **A test that passes or fails tells one bit** about code the session cannot read, at each try. A session that runs the tests many times learns more.
 - **The runner's own settings and login are inside the view**, as its `binds`. What the runner keeps there, the session can read.
 - **Nothing stops a person** from pasting code into another tool.
-- **A stamp is a comment.** Anyone who can comment on the issue can write one, until each role has an account of its own (#83, planned for 0.11.0).
+- **A stamp is a comment.** Anyone who can comment on the issue can write one, until each role has an account of its own (#83, planned for 0.12.0).
 - **A session with no view** writes the checkout itself, so it can change `.watchbill/watchbill.yml`. `wb` runs the patterns of the file as the person, so it runs them only while the file is as `HEAD` has it ([The patterns](#the-patterns)). That stops an uncommitted change only. The same session runs as the person, with a shell: it can commit the changed file, move a ref or write a hook (`.git/hooks/` runs when `wb accept` commits), and a commit in the checkout lifts the limit. A person reads `git log -p -- .watchbill/watchbill.yml` before the next command. What a person commits there is run. A sandbox for every session is #202, planned for 0.11.0.
 
 ## Starting a session
@@ -597,8 +597,8 @@ Each command posts its stamp and starts its session. The person answers the ques
 
 - Start a session without a terminal, for the listener (#85, planned for 0.12.0).
 - Run the breakdown, or a role with no issue's file, in a view. Every session in a sandbox is #202, planned for 0.11.0.
-- Keep the session's last message and hand it on (#88, planned for 0.11.0).
-- Know whether a session of the same role already runs on the issue (#88, planned for 0.11.0).
+- Keep the session's last message and hand it on (#88, planned for 0.12.0).
+- Know whether a session of the same role already runs on the issue (#88, planned for 0.12.0).
 - Say what the session does with its prompt. The stamp says what was handed out and started.
 
 ## Where each issue stands
@@ -642,7 +642,7 @@ Questions open:
 - **`wb status --stage <heading>`** prints only that heading, for example `wb status --stage "not broken down"`. The names are matched without regard to case; `Questions open` and `Not read` too. A name that is not known is used wrongly.
 - **What it reads:** the branches with git, the issue's file and its acceptance from the branch with `git show`, never by switching branches, and the comments through `issue_comments` and the change through `change_of_branch`, each once for each issue listed (`issue_address` for one issue). It writes nothing, and asks the network only through those patterns.
 - **The exit status:** 0 when every issue could be read; 1 when a pattern failed for an issue (it is listed last, under `Not read`, with why; the others are printed); 2 when it was used wrongly, Watchbill is not set up, or no default branch is found.
-- **It is not a dashboard** ([Not goals](#not-goals)): a list in the terminal, of now, for one repository. The sessions that run on this machine are for #140 (planned for 0.11.0).
+- **It is not a dashboard** ([Not goals](#not-goals)): a list in the terminal, of now, for one repository. The sessions that run on this machine are for #140 (planned for 0.12.0).
 
 ## Answering the questions
 
@@ -700,7 +700,7 @@ wb answer --change 174          # a change with no issue
 - **The breakdown** is not taken back by a marker. The issue's file and its acceptance are files of the repository, and git takes them back. `wb revert <issue> breakdown` is refused with 1, and says so.
 - **Refused with 1:** a role with no stamp on the issue that still counts (naming the role), a missing `issue_comments` or `issue_comment` (or the change's), a pattern that ends with anything but 0.
 - **The exit status:** 0 when the marker is posted; 1 when it was refused or the posting failed; 2 when it was used wrongly (no issue or role, a role the revision does not have, an option that is not known, a `--change` that is not a plain name, `--round` that is not a whole number from 1, an issue and `--change` together) or Watchbill is not set up.
-- **Not yet:** who may revert once the roles have accounts (#83, planned for 0.11.0). Until then any person who can post a comment can.
+- **Not yet:** who may revert once the roles have accounts (#83, planned for 0.12.0). Until then any person who can post a comment can.
 
 ## Taking it on one role at a time
 
@@ -725,7 +725,7 @@ Then the team adds the rest when it is ready:
 - **The fix,** in the same way: `wb start fix --change 174`.
 - **Issues with no file:** the tester, the build, the review and the fix are handed out for an issue, and work from its own numbered items.
 - **The breakdown and the acceptance:** once an issue has a file, the chain's gates bind. The file must be accepted, and the file and its acceptance committed, before any role of the issue is handed out.
-- **The hand-on** from one role to the next always needs the whole chain: an accepted file for every issue. It is not built yet: `wb handover` (#88, planned for 0.11.0), the listener (#85, 0.12.0) and the officer (#86, 0.12.0).
+- **The hand-on** from one role to the next always needs the whole chain: an accepted file for every issue. It is not built yet: `wb handover` (#88, planned for 0.12.0), the listener (#85, 0.12.0) and the officer (#86, 0.12.0).
 
 ## The issue's file and its acceptance
 

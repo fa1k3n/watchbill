@@ -71,8 +71,10 @@ At 0.10.0. An issue that changes a verdict changes its row.
 
 ### Not goals
 
-- A record of what happened. That is for the team's own tools or a recorder, such as [Handover Ledger](https://github.com/fa1k3n/handover-ledger). Watchbill needs none. The stamp `wb` asks for on the issue is working state, not an archive.
-- A new place to work. There is no dashboard and no tracker of its own.
+- Reports. `wb` keeps its state in git (decided, not built: [point 15](docs/revision.md#15-identity-history-and-trust)), and a report of it is for the team's own tools or a recorder, such as [Handover Ledger](https://github.com/fa1k3n/handover-ledger).
+- A backlog or priorities. What is built next, and in which order, is a person's.
+- Assignment of work to people, and discussion. Those stay at the tracker; `wb` posts notices there.
+- A dashboard.
 - A model or an agent of its own. Watchbill ships neither.
 - Deciding what is built. That is a person's.
 

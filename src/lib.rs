@@ -1325,6 +1325,8 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     // Where the checkout's branch stands, to see after a session with no view whether it committed (#145).
     let before = if prepared.is_none() { view::branch_of(root).ok() } else { None };
     let began = std::time::Instant::now();
+    // The signals stay held until the commits are taken back and `back` and `outcome` are written (#221).
+    let _held = interrupt::hold();
     let ran = match &prepared {
         None => {
             // A role started with no issue's file (#116) runs as in revision 0.0.8, and the person is told (#126).

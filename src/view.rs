@@ -466,7 +466,9 @@ pub fn run(bwrap: &Path, plan: &Plan) -> Result<ExitStatus, String> {
     command.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
     let mut child = command.spawn().map_err(|error| format!("the session could not be started: {} could not be run: {}", bwrap.display(), error))?;
     held.session(child.id());
-    child.wait().map_err(|error| format!("the session could not be waited for: {}", error))
+    let status = child.wait();
+    held.ended();
+    status.map_err(|error| format!("the session could not be waited for: {}", error))
 }
 
 /// What was done with the commits of a view.

@@ -372,5 +372,7 @@ pub fn session(root: &str, words: &[String]) -> Result<std::process::ExitStatus,
         .spawn()
         .map_err(|error| format!("the session could not be started: {} could not be run: {}", program, error))?;
     held.session(child.id());
-    child.wait().map_err(|error| format!("the session could not be waited for: {}", error))
+    let status = child.wait();
+    held.ended();
+    status.map_err(|error| format!("the session could not be waited for: {}", error))
 }

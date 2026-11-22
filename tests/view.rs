@@ -1815,7 +1815,7 @@ fn test_WB_BUILD_30_a_view_with_no_paths_checks_nothing_and_a_changed_file_elsew
 // ---- WB-BUILD-54 to 56, WB-MON-9: a hangup or a termination while the session runs (#221) ----
 //
 // A signal is sent to a process the test started, by its number. `wb` is run as the test binary itself, run
-// again with only `child_run_for_the_signal_tests` in it, so that it can be signalled without ending this
+// again with only `a_helper_that_runs_wb_for_the_signal_tests_and_checks_nothing` in it, so that it can be signalled without ending this
 // one. The `bwrap` is a stand-in that runs the session in the view, so these tests hold where bubblewrap cannot
 // make a sandbox, and as root.
 
@@ -1826,6 +1826,7 @@ extern "C" {
 const SIGHUP: i32 = 1;
 const SIGTERM: i32 = 15;
 const CHILD_ENV: &str = "WB_SIGNAL_CHILD_FOLDER";
+const CHILD_SESSION: &str = "WB_SIGNAL_CHILD_SESSION";
 
 /// A `bwrap` that makes no sandbox: it answers the probe, and else runs the words in the view.
 fn stand_in_bwrap(bench: &Bench) -> PathBuf {
@@ -1840,13 +1841,24 @@ fn stand_in_bwrap(bench: &Bench) -> PathBuf {
 /// What the session of the signal tests does: it commits a file in its view, says its number, and waits.
 const WAITS: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\necho $$ > {log}/pid\nexec sleep 30\n";
 
-/// The part that runs `wb` in the process the signal tests start: it writes the folders it made, writes the
+/// The same, but the session ends at a termination and says that it got it.
+const TRAPS: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\ntrap 'echo got > {log}/got; kill $!; exit 0' TERM\nsleep 30 &\necho $$ > {log}/pid\nwait\n";
+
+/// A session that commits, then sends terminations to `wb` every few milliseconds from a process of its own,
+/// and ends at the first one it gets: the rest come while `wb` takes the commit back (#221, WB-BUILD-57).
+const STORM: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\nwb=$PPID\ntrap 'exit 0' TERM\n(n=0; while [ $n -lt 1000 ] && kill -TERM $wb 2>/dev/null; do n=$((n+1)); sleep 0.005; done) >/dev/null 2>&1 &\necho $$ > {log}/pid\nsleep 5 &\nwait\n";
+
+/// Not a test of a row: it does nothing unless a signal test started it. It is the part that runs `wb` in the process the signal tests start: it writes the folders it made, writes the
 /// status when `wb` ends, and waits for the parent to be done with the folders.
 #[test]
-fn child_run_for_the_signal_tests() {
+fn a_helper_that_runs_wb_for_the_signal_tests_and_checks_nothing() {
     let Some(folder) = std::env::var_os(CHILD_ENV).map(PathBuf::from) else { return };
     let bench = bench();
-    bench.session(WAITS);
+    bench.session(match std::env::var("WB_SIGNAL_CHILD_SESSION").as_deref() {
+        Ok("traps") => TRAPS,
+        Ok("storm") => STORM,
+        _ => WAITS,
+    });
     let sandbox = stand_in_bwrap(&bench);
     let paths = format!("{}\n{}\n{}\n", bench.repo.path.display(), bench.log.path.display(), bench.state.path.display());
     fs::write(folder.join("paths.tmp"), paths).unwrap();
@@ -1881,16 +1893,19 @@ struct Signalled {
     outcome: String,
     back: String,
     subjects: String,
+    /// What a session that traps the termination wrote when it got it.
+    got: String,
 }
 
 /// Starts `wb start build 54`, sends `to_wb` to it when the session waits, then, after a moment, `to_session` to
 /// the session when there is one, and gathers what was left. Nothing waits longer than a minute.
-fn signalled(to_wb: i32, to_session: Option<i32>) -> Signalled {
+fn signalled(session_is: &str, to_wb: Option<i32>, to_session: Option<i32>) -> Signalled {
     let parent = folder_named("signalled");
     let folder = parent.path.clone();
     let mut child = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "child_run_for_the_signal_tests", "--nocapture", "--test-threads=1"])
+        .args(["--exact", "a_helper_that_runs_wb_for_the_signal_tests_and_checks_nothing", "--nocapture", "--test-threads=1"])
         .env(CHILD_ENV, &folder)
+        .env(CHILD_SESSION, session_is)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -1907,8 +1922,10 @@ fn signalled(to_wb: i32, to_session: Option<i32>) -> Signalled {
             return Err("the session did not start".to_string());
         }
         let session: i32 = read(&log.join("pid")).trim().parse().unwrap();
-        if unsafe { kill(child.id() as i32, to_wb) } != 0 {
-            return Err("the signal could not be sent to wb".to_string());
+        if let Some(signal) = to_wb {
+            if unsafe { kill(child.id() as i32, signal) } != 0 {
+                return Err("the signal could not be sent to wb".to_string());
+            }
         }
         std::thread::sleep(std::time::Duration::from_millis(300));
         if let Some(signal) = to_session {
@@ -1923,7 +1940,7 @@ fn signalled(to_wb: i32, to_session: Option<i32>) -> Signalled {
             None => (String::new(), String::new()),
         };
         let log_of = Command::new("git").arg("-C").arg(&repo).args(["log", "--format=%s", "issue-54"]).env_clear().envs(env()).output();
-        Ok(Signalled { status, outcome, back, subjects: log_of.map(|run| text_of(&run.stdout)).unwrap_or_default() })
+        Ok(Signalled { status, outcome, back, subjects: log_of.map(|run| text_of(&run.stdout)).unwrap_or_default(), got: read_if(&log.join("got")) })
     })();
     // The session of a run that went wrong is ended too, by its number.
     let _ = fs::write(folder.join("release"), "");
@@ -1940,7 +1957,7 @@ fn read_if(path: &Path) -> String {
 
 #[test]
 fn test_WB_BUILD_54_a_hangup_sent_to_wb_while_the_session_runs_does_not_end_it_and_the_commit_is_taken_back() {
-    let found = signalled(SIGHUP, Some(SIGHUP));
+    let found = signalled("waits", Some(SIGHUP), Some(SIGHUP));
     assert_eq!(found.status, 1, "wb did not wait for the session and give its status");
     assert_eq!(found.subjects.lines().next(), Some("A new file"), "{}", found.subjects);
     assert!(found.back.lines().any(|line| line.starts_with("taken: ") && line.contains("A new file")), "{}", found.back);
@@ -1948,7 +1965,7 @@ fn test_WB_BUILD_54_a_hangup_sent_to_wb_while_the_session_runs_does_not_end_it_a
 
 #[test]
 fn test_WB_BUILD_54_a_termination_sent_to_wb_while_the_session_runs_does_not_end_it_before_the_commit_is_taken_back() {
-    let found = signalled(SIGTERM, None);
+    let found = signalled("waits", Some(SIGTERM), None);
     assert_eq!(found.status, 1);
     assert_eq!(found.subjects.lines().next(), Some("A new file"), "{}", found.subjects);
     assert!(found.back.lines().any(|line| line.starts_with("taken: ")), "{}", found.back);
@@ -1956,17 +1973,26 @@ fn test_WB_BUILD_54_a_termination_sent_to_wb_while_the_session_runs_does_not_end
 
 #[test]
 fn test_WB_BUILD_55_a_termination_sent_to_wb_alone_ends_the_session() {
-    let found = signalled(SIGTERM, None);
-    // The test never signals the session, and it would sleep for 30 seconds.
+    let found = signalled("traps", Some(SIGTERM), None);
+    // The test never signals the session: it got the termination from `wb`.
+    assert_eq!(found.got, "got\n", "the session was not sent the termination");
     assert_ne!(found.status, -2, "the session was not ended");
     assert!(found.outcome.starts_with("outcome: ended\n"), "{}", found.outcome);
 }
 
 #[test]
+fn test_WB_BUILD_57_terminations_sent_while_the_commits_are_taken_back_do_not_end_wb_before_the_lines_are_written() {
+    let found = signalled("storm", None, None);
+    assert_eq!(found.status, 0, "wb ended at a termination, or did not end");
+    assert!(found.back.lines().any(|line| line.starts_with("taken: ") && line.contains("A new file")), "{}", found.back);
+    assert!(found.outcome.starts_with("outcome: ended\nstatus: 0\n"), "{}", found.outcome);
+}
+
+#[test]
 fn test_WB_MON_9_outcome_names_the_signal_that_ended_the_session() {
-    let found = signalled(SIGHUP, Some(SIGHUP));
+    let found = signalled("waits", Some(SIGHUP), Some(SIGHUP));
     assert!(found.outcome.lines().any(|line| line == "signal: SIGHUP"), "{}", found.outcome);
-    let found = signalled(SIGTERM, None);
+    let found = signalled("waits", Some(SIGTERM), None);
     assert!(found.outcome.lines().any(|line| line == "signal: SIGTERM"), "{}", found.outcome);
 }
 

@@ -61,6 +61,8 @@ extern "C" fn on_nothing(_: c_int) {}
 
 extern "C" {
     fn kill(pid: c_int, signal: c_int) -> c_int;
+    /// The C library of Linux: the place of `errno` of this thread. The standard library can read it, not set it.
+    fn __errno_location() -> *mut c_int;
 }
 
 /// The session that a termination is sent on to, or 0 when there is none yet.
@@ -71,6 +73,9 @@ static TERMINATED: AtomicBool = AtomicBool::new(false);
 /// A termination (#221): `wb` goes on waiting, and the session is sent the termination, as a person's `kill` of
 /// `wb` meant it. Only `kill(2)` and atomics are used, as a handler may.
 extern "C" fn on_termination(_: c_int) {
+    // `kill` sets `errno` when it fails, and the program that was interrupted may be reading it: put it back.
+    let errno = unsafe { __errno_location() };
+    let saved = unsafe { *errno };
     TERMINATED.store(true, Ordering::SeqCst);
     let session = SESSION.load(Ordering::SeqCst);
     if session > 0 {
@@ -78,6 +83,7 @@ extern "C" fn on_termination(_: c_int) {
             kill(session, SIGTERM);
         }
     }
+    unsafe { *errno = saved };
 }
 
 /// How many sessions hold the signals now, and what each signal was before the first: tests start sessions
@@ -97,7 +103,10 @@ pub fn hold() -> Held {
         TERMINATED.store(false, Ordering::SeqCst);
         SESSION.store(0, Ordering::SeqCst);
         for (index, number) in HELD_SIGNALS.into_iter().enumerate() {
-            let handler = if number == SIGTERM { on_termination as extern "C" fn(c_int) as usize } else { on_nothing as extern "C" fn(c_int) as usize };
+            let handler = match number {
+                SIGTERM => on_termination as extern "C" fn(c_int) as usize,
+                _ => on_nothing as extern "C" fn(c_int) as usize,
+            };
             unsafe {
                 let before = signal(number, handler);
                 if before == IGNORED {
@@ -112,6 +121,11 @@ pub fn hold() -> Held {
 }
 
 impl Held {
+    /// The session has been waited for: a termination is no longer sent to its number, which may be another's now.
+    pub fn ended(&self) {
+        SESSION.store(0, Ordering::SeqCst);
+    }
+
     /// The session was started, with process number `pid`: a termination of `wb` is sent on to it, also one that
     /// came before this.
     pub fn session(&self, pid: u32) {

@@ -36,10 +36,22 @@ impl Outcome {
             Outcome::NotPosted { status, message } => format!("outcome: not posted\nstatus: {}\nmessage: {}\n", status, first_line(message)),
             Outcome::Ended { status, seconds } => match (status.code(), status.signal()) {
                 (Some(code), _) => format!("outcome: ended\nstatus: {}\nseconds: {}\n", code, seconds),
-                (None, Some(signal)) => format!("outcome: ended\nsignal: {}\nseconds: {}\n", signal, seconds),
+                (None, Some(signal)) => format!("outcome: ended\nsignal: {}\nseconds: {}\n", signal_name(signal), seconds),
                 (None, None) => format!("outcome: ended\nseconds: {}\n", seconds),
             },
         }
+    }
+}
+
+/// A signal as `outcome` writes it (#221): the name of the usual ones, else the number.
+fn signal_name(signal: i32) -> String {
+    match signal {
+        1 => "SIGHUP".to_string(),
+        2 => "SIGINT".to_string(),
+        3 => "SIGQUIT".to_string(),
+        9 => "SIGKILL".to_string(),
+        15 => "SIGTERM".to_string(),
+        other => other.to_string(),
     }
 }
 

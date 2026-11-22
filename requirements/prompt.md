@@ -63,3 +63,8 @@ How a prompt is put together from the revision and the project's own text, and t
 | WB-PROMPT-57 | No flag shall lift WB-PROMPT-56. Issue: #211. | T | Draft |
 | WB-PROMPT-58 | `wb prompt --stamp` shall print a line `job: <hash>`, besides the lines it printed before. Issue: #236. | T | Draft |
 | WB-PROMPT-59 | `wb prompt --stamp` shall print a line `base: <commit>`, the commit of `HEAD` the view was made from, besides the lines it printed before. Issue: #236. | T | Draft |
+| WB-PROMPT-60 | `wb prompt <role> <issue> --stamp` for a role that runs in a view shall print the line `level: <level>` after the line `view:`, the level of the repository as `--parts` of the breakdown gives it, from the function the stamp of `wb start` is made by. Issue: #209. | T | Implemented |
+| WB-PROMPT-61 | A stamp of a session that runs without a view shall hold no line `level:`. Issue: #209. | T | Implemented |
+| WB-PROMPT-62 | Where the organisation's file can be read and `watchbill.yml` gives no level that holds (a level not on the organisation's list, or the key `levels` or `runners`), the `level:` of the stamp shall be the organisation's most restrictive level, and `wb prompt` shall say why on standard error. Issue: #209. | T | Implemented |
+| WB-PROMPT-63 | Where there is no organisation's file and `watchbill.yml` has no line `confidentiality:`, the `level:` of the stamp shall be `not known`, with nothing added to standard error. Issue: #209. | T | Implemented |
+| WB-PROMPT-64 | The `level:` and `view:` lines of `wb prompt <role> <issue> --stamp` shall equal those that `wb start <role> <issue>` posts for the same `HEAD`. Issue: #209. | T | Implemented |

@@ -189,85 +189,193 @@ fn test_WB_VIEW_23_view_of_the_build_prints_the_paths_of_changes_and_the_build_s
 
     ok(&run);
     let out = text(&run.stdout);
-    assert!(out.starts_with(BUILD_LIST), "{}", out);
+    assert_eq!(out, BUILD_LIST);
     assert!(!out.contains("tests/helper.c"), "{}", out);
     let tester = text(&bench.view(&["54", "tester"]).stdout);
-    assert!(tester.starts_with("src/brake.c\ntests/test_brake.c\nsrc/new.c\nsrc/brake.h\ninclude\ntests/helper.c\nlevel: "), "{}", tester);
+    assert_eq!(tester, "src/brake.c\ntests/test_brake.c\nsrc/new.c\nsrc/brake.h\ninclude\ntests/helper.c\n");
     let review = text(&bench.view(&["54", "review"]).stdout);
-    assert!(review.starts_with("src/brake.c\ntests/test_brake.c\nsrc/new.c\nsrc/brake.h\nlevel: "), "{}", review);
+    assert_eq!(review, "src/brake.c\ntests/test_brake.c\nsrc/new.c\nsrc/brake.h\n");
 }
 
 #[test]
-fn test_WB_VIEW_23_in_is_the_default() {
+fn test_WB_VIEW_23_with_no_flag_the_list_is_flat_and_in_is_not_it() {
     let bench = bench();
     let plain = bench.view(&["54", "build"]);
-    let given = bench.view(&["54", "build", "--in"]);
     let before = bench.view(&["--in", "54", "build"]);
 
-    ok(&given);
-    assert_eq!(text(&given.stdout), text(&plain.stdout));
-    assert_eq!(text(&before.stdout), text(&plain.stdout));
+    ok(&plain);
+    ok(&before);
+    assert_eq!(text(&plain.stdout), BUILD_LIST);
+    // `--in` is by folder: at the root it holds folders with counts, not the paths of the list.
+    assert_ne!(text(&before.stdout), text(&plain.stdout));
+    assert_eq!(text(&before.stdout), "2\tinclude/\n2\tsrc/\n1\ttests/\n");
 }
 
-// ---- WB-VIEW-24: the level and the stamp's `view:` line ----
+// ---- WB-VIEW-24: no level and no line `view:` ----
 
 #[test]
-fn test_WB_VIEW_24_the_view_line_is_the_one_the_stamp_holds_and_the_level_is_the_repository_s() {
+fn test_WB_VIEW_24_view_prints_the_paths_only_no_level_no_view_line() {
     let bench = bench();
-    for (role, more) in [("tester", &[][..]), ("build", &[][..]), ("review", &["--change", "174"][..]), ("fix", &["--change", "174"][..])] {
+    for (role, list) in [("tester", None), ("build", Some(BUILD_LIST)), ("review", None), ("fix", None)] {
         let run = bench.view(&["54", role]);
         ok(&run);
         let out = text(&run.stdout);
-        let mut words = vec![role, "54", "--round", "1", "--stamp"];
-        words.extend_from_slice(more);
-        let stamp = prompt_with(&bench.repo.path, &bench.organisation(), &words);
-        ok(&stamp);
-        let stamp = text(&stamp.stdout);
-        let view = value_of(&stamp, "view").unwrap();
-        assert_ne!(view, "none", "{}", stamp);
-        assert_eq!(value_of(&out, "view"), Some(view), "{}: {}", role, out);
-        assert_eq!(value_of(&out, "level").as_deref(), Some("public"), "{}: {}", role, out);
-        // The level and the view come after the paths, in that order, and nothing after them but the local changes.
-        let lines: Vec<&str> = out.lines().collect();
-        let at = lines.iter().position(|line| line.starts_with("level: ")).unwrap();
-        assert!(lines[at + 1].starts_with("view: "), "{}", out);
-        assert_eq!(lines.len(), at + 2, "{}", out);
+        assert!(!out.contains("level"), "{}: {}", role, out);
+        assert!(!out.contains("view:"), "{}: {}", role, out);
+        assert!(out.lines().all(|line| !line.contains(": ") && !line.is_empty()), "{}: {}", role, out);
+        if let Some(list) = list {
+            assert_eq!(out, list);
+        }
     }
 }
 
-#[test]
-fn test_WB_VIEW_24_the_level_is_the_most_restrictive_where_watchbill_yml_has_none() {
-    let bench = bench();
-    let yml = read(&config(&bench.repo.path)).replace("confidentiality: public\n", "");
-    fs::write(config(&bench.repo.path), yml).unwrap();
-    commit_config(&bench.repo.path);
-
-    let run = bench.view(&["54", "build"]);
-    ok(&run);
-    assert_eq!(value_of(&text(&run.stdout), "level").as_deref(), Some("internal"), "{}", text(&run.stdout));
-}
-
-// ---- WB-VIEW-25: `--out`, by folder with a count ----
+// ---- WB-VIEW-25: `--out [<folder>]`, one level deep ----
 
 #[test]
-fn test_WB_VIEW_25_out_prints_the_folders_left_out_of_head_with_their_counts() {
+fn test_WB_VIEW_25_out_at_the_root_prints_the_files_and_the_folders_with_a_count_of_what_is_left_out() {
     let bench = bench();
     let watchbill = bench.git_text(&["ls-tree", "-r", "--name-only", "HEAD", "--", ".watchbill"]).lines().count();
     let run = bench.view(&["54", "build", "--out"]);
 
     ok(&run);
-    // `docs/` holds no path of the view: one line, with its files below it. `src/` and `tests/` hold some:
-    // the files left out directly in them. The root's own files are counted under `./`.
-    let wanted = format!("{}\t.watchbill/\n1\t./\n1\tbuild/\n2\tdocs/\n1\tsrc/\n1\ttests/\n", watchbill);
-    let mut wanted: Vec<&str> = wanted.lines().collect();
-    wanted.sort_by_key(|line| line.split('\t').nth(1).unwrap().to_string());
-    let out = text(&run.stdout);
-    let found: Vec<&str> = out.lines().collect();
-    assert_eq!(found, wanted, "{}", out);
+    // The files left out directly at the root, then each folder with the count of the files left out under it.
+    let wanted = format!(".gitignore\n{}\t.watchbill/\n1\tbuild/\n2\tdocs/\n1\tsrc/\n1\ttests/\n", watchbill);
+    assert_eq!(text(&run.stdout), wanted);
 
     // The review reads no `include`: it is left out whole.
     let review = text(&bench.view(&["54", "review", "--out"]).stdout);
     assert!(review.lines().any(|line| line == "2\tinclude/"), "{}", review);
+}
+
+#[test]
+fn test_WB_VIEW_25_out_of_a_folder_prints_what_is_left_out_in_it_and_a_count_for_each_folder_below() {
+    let bench = bench();
+    assert_eq!(text(&bench.view(&["54", "build", "--out", "src"]).stdout), "src/secret.c\n");
+    assert_eq!(text(&bench.view(&["54", "build", "--out", "tests"]).stdout), "tests/helper.c\n");
+    // Files directly in `docs/`, then the folder below it.
+    assert_eq!(text(&bench.view(&["54", "build", "--out", "docs"]).stdout), "docs/a.md\n1\tdocs/deep/\n");
+    assert_eq!(text(&bench.view(&["54", "build", "--out", "docs/deep"]).stdout), "docs/deep/b.md\n");
+    // Nothing of `include` is left out for the build.
+    let run = bench.view(&["54", "build", "--out", "include"]);
+    ok(&run);
+    assert_eq!(text(&run.stdout), "");
+    // A flag may come first.
+    assert_eq!(text(&bench.view(&["--out", "54", "build"]).stdout), text(&bench.view(&["54", "build", "--out"]).stdout));
+}
+
+// ---- WB-VIEW-43: `--in [<folder>]`, one level deep ----
+
+#[test]
+fn test_WB_VIEW_43_in_at_the_root_prints_the_folders_that_hold_any_of_the_view_with_a_count() {
+    let bench = bench();
+    let run = bench.view(&["54", "build", "--in"]);
+
+    ok(&run);
+    // `src/new.c` is not in `HEAD`: it is not counted.
+    assert_eq!(text(&run.stdout), "2\tinclude/\n2\tsrc/\n1\ttests/\n");
+}
+
+#[test]
+fn test_WB_VIEW_43_in_a_folder_prints_the_files_of_the_view_in_it_and_a_count_for_each_folder_below() {
+    let bench = bench();
+    assert_eq!(text(&bench.view(&["54", "build", "--in", "src"]).stdout), "src/brake.c\nsrc/brake.h\n");
+    assert_eq!(text(&bench.view(&["54", "build", "--in", "include"]).stdout), "include/a.h\ninclude/b.h\n");
+    let tester = text(&bench.view(&["54", "tester", "--in", "tests"]).stdout);
+    assert_eq!(tester, "tests/helper.c\ntests/test_brake.c\n");
+    // A folder of the view that holds a folder: the count is of every file of the view under it.
+    let file = ISSUE_54.replace("changes: [src/brake.c, tests/test_brake.c, src/new.c]", "changes: [src/brake.c, docs]");
+    put(&bench.repo.path, ".watchbill/issues/54.yml", &file);
+    fs::remove_file(bench.repo.path.join(".watchbill/issues/54.accepted")).unwrap();
+    let run = wb(&bench.repo.path, &["accept", "54", "--no-commit"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    git(&bench.repo.path, &["add", "--", ".watchbill/issues"]);
+    git(&bench.repo.path, &["commit", "-q", "-m", "A folder in changes"]);
+    assert_eq!(text(&bench.view(&["54", "build", "--in", "docs"]).stdout), "docs/a.md\n1\tdocs/deep/\n");
+    assert_eq!(text(&bench.view(&["54", "build", "--in"]).stdout), "2\tdocs/\n2\tinclude/\n2\tsrc/\n");
+}
+
+#[test]
+fn test_WB_VIEW_43_a_folder_is_taken_with_or_without_a_trailing_slash() {
+    let bench = bench();
+    for flag in ["--in", "--out"] {
+        let plain = text(&bench.view(&["54", "build", flag, "src"]).stdout);
+        let slash = text(&bench.view(&["54", "build", flag, "src/"]).stdout);
+        assert!(!plain.is_empty());
+        assert_eq!(plain, slash, "{}", flag);
+    }
+}
+
+// ---- WB-VIEW-44: names only ----
+
+#[test]
+fn test_WB_VIEW_44_a_file_line_is_its_path_alone_with_no_tab_and_no_reason() {
+    let bench = bench();
+    let out = text(&bench.view(&["54", "build", "--in", "src"]).stdout);
+    assert_eq!(out, "src/brake.c\nsrc/brake.h\n");
+    assert!(!out.contains('\t'), "{}", out);
+    let out = text(&bench.view(&["54", "build", "--out"]).stdout);
+    for line in out.lines() {
+        match line.split_once('\t') {
+            // A folder line: a count, a tab, the folder and a `/`.
+            Some((count, folder)) => assert!(count.parse::<usize>().is_ok() && folder.ends_with('/'), "{}", line),
+            None => assert_eq!(line, ".gitignore", "{}", out),
+        }
+    }
+}
+
+// ---- WB-VIEW-45: a folder that is not in HEAD ----
+
+#[test]
+fn test_WB_VIEW_45_a_folder_not_in_head_ends_with_1_saying_so() {
+    let bench = bench();
+    for flag in ["--in", "--out"] {
+        for folder in ["nothing", "src/new.c/", "src/nothing"] {
+            let run = bench.view(&["54", "build", flag, folder]);
+            assert_eq!(code(&run), Some(1), "{} {}: {}", flag, folder, text(&run.stderr));
+            assert_eq!(text(&run.stdout), "");
+            assert!(text(&run.stderr).starts_with("wb view: "), "{}", text(&run.stderr));
+            assert!(text(&run.stderr).contains("not in HEAD"), "{}", text(&run.stderr));
+        }
+    }
+}
+
+// ---- WB-VIEW-46: a file given as the folder ----
+
+#[test]
+fn test_WB_VIEW_46_a_submodule_given_as_the_folder_is_not_called_a_file() {
+    let bench = bench();
+    let sha = bench.git_text(&["rev-parse", "HEAD"]);
+    git(&bench.repo.path, &["update-index", "--add", "--cacheinfo", &format!("160000,{},vendor/lib", sha.trim())]);
+    git(&bench.repo.path, &["commit", "-q", "-m", "A submodule"]);
+    for flag in ["--in", "--out"] {
+        let run = bench.view(&["54", "build", flag, "vendor/lib"]);
+        assert_eq!(code(&run), Some(1), "{}: {}", flag, text(&run.stderr));
+        assert!(!text(&run.stderr).contains("is a file"), "{}", text(&run.stderr));
+    }
+}
+
+#[test]
+fn test_WB_VIEW_46_a_file_given_as_the_folder_ends_with_2_naming_the_command_for_a_path() {
+    let bench = bench();
+    for flag in ["--in", "--out"] {
+        let run = bench.view(&["54", "build", flag, "src/brake.c"]);
+        assert_eq!(code(&run), Some(2), "{}: {}", flag, text(&run.stderr));
+        assert_eq!(text(&run.stdout), "");
+        assert!(text(&run.stderr).contains("wb view 54 src/brake.c"), "{}", text(&run.stderr));
+    }
+}
+
+#[test]
+fn test_WB_VIEW_46_a_folder_that_is_not_a_path_from_the_root_ends_with_2() {
+    let bench = bench();
+    for folder in ["/src", "src/../docs", "../x"] {
+        let run = bench.view(&["54", "build", "--in", folder]);
+        assert_eq!(code(&run), Some(2), "{}: {}", folder, text(&run.stderr));
+        assert_eq!(text(&run.stdout), "");
+        assert!(text(&run.stderr).contains("is not a folder from the root of the repository"), "{}: {}", folder, text(&run.stderr));
+    }
+    // A folder with no flag is a third word that is not known.
+    assert_eq!(code(&bench.view(&["54", "build", "src"])), Some(2));
 }
 
 // ---- WB-VIEW-26: `--in` and `--out` together, and a command used wrongly ----
@@ -431,31 +539,116 @@ fn test_WB_VIEW_29_in_one_view_ends_with_0_in_none_with_1() {
 // ---- WB-VIEW-30: the local changes ----
 
 #[test]
-fn test_WB_VIEW_30_a_changed_file_of_the_view_is_named_under_the_local_changes() {
+fn test_WB_VIEW_30_a_changed_file_of_the_view_is_not_named_by_view() {
     let bench = bench();
     put(&bench.repo.path, "src/brake.c", "int brake(void) { return 2; }\n");
     put(&bench.repo.path, "src/brake.h", "int brake(int);\n");
     put(&bench.repo.path, "src/secret.c", "changed, and not in the view\n");
-    let run = bench.view(&["54", "build"]);
+    for args in [&["54", "build"][..], &["54", "build", "--in"][..], &["54", "build", "--out"][..], &["54", "build", "--in", "src"][..]] {
+        let run = bench.view(args);
+        ok(&run);
+        let out = text(&run.stdout);
+        assert!(!out.contains("local change"), "{:?}: {}", args, out);
+        assert!(!out.contains("\n\n"), "{:?}: {}", args, out);
+        assert_eq!(text(&run.stderr), "");
+    }
+    assert_eq!(text(&bench.view(&["54", "build"]).stdout), BUILD_LIST);
+}
 
-    ok(&run);
-    let out = text(&run.stdout);
-    assert!(out.starts_with(BUILD_LIST), "{}", out);
-    let (_, local) = out.split_once("\n\n").unwrap_or_else(|| panic!("no local changes: {}", out));
-    assert!(local.starts_with("a local change to a file of the view stops the start"), "{}", local);
-    assert!(local.lines().any(|line| line == "  changes: src/brake.c"), "{}", local);
-    assert!(local.lines().any(|line| line == "  reads: src/brake.h"), "{}", local);
-    assert!(!local.contains("secret"), "{}", local);
-    // `--out` does not say them.
-    assert!(!text(&bench.view(&["54", "build", "--out"]).stdout).contains("local change"));
+// ---- WB-PROMPT-60 and 61: the level in the stamp ----
+
+#[test]
+fn test_WB_PROMPT_60_the_stamp_of_a_role_in_a_view_holds_the_level_after_the_view_line() {
+    let bench = bench();
+    for (role, more) in [("tester", &[][..]), ("build", &[][..]), ("review", &["--change", "174"][..]), ("fix", &["--change", "174"][..])] {
+        let mut words = vec![role, "54", "--round", "1", "--stamp"];
+        words.extend_from_slice(more);
+        let stamp = prompt_with(&bench.repo.path, &bench.organisation(), &words);
+        ok(&stamp);
+        let stamp = text(&stamp.stdout);
+        assert_eq!(value_of(&stamp, "level").as_deref(), Some("public"), "{}: {}", role, stamp);
+        let lines: Vec<&str> = stamp.lines().collect();
+        let at = lines.iter().position(|line| line.starts_with("view: ")).unwrap();
+        assert_ne!(value_of(&stamp, "view").as_deref(), Some("none"));
+        assert_eq!(lines[at + 1], "level: public", "{}", stamp);
+    }
 }
 
 #[test]
-fn test_WB_VIEW_30_no_local_change_prints_none() {
+fn test_WB_PROMPT_60_the_level_is_the_most_restrictive_where_watchbill_yml_has_none() {
     let bench = bench();
-    let out = text(&bench.view(&["54", "build"]).stdout);
-    assert!(!out.contains("\n\n"), "{}", out);
-    assert!(!out.contains("local change"), "{}", out);
+    let yml = read(&config(&bench.repo.path)).replace("confidentiality: public\n", "");
+    fs::write(config(&bench.repo.path), yml).unwrap();
+    commit_config(&bench.repo.path);
+
+    let stamp = prompt_with(&bench.repo.path, &bench.organisation(), &["build", "54", "--round", "1", "--stamp"]);
+    ok(&stamp);
+    assert_eq!(value_of(&text(&stamp.stdout), "level").as_deref(), Some("internal"), "{}", text(&stamp.stdout));
+}
+
+#[test]
+fn test_WB_PROMPT_60_the_stamp_takes_runner_as_start_does() {
+    let bench = bench();
+    let stamp = prompt_with(&bench.repo.path, &bench.organisation(), &["build", "54", "--round", "1", "--runner", "stand-in", "--stamp"]);
+    ok(&stamp);
+    let stamp = text(&stamp.stdout);
+    assert_eq!(value_of(&stamp, "runner").as_deref(), Some("stand-in"), "{}", stamp);
+    assert_eq!(value_of(&stamp, "level").as_deref(), Some("public"), "{}", stamp);
+}
+
+#[test]
+fn test_WB_PROMPT_62_a_level_that_is_not_the_organisation_s_is_its_most_restrictive_and_the_reason_is_said() {
+    let bench = bench();
+    let yml = read(&config(&bench.repo.path)).replace("confidentiality: public\n", "confidentiality: secret\n");
+    fs::write(config(&bench.repo.path), yml).unwrap();
+    commit_config(&bench.repo.path);
+
+    let stamp = prompt_with(&bench.repo.path, &bench.organisation(), &["build", "54", "--round", "1", "--stamp"]);
+    ok(&stamp);
+    assert_eq!(value_of(&text(&stamp.stdout), "level").as_deref(), Some("internal"), "{}", text(&stamp.stdout));
+    let said = text(&stamp.stderr);
+    assert!(said.contains("the level of the stamp is internal") && said.contains("secret"), "{}", said);
+
+    // The key `levels` is the organisation's: the same.
+    let yml = read(&config(&bench.repo.path)).replace("confidentiality: secret\n", "confidentiality: public\nlevels: [public]\n");
+    fs::write(config(&bench.repo.path), yml).unwrap();
+    commit_config(&bench.repo.path);
+    let stamp = prompt_with(&bench.repo.path, &bench.organisation(), &["build", "54", "--round", "1", "--stamp"]);
+    ok(&stamp);
+    assert_eq!(value_of(&text(&stamp.stdout), "level").as_deref(), Some("internal"), "{}", text(&stamp.stdout));
+    assert!(text(&stamp.stderr).contains("organisation's"), "{}", text(&stamp.stderr));
+}
+
+#[test]
+fn test_WB_PROMPT_63_with_no_organisation_s_file_and_no_level_the_stamp_says_not_known_and_nothing_else() {
+    let bench = bench();
+    let yml = read(&config(&bench.repo.path)).replace("confidentiality: public\n", "");
+    fs::write(config(&bench.repo.path), yml).unwrap();
+    commit_config(&bench.repo.path);
+
+    let none = bench.org.path.join("not-there.yml");
+    let stamp = prompt_with(&bench.repo.path, &none, &["build", "54", "--round", "1", "--stamp"]);
+    ok(&stamp);
+    assert_eq!(value_of(&text(&stamp.stdout), "level").as_deref(), Some("not known"), "{}", text(&stamp.stdout));
+    assert_eq!(text(&stamp.stderr), "");
+    // With the line `confidentiality:` and no organisation's file, the line is the level.
+    let yml = read(&config(&bench.repo.path)) + "confidentiality: public\n";
+    fs::write(config(&bench.repo.path), yml).unwrap();
+    commit_config(&bench.repo.path);
+    let stamp = prompt_with(&bench.repo.path, &none, &["build", "54", "--round", "1", "--stamp"]);
+    ok(&stamp);
+    assert_eq!(value_of(&text(&stamp.stdout), "level").as_deref(), Some("public"), "{}", text(&stamp.stdout));
+}
+
+#[test]
+fn test_WB_PROMPT_61_the_stamp_of_a_session_with_no_view_holds_no_level_line() {
+    let bench = bench();
+    // A review of a change with no issue runs without a view.
+    let stamp = prompt_with(&bench.repo.path, &bench.organisation(), &["review", "--change", "174", "--stamp"]);
+    ok(&stamp);
+    let stamp = text(&stamp.stdout);
+    assert_eq!(value_of(&stamp, "view").as_deref(), Some("none"), "{}", stamp);
+    assert!(!stamp.lines().any(|line| line.starts_with("level")), "{}", stamp);
 }
 
 // ---- WB-VIEW-31: it writes nothing, runs no pattern, asks nothing of the network ----

@@ -885,11 +885,13 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
     };
     // The level goes in the stamp of a session that runs in a view (#209), from the same place `--parts` has it.
     let level = match view_paths_of(role, file.as_ref()) {
-        Some(_) => Some(match starter::settings(&root).and_then(|settings| level_of(&root, &settings, organisation)) {
-            Ok(level) => level,
-            // Said in the stamp itself: nothing is added to standard error.
-            Err(_) => "not known".to_string(),
-        }),
+        Some(_) => {
+            let (level, why) = stamp_level(&root, organisation);
+            if let Some(why) = why {
+                let _ = writeln!(err, "{}: the level of the stamp is {}: {}", name, level, why);
+            }
+            Some(level)
+        }
         None => None,
     };
     Ok(Handed { root, values, found, cleared, file, requirements_given, stamps: worked.stamps, level })
@@ -1783,6 +1785,34 @@ fn level_of(root: &str, settings: &yamlfile::Document, organisation: &Path) -> R
         "there is no organisation's file {}, and watchbill.yml has no line confidentiality:, so the level is the most restrictive of a list that is not there",
         organisation.display()
     ))
+}
+
+/// The level the stamp holds for a session in a view (#209), and why where it is not the level the repository
+/// gives. Where the organisation's file can be read, the rule decides: a `watchbill.yml` that gives no level
+/// that holds (a level not on the list, or `levels` or `runners`) is the organisation's most restrictive level,
+/// and the reason is returned to be said. Where the organisation's file is not there, the line `confidentiality:`
+/// of `watchbill.yml` is the level; with none there is no list to take the most restrictive of, so the level is
+/// `not known`, which says nothing on standard error. A file of the organisation that cannot be read is `not known`
+/// too, with its reason.
+fn stamp_level(root: &str, organisation: &Path) -> (String, Option<String>) {
+    let not_known = "not known".to_string();
+    let settings = match starter::settings(root) {
+        Ok(settings) => settings,
+        Err(why) => return (not_known, Some(why)),
+    };
+    if !organisation.exists() {
+        return match level_of(root, &settings, organisation) {
+            Ok(level) => (level, None),
+            Err(_) => (not_known, None),
+        };
+    }
+    match confidentiality::read(organisation) {
+        Err(why) => (not_known, Some(why)),
+        Ok(found) => match confidentiality::repository_level(Path::new(root), &found) {
+            Ok(level) => (level, None),
+            Err(why) => (found.strictest().to_string(), Some(why)),
+        },
+    }
 }
 
 /// `wb answer <issue> [--show | --suggested | <question> <answer>]` and `wb answer --change <n> […]` (#145).

@@ -1329,6 +1329,25 @@ fn test_WB_BUILD_31_an_untracked_file_under_a_path_of_changes_is_refused_with_1_
 }
 
 #[test]
+fn test_WB_PROMPT_64_the_level_and_the_view_of_the_stamp_are_those_the_start_posts_for_the_same_head() {
+    if !sandbox("test_WB_PROMPT_64") {
+        return;
+    }
+    let bench = bench();
+    let before = bench.head();
+    let printed = prompt_with(&bench.repo.path, &bench.organisation(), &["build", "54", "--round", "1", "--stamp"]);
+    ok(&printed);
+    let printed = text(&printed.stdout);
+    ok(&bench.start(&["start", "build", "54"]));
+    assert!(bench.started() && bench.any_posted());
+    let posted = bench.posted();
+    assert_eq!(bench.head(), before);
+    assert!(line_of(&printed, "level").is_some() && line_of(&printed, "view").is_some(), "{}", printed);
+    assert_eq!(line_of(&posted, "level"), line_of(&printed, "level"), "{}\n{}", posted, printed);
+    assert_eq!(line_of(&posted, "view"), line_of(&printed, "view"), "{}\n{}", posted, printed);
+}
+
+#[test]
 fn test_WB_BUILD_32_ignore_local_lets_a_change_under_reads_go_on_and_the_stamp_and_the_lines_say_so() {
     if !sandbox("test_WB_BUILD_32") {
         return;

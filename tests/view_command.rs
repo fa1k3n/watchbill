@@ -342,6 +342,19 @@ fn test_WB_VIEW_45_a_folder_not_in_head_ends_with_1_saying_so() {
 // ---- WB-VIEW-46: a file given as the folder ----
 
 #[test]
+fn test_WB_VIEW_46_a_submodule_given_as_the_folder_is_not_called_a_file() {
+    let bench = bench();
+    let sha = bench.git_text(&["rev-parse", "HEAD"]);
+    git(&bench.repo.path, &["update-index", "--add", "--cacheinfo", &format!("160000,{},vendor/lib", sha.trim())]);
+    git(&bench.repo.path, &["commit", "-q", "-m", "A submodule"]);
+    for flag in ["--in", "--out"] {
+        let run = bench.view(&["54", "build", flag, "vendor/lib"]);
+        assert_eq!(code(&run), Some(1), "{}: {}", flag, text(&run.stderr));
+        assert!(!text(&run.stderr).contains("is a file"), "{}", text(&run.stderr));
+    }
+}
+
+#[test]
 fn test_WB_VIEW_46_a_file_given_as_the_folder_ends_with_2_naming_the_command_for_a_path() {
     let bench = bench();
     for flag in ["--in", "--out"] {
@@ -359,6 +372,7 @@ fn test_WB_VIEW_46_a_folder_that_is_not_a_path_from_the_root_ends_with_2() {
         let run = bench.view(&["54", "build", "--in", folder]);
         assert_eq!(code(&run), Some(2), "{}: {}", folder, text(&run.stderr));
         assert_eq!(text(&run.stdout), "");
+        assert!(text(&run.stderr).contains("is not a folder from the root of the repository"), "{}: {}", folder, text(&run.stderr));
     }
     // A folder with no flag is a third word that is not known.
     assert_eq!(code(&bench.view(&["54", "build", "src"])), Some(2));
@@ -580,6 +594,50 @@ fn test_WB_PROMPT_60_the_stamp_takes_runner_as_start_does() {
     let stamp = text(&stamp.stdout);
     assert_eq!(value_of(&stamp, "runner").as_deref(), Some("stand-in"), "{}", stamp);
     assert_eq!(value_of(&stamp, "level").as_deref(), Some("public"), "{}", stamp);
+}
+
+#[test]
+fn test_WB_PROMPT_62_a_level_that_is_not_the_organisation_s_is_its_most_restrictive_and_the_reason_is_said() {
+    let bench = bench();
+    let yml = read(&config(&bench.repo.path)).replace("confidentiality: public\n", "confidentiality: secret\n");
+    fs::write(config(&bench.repo.path), yml).unwrap();
+    commit_config(&bench.repo.path);
+
+    let stamp = prompt_with(&bench.repo.path, &bench.organisation(), &["build", "54", "--round", "1", "--stamp"]);
+    ok(&stamp);
+    assert_eq!(value_of(&text(&stamp.stdout), "level").as_deref(), Some("internal"), "{}", text(&stamp.stdout));
+    let said = text(&stamp.stderr);
+    assert!(said.contains("the level of the stamp is internal") && said.contains("secret"), "{}", said);
+
+    // The key `levels` is the organisation's: the same.
+    let yml = read(&config(&bench.repo.path)).replace("confidentiality: secret\n", "confidentiality: public\nlevels: [public]\n");
+    fs::write(config(&bench.repo.path), yml).unwrap();
+    commit_config(&bench.repo.path);
+    let stamp = prompt_with(&bench.repo.path, &bench.organisation(), &["build", "54", "--round", "1", "--stamp"]);
+    ok(&stamp);
+    assert_eq!(value_of(&text(&stamp.stdout), "level").as_deref(), Some("internal"), "{}", text(&stamp.stdout));
+    assert!(text(&stamp.stderr).contains("organisation's"), "{}", text(&stamp.stderr));
+}
+
+#[test]
+fn test_WB_PROMPT_63_with_no_organisation_s_file_and_no_level_the_stamp_says_not_known_and_nothing_else() {
+    let bench = bench();
+    let yml = read(&config(&bench.repo.path)).replace("confidentiality: public\n", "");
+    fs::write(config(&bench.repo.path), yml).unwrap();
+    commit_config(&bench.repo.path);
+
+    let none = bench.org.path.join("not-there.yml");
+    let stamp = prompt_with(&bench.repo.path, &none, &["build", "54", "--round", "1", "--stamp"]);
+    ok(&stamp);
+    assert_eq!(value_of(&text(&stamp.stdout), "level").as_deref(), Some("not known"), "{}", text(&stamp.stdout));
+    assert_eq!(text(&stamp.stderr), "");
+    // With the line `confidentiality:` and no organisation's file, the line is the level.
+    let yml = read(&config(&bench.repo.path)) + "confidentiality: public\n";
+    fs::write(config(&bench.repo.path), yml).unwrap();
+    commit_config(&bench.repo.path);
+    let stamp = prompt_with(&bench.repo.path, &none, &["build", "54", "--round", "1", "--stamp"]);
+    ok(&stamp);
+    assert_eq!(value_of(&text(&stamp.stdout), "level").as_deref(), Some("public"), "{}", text(&stamp.stdout));
 }
 
 #[test]

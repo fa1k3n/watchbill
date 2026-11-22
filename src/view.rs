@@ -1202,7 +1202,7 @@ fn head_entries(root: &str, paths: &[String], recursive: bool) -> Result<Vec<(St
 
 /// What `wb view <issue> <role> --in [<folder>]` and `--out [<folder>]` find for a folder of `HEAD` (#209).
 pub enum Folder {
-    /// The folder is not in `HEAD`.
+    /// The folder is not in `HEAD`, or is a submodule, which holds no files of `HEAD`'s.
     Missing,
     /// The path is a file of `HEAD`.
     File,
@@ -1227,7 +1227,8 @@ pub fn by_folder(root: &str, paths: &[String], folder: &str, inside: bool) -> Re
         if found.len() > at.len() && found[..at.len()] == at[..] {
             seen = true;
         } else if found == at && !at.is_empty() {
-            return Ok(Folder::File);
+            // A submodule is in `HEAD` as a `commit`: not a file, and not a folder to look into either.
+            return Ok(if kind == "blob" { Folder::File } else { Folder::Missing });
         } else {
             continue;
         }

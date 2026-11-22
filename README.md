@@ -673,6 +673,7 @@ q2: …
 
 ```sh
 wb answer 54                    # each open question, one at a time
+wb answer 54 --show             # read every open question in full, answer none
 wb answer 54 --suggested        # every suggestion
 wb answer 54 tester.q1 2        # one answer, without asking
 wb answer 54 q3 "only the first command"   # a question of the breakdown
@@ -682,6 +683,7 @@ wb answer --change 174          # a change with no issue
 - **What it shows:** each open question of the issue, in the order asked, with its name, what is unclear, why it matters, the choices and the suggestion, laid out plainly. A question is open until an answer names it, as `wb status` reads it, and a question a `[revert]` marker took back is not shown. The questions of revision 0.0.8, one `[question] <name>` comment each, are shown and answered the same way.
 - **What it asks:** Enter takes the suggestion. A number takes that choice; a number that is not one of the choices is asked again. Any other text is the answer in words.
 - **What it posts:** first it says on standard error what it will post, then one comment per role through `issue_comment`: `[answers] 54.tester q1 q2`, then `q1: 2` and `q2: <words>`, a line each. Nothing is posted until every question shown has its answer: an input that ends first, or Ctrl-C, posts nothing.
+- **`--show`** (#225) prints each open question in full, as it is laid out when `wb answer` asks, the questions apart by one empty line, to standard output, so it can be piped to a pager. It asks nothing, posts nothing and writes nothing, and ends with 0; with no question open it says so, as `wb answer` does. `wb answer --change <n> --show` does the same for a change. With `--suggested`, or with a question and its answer, it ends with 2.
 - **`--suggested`** takes every suggestion and names the questions that have none, which stay open. A suggestion is posted written out, as `q1: 1`.
 - **`<question> <answer>`** answers one question without asking: `tester.q1`, or `q1` for the breakdown, whose questions are `<issue>.q<n>`. The answer is read as at the terminal, and a number that is not a choice is refused with 1.
 - **The issue's file.** Where an answered question says `changes the issue's file: yes`, `wb answer` says after posting that the file is to be changed and accepted again (`wb accept`) before the role is started again; for the breakdown, that the breakdown is started again to fold the answers in. It never changes the file.

@@ -64,8 +64,23 @@ pub fn read_only(root: &str) -> Result<(ReadOnly, bool), String> {
         return Err(format!("{} is not in HEAD. Watchbill is not set up in this repository: commit the file first", place));
     };
     READ_ONLY.with(|flag| flag.set(true));
-    let differs = std::fs::read(Path::new(root).join(&place)).map(|now| now != head).unwrap_or(true);
-    Ok((ReadOnly(()), differs))
+    Ok((ReadOnly(()), working_tree_differs(&Path::new(root).join(&place), &head)))
+}
+
+/// Whether the working tree's file is not the file of `HEAD`. What is not a plain file (a FIFO, a device, a folder, a
+/// symlink) or is over 1 MiB counts as differing and is never opened: reading it could wait or grow without end.
+fn working_tree_differs(path: &Path, head: &[u8]) -> bool {
+    use std::io::Read;
+    const CAP: u64 = 1024 * 1024;
+    match std::fs::symlink_metadata(path) {
+        Ok(found) if found.is_file() && found.len() <= CAP => {}
+        _ => return true,
+    }
+    let mut now = Vec::new();
+    match std::fs::File::open(path).and_then(|opened| opened.take(CAP + 1).read_to_end(&mut now)) {
+        Ok(_) => now.len() as u64 > CAP || now != head,
+        Err(_) => true,
+    }
 }
 
 /// The line that a command that only reads says where `read_only` found a difference.
@@ -88,9 +103,11 @@ pub fn held_bytes(root: &str) -> Result<Option<Vec<u8>>, String> {
     let place = format!("{}/{}", crate::init::CONFIG_FOLDER, crate::init::CONFIG_FILE);
     // A command that only reads (`read_only`) goes on with the file of `HEAD`, before the working tree is looked at.
     if READ_ONLY.with(|flag| flag.get()) {
-        if let Some(bytes) = head_file(root, &place) {
-            return Ok(Some(bytes));
-        }
+        // In this mode the working tree is never the fallback: `HEAD`'s file was there when the mode began.
+        return match head_file(root, &place) {
+            Some(bytes) => Ok(Some(bytes)),
+            None => Err(format!("{} could not be read from HEAD. Nothing is run and nothing is posted", place)),
+        };
     }
     let Ok(now) = std::fs::read(Path::new(root).join(&place)) else {
         return Ok(None);

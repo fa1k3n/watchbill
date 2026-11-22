@@ -507,3 +507,87 @@ fn test_WB_BUILD_39_wb_prompt_and_wb_start_are_still_refused_with_1_where_the_fi
     }
     assert_eq!(bench.ran(), "");
 }
+
+/// `wb` run for at most `seconds`: a command that hangs is killed and ends the test with a failure, not the suite.
+fn wb_within(folder: &Path, args: &[&str], seconds: u64) -> Output {
+    // wb is started under a cap of 1 GiB, so that a wb that reads without end
+    // fails the test and does not take the memory of the machine.
+    // prlimit executes wb in its own place, so the child's ID is wb's.
+    let child = std::process::Command::new("prlimit")
+        .arg("--as=1073741824")
+        .arg("--")
+        .arg(env!("CARGO_BIN_EXE_wb"))
+        .args(args)
+        .current_dir(folder)
+        .env_clear()
+        .envs(env())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("wb could not be started");
+    let id = child.id();
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = send.send(child.wait_with_output());
+    });
+    match receive.recv_timeout(std::time::Duration::from_secs(seconds)) {
+        Ok(done) => done.expect("wb could not be waited for"),
+        Err(_) => {
+            // Only the child this test started is ended.
+            let _ = std::process::Command::new("kill").args(["-9", &id.to_string()]).status();
+            panic!("wb {:?} did not end within {} seconds", args, seconds);
+        }
+    }
+}
+
+/// What `wb status` and `wb view` print and end with where the file in the working tree is not a plain file of
+/// a size they read: the same as with the file of `HEAD`, and the warning.
+fn assert_goes_on_as_with_head(bench: &Bench, what: &str) {
+    for words in [&["status"][..], &["view", "54", "build"]] {
+        let run = wb_within(&bench.repo.path, words, 10);
+        assert_eq!(code(&run), Some(0), "{} {:?}: {}", what, words, text(&run.stderr));
+        assert!(text(&run.stderr).contains(DRIFT), "{} {:?}: {}", what, words, text(&run.stderr));
+    }
+    let view = wb_within(&bench.repo.path, &["view", "54", "build"], 10);
+    assert_eq!(text(&view.stdout), "src/brake.c\n", "{}", what);
+}
+
+#[test]
+fn test_WB_BUILD_65_a_fifo_in_the_place_of_the_file_counts_as_differing_and_is_not_read() {
+    let bench = view_bench();
+    fs::remove_file(config(&bench.repo.path)).unwrap();
+    let made = std::process::Command::new("mkfifo").arg(config(&bench.repo.path)).status().unwrap();
+    assert!(made.success());
+    assert_goes_on_as_with_head(&bench, "a FIFO");
+}
+
+#[test]
+fn test_WB_BUILD_65_a_symlink_in_the_place_of_the_file_counts_as_differing_and_is_not_followed() {
+    let bench = view_bench();
+    fs::remove_file(config(&bench.repo.path)).unwrap();
+    std::os::unix::fs::symlink("/dev/zero", config(&bench.repo.path)).unwrap();
+    assert_goes_on_as_with_head(&bench, "a symlink to /dev/zero");
+    // A wb that reads /dev/zero stops at the cap of wb_within and may still
+    // count the file as differing, so the case above can pass without the
+    // code. A symlink to a FIFO that no one writes to cannot: a wb that
+    // follows the link waits for ever and the test fails on the time.
+    let pipe = bench.log.path.join("pipe");
+    let made = std::process::Command::new("mkfifo").arg(&pipe).status().unwrap();
+    assert!(made.success());
+    fs::remove_file(config(&bench.repo.path)).unwrap();
+    std::os::unix::fs::symlink(&pipe, config(&bench.repo.path)).unwrap();
+    assert_goes_on_as_with_head(&bench, "a symlink to a FIFO");
+}
+
+#[test]
+fn test_WB_BUILD_65_a_file_over_1_mib_counts_as_differing_and_a_folder_does_too() {
+    let bench = view_bench();
+    let mut big = read(&config(&bench.repo.path));
+    big.push_str(&format!("# {}\n", "x".repeat(2 * 1024 * 1024)));
+    fs::write(config(&bench.repo.path), big).unwrap();
+    assert_goes_on_as_with_head(&bench, "a file over 1 MiB");
+    fs::remove_file(config(&bench.repo.path)).unwrap();
+    fs::create_dir(config(&bench.repo.path)).unwrap();
+    assert_goes_on_as_with_head(&bench, "a folder");
+}

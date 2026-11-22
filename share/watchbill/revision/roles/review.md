@@ -14,7 +14,16 @@ In round 1:
 - **A new test that repeats an existing one** is a `note`: two tests of one thing drift apart, and the requirement should point at the test that was there.
 - **For each point** the issue gives for being done: whether it is met, and how you can tell. A point that nothing you may read can show is a finding. Say so, and do not assume it.
 - **Whether the change keeps to the files the issue names.** A file it changes outside them is a finding.
-- **Whether the change touches classed code**, where the project says which code is classed. If it does, say so first: such a change needs a person as its verifier, and your review never stands in for that person's. If you cannot tell, say that you cannot. Do not guess.
+- **Whether the change touches classed code.** The program tells you which paths of the project are classed, one to a line, or `none`:
+
+{classed}
+
+and which paths of the change lie under them, worked out from its diff against its base, or `none`:
+
+{classed_touched}
+
+Say first whether the change touches classed code. Report what the program says, and add what the paths alone do not show: code moved into a classed path by a call, say. Such a change needs a person as its verifier, and your review never stands in for that person's. Never say that the classed code cannot be told where the program gave the paths. Where the second list says that it cannot be told, say so, and judge from the diff.
+- **The process's own files.** The issue's file `.watchbill/issues/{issue}.yml` and its acceptance `.watchbill/issues/{issue}.accepted` are on the branch of every issue that has a file, written by the breakdown and by a person through `wb accept`. They are not part of what the issue asks and are not a finding. A change to the issue's file after the acceptance is a finding: the hash would no longer hold. Where the issue is none, there are no such files.
 
 In round 2, when the `must` findings of round 1 have been answered:
 
@@ -110,7 +119,7 @@ Your last message has these fields, every time, in this order, each on a line of
 - `findings`: each starting `<n>. must` or `<n>. note`, then its clause, file and line, and text, and in round 2 its outcome.
 - `untested`: the clauses with no test that would fail.
 - `criteria`: each point of the issue, as met, not met or cannot be told.
-- `classed`: whether the change touches classed code: yes, no or cannot be told.
+- `classed`: whether the change touches classed code: yes, no or cannot be told (only where the program said it cannot be told).
 - `test_changes`: the existing tests the change alters, and the reason it gives.
 - `doubts`: what you are not sure of.
 - `needs_person`: what only a person can settle, or `none`.

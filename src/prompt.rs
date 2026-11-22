@@ -19,8 +19,18 @@ const MANIFEST_PATH: &str = ".watchbill/revision.sha256";
 const PLACEHOLDERS_FILE: &str = "placeholders.md";
 
 /// The words a prompt is filled in with and no others: `roles/placeholders.md` of the revision.
-pub const PLACEHOLDERS: [&str; 8] =
-    ["issue", "change", "requirements", "round", "checkout", "branch", "issue_address", "change_address"];
+pub const PLACEHOLDERS: [&str; 10] = [
+    "issue",
+    "change",
+    "requirements",
+    "round",
+    "checkout",
+    "branch",
+    "issue_address",
+    "change_address",
+    "classed",
+    "classed_touched",
+];
 
 /// The line between the role's text and the project's own text.
 pub const FIXED_LINE: &str =
@@ -486,6 +496,8 @@ pub struct Need {
     pub round: bool,
     /// The change, from what `change_of_branch` prints for the branch.
     pub change: bool,
+    /// The classed paths and those the change touches (#227), from `watchbill.yml` and the diff of the branch.
+    pub classed: bool,
     /// A pattern that is needed and not there is refused, where without it the value would only be missing.
     pub strict: bool,
 }
@@ -698,7 +710,71 @@ pub fn derive_with(
             _ => {}
         }
     }
+    if need.classed {
+        let list = crate::starter::classed(root).map_err(PromptError)?;
+        if !has(&values, "classed") {
+            values.push(("classed", classed_text(&list)));
+        }
+        if !has(&values, "classed_touched") {
+            let branch = get(&values, "branch");
+            values.push(("classed_touched", touched_text(root, &list, branch.as_deref())));
+        }
+    }
     Ok((values, worked))
+}
+
+/// What `{classed}` is filled with (#227): the paths one to a line, `none` for `classed: []`, and for a
+/// `watchbill.yml` with no `classed` that every path is classed.
+fn classed_text(list: &Option<Vec<String>>) -> String {
+    match list {
+        None => "every path (watchbill.yml has no `classed`)".to_string(),
+        Some(paths) if paths.is_empty() => "none".to_string(),
+        Some(paths) => paths.join("\n"),
+    }
+}
+
+/// What `{classed_touched}` is filled with (#227): the paths of the change, from the diff of its branch against
+/// the merge base with the default branch, that meet a classed path, one to a line, or `none`. With
+/// `classed: []` no git is asked. Where the diff cannot be had, the words say that and why.
+fn touched_text(root: &str, list: &Option<Vec<String>>, branch: Option<&str>) -> String {
+    if matches!(list, Some(paths) if paths.is_empty()) {
+        return "none".to_string();
+    }
+    let told = |why: String| format!("cannot be told: {}", why);
+    let Some(branch) = branch else {
+        return told("the branch of the change is not known".to_string());
+    };
+    let Some(default) = crate::status::default_branch(root) else {
+        return told("no default branch to compare with".to_string());
+    };
+    let git = |args: &[&str]| crate::status::git(root, args);
+    let tip = [format!("refs/heads/{}", branch), format!("refs/remotes/origin/{}", branch)]
+        .into_iter()
+        .find(|full| git(&["rev-parse", "--verify", "--quiet", &format!("{}^{{commit}}", full)]).is_some());
+    let Some(tip) = tip else {
+        return told(format!("the branch {} is not there", branch));
+    };
+    let Some(base) = git(&["merge-base", &default, &tip]) else {
+        return told(format!("the branch {} has no merge base with {}", branch, default));
+    };
+    let base = String::from_utf8_lossy(&base).trim().to_string();
+    let Some(names) = git(&["diff", "--no-ext-diff", "--no-renames", "--name-only", "-z", &base, &tip]) else {
+        return told("git gave no diff".to_string());
+    };
+    let changed: Vec<String> = names.split(|byte| *byte == 0).filter(|name| !name.is_empty()).map(|name| String::from_utf8_lossy(name).to_string()).collect();
+    let hit: Vec<&str> = changed
+        .iter()
+        .filter(|path| match list {
+            None => true,
+            Some(paths) => paths.iter().any(|classed| crate::starter::meet(path, classed)),
+        })
+        .map(String::as_str)
+        .collect();
+    if hit.is_empty() {
+        "none".to_string()
+    } else {
+        hit.join("\n")
+    }
 }
 
 /// The placeholders whose values a stamp prints, in the order the stamp has them.

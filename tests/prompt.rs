@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use watchbill::prompt::{assemble, FIXED_LINE};
 
-const VALUES: [(&str, &str); 8] = [
+const VALUES: [(&str, &str); 10] = [
     ("issue", "T-1 brake light"),
     ("change", "42"),
     ("requirements", "WB-X-1, WB-X-2"),
@@ -23,6 +23,8 @@ const VALUES: [(&str, &str); 8] = [
     ("branch", "issue-1"),
     ("issue_address", "tracker T-1"),
     ("change_address", "server 42"),
+    ("classed", "src/safety"),
+    ("classed_touched", "none"),
 ];
 
 fn package() -> PathBuf {

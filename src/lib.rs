@@ -807,7 +807,12 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
     // The round and the change are worked out where the prompt holds them, and the round always for a
     // session that `wb start <role>` starts: its stamp's first line holds it (#84).
     let holds = prompt::used_by(Path::new(&root), role);
-    let need = prompt::Need { round: starting || holds.contains(&"round"), change: holds.contains(&"change"), strict: starting };
+    let need = prompt::Need {
+        round: starting || holds.contains(&"round"),
+        change: holds.contains(&"change"),
+        classed: holds.contains(&"classed") || holds.contains(&"classed_touched"),
+        strict: starting,
+    };
     let before = values.len();
     let (values, worked) = match prompt::derive_with(&root, role, &values, need) {
         Ok(found) => found,

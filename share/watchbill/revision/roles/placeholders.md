@@ -10,5 +10,7 @@ A role prompt is filled in with these words and no others. Each stands in the pr
 - `{branch}`: the branch the session works on.
 - `{issue_address}`: where the issue is read: its address at the tracker, or the command that shows it. `none` where `{issue}` is.
 - `{change_address}`: where the change is read and posted on: its address at the git server, or the command that shows it.
+- `{classed}`: the paths of the project's `classed` list, one to a line, or `none` where the list is empty. Where the project has no `classed` list, it says that every path is classed.
+- `{classed_touched}`: the paths of the change under a classed path, worked out by the program from the diff of the change's branch against its base, one to a line, or `none`. Where the diff cannot be had, it says `cannot be told` and why.
 
 A value is put in as it is given. It is never itself read for placeholders.

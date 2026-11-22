@@ -36,6 +36,8 @@ fn filled(role: &str, values: &[(&str, &str)]) -> String {
     for (name, value) in values {
         text = text.replace(&format!("{{{}}}", name), value);
     }
+    // A repository of `wb init --yes` has `classed: []`: the two placeholders of classed code are `none` (#227).
+    text = text.replace("{classed}", "none").replace("{classed_touched}", "none");
     // The four roles after the breakdown get the part of the issue's file after their text (#97).
     if ["tester", "build", "review", "fix"].contains(&role) {
         text = format!("{}\n{}", text, BARE_PART);

@@ -61,7 +61,7 @@ struct Branch {
     name: String,
 }
 
-fn git(root: &str, args: &[&str]) -> Option<Vec<u8>> {
+pub(crate) fn git(root: &str, args: &[&str]) -> Option<Vec<u8>> {
     let mut all = vec!["-C", root];
     all.extend(args);
     crate::detect::git_output(&all, None).filter(|run| run.status.success()).map(|run| run.stdout)
@@ -86,7 +86,7 @@ fn branches(root: &str) -> Vec<Branch> {
 
 /// The ref of the default branch of `origin`: `refs/remotes/origin/HEAD`, else `origin/main`, `main`,
 /// `origin/master`, `master`. `None` when none is there.
-fn default_branch(root: &str) -> Option<String> {
+pub(crate) fn default_branch(root: &str) -> Option<String> {
     let exists = |full: &str| git(root, &["rev-parse", "--verify", "--quiet", &format!("{}^{{commit}}", full)]).is_some();
     if let Some(target) = git(root, &["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"]) {
         let target = String::from_utf8_lossy(&target).trim().to_string();

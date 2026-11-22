@@ -1322,7 +1322,7 @@ fn test_WB_ROLE_95_the_review_names_the_issues_file_and_its_acceptance_as_the_pr
     assert!(text.contains(".watchbill/issues/{issue}.yml"), "{}", text);
     assert!(text.contains(".watchbill/issues/{issue}.accepted"), "{}", text);
     assert!(text.contains("They are not part of what the issue asks and are not a finding."), "{}", text);
-    assert!(text.contains("A change to the issue's file after the acceptance is a finding."), "{}", text);
+    assert!(text.contains("A change to the issue's file after the acceptance is a finding"), "{}", text);
 }
 
 #[test]

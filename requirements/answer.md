@@ -38,3 +38,7 @@ What `wb answer` shows and posts, and the form the questions and answers take on
 | WB-ANSWER-32 | `wb answer --show` shall end with 2 when it is given `--suggested`, or a question and its answer. Issue: #225. | T | Implemented |
 | WB-ANSWER-33 | `wb answer --show --change <n>` shall print the open questions of a change with no issue as `--show` does for an issue. Issue: #225. | T | Implemented |
 | WB-ANSWER-34 | `wb answer --show` shall work where `watchbill.yml` has no `issue_comment` (`change_comment` with `--change`), as it posts nothing. Issue: #225. | T | Implemented |
+| WB-ANSWER-35 | `wb answer <issue> <question> <answer> <question> <answer> …` shall answer each question named without asking, and post one `[answers]` comment per role, in the order the questions are named. Issue: #181. | T | Draft |
+| WB-ANSWER-36 | `wb answer <issue> --suggested <question> <answer> …` shall answer the questions named with their answers and take the suggestion for every other open question. Issue: #181. | T | Draft |
+| WB-ANSWER-37 | `wb answer` given several pairs shall end with 1 and post nothing when any pair names a question that is not open or gives a number that is not a choice of it. Issue: #181. | T | Draft |
+| WB-ANSWER-38 | `wb answer` shall end with 2 and post nothing when one question is named twice, by the same word or by two words for it (`q1` and `breakdown.q1`). Issue: #181. | T | Draft |

@@ -17,5 +17,5 @@ Which commands `wb` has, how they are grouped, and what a planned one says.
 | WB-CMD-11 | `wb help <command>` with a word more shall end with 2 and name the word. Issue: #171. | T | Implemented |
 | WB-CMD-12 | `wb --help` and `wb -h` shall read the word after them as `wb help` does. Issue: #171. | T | Implemented |
 | WB-CMD-13 | `wb help help` shall print the usage of `help`. Issue: #171. | T | Implemented |
-| WB-CMD-14 | The usage that `wb` prints on a wrong word shall name each built command once, at the start of a line, with its forms as alternatives on that line. Issue: #208. | T | Draft |
-| WB-CMD-15 | The usage that `wb` prints on a wrong word shall list the built commands in the order of `wb help`. Issue: #208. | T | Draft |
+| WB-CMD-14 | The usage that `wb` prints on a wrong word shall name each built command once, at the start of a line, with its forms as alternatives on that line. Issue: #208. | T | Implemented |
+| WB-CMD-15 | The usage that `wb` prints on a wrong word shall list the built commands in the order of `wb help`. Issue: #208. | T | Implemented |

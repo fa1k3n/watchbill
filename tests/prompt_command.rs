@@ -1502,7 +1502,7 @@ fn classed_repository(classed: Option<&str>, changed: &[&str]) -> Folder {
 }
 
 #[test]
-fn test_WB_PROMPT_62_classed_is_the_paths_of_watchbill_yml_one_to_a_line_and_none_for_an_empty_list() {
+fn test_WB_PROMPT_65_classed_is_the_paths_of_watchbill_yml_one_to_a_line_and_none_for_an_empty_list() {
     let folder = classed_repository(Some("classed: [src/safety, firmware/boot.c]"), &["src/other.rs"]);
     let run = wb(&folder.path, &review_words(), "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
@@ -1515,7 +1515,7 @@ fn test_WB_PROMPT_62_classed_is_the_paths_of_watchbill_yml_one_to_a_line_and_non
 }
 
 #[test]
-fn test_WB_PROMPT_63_classed_says_every_path_is_classed_where_watchbill_yml_has_no_classed() {
+fn test_WB_PROMPT_66_classed_says_every_path_is_classed_where_watchbill_yml_has_no_classed() {
     let folder = classed_repository(None, &["src/a.rs", "src/b.rs"]);
     let run = wb(&folder.path, &review_words(), "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
@@ -1523,7 +1523,7 @@ fn test_WB_PROMPT_63_classed_says_every_path_is_classed_where_watchbill_yml_has_
 }
 
 #[test]
-fn test_WB_PROMPT_64_classed_touched_is_the_paths_of_the_change_under_a_classed_path_or_none() {
+fn test_WB_PROMPT_67_classed_touched_is_the_paths_of_the_change_under_a_classed_path_or_none() {
     let folder = classed_repository(Some("classed: [src/safety]"), &["src/safety/limits.rs", "src/other.rs"]);
     let run = wb(&folder.path, &review_words(), "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
@@ -1536,7 +1536,7 @@ fn test_WB_PROMPT_64_classed_touched_is_the_paths_of_the_change_under_a_classed_
 }
 
 #[test]
-fn test_WB_PROMPT_65_classed_touched_says_it_cannot_be_told_and_why_where_the_diff_is_not_there() {
+fn test_WB_PROMPT_68_classed_touched_says_it_cannot_be_told_and_why_where_the_diff_is_not_there() {
     // The branch of the change is not there.
     let folder = classed_repository(Some("classed: [src/safety]"), &["src/safety/limits.rs"]);
     let mut words = review_words();
@@ -1557,7 +1557,7 @@ fn test_WB_PROMPT_65_classed_touched_says_it_cannot_be_told_and_why_where_the_di
 }
 
 #[test]
-fn test_WB_PROMPT_66_the_two_placeholders_are_on_the_list_and_wb_check_takes_them_in_the_projects_text() {
+fn test_WB_PROMPT_69_the_two_placeholders_are_on_the_list_and_wb_check_takes_them_in_the_projects_text() {
     for name in ["classed", "classed_touched"] {
         assert!(listed().contains(&name.to_string()), "{} is not on the list", name);
         assert!(watchbill::prompt::PLACEHOLDERS.contains(&name), "{} is not known to wb", name);
@@ -1571,7 +1571,7 @@ fn test_WB_PROMPT_66_the_two_placeholders_are_on_the_list_and_wb_check_takes_the
 }
 
 #[test]
-fn test_WB_PROMPT_64_the_issues_own_files_are_not_a_touch_of_classed_code() {
+fn test_WB_PROMPT_67_the_issues_own_files_are_not_a_touch_of_classed_code() {
     // With no `classed` every path is classed, and the issue's file and its acceptance are on the branch by design.
     let folder = classed_repository(None, &["src/a.rs", ".watchbill/issues/9.yml", ".watchbill/issues/9.accepted"]);
     let run = wb(&folder.path, &review_words(), "");
@@ -1586,7 +1586,7 @@ fn test_WB_PROMPT_64_the_issues_own_files_are_not_a_touch_of_classed_code() {
 }
 
 #[test]
-fn test_WB_PROMPT_65_each_reason_that_the_diff_cannot_be_had_is_said() {
+fn test_WB_PROMPT_68_each_reason_that_the_diff_cannot_be_had_is_said() {
     use watchbill::prompt::touched_text;
     let folder = classed_repository(Some("classed: [src/safety]"), &["src/safety/limits.rs"]);
     let root = folder.path.to_str().unwrap();

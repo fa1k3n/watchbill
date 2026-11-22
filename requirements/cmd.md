@@ -25,3 +25,5 @@ Which commands `wb` has, how they are grouped, and what a planned one says.
 | WB-CMD-19 | The completion shall run no `wb` and no pattern, ask nothing of the network, and write nothing. Issue: #220. | I | Implemented |
 | WB-CMD-20 | No word list that the completion gives to `compgen -W` shall be made by a command or hold a name read from disk: it shall be made of the fixed lists of the file, the flags of a command of those, and literal words; names of issues and paths shall be matched in bash. Issue: #220. | T | Implemented |
 | WB-CMD-21 | The headings the completion offers after `--stage` shall be those of `wb status`: `STEPS`, `QUESTIONS` and `NOT_READ`. Issue: #220. | T | Implemented |
+| WB-CMD-22 | Each built command shall have a man page of section 1 in `packaging/man/`, `wb-<command>.1`, with its name and a line of NAME, that names every flag `wb help <command>` names for it, and no page shall be there for a command that is not built. Issue: #182. | T | Draft |
+| WB-CMD-23 | The page `wb.1` shall name each built command and no other, each as a reference to its page. Issue: #182. | T | Draft |

@@ -64,7 +64,9 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rpm-${{ matrix.name }}
-          path: build/rpm/RPMS/*/watchbill-[0-9]*.rpm
+          # The folder is named, not matched: a wildcard in it would keep x86_64/ in the artifact, where the
+          # release job does not look (#228). Both builds run on x86_64.
+          path: build/rpm/RPMS/x86_64/watchbill-[0-9]*.rpm
           if-no-files-found: error
       - name: The source RPM, from Fedora only
         if: matrix.name == 'fedora'

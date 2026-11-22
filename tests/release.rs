@@ -164,6 +164,29 @@ fn test_WB_PKG_20_the_release_needs_both_builds_and_uploads_three_kinds_of_file_
 }
 
 #[test]
+fn test_WB_PKG_20_each_upload_has_a_wildcard_in_the_file_name_only_so_the_file_lands_at_the_root_of_its_artifact() {
+    // A wildcard in a folder keeps that folder in the artifact (`x86_64/`), and the release job lists only
+    // the root of what it downloads (#228, run 45035180482 of the tag 0.10.0).
+    let all = lines();
+    let mut uploads = 0;
+    for (at, l) in all.iter().enumerate() {
+        if !l.contains("actions/upload-artifact@") {
+            continue;
+        }
+        uploads += 1;
+        let path = all[at + 1..]
+            .iter()
+            .take_while(|n| !n.trim_start().starts_with("- "))
+            .find_map(|n| n.trim_start().strip_prefix("path:"))
+            .unwrap_or_else(|| panic!("an upload with no path, after line {}", at + 1))
+            .trim();
+        let (folder, _name) = path.rsplit_once('/').unwrap_or(("", path));
+        assert!(!folder.contains(['*', '?', '[']), "a wildcard in the folder of an upload: {}", path);
+    }
+    assert_eq!(uploads, 2, "the binary RPMs and the source RPM");
+}
+
+#[test]
 fn test_WB_PKG_20_the_release_is_never_written_over_and_its_text_is_the_message_of_the_tag() {
     let release = job("release");
     assert!(release.contains("gh release view"), "{}", release);

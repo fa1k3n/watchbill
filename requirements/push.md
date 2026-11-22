@@ -16,3 +16,5 @@ What `wb` does with the issue's branch and the change once the commits of a sess
 | WB-PUSH-10 | Without the patterns, or with `--no-push`, `wb` shall print the push command and the command that opens the change, and run neither. Issue: #151. | T | Draft |
 | WB-PUSH-11 | The session's folder shall hold `pushed:` with the commit pushed, and `change:` with the change's number, or why nothing was pushed. Issue: #151. | T | Draft |
 | WB-PUSH-12 | No login of the code host shall be inside the sandbox of a session. Issue: #151. | T | Draft |
+| WB-PUSH-13 | Each notice `wb` posts to a tracker (a stamp made, a session's findings, a handover, questions, answers, done) shall name the hash of the commit on the job's ref that it copies. Issue: #240. | T | Draft |
+| WB-PUSH-14 | `wb` shall read back none of the notices it posts to a tracker. Issue: #240. | T | Draft |

@@ -43,7 +43,8 @@ pub const USAGE: &str = "usage:
   wb prompt <role> [<issue>] [--issue <text>] [--change <text>]
             [--requirements <text>] [--round <text>] [--checkout <text>]
             [--branch <text>] [--issue_address <text>]
-            [--change_address <text>] [--runner <name>] [--parts] [--stamp]
+            [--change_address <text>] [--classed <text>]
+            [--classed_touched <text>] [--runner <name>] [--parts] [--stamp]
   wb revision
   wb --version
 

@@ -350,7 +350,14 @@ fn fill(text: &str, values: &[(&str, &str)]) -> String {
     for (start, end, name) in placeholders(text) {
         out.push_str(&text[at..start]);
         let value = values.iter().find(|(given, _)| *given == name).map(|(_, value)| *value).unwrap_or("");
-        out.push_str(value);
+        // A placeholder that stands after spaces only keeps a value of several lines in its place (a list item).
+        let line_start = text[..start].rfind('\n').map(|n| n + 1).unwrap_or(0);
+        let indent = &text[line_start..start];
+        if !indent.is_empty() && indent.chars().all(|c| c == ' ') {
+            out.push_str(&value.replace('\n', &format!("\n{}", indent)));
+        } else {
+            out.push_str(value);
+        }
         at = end;
     }
     out.push_str(&text[at..]);
@@ -736,7 +743,7 @@ fn classed_text(list: &Option<Vec<String>>) -> String {
 /// What `{classed_touched}` is filled with (#227): the paths of the change, from the diff of its branch against
 /// the merge base with the default branch, that meet a classed path, one to a line, or `none`. With
 /// `classed: []` no git is asked. Where the diff cannot be had, the words say that and why.
-fn touched_text(root: &str, list: &Option<Vec<String>>, branch: Option<&str>) -> String {
+pub fn touched_text(root: &str, list: &Option<Vec<String>>, branch: Option<&str>) -> String {
     if matches!(list, Some(paths) if paths.is_empty()) {
         return "none".to_string();
     }
@@ -762,8 +769,13 @@ fn touched_text(root: &str, list: &Option<Vec<String>>, branch: Option<&str>) ->
         return told("git gave no diff".to_string());
     };
     let changed: Vec<String> = names.split(|byte| *byte == 0).filter(|name| !name.is_empty()).map(|name| String::from_utf8_lossy(name).to_string()).collect();
+    // The issue's file and its acceptance are on every branch of an issue by design: never a touch of classed code.
+    let process = |path: &str| {
+        path.strip_prefix(".watchbill/issues/").is_some_and(|rest| !rest.contains('/') && (rest.ends_with(".yml") || rest.ends_with(".accepted")))
+    };
     let hit: Vec<&str> = changed
         .iter()
+        .filter(|path| !process(path))
         .filter(|path| match list {
             None => true,
             Some(paths) => paths.iter().any(|classed| crate::starter::meet(path, classed)),

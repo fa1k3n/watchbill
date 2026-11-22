@@ -16,13 +16,13 @@ In round 1:
 - **Whether the change keeps to the files the issue names.** A file it changes outside them is a finding.
 - **Whether the change touches classed code.** The program tells you which paths of the project are classed, one to a line, or `none`:
 
-{classed}
+  {classed}
 
-and which paths of the change lie under them, worked out from its diff against its base, or `none`:
+  and which paths of the change lie under them, worked out from its diff against its base, or `none`:
 
-{classed_touched}
+  {classed_touched}
 
-Say first whether the change touches classed code. Report what the program says, and add what the paths alone do not show: code moved into a classed path by a call, say. Such a change needs a person as its verifier, and your review never stands in for that person's. Never say that the classed code cannot be told where the program gave the paths. Where the second list says that it cannot be told, say so, and judge from the diff.
+  Say first whether the change touches classed code. Report what the program says, and add what the paths alone do not show: code moved into a classed path by a call, say. Such a change needs a person as its verifier, and your review never stands in for that person's. Never say that the classed code cannot be told where the program gave the paths. Where the second list says that it cannot be told, say so, and judge from the diff.
 - **The process's own files.** The issue's file `.watchbill/issues/{issue}.yml` and its acceptance `.watchbill/issues/{issue}.accepted` are on the branch of every issue that has a file, written by the breakdown and by a person through `wb accept`. They are not part of what the issue asks and are not a finding. A change to the issue's file after the acceptance is a finding: the hash would no longer hold. Where the issue is none, there are no such files.
 
 In round 2, when the `must` findings of round 1 have been answered:

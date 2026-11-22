@@ -199,6 +199,10 @@ fn test_WB_TASK_17_an_issue_with_no_file_is_handed_out_to_each_role_and_no_file_
         for extra in [&[][..], &["--parts"], &["--stamp"]] {
             let run = prompt(&folder.path, role, extra);
             assert_eq!(code(&run), Some(0), "{} {:?}: {}", role, extra, text(&run.stderr));
+            // No part of the issue's file is printed, whatever the role: its headings are only in that part (#227).
+            for heading in ["## The interface", "## What you may change and read"] {
+                assert!(!text(&run.stdout).contains(heading), "{} {:?}: {}", role, extra, heading);
+            }
             // The review's text names the issue's file as a file of the process, and says it is no finding (#227).
             assert!(role == "review" && extra.is_empty() || !text(&run.stdout).contains(YML), "{} {:?}", role, extra);
             assert_eq!(text(&run.stderr), "", "{} {:?}", role, extra);

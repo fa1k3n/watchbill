@@ -33,10 +33,10 @@ pub enum Asked {
     Each,
     /// Print each open question in full, and ask and post nothing.
     Show,
-    /// Take every suggestion.
-    Suggested,
-    /// Answer the question named, with the text given.
-    One(String, String),
+    /// Take the suggestion of every open question but those the pairs (question, answer) answer.
+    Suggested(Vec<(String, String)>),
+    /// Answer the questions named, each with the text given, and no other.
+    Pairs(Vec<(String, String)>),
 }
 
 /// A question's suggested answer: one of its choices, or words.
@@ -414,37 +414,53 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
     // Each question answered, with its line `q<n>: …`, in the order asked.
     let mut answered: Vec<(&Question, String)> = Vec::new();
     match asked {
-        Asked::One(which, text) => {
-            let question = match named(value, &questions, which) {
-                Ok(question) => question,
-                Err(why) => {
-                    let _ = writeln!(err, "wb answer: {}. Nothing is posted.", why);
-                    return 1;
-                }
-            };
-            match take(question, text) {
-                Ok(line) => answered.push((question, line)),
-                Err(why) => {
-                    let _ = writeln!(err, "wb answer: {} Nothing is posted.", why);
-                    return 1;
-                }
-            }
-        }
-        Asked::Show => unreachable!("--show returned above"),
-        Asked::Suggested => {
-            for question in &questions {
-                match take(question, "") {
-                    Ok(line) => answered.push((question, line)),
-                    Err(_) => {
-                        let _ = writeln!(err, "wb answer: {} has no suggested answer, and is not answered.", question.name());
+        Asked::Pairs(pairs) | Asked::Suggested(pairs) => {
+            // The questions named, each once even where two words name it.
+            let mut given: Vec<(&Question, &str)> = Vec::new();
+            for (which, text) in pairs {
+                match named(value, &questions, which) {
+                    Ok(question) if given.iter().any(|(known, _)| known.name() == question.name()) => {
+                        let _ = writeln!(err, "wb answer: the question {} is named twice. Nothing is posted.", question.name());
+                        return 2;
+                    }
+                    Ok(question) => given.push((question, text)),
+                    Err(why) => {
+                        let _ = writeln!(err, "wb answer: {}. Nothing is posted.", why);
+                        return 1;
                     }
                 }
             }
-            if answered.is_empty() {
-                let _ = writeln!(err, "wb answer: no open question on {} {} has a suggested answer. Nothing is posted.", word, value);
-                return 1;
+            let mut taken: Vec<(&Question, String)> = Vec::new();
+            for (question, text) in &given {
+                match take(question, text) {
+                    Ok(line) => taken.push((question, line)),
+                    Err(why) => {
+                        let _ = writeln!(err, "wb answer: {} Nothing is posted.", why);
+                        return 1;
+                    }
+                }
+            }
+            if let Asked::Suggested(_) = asked {
+                for question in &questions {
+                    match taken.iter().position(|(known, _)| known.name() == question.name()) {
+                        Some(at) => answered.push(taken.remove(at)),
+                        None => match take(question, "") {
+                            Ok(line) => answered.push((question, line)),
+                            Err(_) => {
+                                let _ = writeln!(err, "wb answer: {} has no suggested answer, and is not answered.", question.name());
+                            }
+                        },
+                    }
+                }
+                if answered.is_empty() {
+                    let _ = writeln!(err, "wb answer: no open question on {} {} has a suggested answer. Nothing is posted.", word, value);
+                    return 1;
+                }
+            } else {
+                answered = taken;
             }
         }
+        Asked::Show => unreachable!("--show returned above"),
         Asked::Each => {
             let _ = writeln!(out, "{} open question{} on {} {}.", questions.len(), if questions.len() == 1 { "" } else { "s" }, word, value);
             for (at, question) in questions.iter().enumerate() {

@@ -18,7 +18,7 @@ const USAGE: &str = "usage:
   wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [the options of prompt]
   wb status [<issue>] [--stage <heading>]
   wb view <issue> (<role> [--in | --out] | <path>)
-  wb answer (<issue> | --change <n>) [--show | --suggested | <question> <answer>]
+  wb answer (<issue> | --change <n>) [--show | [--suggested] [<question> <answer>]...]
   wb revert (<issue> | --change <n>) <role> [--round <n>]
   wb prompt <role> [<issue>] [--issue <text>] [--change <text>]
             [--requirements <text>] [--round <text>] [--checkout <text>]
@@ -155,9 +155,13 @@ const USAGE: &str = "usage:
             open question in full, as it is laid out when asked, to standard
             output, and asks nothing, posts nothing and ends with 0; it takes
             no --suggested and no answer. <question> <answer>, as
-            tester.q1 2 (q1 for the breakdown), answers one question
-            without asking. --change <n> answers on a change with no
-            issue, by
+            tester.q1 2 (q1 for the breakdown), answers a question
+            without asking, and the pairs repeat; with --suggested the
+            suggestion is taken for every question they do not answer.
+            One comment per role is posted, or none when a pair is wrong
+            (a question not open, a number not a choice: 1); a question
+            named twice ends with 2. --change <n> answers on a change
+            with no issue, by
             change_comment_bodies and change_comment. It never changes the
             issue's file: where an answer does, it says so. Ends with 0 when
             the answers are posted or no question is open, 1 when it was

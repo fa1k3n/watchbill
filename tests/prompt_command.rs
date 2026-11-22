@@ -1571,18 +1571,24 @@ fn test_WB_PROMPT_69_the_two_placeholders_are_on_the_list_and_wb_check_takes_the
 }
 
 #[test]
-fn test_WB_PROMPT_67_the_issues_own_files_are_not_a_touch_of_classed_code() {
-    // With no `classed` every path is classed, and the issue's file and its acceptance are on the branch by design.
-    let folder = classed_repository(None, &["src/a.rs", ".watchbill/issues/9.yml", ".watchbill/issues/9.accepted"]);
-    let run = wb(&folder.path, &review_words(), "");
+fn test_WB_PROMPT_67_only_the_files_of_this_issue_are_left_out_of_classed_touched() {
+    // With no `classed` every path is classed. The files of issue 1 are on its branch by design and are left
+    // out; those of issue 9 are not, and a folder of the same name deeper down is not the issue's file.
+    let folder = classed_repository(None, &["src/a.rs", ".watchbill/issues/9.yml", ".watchbill/issues/9.accepted", ".watchbill/issues/x/1.yml"]);
+    git(&folder.path, &["rm", "-q", "--", ".watchbill/issues/1.yml", ".watchbill/issues/1.accepted"]);
+    git(&folder.path, &["commit", "-q", "-m", "The issue's files go"]);
+    let mut words = review_words();
+    let at = words.iter().position(|word| *word == "T-1").unwrap();
+    words[at] = "1";
+    let run = wb(&folder.path, &words, "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert_review(&run, "every path (watchbill.yml has no `classed`)", "src/a.rs");
+    let listed = "`none`:\n\n  .watchbill/issues/9.accepted\n  .watchbill/issues/9.yml\n  .watchbill/issues/x/1.yml\n  src/a.rs\n\n  Say first";
+    assert!(text(&run.stdout).contains(listed), "{}", text(&run.stdout));
 
-    // A folder of the same name deeper down is not the issue's file.
-    let folder = classed_repository(Some("classed: [.watchbill]"), &[".watchbill/issues/9.yml", ".watchbill/other/x.txt"]);
-    let run = wb(&folder.path, &review_words(), "");
-    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert_review(&run, ".watchbill", ".watchbill/other/x.txt");
+    // With no issue nothing is left out.
+    use watchbill::prompt::touched_text;
+    let touched = touched_text(folder.path.to_str().unwrap(), &None, Some("issue-1"), None);
+    assert!(touched.contains(".watchbill/issues/1.yml") && touched.contains(".watchbill/issues/1.accepted"), "{}", touched);
 }
 
 #[test]
@@ -1593,15 +1599,30 @@ fn test_WB_PROMPT_68_each_reason_that_the_diff_cannot_be_had_is_said() {
     let list = Some(vec!["src/safety".to_string()]);
 
     // The branch of the change is not known.
-    assert_eq!(touched_text(root, &list, None), "cannot be told: the branch of the change is not known");
+    assert_eq!(touched_text(root, &list, None, None), "cannot be told: the branch of the change is not known");
     // The branch is not there.
-    assert_eq!(touched_text(root, &list, Some("nosuch")), "cannot be told: the branch nosuch is not there");
+    assert_eq!(touched_text(root, &list, Some("nosuch"), None), "cannot be told: the branch nosuch is not there");
     // The branch has no history in common with the default branch.
     git(&folder.path, &["checkout", "-q", "--orphan", "other"]);
     git(&folder.path, &["commit", "-q", "-m", "Alone"]);
-    let alone = touched_text(root, &list, Some("other"));
+    let alone = touched_text(root, &list, Some("other"), None);
     assert!(alone.starts_with("cannot be told: the branch other has no merge base with "), "{}", alone);
     // No default branch is there.
     git(&folder.path, &["branch", "-m", "main", "trunk"]);
-    assert_eq!(touched_text(root, &list, Some("issue-1")), "cannot be told: no default branch to compare with");
+    assert_eq!(touched_text(root, &list, Some("issue-1"), None), "cannot be told: no default branch to compare with");
+}
+
+#[test]
+fn test_WB_PROMPT_70_a_value_of_several_lines_of_another_placeholder_is_put_in_as_it_is_given() {
+    let folder = set_up();
+    put(&folder.path, ".watchbill/project/review.md", "Where:\n  {issue_address}\n");
+    let mut words = review_words();
+    let at = words.iter().position(|word| *word == "tracker T-1").unwrap();
+    words[at] = "one\ntwo";
+
+    let run = wb(&folder.path, &words, "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("Where:\n  one\ntwo\n"), "{}", text(&run.stdout));
+    assert!(!text(&run.stdout).contains("one\n  two"), "{}", text(&run.stdout));
 }

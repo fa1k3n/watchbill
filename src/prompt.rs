@@ -343,17 +343,18 @@ fn known() -> String {
 }
 
 /// A text with each placeholder replaced by its value, in one pass over the text: what is put in is
-/// not read again.
+/// not read again. A value is put in as it is given, but for `{classed}` and `{classed_touched}` (#227): where
+/// one stands after spaces only, the lines of its value after the first start with the same spaces, so that a
+/// list item stays one item.
 fn fill(text: &str, values: &[(&str, &str)]) -> String {
     let mut out = String::new();
     let mut at = 0;
     for (start, end, name) in placeholders(text) {
         out.push_str(&text[at..start]);
         let value = values.iter().find(|(given, _)| *given == name).map(|(_, value)| *value).unwrap_or("");
-        // A placeholder that stands after spaces only keeps a value of several lines in its place (a list item).
         let line_start = text[..start].rfind('\n').map(|n| n + 1).unwrap_or(0);
         let indent = &text[line_start..start];
-        if !indent.is_empty() && indent.chars().all(|c| c == ' ') {
+        if matches!(name, "classed" | "classed_touched") && !indent.is_empty() && indent.chars().all(|c| c == ' ') {
             out.push_str(&value.replace('\n', &format!("\n{}", indent)));
         } else {
             out.push_str(value);
@@ -724,7 +725,7 @@ pub fn derive_with(
         }
         if !has(&values, "classed_touched") {
             let branch = get(&values, "branch");
-            values.push(("classed_touched", touched_text(root, &list, branch.as_deref())));
+            values.push(("classed_touched", touched_text(root, &list, branch.as_deref(), get(&values, "issue").as_deref())));
         }
     }
     Ok((values, worked))
@@ -742,8 +743,10 @@ fn classed_text(list: &Option<Vec<String>>) -> String {
 
 /// What `{classed_touched}` is filled with (#227): the paths of the change, from the diff of its branch against
 /// the merge base with the default branch, that meet a classed path, one to a line, or `none`. With
-/// `classed: []` no git is asked. Where the diff cannot be had, the words say that and why.
-pub fn touched_text(root: &str, list: &Option<Vec<String>>, branch: Option<&str>) -> String {
+/// `classed: []` nothing is asked of the repository. The issue's file and its acceptance are on every branch of
+/// the issue by design, and are left out; those of another issue are not, and with no issue nothing is left out.
+/// Where the diff cannot be had, the words say that and why.
+pub fn touched_text(root: &str, list: &Option<Vec<String>>, branch: Option<&str>, issue: Option<&str>) -> String {
     if matches!(list, Some(paths) if paths.is_empty()) {
         return "none".to_string();
     }
@@ -769,13 +772,10 @@ pub fn touched_text(root: &str, list: &Option<Vec<String>>, branch: Option<&str>
         return told("git gave no diff".to_string());
     };
     let changed: Vec<String> = names.split(|byte| *byte == 0).filter(|name| !name.is_empty()).map(|name| String::from_utf8_lossy(name).to_string()).collect();
-    // The issue's file and its acceptance are on every branch of an issue by design: never a touch of classed code.
-    let process = |path: &str| {
-        path.strip_prefix(".watchbill/issues/").is_some_and(|rest| !rest.contains('/') && (rest.ends_with(".yml") || rest.ends_with(".accepted")))
-    };
+    let own: Vec<String> = issue.map(|issue| vec![format!(".watchbill/issues/{}.yml", issue), format!(".watchbill/issues/{}.accepted", issue)]).unwrap_or_default();
     let hit: Vec<&str> = changed
         .iter()
-        .filter(|path| !process(path))
+        .filter(|path| !own.contains(path))
         .filter(|path| match list {
             None => true,
             Some(paths) => paths.iter().any(|classed| crate::starter::meet(path, classed)),

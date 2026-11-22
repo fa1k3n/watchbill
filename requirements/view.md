@@ -27,13 +27,13 @@ What a session of the tester, the build, the review or the fix sees when `wb sta
 | WB-VIEW-21 | `wb` shall say on standard error, and write into `back`, each path from a view with its control characters escaped. Issue: #167. | T | Implemented |
 | WB-VIEW-22 | `back` shall hold one line for each path from a view, whatever its name holds. Issue: #167. | T | Implemented |
 | WB-VIEW-23 | `wb view <issue> <role>` shall print the paths of that role's view, one to a line, the same list its start makes the view from. Issue: #173. | T | Implemented |
-| WB-VIEW-24 | `wb view <issue> <role>` shall print the level and the line `view: <hash>` that the role's stamp would hold. Issue: #173. | T | Implemented |
-| WB-VIEW-25 | `wb view <issue> <role> --out` shall print the folders of `HEAD` that the view leaves out, each with a count of its paths. Issue: #173. | T | Implemented |
+| WB-VIEW-24 | `wb view <issue> <role>` with no flag shall print the paths of the view and nothing else: no level, no line `view:`. Replaces the earlier text of this row. Issue: #209. | T | Draft |
+| WB-VIEW-25 | `wb view <issue> <role> --out [<folder>]` shall print, for the folder (the root when none is given), one level deep, each file directly in it that the view leaves out, then `<count><tab><folder>/` for each folder below it that holds any file left out, with the count of those files. Replaces the earlier text of this row. Issue: #209. | T | Draft |
 | WB-VIEW-26 | `wb view` with both `--in` and `--out` shall end with 2. Issue: #173. | T | Implemented |
 | WB-VIEW-27 | `wb view <issue> <path>` shall say, for each role, whether the path is in its view, and when in, the list and the line of the issue's file that holds it. Issue: #173. | T | Implemented |
 | WB-VIEW-28 | `wb view <issue> <path>` shall say, for a role whose view leaves the path out, why: not listed, under `.watchbill/`, under `build_files`, ignored by the checkout, or not in `HEAD`. Issue: #173. | T | Implemented |
 | WB-VIEW-29 | `wb view <issue> <path>` shall end with 0 when the path is in the view of at least one role, and 1 when in none. Issue: #173. | T | Implemented |
-| WB-VIEW-30 | `wb view <issue> <role>` shall print the local changes that the guard of the start would name. Issue: #173. | T | Implemented |
+| WB-VIEW-30 | `wb view` shall print no local change, with or without a flag; the guard of the start names them (WB-BUILD-30). Replaces the earlier text of this row. Issue: #209. | T | Draft |
 | WB-VIEW-31 | `wb view` shall make no view, post nothing, write nothing, and ask nothing of the network. Issue: #173. | T | Implemented |
 | WB-VIEW-32 | `wb view <issue> <role>` for an issue with no accepted, committed file shall end with 1, saying the role would run without a view. Issue: #173. | T | Implemented |
 | WB-VIEW-33 | An entry of `changes` that is a file in `HEAD`, also when written with a `/`, or that is not in `HEAD` and does not end with `/`, shall cover that path only, and never a path under it; a folder shall cover the paths under it. Issue: #192. | T | Implemented |
@@ -46,3 +46,7 @@ What a session of the tester, the build, the review or the fix sees when `wb sta
 | WB-VIEW-40 | `wb init` and `wb upgrade` shall leave the fetch line `+refs/notes/watchbill:refs/notes/watchbill` as it is where it is already there. Issue: #237. | T | Draft |
 | WB-VIEW-41 | `wb start` shall push `refs/notes/watchbill` with the stamp's ref after the commits are taken back, with no force. Issue: #237. | T | Draft |
 | WB-VIEW-42 | `wb start` shall say that the push of `refs/notes/watchbill` was refused when it is, and leave the commits taken back as they are. Issue: #237. | T | Draft |
+| WB-VIEW-43 | `wb view <issue> <role> --in [<folder>]` shall print, for the folder (the root when none is given), one level deep, each file of `HEAD` directly in it that the view holds, then `<count><tab><folder>/` for each folder below it that holds any, with the count of the files of the view under it. Issue: #209. | T | Draft |
+| WB-VIEW-44 | A file line of `--in` and `--out` shall be the path alone, with no tab and no reason; `wb view <issue> <path>` is the place that says why. Issue: #209. | T | Draft |
+| WB-VIEW-45 | `wb view` with `--in` or `--out` given a folder that is not in `HEAD` shall end with 1, saying it is not in `HEAD`. Issue: #209. | T | Draft |
+| WB-VIEW-46 | `wb view` with `--in` or `--out` given a path that is a file shall end with 2, saying to use `wb view <issue> <path>`; a folder that starts with `/` or holds `..` shall end with 2. Issue: #209. | T | Draft |

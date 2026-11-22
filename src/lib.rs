@@ -37,6 +37,7 @@ pub const USAGE: &str = "usage:
   wb upgrade [--dry-run]
   wb accept <issue> [--no-commit]
   wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [--ignore-kept] [the options of prompt]
+            or <role> <issue> --take-back
   wb status [<issue>] [--stage <heading>]
   wb view <issue> (<role> [--in | --out] | <path>)
   wb answer (<issue> | --change <n>) [--show | [--suggested] [<question> <answer>]...]
@@ -111,7 +112,12 @@ pub const USAGE: &str = "usage:
             --parts print as prompt does, and post and start nothing. A view
             of the issue kept with work not taken back, from any role, stops the
             start with 1 before anything is posted; --ignore-kept goes on
-            without it, and the stamp says so. Ends with
+            without it, and the stamp says so. --take-back, given with the role
+            and the issue alone, starts and posts nothing: it says what it will
+            take, then takes back the commits of the newest view of that role
+            and issue that was kept, through the checks of the end of a
+            session; 0 when all of it is taken and the view removed, 1 when
+            anything is refused or left. Ends with
             the session: 0 when it ended with 0, else 1; 1 when it is refused,
             2 when it was used wrongly or the repository is not set up
   revision  print the version of the package, the hash of its revision and the
@@ -616,6 +622,8 @@ struct Words {
     ignore_local: bool,
     /// `--ignore-kept` of `wb start <role>`: a view kept with work not taken back does not stop the start (#222).
     ignore_kept: bool,
+    /// `--take-back` of `wb start <role> <issue>`: take back the kept view of that role and issue (#223).
+    take_back: bool,
 }
 
 impl Words {
@@ -642,7 +650,7 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
     let mut role: Option<String> = role.map(str::to_string);
     let mut issue_word: Option<String> = None;
     let mut values: Vec<(&'static str, String)> = Vec::new();
-    let (mut parts, mut stamp, mut print, mut ignore_local, mut ignore_kept) = (false, false, false, false, false);
+    let (mut parts, mut stamp, mut print, mut ignore_local, mut ignore_kept, mut take_back) = (false, false, false, false, false, false);
     let mut runner: Option<String> = None;
     loop {
         let found = match next(parser) {
@@ -651,12 +659,13 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
             Err(refused) => return Err(used(err, name, &format!("'{}' is not known", refused))),
         };
         match found {
-            Word::Long(option) if option == "parts" || option == "stamp" || (starter && (option == "prompt" || option == "ignore-local" || option == "ignore-kept")) => {
+            Word::Long(option) if option == "parts" || option == "stamp" || (starter && (option == "prompt" || option == "ignore-local" || option == "ignore-kept" || option == "take-back")) => {
                 let flag = match option.as_str() {
                     "parts" => &mut parts,
                     "stamp" => &mut stamp,
                     "ignore-local" => &mut ignore_local,
                     "ignore-kept" => &mut ignore_kept,
+                    "take-back" => &mut take_back,
                     _ => &mut print,
                 };
                 if *flag {
@@ -748,7 +757,7 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
             return Err(used(err, name, &why));
         }
     }
-    Ok(Words { role, values, parts, stamp, print, runner, ignore_local, ignore_kept })
+    Ok(Words { role, values, parts, stamp, print, runner, ignore_local, ignore_kept, take_back })
 }
 
 /// A prompt handed out: the values it was filled with, what was put together, and what was read for it.
@@ -1085,6 +1094,9 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         Ok(words) => words,
         Err(status) => return status,
     };
+    if words.take_back {
+        return run_take_back(name, role, &words, folder, state, err);
+    }
     if words.prints() {
         return match hand_out(name, &words, folder, organisation, false, err) {
             Ok(handed) => print(name, &words, &handed, out, err),
@@ -1449,6 +1461,92 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     }
     lines.close(None, sessions::Outcome::Ended { status, seconds }, err);
     code
+}
+
+/// `wb start <role> <issue> --take-back` (#223): takes back the commits of the newest kept view of that role and
+/// issue, through the checks of the end of a session (`view::take_back_later`), and starts and posts nothing. What it
+/// will take is said first. Ends with 0 when all of the view was taken and it is removed, 1 when anything was refused
+/// or left, 2 when it is used wrongly.
+fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, state: Option<&Path>, err: &mut dyn Write) -> i32 {
+    let others = words.print || words.stamp || words.parts || words.runner.is_some() || words.ignore_local || words.ignore_kept || words.values.iter().any(|(given, _)| *given != "issue");
+    if others {
+        return used(err, name, "'--take-back' is used with the role and the issue alone: it starts and posts nothing");
+    }
+    let Some(issue) = words.get("issue") else {
+        return used(err, name, "'--take-back' needs the issue: give it as the word after the role, or as '--issue'");
+    };
+    if !prompt::is_plain_name(issue) {
+        return used(err, name, &prompt::not_plain("issue"));
+    }
+    let found_root = match folder {
+        None => init::repository_root(None),
+        Some(folder) => init::repository_root_of(folder),
+    };
+    let root = match found_root {
+        Err(why) => {
+            let _ = writeln!(err, "{}: {}.", name, why);
+            return 2;
+        }
+        Ok(None) => {
+            let _ = writeln!(err, "{}: this folder is not in a git repository. Watchbill is set up in one.", name);
+            return 2;
+        }
+        Ok(Some(root)) => root,
+    };
+    let refuse = |err: &mut dyn Write, why: &str| {
+        let _ = writeln!(err, "{}: {}", name, why);
+        1
+    };
+    let Some(state) = state else {
+        return refuse(err, "neither XDG_STATE_HOME nor HOME names an absolute folder, and the views are kept below the state folder of Watchbill");
+    };
+    let kept = match kept::find(state, role, issue) {
+        Ok(kept) => kept,
+        Err(why) => return refuse(err, &why),
+    };
+    // What may come back: the issue's accepted file, and the build files of watchbill.yml, as at the end of a session.
+    let file = match issue::for_prompt(Path::new(&root), issue) {
+        Ok(Some(file)) if issue::ROLES.contains(&role) => file,
+        Ok(_) => return refuse(err, &format!("issue {} has no accepted file with a view for the {}, so what may come back is not known", issue::shown(issue), role)),
+        Err(why) => return refuse(err, &why),
+    };
+    let build_files = match starter::settings(&root).and_then(|settings| issue::build_files_of(&settings)) {
+        Ok(found) => found.unwrap_or_default(),
+        Err(why) => return refuse(err, &why),
+    };
+    // What will be taken, said first: the view, its role and round, each commit with its subject.
+    let shown_view = issue::shown(&kept.view.folder.display().to_string());
+    let (commits, left) = match view::work_left(&root, &kept.view) {
+        Ok(found) => found,
+        Err(why) => return refuse(err, &format!("the view {} was not read, and nothing is taken back: {}", shown_view, issue::shown(&why))),
+    };
+    let _ = writeln!(err, "{}: will take back {}, kept by the {} round {}, onto {}:", name, shown_view, issue::shown(role), kept.round, kept.view.branch_name());
+    for (commit, subject) in &commits {
+        let _ = writeln!(err, "{}:   {} {}", name, view::short(commit), subject);
+    }
+    if commits.is_empty() {
+        let _ = writeln!(err, "{}:   no commit", name);
+    }
+    for path in &left {
+        let _ = writeln!(err, "{}:   uncommitted, and not taken: {}", name, issue::shown(path));
+    }
+    let list = kept.session.join("back");
+    let back = view::take_back_later(name, &root, &kept.view, &file.issue.changes, &build_files, Some(&list), err);
+    let still = view::tidy(name, &kept.view, &back, err);
+    if let Err(error) = sessions::append_back(&kept.session, &format!("take-back\n{}", back.text(still.as_deref()))) {
+        let _ = writeln!(err, "{}: the lines of this take-back could not be written in {}: {}", name, kept.session.display(), error);
+    }
+    for (commit, _) in &back.taken {
+        let _ = writeln!(err, "{}: to see what the commit changes, run:\n  git show --stat {}", name, commit);
+    }
+    if !back.taken.is_empty() {
+        say_push(name, role, &root, kept.view.branch_name(), err);
+    }
+    if back.all_taken() {
+        0
+    } else {
+        1
+    }
 }
 
 /// The roles whose sessions commit on the branch, and push nothing (#145).

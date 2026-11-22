@@ -173,6 +173,18 @@ pub struct Kept {
     pub unread: Option<String>,
 }
 
+/// The lines of `back` that a take-back left last: those after the last line `take-back`, or all of it.
+fn section(back: &str) -> String {
+    let (mut start, mut at) = (0, 0);
+    for line in back.split_inclusive('\n') {
+        at += line.len();
+        if line.trim_end_matches('\n') == "take-back" {
+            start = at;
+        }
+    }
+    back[start..].to_string()
+}
+
 /// The view that `session` kept, where it kept one with work in it.
 ///
 /// A session that runs, with its `wb` alive, is skipped: its view is the session's own, and is not read. With `look`
@@ -183,8 +195,11 @@ fn kept_of(root: &str, state: &Path, session: &Session, look: bool) -> Option<Ke
     }
     let made = |folder: PathBuf, commits, uncommitted, unread| Kept { role: session.role.clone(), round: session.round(), folder, commits, uncommitted, unread };
     let back = small(&session.folder.join("back"));
+    // A take-back appends its lines after a line `take-back` (#223): only they say what is left.
+    let back = back.as_deref().map(section);
+    let back = back.as_deref();
     // A start that ended with its view kept says so in `back`, and what was not taken.
-    if let Some(back) = back.as_deref().filter(|back| !back.lines().any(|line| line.starts_with("failed: "))) {
+    if let Some(back) = back.filter(|back| !back.lines().any(|line| line.starts_with("failed: "))) {
         let folder = held_folder(state, back.lines().last()?.strip_prefix("view: kept ")?)?;
         let mut commits = Vec::new();
         let mut uncommitted = Vec::new();
@@ -199,7 +214,7 @@ fn kept_of(root: &str, state: &Path, session: &Session, look: bool) -> Option<Ke
         return (!commits.is_empty() || !uncommitted.is_empty()).then(|| made(folder, commits, uncommitted, None));
     }
     // No `back`, or one that failed: the view is read, as the file `folder` names it.
-    let folder_of_back = back.as_deref().and_then(|back| back.lines().last()?.strip_prefix("view: kept ")).and_then(|folder| held_folder(state, folder));
+    let folder_of_back = back.and_then(|back| back.lines().last()?.strip_prefix("view: kept ")).and_then(|folder| held_folder(state, folder));
     let not_looked_at = |folder: PathBuf| made(folder, Vec::new(), Vec::new(), Some("not looked at".to_string()));
     if !look {
         return session.place.as_ref().map(|place| place.view.folder.clone()).or(folder_of_back).map(not_looked_at);
@@ -215,6 +230,37 @@ fn kept_of(root: &str, state: &Path, session: &Session, look: bool) -> Option<Ke
         }
         Err(why) => Some(made(place.view.folder.clone(), Vec::new(), Vec::new(), Some(crate::issue::shown(&why)))),
     }
+}
+
+/// The view that a take-back takes (#223).
+pub struct ToTake {
+    /// The folder of the lines of the start that kept it.
+    pub session: PathBuf,
+    pub role: String,
+    pub round: String,
+    pub view: View,
+}
+
+/// The newest view of `role` for `issue` that is kept and that the lines of its start name, for a take-back. A
+/// session that runs, with its `wb` alive, is not taken from: the error says so.
+pub fn find(state: &Path, role: &str, issue: &str) -> Result<ToTake, String> {
+    let mut runs = false;
+    for session in sessions(state, Some(issue)) {
+        if session.role != role {
+            continue;
+        }
+        let Some(place) = &session.place else { continue };
+        if session.running() == Some(true) {
+            runs = true;
+            continue;
+        }
+        return Ok(ToTake { session: session.folder.clone(), role: session.role.clone(), round: session.round(), view: place.view.clone() });
+    }
+    let issue = crate::issue::shown(issue);
+    if runs {
+        return Err(format!("the session of the {} for issue {} still runs, and its view is not taken back while it does", role, issue));
+    }
+    Err(format!("no kept view of the {} for issue {}", crate::issue::shown(role), issue))
 }
 
 /// The views of `issue` kept with work not taken back, from any role, oldest first, each once.
@@ -311,12 +357,20 @@ pub fn refusal(issue: &str, found: &[Kept]) -> String {
             text.push_str(&format!("\n    not read: {}", why));
         }
     }
+    let mut roles: Vec<&str> = Vec::new();
+    for one in found {
+        if !roles.contains(&one.role.as_str()) {
+            roles.push(&one.role);
+        }
+    }
+    let take: Vec<String> = roles.iter().map(|role| format!("`wb start {} {} --take-back`", crate::issue::shown(role), issue)).collect();
     let remove = match found {
         [one] => format!("remove {}", crate::issue::shown(&one.folder.display().to_string())),
         _ => "remove each folder named above".to_string(),
     };
     text.push_str(&format!(
-        "\nTaking it back is #223, which is not built yet. Or {} when its work is not wanted. `--ignore-kept` starts without looking at it, and the stamp says so.",
+        "\nTake it back with {} (the newest of a role), or {} when its work is not wanted. `--ignore-kept` starts without looking at it, and the stamp says so.",
+        take.join(" or "),
         remove
     ));
     text

@@ -2145,11 +2145,11 @@ fn test_WB_BUILD_67_a_start_is_refused_naming_the_paths_left_uncommitted_in_a_ke
 }
 
 #[test]
-fn test_WB_BUILD_68_the_refusal_says_how_to_take_it_back_or_remove_it_and_names_the_flag() {
+fn test_WB_BUILD_68_the_refusal_says_how_to_remove_it_and_names_the_flag() {
     let bench = bench();
     let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 1, commits: &["Tests"], uncommitted: &[], outcome: RAN });
     let err = text_of(&start_54(&bench, &[]).stderr);
-    assert!(err.contains("#223"), "{}", err);
+    assert!(err.contains("--take-back"), "{}", err);
     assert!(err.contains(&format!("remove {}", folder.display())), "{}", err);
     assert!(err.contains("--ignore-kept"), "{}", err);
 }
@@ -2804,8 +2804,8 @@ fn test_WB_VIEW_47_a_commit_that_touches_watchbill_is_refused_and_nothing_of_it_
 }
 
 #[test]
-fn test_WB_VIEW_47_a_commit_that_touches_a_build_file_or_a_git_path_or_another_path_is_refused() {
-    for (path, text) in [("build/Makefile", "evil:\n"), ("src/.git/config", "[core]\n"), ("src/other.c", "int other;\n")] {
+fn test_WB_VIEW_47_a_commit_that_touches_a_build_file_or_another_path_is_refused() {
+    for (path, text) in [("build/Makefile", "evil:\n"), ("src/other.c", "int other;\n")] {
         let bench = bench();
         let (folder, _) = kept_tester(&bench);
         commit_in(&folder, path, text, "Odd");

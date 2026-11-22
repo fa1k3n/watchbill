@@ -900,6 +900,20 @@ pub(crate) fn short(commit: &str) -> &str {
 /// keeps to `changes`, then the paths left uncommitted. A commit that does not is refused, and none after it is
 /// taken. What is said goes to `err`, after `name`; `list` is where the whole list of paths left is written.
 pub fn take_back(name: &str, root: &str, view: &View, changes: &[String], build_files: &[String], list: Option<&Path>, err: &mut dyn Write) -> Back {
+    take_back_in(name, root, view, changes, build_files, list, false, err)
+}
+
+/// The same for a view kept after its session (#223), by a person who runs `wb start <role> <issue> --take-back`:
+/// the checkout's `HEAD` need not be the commit the view was made from. It may be a descendant of it whose changes
+/// touch none of the paths that a commit of the view changes; the commits then go on top of it. The branch must be
+/// the view's. Every git run ends within a bound, for a view is hostile.
+pub fn take_back_later(name: &str, root: &str, view: &View, changes: &[String], build_files: &[String], list: Option<&Path>, err: &mut dyn Write) -> Back {
+    let _bound = bounded(std::time::Duration::from_secs(60));
+    take_back_in(name, root, view, changes, build_files, list, true, err)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn take_back_in(name: &str, root: &str, view: &View, changes: &[String], build_files: &[String], list: Option<&Path>, later: bool, err: &mut dyn Write) -> Back {
     let mut back = Back::default();
     let store = match Store::new(view) {
         Ok(store) => store,
@@ -908,7 +922,7 @@ pub fn take_back(name: &str, root: &str, view: &View, changes: &[String], build_
             return said(name, view, back, list, err);
         }
     };
-    if let Err(why) = commits(root, view, &store.path, changes, build_files, &mut back) {
+    if let Err(why) = commits(root, view, &store.path, changes, build_files, later, &mut back) {
         back.failed = Some(why);
     }
     match uncommitted(root, &store.path, &view.folder, &view.head, &mut back.notes) {
@@ -1011,11 +1025,36 @@ impl Drop for Store {
 
 /// Takes the commits of the view back onto the branch, as far as they keep to the lists. The error is why none
 /// could be taken.
-fn commits(root: &str, view: &View, store: &Path, changes: &[String], build_files: &[String], back: &mut Back) -> Result<(), String> {
+fn commits(root: &str, view: &View, store: &Path, changes: &[String], build_files: &[String], later: bool, back: &mut Back) -> Result<(), String> {
     let head = head_of(&view.folder.join(".git"))?;
     if head == view.base {
         return Ok(());
     }
+    // After the session (#223): the branch is the view's, and its `HEAD` the commit the view was made from or a
+    // descendant of it. The commits then go on top of `HEAD` as it is now, once their paths are seen to be untouched.
+    let moved;
+    let (view, origin) = if later {
+        let (branch, now) = branch_of(root)?;
+        if branch != view.branch {
+            return Err(format!(
+                "the checkout is on {}, not on {}, the branch of the view's stamp, so nothing is taken back",
+                crate::issue::shown(branch.strip_prefix("refs/heads/").unwrap_or(&branch)),
+                view.branch_name()
+            ));
+        }
+        if now != view.head && git(Path::new(root), &["merge-base", "--is-ancestor", &view.head, &now], &[], None).is_err() {
+            return Err(format!(
+                "the branch {} has moved on, and its HEAD {} does not come from {}, where the view was made from, so nothing is taken back",
+                view.branch_name(),
+                short(&now),
+                short(&view.head)
+            ));
+        }
+        moved = View { head: now, ..view.clone() };
+        (&moved, Some(view.head.clone()))
+    } else {
+        (view, None)
+    };
     let covered = covered(root, &view.head, changes)?;
     if git(store, &["merge-base", "--is-ancestor", &view.base, &head], &[], None).is_err() {
         return Err(format!("the view's HEAD, {}, does not come from the commit the view was made with", short(&head)));
@@ -1058,6 +1097,27 @@ fn commits(root: &str, view: &View, store: &Path, changes: &[String], build_file
     }
     if wanted.is_empty() {
         return Ok(());
+    }
+    // The branch moved on since the view was made: what it changed must not meet what the commits change.
+    if let Some(origin) = origin.filter(|origin| *origin != view.head) {
+        let theirs = changes_of(Path::new(root), &origin, &view.head)?;
+        let meets = |one: &str, other: &str| {
+            one == other || one.strip_prefix(other).is_some_and(|rest| rest.starts_with('/')) || other.strip_prefix(one).is_some_and(|rest| rest.starts_with('/'))
+        };
+        let touched = wanted
+            .iter()
+            .flat_map(|(_, _, found)| found.iter())
+            .find_map(|change| theirs.iter().find(|their| meets(&their.path, &change.path)).map(|their| their.path.clone()));
+        if let Some(path) = touched {
+            back.after.splice(0..0, wanted.iter().map(|(commit, raw, _)| (commit.clone(), raw.subject())));
+            return Err(format!(
+                "the branch {} has moved on from {} to {}, and a commit there changes {}, which a commit of the view changes too, so nothing is taken back",
+                view.branch_name(),
+                short(&origin),
+                short(&view.head),
+                crate::issue::shown(&path)
+            ));
+        }
     }
     // The checkout is where the view was made from, or nothing is taken.
     match branch_of(root) {

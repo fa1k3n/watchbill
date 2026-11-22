@@ -350,21 +350,28 @@ fn show(question: &Question, at: usize, of: usize) -> String {
     text
 }
 
-/// The question a word names: `tester.q1`, `q1` or `breakdown.q1` for the breakdown, or the whole name.
-fn named<'a>(on: &str, questions: &'a [Question], word: &str) -> Result<&'a Question, String> {
-    let whole = if word.starts_with(&format!("{}.", on)) && split_name(on, word).is_some() {
+/// The whole name a word gives a question: `tester.q1`, `q1` or `breakdown.q1` for the breakdown, or the whole name.
+/// It looks at no comment, so that two words for one question are known before anything is read.
+pub fn whole_name(on: &str, word: &str) -> String {
+    if word.starts_with(&format!("{}.", on)) && split_name(on, word).is_some() {
         word.to_string()
     } else if let Some(rest) = word.strip_prefix("breakdown.") {
         format!("{}.{}", on, rest)
     } else {
         format!("{}.{}", on, word)
-    };
+    }
+}
+
+/// The question a word names among the open ones.
+fn named<'a>(on: &str, questions: &'a [Question], word: &str) -> Result<&'a Question, String> {
+    let whole = whole_name(on, word);
     questions.iter().find(|question| question.name() == whole).ok_or_else(|| format!("there is no open question {} on {}", issue::shown(&whole), on))
 }
 
 /// `wb answer` in the repository at `root`: 0 the answers are posted, or there was no open question; 1 it was
 /// refused, the input ended before every question was answered, or a pattern failed. What it shows and asks goes
-/// to `out`; what it will post, and what it did, to `err`.
+/// to `out`; what it will post, and what it did, to `err`. It never returns 2: a question named twice, by one word or
+/// by two (`whole_name`), is refused with 2 and the usage by `run_answer` before anything is read.
 pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let (word, value, read, post) = match on {
         On::Issue(issue) => ("issue", issue, "issue_comment_bodies", "issue_comment"),
@@ -415,14 +422,10 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
     let mut answered: Vec<(&Question, String)> = Vec::new();
     match asked {
         Asked::Pairs(pairs) | Asked::Suggested(pairs) => {
-            // The questions named, each once even where two words name it.
+            // `run_answer` has refused a question named twice, before anything was read.
             let mut given: Vec<(&Question, &str)> = Vec::new();
             for (which, text) in pairs {
                 match named(value, &questions, which) {
-                    Ok(question) if given.iter().any(|(known, _)| known.name() == question.name()) => {
-                        let _ = writeln!(err, "wb answer: the question {} is named twice. Nothing is posted.", question.name());
-                        return 2;
-                    }
                     Ok(question) => given.push((question, text)),
                     Err(why) => {
                         let _ = writeln!(err, "wb answer: {}. Nothing is posted.", why);

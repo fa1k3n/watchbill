@@ -677,9 +677,15 @@ fn test_WB_ANSWER_38_a_question_named_twice_ends_with_2_and_posts_nothing() {
         vec!["175", "q1", "1", "breakdown.q1", "2"],
         vec!["175", "q1", "1", "175.q1", "1"],
         vec!["175", "--suggested", "tester.q1", "1", "tester.q1", "2"],
+        // Named twice wins over a question that is not open or a number that is not a choice.
+        vec!["175", "q1", "1", "tester.q7", "1", "breakdown.q1", "2"],
+        vec!["175", "q9", "1", "breakdown.q9", "2"],
+        vec!["175", "q1", "9", "q1", "2"],
     ] {
         let run = answer(&folder.path, &args, "");
         assert_eq!(code(&run), Some(2), "{:?}: {}", args, text(&run.stderr));
+        assert!(text(&run.stderr).contains("named twice"), "{:?}: {}", args, text(&run.stderr));
+        assert!(text(&run.stderr).contains("usage:"), "{:?}: {}", args, text(&run.stderr));
         assert!(text(&run.stderr).starts_with("wb answer: "), "{:?}: {}", args, text(&run.stderr));
         assert!(posted(&folder.path, "175").is_empty(), "{:?}", args);
     }

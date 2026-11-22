@@ -1818,7 +1818,7 @@ fn run_answer(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write,
         if pair[1].chars().any(char::is_control) {
             return used(err, "an answer is one line, with no control character".to_string());
         }
-        if pairs.iter().any(|(known, _)| *known == pair[0]) {
+        if pairs.iter().any(|(known, _)| answer::whole_name(&on_value, known) == answer::whole_name(&on_value, &pair[0])) {
             return used(err, format!("the question '{}' is named twice", pair[0].escape_debug()));
         }
         pairs.push((pair[0].clone(), pair[1].clone()));

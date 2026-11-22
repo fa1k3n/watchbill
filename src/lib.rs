@@ -34,20 +34,17 @@ pub const USAGE: &str = "usage:
   wb init [--yes]
   wb check
   wb upgrade [--dry-run]
+  wb accept <issue> [--no-commit]
+  wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [the options of prompt]
+  wb status [<issue>] [--stage <heading>]
+  wb view <issue> (<role> [--in | --out] | <path>)
+  wb answer (<issue> | --change <n>) [--suggested | <question> <answer>]
+  wb revert (<issue> | --change <n>) <role> [--round <n>]
   wb prompt <role> [<issue>] [--issue <text>] [--change <text>]
             [--requirements <text>] [--round <text>] [--checkout <text>]
             [--branch <text>] [--issue_address <text>]
             [--change_address <text>] [--runner <name>] [--parts] [--stamp]
-  wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [the options of prompt]
   wb revision
-  wb accept <issue> [--no-commit]
-  wb status [<issue>] [--stage <heading>]
-  wb view <issue> <role> [--in | --out]
-  wb view <issue> <path>
-  wb revert <issue> <role> [--round <n>]
-  wb revert --change <n> <role> [--round <n>]
-  wb answer <issue> [--suggested | <question> <answer>]
-  wb answer --change <n> [--suggested | <question> <answer>]
   wb --version
 
   init      set Watchbill up in the git repository of this folder: propose what

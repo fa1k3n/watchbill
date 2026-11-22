@@ -252,3 +252,26 @@ fn test_WB_CMD_10_help_lists_status_in_the_group_see_and_help_status_prints_its_
     assert_eq!(code(&run), Some(0));
     assert!(text(&run.stdout).contains("wb status [<issue>] [--stage <heading>]"), "{}", text(&run.stdout));
 }
+
+#[test]
+fn test_WB_CMD_14_the_usage_names_each_built_command_once_at_the_start_of_a_line() {
+    let usage = watchbill::USAGE;
+    let lines: Vec<&str> = usage.lines().take_while(|line| !line.is_empty()).collect();
+    for name in built() {
+        let opens = lines.iter().filter(|line| **line == format!("  wb {}", name) || line.starts_with(&format!("  wb {} ", name))).count();
+        assert_eq!(opens, 1, "{}: {}", name, usage);
+    }
+}
+
+#[test]
+fn test_WB_CMD_15_the_usage_lists_the_built_commands_in_the_order_of_help() {
+    let usage = watchbill::USAGE;
+    let listed: Vec<&str> = usage
+        .lines()
+        .take_while(|line| !line.is_empty())
+        .filter(|line| line.starts_with("  wb "))
+        .map(|line| line.split_whitespace().nth(1).unwrap())
+        .filter(|name| !name.starts_with("--"))
+        .collect();
+    assert_eq!(listed, built(), "{}", usage);
+}

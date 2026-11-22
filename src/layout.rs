@@ -36,10 +36,10 @@ pub const COMMANDS: [Command; 16] = [
 /// The piece that builds one removes its row, and adds its arm to the dispatch in `src/lib.rs`. After 0.0.9 the
 /// releases are 0.10.0, 0.11.0, 0.12.0 and 1.0.0, as the owner named them.
 pub const PLANNED: [(&str, &str, u32); 5] = [
-    ("doctor", "0.11.0", 178),
-    ("log", "0.11.0", 177),
-    ("clean", "0.11.0", 176),
-    ("compare", "0.11.0", 179),
+    ("doctor", "0.12.0", 178),
+    ("log", "0.12.0", 177),
+    ("clean", "0.12.0", 176),
+    ("compare", "0.12.0", 179),
     ("run", "0.12.0", 183),
 ];
 

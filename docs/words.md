@@ -37,8 +37,8 @@ The words `wb` and its documents use, one line each, and how they are like git. 
 | `init` | `git init` | never writes over what is there |
 | `check` | `git fsck` | also checks the installed `wb` |
 | `status` | `git status` | reads the tracker by patterns |
-| `log <issue>` (planned for 0.11.0, #177) | `git log` | stores nothing itself |
-| `compare a b` (planned for 0.11.0, #179) | `git diff a b` | revisions only |
+| `log <issue>` (planned for 0.12.0, #177) | `git log` | stores nothing itself |
+| `compare a b` (planned for 0.12.0, #179) | `git diff a b` | revisions only |
 | `revision` | `git rev-parse HEAD` | |
 | `prompt` | `git cat-file -p` | fills the placeholders |
 | `accept` | `git tag -s` | a person's word, committed |
@@ -49,9 +49,9 @@ The words `wb` and its documents use, one line each, and how they are like git. 
 | `view --in` | `git ls-files` | |
 | `view --out` | `git ls-files --others` | by folder, with counts |
 | `view <path>` | `git check-ignore -v` | says the list and the line |
-| `clean` (planned for 0.11.0, #176) | `git clean`, `git worktree prune` | lists and asks first |
+| `clean` (planned for 0.12.0, #176) | `git clean`, `git worktree prune` | lists and asks first |
 | `upgrade` | `git submodule update` | shows what changes first |
-| `doctor` (planned for 0.11.0, #178) | none in git | checks the machine |
+| `doctor` (planned for 0.12.0, #178) | none in git | checks the machine |
 | `help` | `git help` | |
 
 | Thing | Nearest in git | Differs in |

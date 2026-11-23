@@ -87,6 +87,13 @@ fn test_WB_CMD_27_a_refusal_of_each_command_starts_with_limit_after_the_command_
     let yml = read(&config(at)).replace(&format!("watchbill: {}", REVISION), "watchbill: 999.0.0");
     fs::write(config(at), yml).unwrap();
     refused_as(&wb(at, &["upgrade"], ""), "wb upgrade", "limit");
+    // status and view: watchbill.yml over its bound in HEAD (#261).
+    let mut big = read(&config(at));
+    big.push_str(&format!("# {}\n", "x".repeat(2 * 1024 * 1024)));
+    fs::write(config(at), big).unwrap();
+    commit_config(at);
+    refused_as(&wb(at, &["status"], ""), "wb status", "limit");
+    refused_as(&wb(at, &["view", "174", "build"], ""), "wb view", "limit");
     // Exit 2, used wrongly or not set up, is no refusal and has no label.
     for args in [&["accept"][..], &["view", "174"], &["revert", "174"], &["prompt"], &["start"]] {
         let run = wb(at, args, "");

@@ -91,7 +91,7 @@ fn test_WB_PIN_4_a_file_that_is_there_stops_everything_and_is_named() {
 
         assert_eq!(code(&run), Some(1), "{}", target);
         let file = real(&folder.path).join(".watchbill").join(target);
-        assert!(text(&run.stdout).contains(file.to_str().unwrap()), "{}: {}", target, text(&run.stdout));
+        assert!(text(&run.stderr).contains(file.to_str().unwrap()), "{}: {}", target, text(&run.stderr));
         assert_eq!(all_files(&folder.path.join(".watchbill")), vec![target.to_string()], "{}", target);
         assert_eq!(read(&folder.path.join(".watchbill").join(target)), "mine\n");
     }
@@ -173,10 +173,10 @@ fn refused_at(prepare: impl Fn(&Path, &Path), way: &str) -> Folder {
 
     let run = wb(&folder.path, &["init", "--yes"], "");
 
-    assert_eq!(code(&run), Some(1), "{}: {}", way, text(&run.stdout));
+    assert_eq!(code(&run), Some(1), "{}: {}", way, text(&run.stderr));
     let named = real(&folder.path).join(".watchbill").join(way);
-    assert!(text(&run.stdout).contains(named.to_str().unwrap()), "{}: {}", way, text(&run.stdout));
-    assert!(text(&run.stdout).contains("Nothing written."), "{}", text(&run.stdout));
+    assert!(text(&run.stderr).contains(named.to_str().unwrap()), "{}: {}", way, text(&run.stderr));
+    assert!(text(&run.stderr).contains("Nothing written."), "{}", text(&run.stderr));
     assert!(all_files(&outside.path).is_empty(), "{}: something was written outside", way);
     assert!(!folder.path.join(".watchbill/watchbill.yml").exists(), "{}", way);
     // `outside` is removed here, with its folder: nothing is read of it past this point.
@@ -203,7 +203,7 @@ fn test_WB_PIN_7_a_link_for_the_folder_watchbill_is_refused_before_it_asks() {
     let run = wb(&folder.path, &["init"], "");
 
     assert_eq!(code(&run), Some(1));
-    assert!(text(&run.stdout).contains(real(&folder.path).join(".watchbill").to_str().unwrap()));
+    assert!(text(&run.stderr).contains(real(&folder.path).join(".watchbill").to_str().unwrap()));
     assert!(!text(&run.stdout).contains("project:"), "it asked");
     assert!(all_files(&outside.path).is_empty());
 }
@@ -217,7 +217,7 @@ fn test_WB_PIN_7_a_file_where_a_folder_goes_is_refused_before_it_asks() {
         let run = wb(&folder.path, &["init"], "");
 
         assert_eq!(code(&run), Some(1), "{}", way);
-        assert!(text(&run.stdout).contains(real(&folder.path).join(way).to_str().unwrap()), "{}", way);
+        assert!(text(&run.stderr).contains(real(&folder.path).join(way).to_str().unwrap()), "{}", way);
         assert!(!text(&run.stdout).contains("project:"), "{}: it asked", way);
         assert_eq!(read(&folder.path.join(way)), "mine\n");
     }
@@ -231,7 +231,7 @@ fn test_WB_PIN_7_a_link_where_a_folder_goes_is_named_as_a_link() {
 
     let run = wb(&folder.path, &["init", "--yes"], "");
 
-    let out = text(&run.stdout);
+    let out = text(&run.stderr);
     let named = real(&folder.path).join(".watchbill/revision/roles");
     assert_eq!(code(&run), Some(1), "{}", out);
     assert!(out.contains(&format!("{} is a link", named.to_str().unwrap())), "{}", out);
@@ -249,7 +249,7 @@ fn test_WB_PIN_7_a_link_for_revision_to_a_folder_with_its_files_is_named_as_a_li
 
     let run = wb(&folder.path, &["init", "--yes"], "");
 
-    let out = text(&run.stdout);
+    let out = text(&run.stderr);
     let named = real(&folder.path).join(".watchbill/revision");
     assert_eq!(code(&run), Some(1), "{}", out);
     assert!(out.contains(&format!("{} is a link", named.to_str().unwrap())), "{}", out);
@@ -263,7 +263,7 @@ fn test_WB_PIN_7_a_file_where_a_folder_goes_is_named_as_not_a_folder() {
 
     let run = wb(&folder.path, &["init", "--yes"], "");
 
-    let out = text(&run.stdout);
+    let out = text(&run.stderr);
     let named = real(&folder.path).join(".watchbill/revision/roles");
     assert_eq!(code(&run), Some(1), "{}", out);
     assert!(out.contains(&format!("{} is not a folder", named.to_str().unwrap())), "{}", out);

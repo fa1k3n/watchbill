@@ -543,35 +543,30 @@ fn check_needs(root: &str, pattern: &str, issue: &Issue) -> Result<Needs, String
 pub fn accept(root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let base = Path::new(root);
     if let Some(why) = way_fault(base) {
-        let _ = writeln!(err, "wb accept: {}. Nothing read, nothing written.", why);
-        return 1;
+        return crate::refusal::limit(err, "wb accept", format_args!("{}. Nothing read, nothing written.", why));
     }
     if crate::bounded::is_absent(&base.join(".watchbill").join("watchbill.yml")) {
         let _ = writeln!(err, "wb accept: .watchbill/watchbill.yml is not there. Watchbill is not set up in this repository.");
         return 2;
     }
     if let Err(why) = crate::starter::held(root) {
-        let _ = writeln!(err, "wb accept: {}. Nothing read, nothing written.", why);
-        return 1;
+        return crate::refusal::limit(err, "wb accept", format_args!("{}. Nothing read, nothing written.", why));
     }
     let file = file_of(base, issue);
     let shown = format!("{}/{}.yml", FOLDER, issue);
     match fs::symlink_metadata(&file) {
         Ok(found) if found.is_file() => {}
         Ok(_) => {
-            let _ = writeln!(err, "wb accept: {} is not a plain file. Nothing written.", shown);
-            return 1;
+            return crate::refusal::limit(err, "wb accept", format_args!("{} is not a plain file. Nothing written.", shown));
         }
         Err(_) => {
-            let _ = writeln!(err, "wb accept: {} is not there, or cannot be read. Nothing written.", shown);
-            return 1;
+            return crate::refusal::limit(err, "wb accept", format_args!("{} is not there, or cannot be read. Nothing written.", shown));
         }
     }
     let bytes = match read_plain(&file, MAX_BYTES) {
         Ok(bytes) => bytes,
         Err(error) => {
-            let _ = writeln!(err, "wb accept: {} cannot be read ({}). Nothing written.", shown, error);
-            return 1;
+            return crate::refusal::limit(err, "wb accept", format_args!("{} cannot be read ({}). Nothing written.", shown, error));
         }
     };
     let hash = crate::manifest::hash_bytes(&bytes);
@@ -580,76 +575,63 @@ pub fn accept(root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &
         Err(why) => {
             // The file is named from the root of the repository, as every other message is.
             let why = why.replace(&format!("{}/", root.trim_end_matches('/')), "");
-            let _ = writeln!(err, "wb accept: {}. Nothing written.", why);
-            return 1;
+            return crate::refusal::limit(err, "wb accept", format_args!("{}. Nothing written.", why));
         }
     };
     if read.issue != issue {
-        let _ = writeln!(err, "wb accept: {} says the issue is {}, not {}. Nothing written.", shown, self::shown(&read.issue), issue);
-        return 1;
+        return crate::refusal::limit(err, "wb accept", format_args!("{} says the issue is {}, not {}. Nothing written.", shown, self::shown(&read.issue), issue));
     }
     if !read.questions.is_empty() {
-        let _ = writeln!(err, "wb accept: {} holds {} question{}. Nothing written. Answer them in the file first:", shown, read.questions.len(), if read.questions.len() == 1 { "" } else { "s" });
-        for question in &read.questions {
-            let _ = writeln!(err, "  - {}", self::shown(question));
-        }
-        return 1;
+        let why = format!("{} holds {} question{}. Nothing written. Answer them in the file first:", shown, read.questions.len(), if read.questions.len() == 1 { "" } else { "s" });
+        let said: String = read.questions.iter().map(|question| format!("\n  - {}", self::shown(question))).collect();
+        return crate::refusal::limit(err, "wb accept", format_args!("{}{}", why, said));
     }
     // `watchbill.yml`, through the one loader, for the files of the build and the pattern `needs` (#125).
     let from_root = |why: String| why.replace(&format!("{}/", root.trim_end_matches('/')), "").trim_end_matches('.').to_string();
     let settings = match crate::starter::settings(root) {
         Ok(document) => document,
         Err(why) => {
-            let _ = writeln!(err, "wb accept: {}. Nothing written.", from_root(why));
-            return 1;
+            return crate::refusal::limit(err, "wb accept", format_args!("{}. Nothing written.", from_root(why)));
         }
     };
     let (build_files, needs) = match build_files_of(&settings).and_then(|files| needs_of(&settings).map(|needs| (files, needs))) {
         Ok(both) => both,
         Err(why) => {
-            let _ = writeln!(err, "wb accept: {}. Nothing written.", from_root(why));
-            return 1;
+            return crate::refusal::limit(err, "wb accept", format_args!("{}. Nothing written.", from_root(why)));
         }
     };
     if let Some(build_files) = &build_files {
         let hits = build_hits(&read.changes, build_files);
         if !hits.is_empty() {
-            let _ = writeln!(
+            let said: String = hits.iter().map(|(path, build)| format!("\n  - {} (under `build_files` of watchbill.yml: {})", self::shown(path), self::shown(build))).collect();
+            return crate::refusal::limit(
                 err,
-                "wb accept: `changes` of {} holds a file of the build, and a change never changes the build. Nothing written. Take each out of `changes`:",
-                shown
+                "wb accept",
+                format_args!("`changes` of {} holds a file of the build, and a change never changes the build. Nothing written. Take each out of `changes`:{}", shown, said),
             );
-            for (path, build) in hits {
-                let _ = writeln!(err, "  - {} (under `build_files` of watchbill.yml: {})", self::shown(path), self::shown(build));
-            }
-            return 1;
         }
     }
     let accepted = accepted_of(base, issue);
     let shown_accepted = format!("{}/{}.accepted", FOLDER, issue);
     if fs::symlink_metadata(&accepted).is_ok() {
-        let _ = writeln!(err, "wb accept: {} is there already, and is never written over. To accept the file again, remove it first. Nothing written.", shown_accepted);
-        return 1;
+        return crate::refusal::limit(err, "wb accept", format_args!("{} is there already, and is never written over. To accept the file again, remove it first. Nothing written.", shown_accepted));
     }
     if commit {
         if let Err(why) = ready_to_commit(root, issue) {
-            let _ = writeln!(err, "wb accept: {} Nothing written.", why);
-            return 1;
+            return crate::refusal::guard(err, "wb accept", "--no-commit", format_args!("{} Nothing written. Or give --no-commit to write the acceptance and commit nothing.", why));
         }
     }
     let identity = git_value(root, "user.name").and_then(|name| git_value(root, "user.email").map(|email| (name, email)));
     let (name, email) = match identity {
         Ok(identity) => identity,
         Err(why) => {
-            let _ = writeln!(err, "wb accept: {} Nothing written.", why);
-            return 1;
+            return crate::refusal::limit(err, "wb accept", format_args!("{} Nothing written.", why));
         }
     };
     let seconds = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
         Ok(since) => since.as_secs(),
         Err(_) => {
-            let _ = writeln!(err, "wb accept: the clock of this machine reads before 1970 or cannot be read. Nothing written.");
-            return 1;
+            return crate::refusal::limit(err, "wb accept", format_args!("the clock of this machine reads before 1970 or cannot be read. Nothing written."));
         }
     };
     let body = format!("sha256: {}\nby: {} <{}>\ntime: {}\n", hash, name, email, crate::prompt::utc(seconds));
@@ -661,8 +643,7 @@ pub fn accept(root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &
         }
         Some(pattern) => match check_needs(root, pattern, &read) {
             Err(why) => {
-                let _ = writeln!(err, "wb accept: {}. Nothing written.", why);
-                return 1;
+                return crate::refusal::limit(err, "wb accept", format_args!("{}. Nothing written.", why));
             }
             Ok(Needs { run, missing }) if missing.is_empty() => {
                 let files = if run == 1 { "1 file".to_string() } else { format!("{} files", run) };
@@ -673,15 +654,12 @@ pub fn accept(root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &
                 );
             }
             Ok(Needs { missing, .. }) => {
-                let _ = writeln!(
+                let said: String = missing.iter().map(|(role, file, path)| format!("\n  - {}: {} needs {}", role, self::shown(file), self::shown(path))).collect();
+                return crate::refusal::limit(
                     err,
-                    "wb accept: the lists of {} leave out files that are needed to build, by `needs` of watchbill.yml. Nothing written. Add each to `changes` or to the role's `reads`:",
-                    shown
+                    "wb accept",
+                    format_args!("the lists of {} leave out files that are needed to build, by `needs` of watchbill.yml. Nothing written. Add each to `changes` or to the role's `reads`:{}", shown, said),
                 );
-                for (role, file, path) in missing {
-                    let _ = writeln!(err, "  - {}: {} needs {}", role, self::shown(&file), self::shown(&path));
-                }
-                return 1;
             }
         },
     }
@@ -691,8 +669,7 @@ pub fn accept(root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &
 
     // The file is the one that was read and held to its form.
     if read_plain(&file, MAX_BYTES).map(|again| crate::manifest::hash_bytes(&again)).ok().as_deref() != Some(hash.as_str()) {
-        let _ = writeln!(err, "wb accept: {} changed while it was read. Nothing written.", shown);
-        return 1;
+        return crate::refusal::limit(err, "wb accept", format_args!("{} changed while it was read. Nothing written.", shown));
     }
     let _ = writeln!(out, "wb accept: will write {}:\n{}", shown_accepted, body);
     // Whole or not at all: the acceptance is written to a file of its own in the same folder, then
@@ -709,22 +686,19 @@ pub fn accept(root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => {
-                let _ = writeln!(err, "wb accept: {} cannot be written ({}). Nothing written.", shown_accepted, error);
-                return 1;
+                return crate::refusal::limit(err, "wb accept", format_args!("{} cannot be written ({}). Nothing written.", shown_accepted, error));
             }
         }
     }
     let Some((part, mut opened)) = written else {
-        let _ = writeln!(err, "wb accept: {} cannot be written. Nothing written.", shown_accepted);
-        return 1;
+        return crate::refusal::limit(err, "wb accept", format_args!("{} cannot be written. Nothing written.", shown_accepted));
     };
     let result = opened.write_all(body.as_bytes()).and_then(|_| opened.sync_all());
     drop(opened);
     let result = result.and_then(|_| fs::hard_link(&part, &accepted));
     let _ = fs::remove_file(&part);
     if let Err(error) = result {
-        let _ = writeln!(err, "wb accept: {} could not be written ({}). Nothing written.", shown_accepted, error);
-        return 1;
+        return crate::refusal::limit(err, "wb accept", format_args!("{} could not be written ({}). Nothing written.", shown_accepted, error));
     }
     let _ = writeln!(out, "wb accept: {} is accepted.", shown);
     if !commit {
@@ -741,27 +715,29 @@ pub fn accept(root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &
                 .unwrap_or_default();
             let branch = current_branch(root).unwrap_or_default();
             if held.iter().any(|path| path != &shown_accepted) {
-                let _ = writeln!(
+                return crate::refusal::limit(
                     err,
-                    "wb accept: the commit {} is not alone: it holds {}. A hook of git added files to it. Nothing more is done: undo or amend it as you decide.",
-                    short,
-                    held.iter().map(|path| self::shown(path)).collect::<Vec<_>>().join(", ")
+                    "wb accept",
+                    format_args!(
+                        "the commit {} is not alone: it holds {}. A hook of git added files to it. Nothing more is done: undo or amend it as you decide.",
+                        short,
+                        held.iter().map(|path| self::shown(path)).collect::<Vec<_>>().join(", ")
+                    ),
                 );
-                return 1;
             }
             let _ = writeln!(out, "wb accept: committed {} alone ({}). What was staged before stays staged.", shown_accepted, short);
             let _ = writeln!(out, "wb accept: wb pushes nothing. Push the branch {} so that the history elsewhere holds the acceptance.", branch);
             0
         }
         Err(why) => {
-            let _ = writeln!(err, "wb accept: the commit failed: {}", why);
+            let code = crate::refusal::limit(err, "wb accept", format_args!("the commit failed: {}", why));
             let _ = writeln!(
                 err,
                 "wb accept: {} is written and stays, and is unstaged again. Commit it alone, so the history holds it before any work it allows:\n  {}",
                 shown_accepted,
                 commit_command(issue)
             );
-            1
+            code
         }
     }
 }

@@ -382,8 +382,7 @@ fn put_back(done: Vec<Done>) {
 }
 
 fn refused(err: &mut dyn Write, why: &str) -> i32 {
-    let _ = writeln!(err, "wb upgrade: {}. Nothing written.", why);
-    1
+    crate::refusal::limit(err, "wb upgrade", format_args!("{}. Nothing written.", why))
 }
 
 /// Runs `wb upgrade` in the repository at `root`, against the installed `wb`: its `version` and the revision its
@@ -478,7 +477,7 @@ pub fn upgrade(root: &str, version: &str, package: &Path, dry_run: bool, out: &m
     match not_committed(root) {
         Err(why) => return refused(err, &why),
         Ok(paths) if !paths.is_empty() => {
-            let _ = writeln!(err, "wb upgrade: these paths under {}/ are not as git holds them committed:", CONFIG_FOLDER);
+            let code = crate::refusal::limit(err, "wb upgrade", format_args!("these paths under {}/ are not as git holds them committed:", CONFIG_FOLDER));
             for path in &paths {
                 let _ = writeln!(err, "  {}", path);
             }
@@ -486,7 +485,7 @@ pub fn upgrade(root: &str, version: &str, package: &Path, dry_run: bool, out: &m
                 err,
                 "wb upgrade writes over the files of the revision only where git holds them, so that git gives them back. Commit each change, or take it back with git, first. Nothing written."
             );
-            return 1;
+            return code;
         }
         Ok(_) => {}
     }
@@ -516,10 +515,10 @@ pub fn upgrade(root: &str, version: &str, package: &Path, dry_run: bool, out: &m
     if let Err((path, error)) = apply(&base, &steps, &config, yml.as_bytes(), &old_yml, &mut done) {
         put_back(done);
         let shown = path.strip_prefix(root).map(|path| path.to_path_buf()).unwrap_or(path);
-        let _ = writeln!(err, "wb upgrade: cannot write {}: {}. What it had written is put back. Nothing written.", shown.display(), error);
-        return 1;
+        return crate::refusal::limit(err, "wb upgrade", format_args!("cannot write {}: {}. What it had written is put back. Nothing written.", shown.display(), error));
     }
     let _ = writeln!(out, "\nWritten.\n\nThe check of wb check:");
+    // The check after the upgrade is an answer, not a refusal: it ends with 1 where it does not hold.
     let checked = crate::check::check(root, version, package, out, err);
     let _ = writeln!(
         out,

@@ -265,7 +265,7 @@ fn test_WB_PROMPT_9_a_readme_that_is_there_stops_everything_before_the_questions
 
     assert_eq!(code(&run), Some(1));
     let file = fs::canonicalize(&folder.path).unwrap().join(".watchbill/project/README.md");
-    assert!(text(&run.stdout).contains(file.to_str().unwrap()), "{}", text(&run.stdout));
+    assert!(text(&run.stderr).contains(file.to_str().unwrap()), "{}", text(&run.stderr));
     assert!(!text(&run.stdout).contains("project:"), "it asked");
     assert!(!folder.path.join(".watchbill/revision").exists());
     assert_eq!(read(&folder.path.join(".watchbill/project/README.md")), "mine\n");
@@ -423,7 +423,7 @@ fn test_WB_PROMPT_9_a_link_where_project_goes_is_named_as_a_link() {
 
     assert_eq!(code(&run), Some(1));
     let named = fs::canonicalize(&folder.path).unwrap().join(".watchbill/project");
-    let out = text(&run.stdout);
+    let out = text(&run.stderr);
     assert!(out.contains(&format!("{} is a link", named.to_str().unwrap())), "{}", out);
     assert_eq!(fs::read_dir(&outside.path).unwrap().count(), 0);
 }

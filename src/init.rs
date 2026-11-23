@@ -254,9 +254,9 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
 /// error of reading, which is told as it is.
 fn read_failure(error: &io::Error) -> String {
     if error.kind() == ErrorKind::InvalidData {
-        "wb init: what was typed is not UTF-8 text. Nothing written.\n".to_string()
+        "what was typed is not UTF-8 text. Nothing written.".to_string()
     } else {
-        format!("wb init: cannot read standard input: {}. Nothing written.\n", error)
+        format!("cannot read standard input: {}. Nothing written.", error)
     }
 }
 
@@ -435,8 +435,7 @@ pub fn init(
     let pin = match read_pin(package) {
         Ok(pin) => pin,
         Err(why) => {
-            let _ = writeln!(err, "wb init: the revision of the package cannot be read: {}. Nothing written.", why);
-            return 1;
+            return crate::refusal::limit(err, "wb init", format_args!("the revision of the package cannot be read: {}. Nothing written.", why));
         }
     };
     // The files, as paths to write: the manifest and the files of the revision, then the config last,
@@ -445,15 +444,13 @@ pub fn init(
     targets.push(format!("{}/project/README.md", folder));
     targets.push(file.clone());
     if let Some(message) = in_the_way(&folder, &targets) {
-        talk.say(&message);
-        return 1;
+        return crate::refusal::limit(err, "wb init", message);
     }
 
     let mut setup = match detect(root, env) {
         Ok(setup) => setup,
         Err(why) => {
-            let _ = writeln!(err, "wb init: {}. Nothing written.", why);
-            return 1;
+            return crate::refusal::limit(err, "wb init", format_args!("{}. Nothing written.", why));
         }
     };
     let host = origin_host(root, env);
@@ -466,15 +463,13 @@ pub fn init(
         setup = match talk.answers(&setup) {
             Ok(setup) => setup,
             Err(error) => {
-                let _ = err.write_all(read_failure(&error).as_bytes());
-                return 1;
+                return crate::refusal::limit(err, "wb init", read_failure(&error));
             }
         };
         classed = match talk.classed() {
             Ok(paths) => paths,
             Err(error) => {
-                let _ = err.write_all(read_failure(&error).as_bytes());
-                return 1;
+                return crate::refusal::limit(err, "wb init", read_failure(&error));
             }
         };
     }
@@ -492,17 +487,18 @@ pub fn init(
             Ok(None) => {
                 // No answer at all, because the input ended, is no yes.
                 talk.say("Nothing written.");
+                // not a refusal: the person gave no yes.
                 return 1;
             }
             Ok(Some(answer)) => {
                 if !["", "y", "yes"].contains(&strip(&answer).to_lowercase().as_str()) {
                     talk.say("Nothing written.");
+                    // not a refusal: the person answered no.
                     return 1;
                 }
             }
             Err(error) => {
-                let _ = err.write_all(read_failure(&error).as_bytes());
-                return 1;
+                return crate::refusal::limit(err, "wb init", read_failure(&error));
             }
         }
     }
@@ -514,11 +510,9 @@ pub fn init(
     contents.push(text.as_bytes());
     if let Err((path, error)) = write_all(&targets, &contents) {
         if error.kind() == ErrorKind::AlreadyExists {
-            talk.say(&format!("{} is already there. wb init does not change it. Nothing written.", path.display()));
-        } else {
-            let _ = writeln!(err, "wb init: cannot write {}: {}. Nothing written.", path.display(), error);
+            return crate::refusal::limit(err, "wb init", format_args!("{} is already there. wb init does not change it. Nothing written.", path.display()));
         }
-        return 1;
+        return crate::refusal::limit(err, "wb init", format_args!("cannot write {}: {}. Nothing written.", path.display(), error));
     }
     for path in &targets {
         talk.say(&format!("Wrote {}.", path));

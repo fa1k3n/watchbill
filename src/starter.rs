@@ -40,6 +40,25 @@ fn head_file(root: impl AsRef<std::ffi::OsStr>, place: &str) -> Option<Vec<u8>> 
     output.status.success().then_some(output.stdout)
 }
 
+/// The size of `place` in `HEAD`, from the object database with no replace refs, without reading the file.
+fn head_size(root: &Path, place: &str) -> Option<u64> {
+    let output = Command::new("git")
+        .arg("--no-replace-objects")
+        .arg("-C")
+        .arg(root)
+        .arg("cat-file")
+        .arg("-s")
+        .arg(format!("HEAD:{}", place))
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout).ok()?.trim().parse().ok()
+}
+
 /// The read-only mode of `read_only`, held for the life of the command: dropping it ends the mode, so that the
 /// refusal of #186 holds again for whatever runs after it on the thread.
 #[must_use = "the mode ends when the guard is dropped"]
@@ -89,6 +108,10 @@ fn working_tree_differs(path: &Path, head: &[u8]) -> bool {
 /// file is compared by `working_tree_differs`, so a FIFO, a device, a folder, a link or a file over the cap counts
 /// as differing and is never opened. The caller has seen that no folder on the way is a link.
 pub fn project_text(root: &Path, place: &str) -> Result<Option<Vec<u8>>, String> {
+    // A file of `HEAD` over the cap is refused by its size, before it is read whole.
+    if head_size(root, place).is_some_and(|size| size > 1024 * 1024) {
+        return Err(format!("{} is over 1 MiB in HEAD, which is too big for a part of a prompt. A person makes it smaller and commits it", place));
+    }
     let head = head_file(root, place);
     let path = root.join(place);
     let there = !matches!(std::fs::symlink_metadata(&path), Err(error) if error.kind() == std::io::ErrorKind::NotFound);
@@ -100,7 +123,7 @@ pub fn project_text(root: &Path, place: &str) -> Result<Option<Vec<u8>>, String>
         (Some(bytes), true) => return Ok(Some(bytes.clone())),
     };
     Err(format!(
-        "{} {}, and a session is told what HEAD holds: a person reads the change and commits it, or takes it back with git, before the next command. Nothing is posted and nothing is started",
+        "{} {}, and a session is told what HEAD holds: a person reads the change and commits it, or takes it back with git, before the next command. Nothing is handed out",
         place, said
     ))
 }

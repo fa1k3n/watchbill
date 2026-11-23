@@ -205,6 +205,25 @@ fn read_project_part(root: &Path, path: String) -> Result<Option<Read>, PromptEr
     }
 }
 
+/// The refusals, one for each file, of the project's text of `role` (`all.md` and `<role>.md`) where it is not as
+/// `HEAD` has it (#211). Empty where each is. It reads nothing but `HEAD`, and is made before a pattern runs.
+pub fn project_refusals(root: &Path, role: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for name in ["all", role] {
+        // A role that is no plain name is refused later, as no role of the revision.
+        if name.is_empty() || name.starts_with('.') || name.contains('/') {
+            continue;
+        }
+        if let Err(why) = read_project_part(root, format!("{}/{}.md", PROJECT_FOLDER, name)) {
+            let why = why.to_string();
+            if !found.contains(&why) {
+                found.push(why);
+            }
+        }
+    }
+    found
+}
+
 /// A part as read: its path, its text as it is and its hash.
 struct Read {
     path: String,
@@ -270,10 +289,16 @@ pub fn assemble_with(
         ));
     }
     let mut parts = vec![first];
+    let mut refusals = Vec::new();
     for name in ["all", role] {
-        if let Some(part) = read_project_part(root, format!("{}/{}.md", PROJECT_FOLDER, name))? {
-            parts.push(part);
+        match read_project_part(root, format!("{}/{}.md", PROJECT_FOLDER, name)) {
+            Ok(Some(part)) => parts.push(part),
+            Ok(None) => {}
+            Err(why) => refusals.push(why.to_string()),
         }
+    }
+    if !refusals.is_empty() {
+        return refuse(refusals.join("\n"));
     }
     // What is not on the list is refused in every part before anything is said of a missing value.
     for part in &parts {

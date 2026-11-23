@@ -568,7 +568,7 @@ fn test_WB_CHECK_13_a_run_with_such_text_still_writes_nothing() {
 #[test]
 fn test_WB_CHECK_14_wb_prompt_refuses_the_text_that_wb_check_refuses() {
     let folder = set_up();
-    put(&folder.path, ".watchbill/project/all.md", "Use {task}.\n");
+    put_committed(&folder.path, ".watchbill/project/all.md", "Use {task}.\n");
 
     let check = wb(&folder.path, &["check"], "");
     let prompt = wb(&folder.path, &["prompt", "build", "--issue", "1", "--requirements", "R", "--checkout", "/x", "--branch", "b", "--issue_address", "at 1"], "");

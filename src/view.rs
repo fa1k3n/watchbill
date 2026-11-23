@@ -1775,7 +1775,7 @@ pub fn facts(root: &str, path: &str) -> Result<Facts, String> {
                 }
             }
             // git ends with 1 where nothing is ignored.
-            Err(why) if why == "`git --no-optional-locks` ended with 1" => {}
+            Err(why) if why == "`git check-ignore` ended with 1" => {}
             Err(why) => return Err(why),
         }
     }

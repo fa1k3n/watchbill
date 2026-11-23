@@ -7,6 +7,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
 pub mod answer;
+pub mod bounded;
 pub mod check;
 pub mod confidentiality;
 pub mod detect;
@@ -1855,9 +1856,9 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
     };
     // `wb view` only reads (#254): a file that differs from `HEAD` is said, and `HEAD`'s file is the one read.
     let _read_only = match starter::read_only(&root) {
-        Err(why) => {
-            let _ = writeln!(err, "{}: {}.", name, why);
-            return 2;
+        Err(not_read) => {
+            let _ = writeln!(err, "{}: {}.", name, not_read.why);
+            return not_read.status;
         }
         Ok((guard, differs)) => {
             if differs {
@@ -2076,7 +2077,7 @@ fn run_answer(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write,
             2
         }
         Ok(Some(root)) => {
-            if !Path::new(&root).join(init::CONFIG_FOLDER).join(init::CONFIG_FILE).is_file() {
+            if bounded::is_absent(&Path::new(&root).join(init::CONFIG_FOLDER).join(init::CONFIG_FILE)) {
                 let _ = writeln!(err, "wb answer: .watchbill/watchbill.yml is not there. Watchbill is not set up in this repository.");
                 return 2;
             }
@@ -2156,7 +2157,7 @@ fn run_revert(parser: &mut Parser, err: &mut dyn Write) -> i32 {
             2
         }
         Ok(Some(root)) => {
-            if !Path::new(&root).join(init::CONFIG_FOLDER).join(init::CONFIG_FILE).is_file() {
+            if bounded::is_absent(&Path::new(&root).join(init::CONFIG_FOLDER).join(init::CONFIG_FILE)) {
                 let _ = writeln!(err, "wb revert: .watchbill/watchbill.yml is not there. Watchbill is not set up in this repository.");
                 return 2;
             }

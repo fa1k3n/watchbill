@@ -70,7 +70,10 @@ impl Step {
 
 /// What is under `.watchbill/revision/`: each file with its bytes, and each folder. A link, or a thing that is
 /// neither a file nor a folder, is refused by name and never followed.
-fn look_under(base: &Path, folder: &Path, files: &mut BTreeMap<String, Vec<u8>>, folders: &mut Vec<String>) -> Result<(), String> {
+/// The most the files under `.watchbill/revision/` are held in memory together.
+const MOST_TOTAL: u64 = 64 * 1024 * 1024;
+
+fn look_under(base: &Path, folder: &Path, files: &mut BTreeMap<String, Vec<u8>>, folders: &mut Vec<String>, total: &mut u64) -> Result<(), String> {
     let shown = |path: &Path| {
         let relative = path.strip_prefix(base).unwrap_or(path);
         format!("{}/{}", CONFIG_FOLDER, crate::word(relative.as_os_str().as_bytes()))
@@ -87,9 +90,13 @@ fn look_under(base: &Path, folder: &Path, files: &mut BTreeMap<String, Vec<u8>>,
             return Err(format!("{} is a link, and wb upgrade never follows one", shown(&path)));
         } else if meta.is_dir() {
             folders.push(relative.to_string());
-            look_under(base, &path, files, folders)?;
+            look_under(base, &path, files, folders, total)?;
         } else if meta.is_file() {
-            let bytes = fs::read(&path).map_err(|error| format!("{} cannot be read ({})", shown(&path), error))?;
+            let bytes = crate::bounded::read_plain(&path, crate::bounded::REVISION_CAP).map_err(|error| format!("{} cannot be read ({})", shown(&path), error))?;
+            *total += bytes.len() as u64;
+            if *total > MOST_TOTAL {
+                return Err(format!("the files under {}/revision are over 64 MiB in all, which is too much to read; wb upgrade reads none of them further", CONFIG_FOLDER));
+            }
             files.insert(relative.to_string(), bytes);
         } else {
             return Err(format!("{} is not a plain file", shown(&path)));
@@ -112,7 +119,7 @@ fn file_steps(base: &Path, pin: &[(String, Vec<u8>)]) -> Result<Vec<Step>, Strin
         Ok(meta) if !meta.is_file() => return Err(format!("{}/{} is not a plain file", CONFIG_FOLDER, MANIFEST_FILE)),
         Ok(_) => {
             manifest_now =
-                Some(fs::read(&manifest).map_err(|error| format!("{}/{} cannot be read ({})", CONFIG_FOLDER, MANIFEST_FILE, error))?)
+                Some(crate::bounded::read_plain(&manifest, crate::bounded::REVISION_CAP).map_err(|error| format!("{}/{} cannot be read ({})", CONFIG_FOLDER, MANIFEST_FILE, error))?)
         }
     }
     let revision = base.join("revision");
@@ -125,7 +132,7 @@ fn file_steps(base: &Path, pin: &[(String, Vec<u8>)]) -> Result<Vec<Step>, Strin
             return Err(format!("{}/revision is a link, and wb upgrade never follows one", CONFIG_FOLDER))
         }
         Ok(meta) if !meta.is_dir() => return Err(format!("{}/revision is not a folder", CONFIG_FOLDER)),
-        Ok(_) => look_under(base, &revision, &mut files, &mut folders)?,
+        Ok(_) => look_under(base, &revision, &mut files, &mut folders, &mut 0)?,
     }
     let installed: BTreeMap<&str, &[u8]> =
         pin.iter().filter(|(path, _)| path != MANIFEST_FILE).map(|(path, bytes)| (path.as_str(), bytes.as_slice())).collect();
@@ -324,7 +331,7 @@ fn apply(base: &Path, steps: &[Step], config: &Path, yml: &[u8], old_yml: &[u8],
         match step {
             Step::RemoveFile(path) => {
                 let full = base.join(path);
-                let old = fs::read(&full).map_err(|error| (full.clone(), error))?;
+                let old = crate::bounded::read_plain(&full, crate::bounded::REVISION_CAP).map_err(|fault| (full.clone(), fault.into_io()))?;
                 fs::remove_file(&full).map_err(|error| (full.clone(), error))?;
                 done.push(Done::RemovedFile(full, old));
             }
@@ -348,7 +355,7 @@ fn apply(base: &Path, steps: &[Step], config: &Path, yml: &[u8], old_yml: &[u8],
                     fs::create_dir(&folder).map_err(|error| (folder.clone(), error))?;
                     done.push(Done::MadeFolder(folder));
                 }
-                let old = fs::read(&full).ok();
+                let old = crate::bounded::read_plain(&full, crate::bounded::REVISION_CAP).ok();
                 replace(&full, bytes).map_err(|error| (full.clone(), error))?;
                 done.push(Done::Wrote(full, old));
             }
@@ -405,7 +412,7 @@ pub fn upgrade(root: &str, version: &str, package: &Path, dry_run: bool, out: &m
         Ok(pin) => pin,
         Err(why) => return refused(err, &format!("the revision of the installed wb cannot be read: {}", why)),
     };
-    let old_yml = match fs::read(&config) {
+    let old_yml = match crate::bounded::read_plain(&config, crate::bounded::TEXT_CAP) {
         Ok(bytes) => bytes,
         Err(error) => return refused(err, &format!("{} cannot be read ({})", place, error)),
     };

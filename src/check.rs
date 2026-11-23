@@ -170,7 +170,7 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
     match look(&manifest_path) {
         None => found.push(format!("missing: {}", name(MANIFEST_FILE))),
         Some(Kind::Link) => found.push(format!("link: {} {}", name(MANIFEST_FILE), LINK)),
-        Some(Kind::File) => match fs::read(&manifest_path) {
+        Some(Kind::File) => match crate::bounded::read_plain(&manifest_path, crate::bounded::REVISION_CAP) {
             Ok(bytes) => {
                 pinned_hash = Some(manifest::hash_bytes(&bytes));
                 listed = parse(&String::from_utf8_lossy(&bytes), &mut found);
@@ -216,7 +216,7 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
                     Some(Kind::Folder) => found.push(format!("changed: {} (it is a folder, not a plain file)", name(path))),
                     Some(Kind::Link) => found.push(format!("changed: {} (it is a link, {})", name(path), "never followed")),
                     Some(Kind::Other) => found.push(format!("changed: {} (it is not a plain file)", name(path))),
-                    Some(Kind::File) => match fs::read(folder.join(path)) {
+                    Some(Kind::File) => match crate::bounded::read_plain(&folder.join(path), crate::bounded::REVISION_CAP) {
                         Ok(bytes) if manifest::hash_bytes(&bytes) == *hash => {}
                         Ok(_) => found.push(format!("changed: {}", name(path))),
                         Err(error) => found.push(format!("changed: {} (it cannot be read: {})", name(path), error)),

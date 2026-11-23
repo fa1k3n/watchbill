@@ -235,10 +235,10 @@ fn read_part(root: &Path, path: String) -> Result<Option<Read>, PromptError> {
     if !is_plain(root, &path)? {
         return Ok(None);
     }
-    let bytes = match fs::read(root.join(&path)) {
+    let bytes = match crate::bounded::read_plain(&root.join(&path), crate::bounded::TEXT_CAP) {
         Ok(bytes) => bytes,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
-        Err(error) => return refuse(format!("{} cannot be read: {}", path, error)),
+        Err(crate::bounded::Fault::NotFound) => return Ok(None),
+        Err(fault) => return refuse(format!("{} cannot be read: {}", path, fault)),
     };
     match String::from_utf8(bytes) {
         Ok(text) => Ok(Some(Read { hash: hash_of(&text), path, text })),

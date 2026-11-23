@@ -1191,3 +1191,15 @@ fn test_WB_RULE_53_the_tester_the_build_the_review_and_the_fix_read_the_issue_wi
         assert!(found, "{}: {:?}", name, row.reads);
     }
 }
+
+#[test]
+fn test_WB_BUILD_103_tables_kept_as_links_are_read() {
+    let tables = Tables::new();
+    let (rules_path, models_path) = tables.paths_with(None, None);
+    let linked = tables.folder.path.join("linked");
+    fs::create_dir(&linked).unwrap();
+    std::os::unix::fs::symlink(&rules_path, linked.join("rules.yml")).unwrap();
+    std::os::unix::fs::symlink(&models_path, linked.join("models.yml")).unwrap();
+    let read = rules::load(linked.join("rules.yml"), linked.join("models.yml"));
+    assert!(read.is_ok(), "{:?}", read.err().map(|error| error.to_string()));
+}

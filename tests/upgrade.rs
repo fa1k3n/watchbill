@@ -578,3 +578,23 @@ fn test_WB_BUILD_42_wb_upgrade_is_not_held_and_says_that_the_file_is_to_be_commi
     assert_eq!(code(&again), Some(0), "{}", text(&again.stderr));
     assert!(!text(&again.stderr).contains("a person reads the change"));
 }
+
+#[test]
+fn test_WB_BUILD_105_a_revision_folder_over_64_mib_in_all_is_refused_by_upgrade_with_1() {
+    let folder = set_up(GITHUB);
+    let extra = folder.path.join(".watchbill/revision/extra");
+    fs::create_dir(&extra).unwrap();
+    // Each file is within the cap of one file (16 MiB); the five together are over 64 MiB.
+    for number in 0..5 {
+        fs::write(extra.join(format!("{}.md", number)), "x".repeat(15 * 1024 * 1024) + "\n").unwrap();
+    }
+    fs::write(config(&folder.path), with_lines(&read(&config(&folder.path)), &[("watchbill", Some("0.0.1"))])).unwrap();
+    commit_all(&folder.path, "A big revision folder");
+    let before = snapshot(&folder.path);
+
+    let run = upgrade(&folder.path, &[]);
+
+    assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
+    assert!(text(&run.stderr).contains("64 MiB"), "{}", text(&run.stderr));
+    assert_eq!(snapshot(&folder.path), before);
+}

@@ -907,7 +907,7 @@ fn test_WB_BUILD_23_with_no_issue_comment_nothing_is_posted_or_started() {
 #[test]
 fn test_WB_BUILD_24_a_prompt_of_128_kib_or_more_is_refused_before_anything_is_posted() {
     let bench = bench();
-    put(&bench.repo.path, ".watchbill/project/all.md", &format!("{}\n", "a".repeat(132 * 1024)));
+    put_committed(&bench.repo.path, ".watchbill/project/all.md", &format!("{}\n", "a".repeat(132 * 1024)));
     let run = bench.start(true, &["start", "build", "54"]);
     refused(&bench, &run, 1, &["--prompt"]);
 }

@@ -63,8 +63,8 @@ fn refused(root: &Path, role: &str) -> String {
 #[test]
 fn test_WB_PROMPT_1_the_parts_come_in_order_with_the_fixed_line_after_the_role() {
     let folder = set_up();
-    put(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
-    put(&folder.path, ".watchbill/project/build.md", "Builders: run make test.\n");
+    put_committed(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
+    put_committed(&folder.path, ".watchbill/project/build.md", "Builders: run make test.\n");
 
     let prompt = assemble(&folder.path, "build", &VALUES).unwrap();
 
@@ -77,12 +77,13 @@ fn test_WB_PROMPT_1_the_parts_come_in_order_with_the_fixed_line_after_the_role()
 #[test]
 fn test_WB_PROMPT_1_each_project_file_is_used_alone_where_the_other_is_not_there() {
     let folder = set_up();
-    put(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
+    put_committed(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
     let only_all = assemble(&folder.path, "build", &VALUES).unwrap().text;
     assert_eq!(only_all, format!("{}\n{}\n\nEveryone: use make.\n", filled("build"), FIXED_LINE));
 
     fs::remove_file(folder.path.join(".watchbill/project/all.md")).unwrap();
-    put(&folder.path, ".watchbill/project/review.md", "Reviewers: be brief.\n");
+    commit_path(&folder.path, ".watchbill/project/all.md");
+    put_committed(&folder.path, ".watchbill/project/review.md", "Reviewers: be brief.\n");
     // The file of another role is not part of this prompt.
     assert_eq!(assemble(&folder.path, "build", &VALUES).unwrap().text, filled("build"));
     let only_role = assemble(&folder.path, "review", &VALUES).unwrap().text;
@@ -138,7 +139,7 @@ fn test_WB_PROMPT_3_a_placeholder_not_on_the_list_is_refused_in_any_part_and_the
                 .collect();
             fs::write(&manifest, lines.join("\n") + "\n").unwrap();
         } else {
-            put(&folder.path, file, "Work on {colour}.\n");
+            put_committed(&folder.path, file, "Work on {colour}.\n");
         }
 
         let why = refused(&folder.path, "build");
@@ -151,7 +152,7 @@ fn test_WB_PROMPT_3_a_placeholder_not_on_the_list_is_refused_in_any_part_and_the
 #[test]
 fn test_WB_PROMPT_3_text_that_is_no_placeholder_is_left_as_it_is() {
     let folder = set_up();
-    put(&folder.path, ".watchbill/project/all.md", "Settings: {\"a\": 1}, {}, { issue }, {1}.\n");
+    put_committed(&folder.path, ".watchbill/project/all.md", "Settings: {\"a\": 1}, {}, { issue }, {1}.\n");
 
     let prompt = assemble(&folder.path, "build", &VALUES).unwrap();
 
@@ -178,6 +179,7 @@ fn test_WB_PROMPT_5_a_project_file_that_is_not_utf8_is_refused_by_name() {
         let folder = set_up();
         fs::create_dir_all(folder.path.join(".watchbill/project")).unwrap();
         fs::write(folder.path.join(".watchbill/project").join(file), b"caf\xe9\n").unwrap();
+        commit_path(&folder.path, &format!(".watchbill/project/{}", file));
 
         let why = refused(&folder.path, "build");
 
@@ -203,8 +205,8 @@ fn test_WB_PROMPT_6_a_role_the_revision_does_not_have_is_refused_with_the_roles_
 #[test]
 fn test_WB_PROMPT_7_the_parts_are_given_in_order_with_path_and_sha256() {
     let folder = set_up();
-    put(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
-    put(&folder.path, ".watchbill/project/build.md", "Builders: run make test.\n");
+    put_committed(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
+    put_committed(&folder.path, ".watchbill/project/build.md", "Builders: run make test.\n");
 
     let prompt = assemble(&folder.path, "build", &VALUES).unwrap();
 
@@ -387,17 +389,17 @@ fn test_WB_PROMPT_3_a_placeholder_is_a_lower_case_word_in_braces_with_no_dollar_
     let folder = set_up();
     let text = "Shell: ${BUILD_DIR} ${issue} {Issue} {issue-id} { issue } {round2} {} {a b} $ {x}\n";
     // Of these only `{x}` is a placeholder, and it is not on the list.
-    put(&folder.path, ".watchbill/project/all.md", &text.replace(" {x}", ""));
+    put_committed(&folder.path, ".watchbill/project/all.md", &text.replace(" {x}", ""));
 
     let prompt = assemble(&folder.path, "build", &VALUES).unwrap();
 
     assert!(prompt.text.ends_with(&text.replace(" {x}", "")), "{}", prompt.text);
 
-    put(&folder.path, ".watchbill/project/all.md", text);
+    put_committed(&folder.path, ".watchbill/project/all.md", text);
     let why = refused(&folder.path, "build");
     assert!(why.contains("{x}") && why.contains(".watchbill/project/all.md"), "{}", why);
     for word in ["a_b", "issue_id", "b"] {
-        put(&folder.path, ".watchbill/project/all.md", &format!("{{{}}}\n", word));
+        put_committed(&folder.path, ".watchbill/project/all.md", &format!("{{{}}}\n", word));
         assert!(refused(&folder.path, "build").contains(&format!("{{{}}}", word)), "{}", word);
     }
 }

@@ -26,7 +26,7 @@ thread_local! {
 }
 
 /// `place` as `HEAD` has it, read with no replace refs; `None` where it is not in `HEAD`.
-fn head_file(root: &str, place: &str) -> Option<Vec<u8>> {
+fn head_file(root: impl AsRef<std::ffi::OsStr>, place: &str) -> Option<Vec<u8>> {
     let output = Command::new("git")
         .arg("--no-replace-objects")
         .arg("-C")
@@ -81,6 +81,28 @@ fn working_tree_differs(path: &Path, head: &[u8]) -> bool {
         Ok(_) => now.len() as u64 > CAP || now != head,
         Err(_) => true,
     }
+}
+
+/// A file of the project's text (#211) as `HEAD` has it: `Ok(Some(bytes))` where the working tree's file is the
+/// file of `HEAD`, `Ok(None)` where it is in neither, and otherwise the refusal, which names the file: it differs,
+/// it is in the working tree and not in `HEAD`, or it is in `HEAD` and not in the working tree. The working tree's
+/// file is compared by `working_tree_differs`, so a FIFO, a device, a folder, a link or a file over the cap counts
+/// as differing and is never opened. The caller has seen that no folder on the way is a link.
+pub fn project_text(root: &Path, place: &str) -> Result<Option<Vec<u8>>, String> {
+    let head = head_file(root, place);
+    let path = root.join(place);
+    let there = !matches!(std::fs::symlink_metadata(&path), Err(error) if error.kind() == std::io::ErrorKind::NotFound);
+    let said = match (&head, there) {
+        (None, false) => return Ok(None),
+        (None, true) => "is not in HEAD",
+        (Some(_), false) => "is in HEAD and not in the working tree",
+        (Some(bytes), true) if working_tree_differs(&path, bytes) => "differs from HEAD",
+        (Some(bytes), true) => return Ok(Some(bytes.clone())),
+    };
+    Err(format!(
+        "{} {}, and a session is told what HEAD holds: a person reads the change and commits it, or takes it back with git, before the next command. Nothing is posted and nothing is started",
+        place, said
+    ))
 }
 
 /// The line that a command that only reads says where `read_only` found a difference.

@@ -176,6 +176,35 @@ pub fn used_by(root: &Path, role: &str) -> Vec<&'static str> {
     PLACEHOLDERS.iter().copied().filter(|name| texts.iter().any(|text| placeholder_names(text).contains(name))).collect()
 }
 
+/// A file of the project's text as the prompt takes it (#211): the file of `HEAD`, only while the working tree has
+/// the same, so that the hash of the part is the hash of a file in a commit. A folder on the way that is a link or
+/// not a folder is refused by name, as in `is_plain`; the file itself is judged by `starter::project_text`.
+fn read_project_part(root: &Path, path: String) -> Result<Option<Read>, PromptError> {
+    let mut at = root.to_path_buf();
+    let mut shown = String::new();
+    let names: Vec<&str> = path.split('/').collect();
+    for name in &names[..names.len() - 1] {
+        at.push(name);
+        if !shown.is_empty() {
+            shown.push('/');
+        }
+        shown.push_str(name);
+        match fs::symlink_metadata(&at) {
+            Err(error) if error.kind() == ErrorKind::NotFound => break,
+            Err(error) => return refuse(format!("{} cannot be read: {}", shown, error)),
+            Ok(meta) if meta.is_dir() => {}
+            Ok(_) => return refuse(format!("{} is a link or not a folder, and is not read", shown)),
+        }
+    }
+    let Some(bytes) = crate::starter::project_text(root, &path).map_err(PromptError)? else {
+        return Ok(None);
+    };
+    match String::from_utf8(bytes) {
+        Ok(text) => Ok(Some(Read { hash: hash_of(&text), path, text })),
+        Err(_) => refuse(format!("{} is not UTF-8 text", path)),
+    }
+}
+
 /// A part as read: its path, its text as it is and its hash.
 struct Read {
     path: String,
@@ -242,7 +271,7 @@ pub fn assemble_with(
     }
     let mut parts = vec![first];
     for name in ["all", role] {
-        if let Some(part) = read_part(root, format!("{}/{}.md", PROJECT_FOLDER, name))? {
+        if let Some(part) = read_project_part(root, format!("{}/{}.md", PROJECT_FOLDER, name))? {
             parts.push(part);
         }
     }

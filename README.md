@@ -220,7 +220,7 @@ The exit status:
 
 `wb prompt <role>` prints the prompt of a role on standard output, and nothing else. Whatever starts an agent's session, in any language, calls it as a process. Run it anywhere inside the repository. It writes nothing. `wb start <role>` ([below](#starting-a-session)) does all that `wb prompt` does, then posts the stamp and starts the session.
 
-The prompt is the role's text of the pinned revision, then the project's own text (`.watchbill/project/all.md` and `.watchbill/project/<role>.md`, where they are). A call asks only for what `wb` cannot know on the machine: the issue, and for the review and the fix the change and the round. The change and the round live at the tracker and the git server. Where `watchbill.yml` has the patterns for them, `wb prompt` works them out by running those (#84); otherwise they are given.
+The prompt is the role's text of the pinned revision, then the project's own text (`.watchbill/project/all.md` and `.watchbill/project/<role>.md`, where they are). The project's text is taken as `HEAD` has it (#211): `wb prompt` and `wb start` refuse with 1, naming the file, where a file of the role's prompt differs from `HEAD`, is in the working tree and not in `HEAD`, or is in `HEAD` and not in the working tree. A person commits the change, or takes it back with git. No flag lifts this. Every `part:` hash of a stamp is then the hash of a file in a commit. A file of another role does not count, and `wb check` is unchanged: it only reads the text for placeholders. A link, a FIFO, a folder or a file over 1 MiB in the place of a file counts as differing and is never opened. A call asks only for what `wb` cannot know on the machine: the issue, and for the review and the fix the change and the round. The change and the round live at the tracker and the git server. Where `watchbill.yml` has the patterns for them, `wb prompt` works them out by running those (#84); otherwise they are given.
 
 ```sh
 wb prompt tester 54
@@ -404,6 +404,7 @@ A view keeps the rest of the code and the history away from a session. It does n
 - **Nothing stops a person** from pasting code into another tool.
 - **A stamp is a comment.** Anyone who can comment on the issue can write one, until each role has an account of its own (#83, planned for 0.12.0).
 - **A session with no view** writes the checkout itself, so it can change `.watchbill/watchbill.yml`. `wb` runs the patterns of the file as the person, so it runs them only while the file is as `HEAD` has it ([The patterns](#the-patterns)). That stops an uncommitted change only. The same session runs as the person, with a shell: it can commit the changed file, move a ref or write a hook (`.git/hooks/` runs when `wb accept` commits), and a commit in the checkout lifts the limit. A person reads `git log -p -- .watchbill/watchbill.yml` before the next command. What a person commits there is run. A sandbox for every session is #202, planned for 0.11.0.
+- **The project's text** is held as `HEAD` has it, as `watchbill.yml` is. That stops an edit nobody committed, so that a stamp's `part:` hashes are files of a commit. A commit lifts it: a session that can commit can change the text of every role, and what a person commits there goes into the prompts. A session that can commit is for #202.
 
 ## Starting a session
 

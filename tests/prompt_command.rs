@@ -146,8 +146,8 @@ fn test_WB_PROMPT_10_a_fresh_repository_prints_the_build_prompt_with_the_issue_f
 #[test]
 fn test_WB_PROMPT_10_with_project_text_the_output_is_the_three_parts_in_order() {
     let folder = set_up();
-    put(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
-    put(&folder.path, ".watchbill/project/build.md", "Builders: run make test.\n");
+    put_committed(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
+    put_committed(&folder.path, ".watchbill/project/build.md", "Builders: run make test.\n");
 
     let run = wb(&folder.path, &with_where(&["prompt", "build", "--issue", "T-1", "--requirements", "WB-X-1"]), "");
 
@@ -409,8 +409,8 @@ fn test_WB_PROMPT_15_the_usage_names_wb_prompt() {
 #[test]
 fn test_WB_PROMPT_11_parts_prints_one_line_per_part_and_sha256sum_passes_at_the_root() {
     let folder = set_up();
-    put(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
-    put(&folder.path, ".watchbill/project/build.md", "Builders: run make test.\n");
+    put_committed(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
+    put_committed(&folder.path, ".watchbill/project/build.md", "Builders: run make test.\n");
 
     let mut args = vec!["prompt", "build", "--parts"];
     args.extend(ALL);
@@ -478,7 +478,7 @@ fn test_WB_PROMPT_16_a_value_that_starts_with_a_dash_or_holds_a_line_break_arriv
 #[test]
 fn test_WB_PROMPT_17_a_run_changes_nothing_under_the_repository() {
     let folder = set_up();
-    put(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
+    put_committed(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
     let before = snapshot(&folder.path);
 
     for (args, status) in [
@@ -587,7 +587,7 @@ fn value<'a>(found: &'a [(String, String)], name: &str) -> &'a str {
 #[test]
 fn test_WB_PROMPT_19_a_stamp_is_the_thirteen_lines_in_order_and_the_parts_for_each_role() {
     let folder = set_up();
-    put(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
+    put_committed(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
 
     for role in ROLES {
         let run = stamp_of(&folder.path, role, &ALL);
@@ -698,8 +698,8 @@ fn test_WB_PROMPT_20_model_and_effort_are_those_of_the_table_read_through_the_lo
 #[test]
 fn test_WB_PROMPT_21_the_part_lines_are_the_lines_of_parts_in_order() {
     let folder = set_up();
-    put(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
-    put(&folder.path, ".watchbill/project/review.md", "Reviewers: read twice.\n");
+    put_committed(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
+    put_committed(&folder.path, ".watchbill/project/review.md", "Reviewers: read twice.\n");
     let mut args = vec!["prompt", "review", "--parts"];
     args.extend(ALL);
     let parts = text(&wb(&folder.path, &args, "").stdout);
@@ -1619,7 +1619,7 @@ fn test_WB_PROMPT_68_each_reason_that_the_diff_cannot_be_had_is_said() {
 #[test]
 fn test_WB_PROMPT_70_a_value_of_several_lines_of_another_placeholder_is_put_in_as_it_is_given() {
     let folder = set_up();
-    put(&folder.path, ".watchbill/project/review.md", "Where:\n  {issue_address}\n");
+    put_committed(&folder.path, ".watchbill/project/review.md", "Where:\n  {issue_address}\n");
     let mut words = review_words();
     let at = words.iter().position(|word| *word == "tracker T-1").unwrap();
     words[at] = "one\ntwo";

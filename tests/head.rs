@@ -614,14 +614,14 @@ fn assert_text_refused(bench: &Bench, file: &str, what: &str) {
     assert_eq!(code(&prompt), Some(1), "{} prompt: {}", what, text(&prompt.stderr));
     assert_eq!(text(&prompt.stdout), "", "{}", what);
     assert!(text(&prompt.stderr).contains(file), "{}: the file is not named: {}", what, text(&prompt.stderr));
-    assert!(text(&prompt.stderr).contains("commit"), "{}: {}", what, text(&prompt.stderr));
     let stamp = wb_within(&bench.repo.path, &["prompt", "build", "54", "--stamp"], 10);
     assert_eq!(code(&stamp), Some(1), "{} stamp: {}", what, text(&stamp.stderr));
     assert_eq!(text(&stamp.stdout), "", "{}", what);
     let start = start_with(&bench.repo.path, &bench.org, true, &["start", "build", "54"]);
     assert_eq!(code(&start), Some(1), "{} start: {}{}", what, text(&start.stdout), text(&start.stderr));
     assert!(text(&start.stderr).contains(file), "{}: {}", what, text(&start.stderr));
-    assert_eq!(bench.ran(), "", "{} ran something", what);
+    // The comments of the issue may be read to count the round: nothing is posted and nothing is started.
+    assert!(!bench.ran().lines().any(|line| line == "post" || line == "start"), "{} posted or started: {}", what, bench.ran());
 }
 
 #[test]
@@ -629,6 +629,8 @@ fn test_WB_PROMPT_56_a_project_file_changed_and_not_committed_is_refused() {
     let bench = text_bench();
     fs::write(bench.repo.path.join(BUILD_MD), "Builders: skip the tests.\n").unwrap();
     assert_text_refused(&bench, BUILD_MD, "a changed file");
+    let run = wb_within(&bench.repo.path, &["prompt", "build", "54"], 10);
+    assert!(text(&run.stderr).contains("commit"), "{}", text(&run.stderr));
 }
 
 #[test]

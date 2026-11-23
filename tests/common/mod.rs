@@ -276,3 +276,16 @@ pub fn cleared(repository: &Path) -> (Folder, PathBuf) {
     commit_config(repository);
     (place, path)
 }
+
+/// As `put`, and the file is committed alone: `wb prompt` and `wb start` take the project's text as `HEAD` has it
+/// (#211). The commit has an identity of its own, given for it alone.
+pub fn put_committed(folder: &Path, path: &str, text: &str) {
+    put(folder, path, text);
+    commit_path(folder, path);
+}
+
+/// Commits `path` alone as it is in the working tree: added, changed or, where the file is gone, removed.
+pub fn commit_path(folder: &Path, path: &str) {
+    git(folder, &["add", "-A", "--", path]);
+    git(folder, &["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "The project's text"]);
+}

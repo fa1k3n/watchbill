@@ -41,6 +41,7 @@ Watchbill: a harness for AI agents in embedded software development, deployed at
 - A new need is met by a flag of a command that is there. A new command is added only where no command fits it, and its issue says why.
 - There is no general `--force`. A check is passed only by a flag that names what it passes and passes that alone, as `--ignore-local` passes a local change for reads only (#172).
 - A flag that makes a list prints the list alone, one item to a line, with no other words, so that a script can read it (as `wb view --in`, #209).
+- A flag takes the word git uses for the same meaning, and its short form where git has one (`--quiet`, `-q`; `--dry-run`, `-n`). Where git has none, the word docker uses; where they disagree, git's. A flag with no likeness in either is named for what it does. The owner decided this on 2026-11-23 (#280).
 - A command that only reads writes nothing. A command that writes says what it will write first, and never writes over a file that is there.
 - `wb` asks nothing of the network unless the command is about a system on the network.
 - What a team programs itself meets `wb` as a process: text on standard input and output, and the exit status. There is no API inside `wb` for it.

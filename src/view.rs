@@ -1432,8 +1432,8 @@ fn take_back_in(name: &str, root: &str, view: &View, allowed: &Allowed, build_fi
 pub fn work_left(root: &str, view: &View) -> Result<Left, String> {
     // Every git run here ends after 3 seconds: a view is hostile, and git may wait for ever on what it holds. All of
     // them end within one deadline for the view (#265).
-    let _bound = bounded(std::time::Duration::from_secs(3));
-    let _deadline = deadline(VIEW_DEADLINE, "read of the view");
+    let _bound = bounded(test_seconds("WB_TEST_RUN_BOUND").unwrap_or(std::time::Duration::from_secs(3)));
+    let _deadline = deadline(test_seconds("WB_TEST_VIEW_DEADLINE").unwrap_or(VIEW_DEADLINE), "read of the view");
     let objects = view.folder.join(".git").join("objects");
     match fs::symlink_metadata(&objects) {
         Ok(found) if found.is_dir() => {}
@@ -1477,6 +1477,19 @@ pub fn work_left(root: &str, view: &View) -> Result<Left, String> {
     Ok(Left { commits, more, uncommitted })
 }
 
+/// A time in whole seconds that a test sets by the variable `name`, so that a test does not race a bound of `wb`
+/// (#279). It is read only by a build with debug assertions, which `cargo test` makes; `cargo build --release`, as the
+/// RPM builds `wb`, has no code that reads it, so no value changes `wb` as installed.
+#[cfg(debug_assertions)]
+fn test_seconds(name: &str) -> Option<std::time::Duration> {
+    std::env::var(name).ok()?.parse().ok().filter(|seconds| *seconds > 0).map(std::time::Duration::from_secs)
+}
+
+#[cfg(not(debug_assertions))]
+fn test_seconds(_name: &str) -> Option<std::time::Duration> {
+    None
+}
+
 /// The time `wb` may spend on reading one kept view, besides the bound of each git run (#265).
 const VIEW_DEADLINE: std::time::Duration = std::time::Duration::from_secs(20);
 
@@ -1516,8 +1529,8 @@ fn on_view(root: &str, view: &View, args: &[&str], input: Option<&[u8]>) -> Resu
 /// Reads the header of every commit, tree and file the view's commits add, before a take-back starts, so that an
 /// object git would wait for fails here, within 3 seconds per run, and not later in the take (#223).
 pub fn objects_readable(root: &str, view: &View) -> Result<(), String> {
-    let _bound = bounded(std::time::Duration::from_secs(3));
-    let _deadline = deadline(VIEW_DEADLINE, "read of the view");
+    let _bound = bounded(test_seconds("WB_TEST_RUN_BOUND").unwrap_or(std::time::Duration::from_secs(3)));
+    let _deadline = deadline(test_seconds("WB_TEST_VIEW_DEADLINE").unwrap_or(VIEW_DEADLINE), "read of the view");
     let head = head_of(&view.folder.join(".git"))?;
     if head == view.base {
         return Ok(());

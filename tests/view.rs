@@ -3627,18 +3627,74 @@ fn test_WB_STATUS_70_a_time_out_of_merge_base_is_said_as_a_time_out_naming_it() 
     assert!(!line.contains("does not come from"), "{}", line);
 }
 
+/// `wb status 54` with a `PATH` and the two values that only a build with debug assertions reads (#279): the deadline of
+/// one view and the bound of one git run, in seconds.
+fn status_with_bounds(bench: &Bench, path: &str, deadline: &str, run_bound: &str, seconds: u64) -> Option<(Output, std::time::Duration)> {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_wb"));
+    command
+        .args(["status", "54"])
+        .current_dir(&bench.repo.path)
+        .env_clear()
+        .envs(env())
+        .env("XDG_STATE_HOME", &bench.state.path)
+        .env("PATH", path)
+        .env("WB_TEST_VIEW_DEADLINE", deadline)
+        .env("WB_TEST_RUN_BOUND", run_bound);
+    bounded(command, seconds)
+}
+
 #[test]
 fn test_WB_STATUS_71_a_view_slow_on_every_git_run_is_not_read_within_the_deadline_of_one_view() {
+    if !cfg!(debug_assertions) {
+        eprintln!("skipped: a build without debug assertions does not read the test values (WB-STATUS-76)");
+        return;
+    }
     let bench = bench();
     keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &["a.c"], outcome: "outcome: running\npid: 1\n" });
-    // The stand-in counts its runs on the view in a file. The first 9 take 2 seconds, 1 below the bound of a run,
-    // and from the 10th it waits until it is ended: that run starts with less than 3 seconds of the 20 left, so the
-    // deadline ends it, however slow the machine is (#273).
-    let (_held, path) = stand_in_git(r#"case "$*" in *--git-dir=*|*wb-view-*) echo x >> "$(dirname "$0")/runs"; if [ "$(wc -l < "$(dirname "$0")/runs")" -le 9 ]; then sleep 2; else exec sleep 1000; fi;; esac"#);
-    let (run, took) = status_with_path(&bench, &path, 40).expect("wb status did not end in 40 seconds");
+    // The deadline of the view is 2 seconds and the bound of a run 30: the stand-in waits on every run on the view
+    // until it is ended, so that the deadline ends it, and no sleep is near a bound however slow the machine is (#279).
+    let (_held, path) = stand_in_git(r#"case "$*" in *--git-dir=*|*wb-view-*) exec sleep 1000;; esac"#);
+    let (run, took) = status_with_bounds(&bench, &path, "2", "30", 40).expect("wb status did not end in 40 seconds");
+    let out = text_of(&run.stdout);
+    assert!(out.lines().any(|line| line.starts_with("kept: tester round 2, not read: ") && line.contains("2 seconds in all")), "{}", out);
+    assert!(took < std::time::Duration::from_secs(25), "{:?}", took);
+}
+
+#[test]
+fn test_WB_STATUS_71_a_view_slow_on_every_git_run_has_the_deadline_of_20_seconds_where_no_deadline_is_set() {
+    if !cfg!(debug_assertions) {
+        eprintln!("skipped: a build without debug assertions does not read the test values (WB-STATUS-76)");
+        return;
+    }
+    let bench = bench();
+    keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &["a.c"], outcome: "outcome: running\npid: 1\n" });
+    let (_held, path) = stand_in_git(r#"case "$*" in *--git-dir=*|*wb-view-*) exec sleep 1000;; esac"#);
+    // Only the bound of a run is set, to 30 seconds: the deadline of the view is its own 20, and ends the run (#279).
+    let mut command = Command::new(env!("CARGO_BIN_EXE_wb"));
+    command.args(["status", "54"]).current_dir(&bench.repo.path).env_clear().envs(env()).env("XDG_STATE_HOME", &bench.state.path).env("PATH", &path).env("WB_TEST_RUN_BOUND", "30");
+    let (run, took) = bounded(command, 40).expect("wb status did not end in 40 seconds");
     let out = text_of(&run.stdout);
     assert!(out.lines().any(|line| line.starts_with("kept: tester round 2, not read: ") && line.contains("20 seconds in all")), "{}", out);
-    assert!(took < std::time::Duration::from_secs(26), "{:?}", took);
+    assert!(took < std::time::Duration::from_secs(25), "{:?}", took);
+}
+
+#[test]
+fn test_WB_STATUS_76_a_build_without_debug_assertions_ignores_the_test_values_of_the_deadline_and_the_bound() {
+    if cfg!(debug_assertions) {
+        eprintln!("skipped: only a build without debug assertions, as the RPM's, shows that the values are ignored");
+        return;
+    }
+    let bench = bench();
+    keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &["a.c"], outcome: "outcome: running\npid: 1\n" });
+    let (_held, path) = stand_in_git(r#"case "$*" in *--git-dir=*|*wb-view-*) exec sleep 1000;; esac"#);
+    // A deadline of 1 second and a bound of 30 would end the run in 1 second, and say so. `wb` as installed ends it
+    // after its own 3 seconds.
+    let (run, took) = status_with_bounds(&bench, &path, "1", "30", 40).expect("wb status did not end in 40 seconds");
+    let out = text_of(&run.stdout);
+    let line = out.lines().find(|line| line.starts_with("kept: tester round 2, not read: ")).unwrap_or_else(|| panic!("{}", out));
+    assert!(line.contains("took more than 3 seconds"), "{}", line);
+    assert!(!line.contains("in all"), "{}", line);
+    assert!(took >= std::time::Duration::from_secs(3), "{:?}", took);
 }
 
 #[test]

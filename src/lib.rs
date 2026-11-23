@@ -7,6 +7,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
 pub mod answer;
+pub mod bounded;
 pub mod check;
 pub mod confidentiality;
 pub mod detect;

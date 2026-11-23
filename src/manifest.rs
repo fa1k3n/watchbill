@@ -14,7 +14,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Read};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 use sha2::{Digest, Sha256};
@@ -30,7 +30,7 @@ pub const RELEASED_FILE: &str = "revisions.txt";
 /// (x86_64, aarch64, ppc64le, s390x, i686 and riscv64). Opened with it, a named pipe does not make
 /// the open wait for a writer. The standard library has no name for it, so it is written out, and
 /// a build for any other architecture is refused, where the value is not the same.
-const O_NONBLOCK: i32 = 0o4000;
+pub(crate) const O_NONBLOCK: i32 = 0o4000;
 
 #[cfg(not(all(
     target_os = "linux",
@@ -202,21 +202,22 @@ fn hex(data: &[u8]) -> String {
 /// was a plain file when the folder was listed may be a named pipe by now (WB-REV-24).
 fn hash_file(base: &Path, path: &str, looked: Place) -> Result<String, ManifestError> {
     let cannot = |error: io::Error| ManifestError(format!("{}: cannot be read ({})", path, reason(&error)));
-    let mut file = fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(O_NONBLOCK)
-        .open(base.join(path))
-        .map_err(cannot)?;
-    let opened = file.metadata().map_err(cannot)?;
-    if !opened.file_type().is_file() {
-        return refuse(format!("{}: is not a plain file", path));
-    }
+    let (file, opened) = match crate::bounded::open_plain(&base.join(path)) {
+        Ok(found) => found,
+        Err(crate::bounded::Fault::NotPlain) => return refuse(format!("{}: is not a plain file", path)),
+        Err(crate::bounded::Fault::Io(error)) => return Err(cannot(error)),
+        Err(other) => return refuse(format!("{}: cannot be read ({})", path, other)),
+    };
     if (opened.dev(), opened.ino()) != looked {
         // A link, or another file in its place: what is open is not what was looked at.
         return refuse(format!("{}: is not the file that was looked at; it was changed while it was read", path));
     }
+    // Read through the cap of the revision's files: the file may have grown since it was looked at.
     let mut data = Vec::new();
-    file.read_to_end(&mut data).map_err(cannot)?;
+    file.take(crate::bounded::REVISION_CAP + 1).read_to_end(&mut data).map_err(cannot)?;
+    if data.len() as u64 > crate::bounded::REVISION_CAP {
+        return refuse(format!("{}: is over {} MiB", path, crate::bounded::REVISION_CAP / (1024 * 1024)));
+    }
     if std::str::from_utf8(&data).is_err() {
         return refuse(format!("{}: is not UTF-8", path));
     }

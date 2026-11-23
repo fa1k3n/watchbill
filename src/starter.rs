@@ -89,15 +89,8 @@ pub fn read_only(root: &str) -> Result<(ReadOnly, bool), String> {
 /// Whether the working tree's file is not the file of `HEAD`. What is not a plain file (a FIFO, a device, a folder, a
 /// symlink) or is over 1 MiB counts as differing and is never opened: reading it could wait or grow without end.
 fn working_tree_differs(path: &Path, head: &[u8]) -> bool {
-    use std::io::Read;
-    const CAP: u64 = 1024 * 1024;
-    match std::fs::symlink_metadata(path) {
-        Ok(found) if found.is_file() && found.len() <= CAP => {}
-        _ => return true,
-    }
-    let mut now = Vec::new();
-    match std::fs::File::open(path).and_then(|opened| opened.take(CAP + 1).read_to_end(&mut now)) {
-        Ok(_) => now.len() as u64 > CAP || now != head,
+    match crate::bounded::read_plain(path, crate::bounded::TEXT_CAP) {
+        Ok(now) => now != head,
         Err(_) => true,
     }
 }
@@ -154,17 +147,17 @@ pub fn held_bytes(root: &str) -> Result<Option<Vec<u8>>, String> {
             None => Err(format!("{} could not be read from HEAD. Nothing is run and nothing is posted", place)),
         };
     }
-    let Ok(now) = std::fs::read(Path::new(root).join(&place)) else {
-        return Ok(None);
+    // The file is read by the one reader (#261): what is not a plain file, or is over the cap, is never opened.
+    let now = match crate::bounded::read_plain(&Path::new(root).join(&place), crate::bounded::TEXT_CAP) {
+        Ok(now) => Some(now),
+        Err(crate::bounded::Fault::NotPlain | crate::bounded::Fault::TooBig) => None,
+        Err(_) => return Ok(None),
     };
-    let said = match head_file(root, &place) {
-        Some(bytes) => {
-            if bytes == now {
-                return Ok(Some(bytes));
-            }
-            "differs from HEAD"
-        }
-        None => "is not in HEAD",
+    let said = match (head_file(root, &place), now) {
+        (Some(bytes), Some(now)) if bytes == now => return Ok(Some(bytes)),
+        (Some(_), _) => "differs from HEAD",
+        (None, Some(_)) => "is not in HEAD",
+        (None, None) => "is not a plain file of 1 MiB or less",
     };
     Err(format!(
         "{} {}, and a pattern of it is run as the person: a person reads the change and commits it, or takes it back with git, before the next command. Nothing is run and nothing is posted",

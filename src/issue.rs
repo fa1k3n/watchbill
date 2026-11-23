@@ -2,6 +2,7 @@
 //! read through the one loader and held to its form, and `wb accept <issue>`.
 
 use crate::yamlfile::{load, Document, Part, Value, YamlError};
+use crate::bounded::read_plain;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -253,7 +254,7 @@ pub fn is_accepted(root: &Path, issue: &str) -> bool {
     if !plain(&file) || !plain(&accepted) {
         return false;
     }
-    let (Ok(bytes), Ok(text)) = (fs::read(&file), fs::read_to_string(&accepted)) else {
+    let (Ok(bytes), Ok(text)) = (read_plain(&file, MAX_BYTES), crate::bounded::read_text(&accepted, MAX_BYTES)) else {
         return false;
     };
     let hash = crate::manifest::hash_bytes(&bytes);
@@ -312,16 +313,15 @@ pub fn for_prompt(root: &Path, issue: &str) -> Result<Option<Used>, String> {
     // The file is read once, up to the limit and one byte more: these bytes give the hash, the form
     // and the prompt, so what was checked is what is handed out.
     let too_big = || format!("{} is larger than 1 MiB, and an issue's file is not. No prompt is handed out.", shown);
-    let mut bytes = Vec::new();
-    let opened = fs::File::open(&file).and_then(|opened| std::io::Read::read_to_end(&mut std::io::Read::take(opened, MAX_BYTES + 1), &mut bytes));
-    opened.map_err(|error| format!("{} cannot be read ({}). No prompt is handed out.", shown, error))?;
-    if bytes.len() as u64 > MAX_BYTES {
-        return Err(too_big());
-    }
+    let bytes = match read_plain(&file, MAX_BYTES) {
+        Ok(bytes) => bytes,
+        Err(crate::bounded::Fault::TooBig) => return Err(too_big()),
+        Err(error) => return Err(format!("{} cannot be read ({}). No prompt is handed out.", shown, error)),
+    };
     let hash = crate::manifest::hash_bytes(&bytes);
     let accepted = accepted_of(root, issue);
     let body = match fs::symlink_metadata(&accepted) {
-        Ok(found) if found.is_file() => fs::read_to_string(&accepted).ok(),
+        Ok(found) if found.is_file() => crate::bounded::read_text(&accepted, MAX_BYTES).ok(),
         _ => None,
     };
     let Some(body) = body else {
@@ -567,7 +567,7 @@ pub fn accept(root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &
             return 1;
         }
     }
-    let bytes = match fs::read(&file) {
+    let bytes = match read_plain(&file, MAX_BYTES) {
         Ok(bytes) => bytes,
         Err(error) => {
             let _ = writeln!(err, "wb accept: {} cannot be read ({}). Nothing written.", shown, error);
@@ -690,7 +690,7 @@ pub fn accept(root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &
     }
 
     // The file is the one that was read and held to its form.
-    if fs::read(&file).map(|again| crate::manifest::hash_bytes(&again)).ok().as_deref() != Some(hash.as_str()) {
+    if read_plain(&file, MAX_BYTES).map(|again| crate::manifest::hash_bytes(&again)).ok().as_deref() != Some(hash.as_str()) {
         let _ = writeln!(err, "wb accept: {} changed while it was read. Nothing written.", shown);
         return 1;
     }

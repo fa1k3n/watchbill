@@ -8,7 +8,7 @@ What `wb start <role>` leaves on the machine where a session is started or refus
 | WB-MON-2 | `wb start <role>` shall say on standard error the folder it will write, before it writes it. Issue: #124. | T | Implemented |
 | WB-MON-3 | The folder shall hold `stamp`, byte for byte the stamp posted, or that would have been posted. Issue: #124. | T | Implemented |
 | WB-MON-4 | The folder shall hold `outcome`: `refused` with the check that refused (`prompt`, `rule`, `class`, `start`, `terminal` or `ci`), the status and the first line of the message; `not posted`; or `ended` with the session's exit status and the seconds it ran. Issue: #124. | T | Implemented |
-| WB-MON-5 | A folder that cannot be written shall be said on standard error, and shall change neither the status nor whether the session starts. Issue: #124. | T | Implemented |
+| WB-MON-5 | A folder of the lines of a start that cannot be written shall be said on standard error, and shall change neither the status nor whether the session starts. Issue: #124. | T | Implemented |
 | WB-MON-6 | `wb prompt`, `wb check` and `wb start <role> --prompt` shall write no folder. Issue: #124. | T | Implemented |
 | WB-MON-7 | The folder of a session started in a view shall hold `view`, the list of its paths, and `back`, what was taken back and what was refused and why. Issue: #126. | T | Implemented |
 | WB-MON-8 | The folder of a review that reaches the check of the CI (one not refused at `prompt`, `rule`, `class`, `start` or `terminal`) shall hold `ci`: `ci: <word>` with the word `change_checks` printed, `ci: not read` where there is none, and `ci: unread` where it printed another word or failed. Issue: #127. | T | Implemented |

@@ -1151,13 +1151,10 @@ fn test_WB_RULE_50_the_breakdown_may_post_its_questions_on_the_issue_in_one_comm
 // person pushes their commits (#145).
 
 #[test]
-fn test_WB_RULE_51_the_breakdown_alone_may_push_to_the_branch_of_the_issue() {
+fn test_WB_RULE_54_no_role_s_row_allows_a_push() {
+    // The breakdown runs in a view with no remote too (#202), and a person pushes.
     let revision = first_revision();
-    let row = &revision.roles["breakdown"];
-    let pushes: Vec<&String> = row.may.iter().filter(|each| each.starts_with("Push") && each.contains("to the branch of the issue")).collect();
-    assert_eq!(pushes.len(), 1, "breakdown: {:?}", row.may);
-    for name in ["tester", "build", "review", "fix", "officer"] {
-        let row = &revision.roles[name];
+    for (name, row) in &revision.roles {
         assert!(!row.may.join(" ").to_lowercase().contains("push"), "{}: {:?}", name, row.may);
     }
 }

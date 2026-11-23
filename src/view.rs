@@ -9,6 +9,10 @@
 //! - **What comes back**: each commit of the view, in order, put on the checkout's branch when it keeps to
 //!   `changes`, and refused, with every commit after it, when it does not. `wb` pushes nothing: `wb start <role>` says
 //!   the command that pushes, and a person runs it (#145).
+//! - **Every other session** (#202): the breakdown, and a role with no issue's file, run in a view of every file
+//!   of `HEAD`, made the same way. The breakdown's is read-only but for `.watchbill/issues/` and its own `.git`, and
+//!   only its issue's file comes back; that of a role with no issue's file is writable but for `.watchbill/`, and
+//!   what comes back keeps out of `.watchbill/` and `build_files`.
 //!
 //! Once the session has run, what is in the view is the session's. `wb` never runs git with the view's own
 //! settings, which would run a command the session wrote there outside the sandbox: it reads the view's objects
@@ -67,22 +71,56 @@ pub fn local_changes(root: &str, issue: &crate::issue::Issue, role: &str) -> Res
     if listed.is_empty() {
         return Ok(Vec::new());
     }
+    let names = changed(root, Some(&listed), &issue.changes)?;
+    Ok(names
+        .into_iter()
+        .map(|path| {
+            let changes = issue.changes.iter().any(|listed| under(&path, listed));
+            Local { path, changes }
+        })
+        .collect())
+}
+
+/// The local changes a view of the whole tree would miss (#202), sorted: as `local_changes`, over every path of the
+/// checkout, with every untracked file that git does not ignore. `file`, the breakdown's issue's file, stands as
+/// `changes`: it is named also where it is untracked and ignored, and no flag passes it. With none, for a role with
+/// no issue's file, `--ignore-local` passes every one.
+pub fn local_changes_whole(root: &str, file: Option<&str>) -> Result<Vec<Local>, String> {
+    let others: Vec<String> = file.map(str::to_string).into_iter().collect();
+    let names = changed(root, None, &others)?;
+    Ok(names
+        .into_iter()
+        .map(|path| {
+            let changes = file.is_some_and(|file| under(&path, file));
+            Local { path, changes }
+        })
+        .collect())
+}
+
+/// The paths of `listed`, or of the whole checkout where it is none, that differ from `HEAD` in the index or the
+/// working tree, or are marked unchanged and are changed; with the whole checkout, every untracked file that git
+/// does not ignore; and every untracked file under `others`, ignored or not. Sorted, each once.
+fn changed(root: &str, listed: Option<&[String]>, others: &[String]) -> Result<Vec<String>, String> {
     let root_path = Path::new(root);
     let split = |output: Vec<u8>| -> Vec<String> {
         output.split(|byte| *byte == 0).filter(|name| !name.is_empty()).map(|name| String::from_utf8_lossy(name).to_string()).collect()
     };
-    let with = |first: &[&'static str], paths: &[String]| -> Result<Vec<u8>, String> {
+    let with = |first: &[&'static str], paths: Option<&[String]>| -> Result<Vec<u8>, String> {
         let mut command: Vec<&str> = vec!["--no-optional-locks", "--literal-pathspecs"];
         command.extend(first);
-        command.push("--");
-        command.extend(paths.iter().map(String::as_str));
+        if let Some(paths) = paths {
+            command.push("--");
+            command.extend(paths.iter().map(String::as_str));
+        }
         git(root_path, &command, &[], None)
     };
-    // Index and working tree against `HEAD`, both columns; a rename is two entries.
-    let status = with(&["status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=no"], &listed)?;
+    // Index and working tree against `HEAD`, both columns; a rename is two entries. Over the whole checkout, an
+    // untracked file that is not ignored is named too, each file of a new folder on its own.
+    let untracked = if listed.is_some() { "--untracked-files=no" } else { "--untracked-files=all" };
+    let status = with(&["status", "--porcelain=v1", "-z", "--no-renames", untracked], listed)?;
     let mut names: Vec<String> = split(status).into_iter().filter_map(|entry| entry.get(3..).map(str::to_string)).collect();
     // A file marked as unchanged is not looked at by status: compare it with `HEAD` here.
-    let marked: Vec<(char, String)> = split(with(&["ls-files", "-v", "-z"], &listed)?)
+    let marked: Vec<(char, String)> = split(with(&["ls-files", "-v", "-z"], listed)?)
         .into_iter()
         .filter_map(|entry| {
             let tag = entry.chars().next()?;
@@ -91,7 +129,7 @@ pub fn local_changes(root: &str, issue: &crate::issue::Issue, role: &str) -> Res
         .collect();
     if !marked.is_empty() {
         let names_marked: Vec<String> = marked.iter().map(|(_, path)| path.clone()).collect();
-        let tree = split(with(&["ls-tree", "-r", "-z", "HEAD"], &names_marked)?);
+        let tree = split(with(&["ls-tree", "-r", "-z", "HEAD"], Some(&names_marked))?);
         for (tag, path) in &marked {
             let at_head = tree.iter().find_map(|entry| {
                 let (meta, name) = entry.split_once('\t')?;
@@ -122,18 +160,12 @@ pub fn local_changes(root: &str, issue: &crate::issue::Issue, role: &str) -> Res
             }
         }
     }
-    if !issue.changes.is_empty() {
-        names.extend(split(with(&["ls-files", "--others", "-z"], &issue.changes)?));
+    if !others.is_empty() {
+        names.extend(split(with(&["ls-files", "--others", "-z"], Some(others))?));
     }
     names.sort();
     names.dedup();
-    Ok(names
-        .into_iter()
-        .map(|path| {
-            let changes = issue.changes.iter().any(|listed| under(&path, listed));
-            Local { path, changes }
-        })
-        .collect())
+    Ok(names)
 }
 
 /// What the start says of local changes it refuses (#172), after `wb start <role>:`. `ignore` is whether
@@ -428,10 +460,53 @@ pub fn branch_of(root: &str) -> Result<(String, String), String> {
 /// A path that is not in `HEAD` is not made: the session may make it. A folder that cannot be made, or a git that
 /// fails, is the error, and nothing is left.
 pub fn make(root: &str, paths: &[String], below: &Path, base: &str) -> Result<View, String> {
+    make_of(root, Some(paths), below, base).map(|(view, _)| view)
+}
+
+/// How much a view of the whole tree holds: its files and their bytes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Size {
+    pub files: usize,
+    pub bytes: u64,
+}
+
+/// Makes the view of every file of `HEAD` of the checkout at `root` (#202), as `make` makes a view of paths, for the
+/// breakdown and for a role with no issue's file. The files are copied by git's own checkout from the view's index,
+/// never one `git show` for each. `.watchbill/` and `.watchbill/issues/` are folders of the view, made where they
+/// are not there, as the sandbox binds over them; one of them that is anything else, a link above all, is the error.
+pub fn make_whole(root: &str, below: &Path, base: &str) -> Result<(View, Size), String> {
+    let (view, size) = make_of(root, None, below, base)?;
+    match bind_points(&view.folder) {
+        Ok(()) => Ok((view, size)),
+        Err(why) => {
+            let _ = remove(&view.folder);
+            Err(format!("the view could not be made: {}", why))
+        }
+    }
+}
+
+/// Makes sure that `.watchbill/` and `.watchbill/issues/` of a view of the whole tree are its own folders.
+fn bind_points(folder: &Path) -> Result<(), String> {
+    for name in [".watchbill", ".watchbill/issues"] {
+        let path = folder.join(name);
+        match fs::symlink_metadata(&path) {
+            Ok(found) if found.is_dir() => {}
+            Ok(_) => return Err(format!("{} of HEAD is not a folder, and the sandbox binds a folder there", name)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                fs::DirBuilder::new().mode(0o700).create(&path).map_err(|error| format!("{} could not be made: {}", name, error))?;
+            }
+            Err(error) => return Err(format!("{} could not be looked at: {}", name, error)),
+        }
+    }
+    Ok(())
+}
+
+/// The work of `make` and `make_whole`: the listed paths, or every file of `HEAD` where `paths` is none.
+fn make_of(root: &str, paths: Option<&[String]>, below: &Path, base: &str) -> Result<(View, Size), String> {
     let (branch, head) = branch_of(root)?;
     let folder = new_folder(below, base)?;
     match fill(Path::new(root), paths, &folder, &branch, &head) {
-        Ok(commit) => Ok(View { folder, base: commit, head, branch }),
+        Ok((commit, size)) => Ok((View { folder, base: commit, head, branch }, size)),
         Err(why) => {
             let _ = remove(&folder);
             Err(format!("the view could not be made: {}", why))
@@ -439,28 +514,97 @@ pub fn make(root: &str, paths: &[String], below: &Path, base: &str) -> Result<Vi
     }
 }
 
-/// The work of `make` once the folder is there: a repository with the listed files of `HEAD` and one commit.
-fn fill(root: &Path, paths: &[String], folder: &Path, branch: &str, head: &str) -> Result<String, String> {
+/// A git command in `at`, with no variable `GIT_*` of this process, for a run whose input or output is a pipe.
+fn git_command(at: &Path, args: &[&str]) -> Command {
+    let mut command = Command::new("git");
+    command.arg("-C").arg(at).args(args);
+    for (name, _) in std::env::vars_os() {
+        if name.to_string_lossy().starts_with("GIT_") {
+            command.env_remove(name);
+        }
+    }
+    command
+}
+
+/// Copies the objects named in `blobs`, one to a line, from the checkout at `root` into the repository of the view
+/// at `folder`, as one pack streamed from one git to the other: a whole tree is never held in `wb`'s memory, and no
+/// delta is looked for.
+fn copy_objects(root: &Path, blobs: &[u8], folder: &Path) -> Result<(), String> {
+    let first = |bytes: &[u8]| String::from_utf8_lossy(bytes).lines().find(|line| !line.trim().is_empty()).unwrap_or("").trim().to_string();
+    let mut packer = git_command(root, &["pack-objects", "--stdout", "-q", "--window=0"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("git could not be run: {}", error))?;
+    let packed = packer.stdout.take().ok_or("git gave no pipe")?;
+    let indexer = git_command(folder, &["index-pack", "--stdin"]).stdin(Stdio::from(packed)).stdout(Stdio::null()).stderr(Stdio::piped()).spawn();
+    let indexer = match indexer {
+        Ok(indexer) => indexer,
+        Err(error) => {
+            let _ = packer.kill();
+            let _ = packer.wait();
+            return Err(format!("git could not be run: {}", error));
+        }
+    };
+    let mut stdin = packer.stdin.take().ok_or("git gave no pipe")?;
+    let (packed, indexed) = std::thread::scope(|scope| {
+        scope.spawn(move || {
+            let _ = stdin.write_all(blobs);
+        });
+        let indexed = scope.spawn(move || indexer.wait_with_output());
+        let packed = packer.wait_with_output();
+        (packed, indexed.join().unwrap_or_else(|_| Err(std::io::Error::other("the wait for git failed"))))
+    });
+    let packed = packed.map_err(|error| format!("git could not be waited for: {}", error))?;
+    let indexed = indexed.map_err(|error| format!("git could not be waited for: {}", error))?;
+    if !packed.status.success() {
+        return Err(format!("`git pack-objects` ended with {}: {}", packed.status.code().unwrap_or(-1), first(&packed.stderr)));
+    }
+    if !indexed.status.success() {
+        return Err(format!("`git index-pack` ended with {}: {}", indexed.status.code().unwrap_or(-1), first(&indexed.stderr)));
+    }
+    Ok(())
+}
+
+/// The work of `make` once the folder is there: a repository with the listed files of `HEAD`, or all of them, and
+/// one commit. The result is the commit, and the files and bytes of the view.
+fn fill(root: &Path, paths: Option<&[String]>, folder: &Path, branch: &str, head: &str) -> Result<(String, Size), String> {
     let short = branch.strip_prefix("refs/heads/").unwrap_or(branch);
     let literal = [("GIT_LITERAL_PATHSPECS", Path::new("1"))];
-    // The entries of `HEAD` below each path, as `ls-tree` gives them; a submodule is left out.
-    let wanted: Vec<String> = paths.iter().map(|path| parts(path).join("/")).filter(|path| !path.is_empty()).collect();
-    let mut args = vec!["ls-tree", "-r", "-z", "--full-tree", head, "--"];
-    args.extend(wanted.iter().map(String::as_str));
-    let listed = if wanted.is_empty() { Vec::new() } else { git(root, &args, &literal, None)? };
+    // The entries of `HEAD` below each path, or all of them, as `ls-tree` gives them with their sizes; a submodule
+    // is left out.
+    let listed = match paths {
+        Some(paths) => {
+            let wanted: Vec<String> = paths.iter().map(|path| parts(path).join("/")).filter(|path| !path.is_empty()).collect();
+            let mut args = vec!["ls-tree", "-r", "-z", "-l", "--full-tree", head, "--"];
+            args.extend(wanted.iter().map(String::as_str));
+            if wanted.is_empty() {
+                Vec::new()
+            } else {
+                git(root, &args, &literal, None)?
+            }
+        }
+        None => git(root, &["ls-tree", "-r", "-z", "-l", "--full-tree", head], &[], None)?,
+    };
     let mut entries: Vec<u8> = Vec::new();
     let mut blobs: Vec<u8> = Vec::new();
+    let mut size = Size { files: 0, bytes: 0 };
     for entry in listed.split(|byte| *byte == 0).filter(|entry| !entry.is_empty()) {
-        let text = String::from_utf8_lossy(entry);
-        let mut words = text.split_whitespace();
-        let (_, kind, object) = (words.next(), words.next(), words.next());
-        if kind != Some("blob") {
+        let Some(tab) = entry.iter().position(|byte| *byte == b'\t') else { continue };
+        let meta = String::from_utf8_lossy(&entry[..tab]);
+        let words: Vec<&str> = meta.split_whitespace().collect();
+        let [mode, kind, object, bytes] = words.as_slice() else { continue };
+        if *kind != "blob" {
             continue;
         }
-        entries.extend_from_slice(entry);
+        entries.extend_from_slice(format!("{} {} {}\t", mode, kind, object).as_bytes());
+        entries.extend_from_slice(&entry[tab + 1..]);
         entries.push(0);
-        blobs.extend_from_slice(object.unwrap_or_default().as_bytes());
+        blobs.extend_from_slice(object.as_bytes());
         blobs.push(b'\n');
+        size.files += 1;
+        size.bytes += bytes.parse::<u64>().unwrap_or(0);
     }
     let at = folder.to_str().ok_or("the folder of the view is not UTF-8 text")?;
     git(root, &["init", "-q", "--template=", &format!("--initial-branch={}", short), at], &[], None)?;
@@ -471,8 +615,12 @@ fn fill(root: &Path, paths: &[String], folder: &Path, branch: &str, head: &str) 
         }
     }
     if !blobs.is_empty() {
-        let pack = git(root, &["pack-objects", "--stdout", "-q"], &[], Some(&blobs))?;
-        git(folder, &["unpack-objects", "-q"], &[], Some(&pack))?;
+        if paths.is_some() {
+            let pack = git(root, &["pack-objects", "--stdout", "-q"], &[], Some(&blobs))?;
+            git(folder, &["unpack-objects", "-q"], &[], Some(&pack))?;
+        } else {
+            copy_objects(root, &blobs, folder)?;
+        }
         git(folder, &["update-index", "--add", "-z", "--index-info"], &[], Some(&entries))?;
         git(folder, &["checkout-index", "--all", "--force"], &[], None)?;
     }
@@ -483,10 +631,25 @@ fn fill(root: &Path, paths: &[String], folder: &Path, branch: &str, head: &str) 
         ("GIT_COMMITTER_NAME", Path::new("Watchbill")),
         ("GIT_COMMITTER_EMAIL", Path::new("watchbill@localhost")),
     ];
-    let message = b"The view: the paths of the issue's file for this role, as they are in HEAD of the checkout.\n";
+    let message: &[u8] = match paths {
+        Some(_) => b"The view: the paths of the issue's file for this role, as they are in HEAD of the checkout.\n",
+        None => b"The view: every file of HEAD of the checkout.\n",
+    };
     let commit = line(&git(folder, &["commit-tree", "--no-gpg-sign", &tree], &who, Some(message))?);
     git(folder, &["update-ref", branch, &commit], &[], None)?;
-    Ok(commit)
+    Ok((commit, size))
+}
+
+/// How the tree of the view stands in the sandbox (#202).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Layout {
+    /// A view of the paths of an issue's file: all of it writable.
+    Listed,
+    /// The breakdown's view of the whole tree: read-only, but for `.watchbill/issues/` and the view's own `.git`,
+    /// which it commits in.
+    Breakdown,
+    /// The view of the whole tree of a role with no issue's file: writable, but for `.watchbill/`.
+    Whole,
 }
 
 /// What a session in a view is run with.
@@ -508,6 +671,10 @@ pub struct Plan<'a> {
 /// The system, as the sandbox has it, read-only: `/usr`, the links to it or the folders beside it, `/etc` and
 /// `/sys`; `/proc` and `/dev` of its own; `/tmp` and `/run` empty, but for the folder of the resolver where
 /// `/etc/resolv.conf` points into `/run`, so that the model can be reached.
+/// The folders of the system a program of a runner may lie in, as the sandbox holds them (`system`); `/sys` and
+/// `/proc` hold no program.
+pub const SYSTEM: [&str; 8] = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/lib32", "/libx32", "/etc"];
+
 fn system() -> Vec<OsString> {
     let mut words: Vec<OsString> = Vec::new();
     let mut add = |more: &[&str]| words.extend(more.iter().map(OsString::from));
@@ -541,8 +708,14 @@ fn system() -> Vec<OsString> {
 /// The namespaces of the sandbox: all but the network's.
 const UNSHARE: [&str; 6] = ["--unshare-user", "--unshare-ipc", "--unshare-pid", "--unshare-uts", "--unshare-cgroup-try", "--die-with-parent"];
 
-/// The words bubblewrap is given for a session in a view.
+/// The words bubblewrap is given for a session in a view of the paths of an issue's file.
 pub fn arguments(plan: &Plan) -> Vec<OsString> {
+    arguments_in(plan, Layout::Listed)
+}
+
+/// The words bubblewrap is given for a session in a view laid out as `layout`. The binds inside the view come after
+/// the view itself, so that they stand over it; their sources are folders of the view (`make_whole`).
+pub fn arguments_in(plan: &Plan, layout: Layout) -> Vec<OsString> {
     let mut words: Vec<OsString> = UNSHARE.iter().map(OsString::from).collect();
     if plan.new_session {
         words.push("--new-session".into());
@@ -561,7 +734,17 @@ pub fn arguments(plan: &Plan) -> Vec<OsString> {
     for folder in [fixed, plan.organisation.filter(|folder| Some(*folder) != fixed)].into_iter().flatten() {
         add(&["--tmpfs".as_ref(), folder.as_os_str()]);
     }
-    add(&["--bind".as_ref(), plan.view.as_os_str(), plan.checkout.as_os_str()]);
+    let tree = if layout == Layout::Breakdown { "--ro-bind" } else { "--bind" };
+    add(&[tree.as_ref(), plan.view.as_os_str(), plan.checkout.as_os_str()]);
+    let inside: &[(&str, &str)] = match layout {
+        Layout::Listed => &[],
+        Layout::Breakdown => &[("--bind", ".git"), ("--bind", ".watchbill/issues")],
+        Layout::Whole => &[("--ro-bind", ".watchbill")],
+    };
+    for (how, path) in inside {
+        let (from, to) = (plan.view.join(path), plan.checkout.join(path));
+        add(&[how.as_ref(), from.as_os_str(), to.as_os_str()]);
+    }
     add(&["--chdir".as_ref(), plan.checkout.as_os_str(), "--".as_ref()]);
     words.extend(plan.words.iter().map(OsString::from));
     words
@@ -579,7 +762,7 @@ pub fn new_session() -> bool {
 pub fn works(bwrap: &Path) -> Result<(), String> {
     if !bwrap.is_file() {
         return Err(format!(
-            "there is no {}, and a session of an issue with an accepted file runs only in a view, in bubblewrap. Install the package bubblewrap",
+            "there is no {}, and every session that wb start starts runs in a view, in bubblewrap. Install the package bubblewrap",
             bwrap.display()
         ));
     }
@@ -596,7 +779,7 @@ pub fn works(bwrap: &Path) -> Result<(), String> {
         Ok(text) if text.trim() == "0" => " User namespaces are off on this machine: /proc/sys/user/max_user_namespaces is 0.",
         _ => " Unprivileged user namespaces may be off on this machine.",
     };
-    Err(format!("bubblewrap ({}) could not make a sandbox here: {}.{} A session of an issue with an accepted file runs only in a view", bwrap.display(), first.trim_end_matches('.'), off))
+    Err(format!("bubblewrap ({}) could not make a sandbox here: {}.{} Every session that wb start starts runs in a view", bwrap.display(), first.trim_end_matches('.'), off))
 }
 
 /// Runs the session in its view, in bubblewrap at `bwrap`, in the foreground, with the person's standard
@@ -614,6 +797,11 @@ pub fn run(bwrap: &Path, plan: &Plan) -> Result<ExitStatus, String> {
 
 /// The same, saying on `err`, as `name`, where the session was not found in bubblewrap (WB-BUILD-87).
 pub fn run_saying(bwrap: &Path, plan: &Plan, name: &str, err: &mut dyn Write) -> Result<ExitStatus, String> {
+    run_in(bwrap, plan, Layout::Listed, name, err)
+}
+
+/// The same, in a view laid out as `layout` (#202).
+pub fn run_in(bwrap: &Path, plan: &Plan, layout: Layout, name: &str, err: &mut dyn Write) -> Result<ExitStatus, String> {
     use std::os::fd::AsRawFd;
     use std::os::unix::process::{CommandExt, ExitStatusExt};
     let held = crate::interrupt::hold();
@@ -625,7 +813,7 @@ pub fn run_saying(bwrap: &Path, plan: &Plan, name: &str, err: &mut dyn Write) ->
         .filter(|(number, _)| !crate::interrupt::was_ignored(*number))
         .map(|(_, name)| name)
         .collect();
-    let mut words = arguments(plan);
+    let mut words = arguments_in(plan, layout);
     // Without `env` the signals cannot be given back to the session, and bubblewrap ignores none, as before #257.
     let ignore = back.is_empty() || Path::new(ENV).is_file();
     if ignore && !back.is_empty() {
@@ -1084,11 +1272,40 @@ fn not_standard(store: &Path, parent: &str, commit: &str) -> Result<Option<Strin
     Ok(None)
 }
 
-/// Why a path that a commit changes is not taken, if it is not: under `.watchbill/`, a file of the build, a path
-/// git does not take, or outside `changes`.
-fn not_allowed(path: &str, mode: &str, changes: &[Covered], build_files: &[String]) -> Option<String> {
+/// What may come back from a view: the paths of `changes` of an issue's file; for the breakdown, its issue's file
+/// alone; for a role with no issue's file, any path (#202). Never a path under `.watchbill/` but the breakdown's
+/// issue's file, never one under `build_files`, never one git does not take.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Allowed {
+    Changes(Vec<String>),
+    /// `.watchbill/issues/<issue>.yml`, as a plain file.
+    IssueFile(String),
+    Whole,
+}
+
+/// `Allowed`, as the checkout's `HEAD` reads it.
+enum Rule {
+    Changes(Vec<Covered>),
+    IssueFile(String),
+    Whole,
+}
+
+/// Why a path that a commit changes is not taken, if it is not: for the breakdown, any path but its issue's file,
+/// and that file as anything but a plain file; otherwise under `.watchbill/`, a file of the build, a path git does
+/// not take, or outside `changes`.
+fn not_allowed(path: &str, mode: &str, rule: &Rule, build_files: &[String]) -> Option<String> {
     let found = parts(path);
-    if found.first() == Some(&".watchbill") {
+    if let Rule::IssueFile(file) = rule {
+        if found != parts(file) {
+            return Some(format!("{} is not {}, the one file the breakdown's work comes back as", crate::issue::shown(path), file));
+        }
+        if mode == "000000" {
+            return Some(format!("{} is deleted, and the breakdown's work comes back only as that file, written", crate::issue::shown(path)));
+        }
+        if mode != "100644" {
+            return Some(format!("{} comes back only as a plain file", crate::issue::shown(path)));
+        }
+    } else if found.first() == Some(&".watchbill") {
         return Some(format!("{} is under .watchbill/", crate::issue::shown(path)));
     }
     if let Some(build) = build_files.iter().find(|build| crate::starter::meet(path, build)) {
@@ -1097,6 +1314,7 @@ fn not_allowed(path: &str, mode: &str, changes: &[Covered], build_files: &[Strin
     if let Some(why) = refused_by_git(path, mode) {
         return Some(format!("{} is a path git does not take: {}", crate::issue::shown(path), why));
     }
+    let Rule::Changes(changes) = rule else { return None };
     let inside = changes.iter().any(|entry| {
         let n = entry.parts.len();
         found.len() >= n && found[..n].iter().zip(&entry.parts).all(|(a, b)| a == b) && (entry.folder || found.len() == n)
@@ -1105,6 +1323,29 @@ fn not_allowed(path: &str, mode: &str, changes: &[Covered], build_files: &[Strin
         return Some(format!("{} is outside `changes`", crate::issue::shown(path)));
     }
     None
+}
+
+/// The first of `path` and its leading parts that the working tree of the checkout at `root` holds untracked, ignored
+/// or not, if any: the path itself, there as anything at all, or a leading part that is there as anything but a
+/// folder (a file, a link), and that is not in its `head`. Each part is looked at, never followed: a link is a link.
+/// The fast-forward would write over it, or delete it to make a folder.
+fn untracked_in_checkout(root: &str, head: &str, path: &str) -> Result<Option<String>, String> {
+    let parts = parts(path);
+    let mut at = PathBuf::from(root);
+    for (index, part) in parts.iter().enumerate() {
+        at.push(part);
+        let last = index + 1 == parts.len();
+        let in_the_way = match fs::symlink_metadata(&at) {
+            Err(_) => return Ok(None),
+            Ok(found) => last || !found.file_type().is_dir(),
+        };
+        if in_the_way {
+            let shown = parts[..=index].join("/");
+            let listed = git(Path::new(root), &["ls-tree", "-z", "--full-tree", head, "--", &shown], &[("GIT_LITERAL_PATHSPECS", Path::new("1"))], None)?;
+            return Ok(listed.is_empty().then_some(shown));
+        }
+    }
+    Ok(None)
 }
 
 /// A commit of the view as git keeps it: its author, as `name`, `email` and `date`, and its message.
@@ -1135,10 +1376,10 @@ pub(crate) fn short(commit: &str) -> &str {
 }
 
 /// Takes the work of the session back from `view` to the checkout at `root`: each commit, in order, while it
-/// keeps to `changes`, then the paths left uncommitted. A commit that does not is refused, and none after it is
+/// keeps to what is `allowed`, then the paths left uncommitted. A commit that does not is refused, and none after it is
 /// taken. What is said goes to `err`, after `name`; `list` is where the whole list of paths left is written.
-pub fn take_back(name: &str, root: &str, view: &View, changes: &[String], build_files: &[String], list: Option<&Path>, err: &mut dyn Write) -> Back {
-    take_back_in(name, root, view, changes, build_files, list, None, err)
+pub fn take_back(name: &str, root: &str, view: &View, allowed: &Allowed, build_files: &[String], list: Option<&Path>, err: &mut dyn Write) -> Back {
+    take_back_in(name, root, view, allowed, build_files, list, None, err)
 }
 
 /// The time a whole take-back may take, besides the 60 seconds of each git run.
@@ -1149,13 +1390,19 @@ const TAKE_BACK_DEADLINE: std::time::Duration = std::time::Duration::from_secs(3
 /// touch none of the paths that a commit of the view changes; the commits then go on top of it. The branch must be
 /// the view's. Every git run ends within a bound, for a view is hostile.
 pub fn take_back_later(name: &str, root: &str, view: &View, changes: &[String], build_files: &[String], expected: usize, list: Option<&Path>, err: &mut dyn Write) -> Back {
+    take_back_later_of(name, root, view, &Allowed::Changes(changes.to_vec()), build_files, expected, list, err)
+}
+
+/// The same, with what may come back as `allowed` (#202).
+#[allow(clippy::too_many_arguments)]
+pub fn take_back_later_of(name: &str, root: &str, view: &View, allowed: &Allowed, build_files: &[String], expected: usize, list: Option<&Path>, err: &mut dyn Write) -> Back {
     let _bound = bounded(std::time::Duration::from_secs(60));
     let _deadline = deadline(TAKE_BACK_DEADLINE, "take-back");
-    take_back_in(name, root, view, changes, build_files, list, Some(expected), err)
+    take_back_in(name, root, view, allowed, build_files, list, Some(expected), err)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn take_back_in(name: &str, root: &str, view: &View, changes: &[String], build_files: &[String], list: Option<&Path>, later: Option<usize>, err: &mut dyn Write) -> Back {
+fn take_back_in(name: &str, root: &str, view: &View, allowed: &Allowed, build_files: &[String], list: Option<&Path>, later: Option<usize>, err: &mut dyn Write) -> Back {
     let mut back = Back::default();
     let store = match Store::new(view) {
         Ok(store) => store,
@@ -1164,7 +1411,7 @@ fn take_back_in(name: &str, root: &str, view: &View, changes: &[String], build_f
             return said(name, view, back, list, err);
         }
     };
-    if let Err(why) = commits(root, view, &store.path, changes, build_files, later, &mut back) {
+    if let Err(why) = commits(root, view, &store.path, allowed, build_files, later, &mut back) {
         back.failed = Some(why);
     }
     match uncommitted(root, &store.path, &view.folder, &view.head, &mut back.notes) {
@@ -1339,7 +1586,7 @@ impl Drop for Store {
 
 /// Takes the commits of the view back onto the branch, as far as they keep to the lists. The error is why none
 /// could be taken.
-fn commits(root: &str, view: &View, store: &Path, changes: &[String], build_files: &[String], later: Option<usize>, back: &mut Back) -> Result<(), String> {
+fn commits(root: &str, view: &View, store: &Path, allowed: &Allowed, build_files: &[String], later: Option<usize>, back: &mut Back) -> Result<(), String> {
     let head = head_of(&view.folder.join(".git"))?;
     if head == view.base {
         return Ok(());
@@ -1369,7 +1616,11 @@ fn commits(root: &str, view: &View, store: &Path, changes: &[String], build_file
     } else {
         (view, None)
     };
-    let covered = covered(root, &view.head, changes)?;
+    let rule = match allowed {
+        Allowed::Changes(changes) => Rule::Changes(covered(root, &view.head, changes)?),
+        Allowed::IssueFile(file) => Rule::IssueFile(file.clone()),
+        Allowed::Whole => Rule::Whole,
+    };
     if git(store, &["merge-base", "--is-ancestor", &view.base, &head], &[], None).is_err() {
         return Err(format!("the view's HEAD, {}, does not come from the commit the view was made with", short(&head)));
     }
@@ -1399,8 +1650,17 @@ fn commits(root: &str, view: &View, store: &Path, changes: &[String], build_file
             Some(format!("its parent is not {}", short(&parent)))
         } else {
             let found = changes_of(store, &parent, &commit)?;
-            let mut faults: Vec<String> = found.iter().filter_map(|change| not_allowed(&change.path, &change.mode, &covered, build_files)).collect();
+            let mut faults: Vec<String> = found.iter().filter_map(|change| not_allowed(&change.path, &change.mode, &rule, build_files)).collect();
             faults.extend(found.iter().filter(|change| change.mode == "160000").map(|change| format!("{} is a submodule", crate::issue::shown(&change.path))));
+            // A path that the checkout holds untracked, ignored or not, would be written over by the fast-forward without
+            // a word (#202): it is refused, whatever may come back.
+            if faults.is_empty() {
+                for change in found.iter().filter(|change| change.mode != "000000") {
+                    if let Some(found) = untracked_in_checkout(root, &view.head, &change.path)? {
+                        faults.push(format!("{} is in the checkout and not tracked there, and would be written over", crate::issue::shown(&found)));
+                    }
+                }
+            }
             // The paths are judged first: a tree that holds a path git does not take is said so, not as odd.
             if faults.is_empty() {
                 if let Some(why) = not_standard(store, &parent, &commit)? {

@@ -242,11 +242,32 @@ pub fn start_with(folder: &Path, organisation: &Path, terminal: bool, args: &[&s
 
 /// Runs `wb start <role>` as `start_with` does, with `state` the state folder the lines of the start are written
 /// below (#124), or none.
+///
+/// Every session runs in a view, in bubblewrap (#202). Where bubblewrap cannot make a sandbox here, as in a
+/// container, the session is run by a stand-in for it that makes none and runs the session in the checkout, and
+/// the test says so on standard error: these tests are of the starter, and `tests/view.rs` those of the sandbox.
 pub fn start_in(folder: &Path, organisation: &Path, terminal: bool, state: Option<&Path>, args: &[&str]) -> Output {
     use std::os::unix::process::ExitStatusExt;
     let args: Vec<std::ffi::OsString> = args.iter().map(std::ffi::OsString::from).collect();
     let (mut out, mut err) = (Vec::new(), Vec::new());
-    let status = watchbill::start(&args, folder, organisation, terminal, state, &mut out, &mut err);
+    let stand_in = folder_named("bwrap");
+    let sandbox = match watchbill::view::works(Path::new(watchbill::view::BWRAP)) {
+        Ok(()) => PathBuf::from(watchbill::view::BWRAP),
+        // For the container and release checks (#202): no stand-in, a failure.
+        Err(why) if std::env::var_os("WB_TEST_REQUIRE_SANDBOX").is_some_and(|value| value == "1") => {
+            panic!("WB_TEST_REQUIRE_SANDBOX=1, and bubblewrap cannot make a sandbox here: {}", why)
+        }
+        Err(why) => {
+            eprintln!("the session runs by a stand-in for bubblewrap, which cannot make a sandbox here: {}", why);
+            let path = stand_in.path.join("bwrap");
+            fs::write(&path, "#!/bin/sh\nwhile [ $# -gt 0 ] && [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n").expect("the stand-in could not be written");
+            fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755)).expect("the stand-in could not be made a program");
+            path
+        }
+    };
+    let home = std::env::var_os("HOME").map(PathBuf::from).filter(|path| path.is_absolute());
+    let machine = watchbill::Machine { organisation, terminal, state, sandbox: &sandbox, home: home.as_deref() };
+    let status = watchbill::start_on(&args, folder, &machine, &mut out, &mut err);
     Output { status: std::process::ExitStatus::from_raw(status << 8), stdout: out, stderr: err }
 }
 

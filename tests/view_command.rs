@@ -641,14 +641,23 @@ fn test_WB_PROMPT_63_with_no_organisation_s_file_and_no_level_the_stamp_says_not
 }
 
 #[test]
-fn test_WB_PROMPT_61_the_stamp_of_a_session_with_no_view_holds_no_level_line() {
+fn test_WB_PROMPT_72_the_stamp_of_a_session_in_a_view_of_the_whole_tree_holds_the_level_after_the_view_line() {
     let bench = bench();
-    // A review of a change with no issue runs without a view.
-    let stamp = prompt_with(&bench.repo.path, &bench.organisation(), &["review", "--change", "174", "--stamp"]);
-    ok(&stamp);
-    let stamp = text(&stamp.stdout);
-    assert_eq!(value_of(&stamp, "view").as_deref(), Some("none"), "{}", stamp);
-    assert!(!stamp.lines().any(|line| line.starts_with("level")), "{}", stamp);
+    // A review of a change with no issue and a role with no issue's file run in a view of every file of
+    // HEAD (#202), and their stamps say the level as every other does.
+    for words in [
+        &["review", "--change", "174", "--stamp"][..],
+        &["build", "99", "--branch", "main", "--round", "1", "--stamp"][..],
+    ] {
+        let stamp = prompt_with(&bench.repo.path, &bench.organisation(), words);
+        ok(&stamp);
+        let stamp = text(&stamp.stdout);
+        assert_eq!(value_of(&stamp, "view").as_deref(), Some("none"), "{:?}: {}", words, stamp);
+        assert_eq!(value_of(&stamp, "level").as_deref(), Some("public"), "{:?}: {}", words, stamp);
+        let names: Vec<&str> = stamp.lines().map(|line| line.split(':').next().unwrap()).collect();
+        let view = names.iter().position(|name| *name == "view").unwrap();
+        assert_eq!(names[view + 1], "level", "{:?}: {}", words, stamp);
+    }
 }
 
 // ---- WB-VIEW-31: it writes nothing, runs no pattern, asks nothing of the network ----
@@ -684,21 +693,23 @@ fn test_WB_VIEW_31_view_writes_nothing_in_the_repository_or_the_state_folder_and
     assert_eq!(bench.left("network"), "");
 }
 
-// ---- WB-VIEW-32: no accepted, committed file ----
+// ---- WB-VIEW-85 to 87: no accepted, committed file, and the breakdown (#202) ----
 
 #[test]
-fn test_WB_VIEW_32_an_issue_with_no_file_ends_with_1_saying_the_role_would_run_without_a_view() {
+fn test_WB_VIEW_86_an_issue_with_no_file_ends_with_1_saying_the_role_would_run_in_a_view_of_the_whole_tree() {
     let bench = bench();
     for args in [&["99", "build"][..], &["99", "src/brake.c"][..]] {
         let run = bench.view(args);
         assert_eq!(code(&run), Some(1), "{:?}", args);
         assert_eq!(text(&run.stdout), "", "{:?}", args);
-        assert!(text(&run.stderr).contains("without a view"), "{}", text(&run.stderr));
+        let err = text(&run.stderr);
+        assert!(err.contains("a view of every file of HEAD") && err.contains(".watchbill/ read-only"), "{}", err);
+        assert!(!err.contains("without a view"), "{}", err);
     }
 }
 
 #[test]
-fn test_WB_VIEW_32_an_issue_s_file_not_accepted_or_not_committed_ends_with_1() {
+fn test_WB_VIEW_87_an_issue_s_file_not_accepted_or_not_committed_ends_with_1() {
     let bench = bench();
     // Not committed: a new issue's file, accepted and left in the working tree.
     put(&bench.repo.path, ".watchbill/issues/55.yml", &ISSUE_54.replace("'54'", "'55'"));
@@ -716,11 +727,13 @@ fn test_WB_VIEW_32_an_issue_s_file_not_accepted_or_not_committed_ends_with_1() {
 }
 
 #[test]
-fn test_WB_VIEW_32_the_breakdown_runs_without_a_view() {
+fn test_WB_VIEW_85_the_breakdown_runs_in_a_view_of_the_whole_tree_where_only_its_issues_folder_is_writable() {
     let bench = bench();
     let run = bench.view(&["54", "breakdown"]);
 
     assert_eq!(code(&run), Some(1));
     assert_eq!(text(&run.stdout), "");
-    assert!(text(&run.stderr).contains("without a view"), "{}", text(&run.stderr));
+    let err = text(&run.stderr);
+    assert!(err.contains("a view of every file of HEAD") && err.contains("only .watchbill/issues/ is writable"), "{}", err);
+    assert!(!err.contains("without a view"), "{}", err);
 }

@@ -23,6 +23,10 @@ use std::process::{Command, Output};
 fn sandbox(test: &str) -> bool {
     match watchbill::view::works(Path::new(watchbill::view::BWRAP)) {
         Ok(()) => true,
+        // For the container and release checks (#202): a sandbox that cannot be made is a failure, not a skip.
+        Err(why) if std::env::var_os("WB_TEST_REQUIRE_SANDBOX").is_some_and(|value| value == "1") => {
+            panic!("{}: WB_TEST_REQUIRE_SANDBOX=1, and bubblewrap cannot make a sandbox here: {}", test, why)
+        }
         Err(why) => {
             eprintln!("{}: nothing checked, bubblewrap cannot make a sandbox here: {}", test, why);
             false
@@ -711,28 +715,6 @@ fn test_WB_VIEW_9_the_stamp_posted_has_the_view_of_the_list_the_session_ran_in()
     assert_eq!(read(&bench.lines().join("view")), BUILD_LIST);
 }
 
-// ---- WB-VIEW-10: a role with no issue's file runs without a view, and says so ----
-
-#[test]
-fn test_WB_VIEW_10_a_role_started_without_an_issue_s_file_runs_without_a_view_and_says_so_first() {
-    let bench = bench();
-    bench.session("pwd > {log}/pwd\ntest -d .watchbill && echo yes > {log}/watchbill\n");
-
-    // No bubblewrap is needed for it.
-    let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["start", "build", "99"]);
-
-    ok(&run);
-    let err = text_of(&run.stderr);
-    let said = err.lines().position(|line| line.contains("without a view")).unwrap_or_else(|| panic!("not said: {}", err));
-    let starts = err.lines().position(|line| line.starts_with("wb start build: starts build")).unwrap();
-    assert!(said < starts, "{}", err);
-    assert_eq!(bench.left("pwd").trim(), bench.root());
-    assert_eq!(bench.left("watchbill"), "yes\n");
-    assert_eq!(line_of(&bench.left("posted-issue-99"), "view").as_deref(), Some("none"));
-    assert!(!bench.lines().join("view").exists());
-    assert!(bench.below("views").is_empty());
-}
-
 // ---- WB-VIEW-11: no bwrap, or user namespaces off ----
 
 #[test]
@@ -874,36 +856,14 @@ fn test_WB_VIEW_15_without_draft_change_it_says_the_line_is_not_there() {
 }
 
 #[test]
-fn test_WB_VIEW_16_without_a_view_new_commits_on_the_branch_get_the_same_commands() {
-    let bench = bench();
-    git(&bench.repo.path, &["checkout", "-q", "issue-99"]);
-    with_line(&bench, "draft_change: 'draft-stand-in --head {branch}'");
-    bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\n");
-
-    let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["start", "build", "99"]);
-
-    ok(&run);
-    let err = text_of(&run.stderr);
-    assert!(err.contains("git push origin issue-99"), "{}", err);
-    assert!(err.contains("draft-stand-in --head issue-99"), "{}", err);
-    assert!(!bench.at("network").exists());
-
-    // A session that commits nothing gets no command.
-    let bench = self::bench();
-    git(&bench.repo.path, &["checkout", "-q", "issue-99"]);
-    let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["start", "build", "99"]);
-    ok(&run);
-    assert!(!text_of(&run.stderr).contains("git push"), "{}", text_of(&run.stderr));
-}
-
-#[test]
 fn test_WB_BUILD_39_a_draft_change_the_session_wrote_and_did_not_commit_is_not_said() {
     let bench = bench();
     git(&bench.repo.path, &["checkout", "-q", "issue-99"]);
     with_line(&bench, "draft_change: 'draft-stand-in --head {branch}'");
-    bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file' && echo \"draft_change: 'evil {branch}'\" >> .watchbill/watchbill.yml\n");
+    // The session commits in its view and changes the checkout's file, as only a session outside the sandbox could.
+    bench.session("(cd \"$VIEW\" && echo 'int fresh;' > src/new.c && git add src/new.c && git -c commit.gpgsign=false commit -q -m 'A new file') && echo \"draft_change: 'evil {branch}'\" >> .watchbill/watchbill.yml\n");
 
-    let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["start", "build", "99"]);
+    let run = bench.start_by(&pass_through(&bench), &["start", "build", "99"]);
 
     let err = text_of(&run.stderr);
     assert!(err.contains("git push origin issue-99"), "{}", err);
@@ -1308,9 +1268,9 @@ fn test_WB_BUILD_30_a_file_that_is_not_of_the_view_is_no_local_change_and_neithe
     // The start goes on to the view, which is where no bubblewrap is.
     let err = text_of(&start_unsandboxed(&bench, &["start", "build", "54", "--ignore-local"]).stderr);
     assert!(err.contains("bubblewrap") && !err.contains("guard") && !err.contains("src/secret.c"), "{}", err);
-    // A role with no issue's file runs without a view, and is not checked.
+    // A role with no issue's file runs in a view of the whole tree (#202): its guard is the whole tree, and `--ignore-local` passes it.
     put(&bench.repo.path, "src/brake.h", "int brake(int);\n");
-    ok(&start_unsandboxed(&bench, &["start", "build", "99"]));
+    ok(&bench.start_by(&pass_through(&bench), &["start", "build", "99", "--ignore-local"]));
     assert!(bench.started());
 }
 
@@ -2520,7 +2480,10 @@ fn keep(bench: &Bench, keep: &Keep) -> (PathBuf, PathBuf) {
     }
     let session = bench.state.path.join("watchbill").join("sessions").join(keep.session);
     fs::create_dir_all(&session).unwrap();
-    fs::write(session.join("stamp"), format!("[stamp] {} round {}\nview: none\n", keep.role, keep.round)).unwrap();
+    // The stamp's `view:`, as the start of that role would have posted it: a take-back decides by it (#202).
+    let issue = keep.session.rsplit('-').next().unwrap();
+    let view = view_line_of(bench, keep.role, issue);
+    fs::write(session.join("stamp"), format!("[stamp] {} round {}\nview: {}\n", keep.role, keep.round, view)).unwrap();
     fs::write(session.join("outcome"), keep.outcome).unwrap();
     fs::write(
         session.join("folder"),
@@ -2531,6 +2494,18 @@ fn keep(bench: &Bench, keep: &Keep) -> (PathBuf, PathBuf) {
 }
 
 const RAN: &str = "outcome: ended\nstatus: 0\nseconds: 5\n";
+
+/// The line `view:` of the stamp of `role` for `issue`, as `wb prompt --stamp` gives it, or `none`.
+fn view_line_of(bench: &Bench, role: &str, issue: &str) -> String {
+    let mut words = vec![role, issue, "--round", "1", "--stamp"];
+    match role {
+        "breakdown" => words.extend(["--runner", "stand-in"]),
+        "review" | "fix" => words.extend(["--change", "174"]),
+        _ => {}
+    }
+    let run = prompt_with(&bench.repo.path, &bench.organisation(), &words);
+    line_of(&text_of(&run.stdout), "view").unwrap_or_else(|| "none".to_string())
+}
 
 /// The start of the build of 54, as a person runs it.
 fn start_54(bench: &Bench, more: &[&str]) -> Output {
@@ -2693,7 +2668,8 @@ fn test_WB_BUILD_75_ignore_kept_passes_the_kept_views_alone() {
 fn test_WB_MON_10_outcome_says_running_with_the_process_id_while_the_session_runs_and_ended_after() {
     let bench = bench();
     bench.session("cat {state}/watchbill/sessions/*/outcome > {log}/during\n");
-    let run = bench.start_by(Path::new("/nonexistent/no-bwrap"), &["start", "build", "99"]);
+    // The state folder is not in a sandbox: the stand-in makes none (#202).
+    let run = bench.start_by(&pass_through(&bench), &["start", "build", "99"]);
     ok(&run);
     let during = bench.left("during");
     let mut lines = during.lines();
@@ -3644,4 +3620,536 @@ fn test_WB_STATUS_75_a_missing_head_commit_is_said_as_the_failure_of_merge_base_
     let line = out.lines().find(|line| line.starts_with("kept: tester round 2, not read: ")).unwrap_or_else(|| panic!("{}", out));
     assert!(line.contains("`git merge-base` ended with 128"), "{}", line);
     assert!(!line.contains("does not come from"), "{}", line);
+}
+
+// ---- #202: every session that `wb start` starts runs in a sandbox ----
+
+/// A stand-in for bubblewrap that makes no sandbox: it runs the words after `--` in the folder it was started in,
+/// the checkout, with `VIEW` naming the folder bound at it, so that a session can change the checkout while it
+/// commits in its view. For what only a session outside the sandbox could do.
+fn pass_through(bench: &Bench) -> PathBuf {
+    let stand_in = bench.at("bwrap");
+    script(
+        &stand_in,
+        "here=$(pwd -P)\nVIEW=\nwhile [ $# -gt 0 ]; do\n  case \"$1\" in\n    --) shift; break ;;\n    --bind|--ro-bind)\n      if [ -z \"$VIEW\" ] && [ \"$3\" = \"$here\" ]; then VIEW=\"$2\"; fi\n      shift 3 ;;\n    *) shift ;;\n  esac\ndone\nexport VIEW\nexec \"$@\"\n",
+    );
+    stand_in
+}
+
+/// The bench with the branch of issue 99, which has no issue's file, checked out.
+fn on_99() -> Bench {
+    let bench = bench();
+    git(&bench.repo.path, &["checkout", "-q", "issue-99"]);
+    bench
+}
+
+/// The paths of `HEAD` of the checkout, one to a line, as `git ls-files` lists them in a view.
+fn head_paths(bench: &Bench) -> String {
+    bench.git_text(&["ls-tree", "-r", "--name-only", "HEAD"])
+}
+
+/// What the session of `GIT_WRITER` wrote in the `.git` it had did not reach the checkout's: no hook, no ref, no
+/// replace ref, no setting, and `HEAD` where it was.
+fn git_of_the_checkout_untouched(bench: &Bench, head: &str) {
+    assert_eq!(bench.left("done"), "done\n", "the session did not run to its end");
+    assert!(!bench.repo.path.join(".git/hooks/pre-commit").exists(), "a hook reached the checkout");
+    assert_eq!(bench.git_text(&["for-each-ref", "refs/heads/evil", "refs/replace/"]), "");
+    let hooks = Command::new("git").arg("-C").arg(&bench.repo.path).args(["config", "--get", "core.hooksPath"]).env_clear().envs(env()).output().unwrap();
+    assert!(!hooks.status.success(), "{}", text_of(&hooks.stdout));
+    assert_eq!(bench.head(), head);
+}
+
+/// A session that writes a hook, a ref, a replace ref and a setting in the `.git` it has.
+const GIT_WRITER: &str = "mkdir -p .git/hooks && printf '#!/bin/sh\\necho hook >> {log}/hook\\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit\n\
+git update-ref refs/heads/evil HEAD\n\
+other=$(git commit-tree -m evil 'HEAD^{tree}') && git replace HEAD \"$other\"\n\
+git config core.hooksPath /tmp/evil\n\
+echo done > {log}/done\n";
+
+#[test]
+fn test_WB_VIEW_73_the_breakdown_runs_in_a_view_of_every_file_of_head_with_no_history() {
+    if !sandbox("test_WB_VIEW_73") {
+        return;
+    }
+    let bench = on_99();
+    bench.session("pwd > {log}/pwd\ngit ls-files > {log}/files\ngit rev-list --all --count > {log}/count\ngit remote > {log}/remotes\n");
+
+    let run = bench.start(&["start", "breakdown", "99"]);
+
+    ok(&run);
+    assert_eq!(bench.left("pwd").trim(), bench.root());
+    assert_eq!(bench.left("files"), head_paths(&bench));
+    assert!(bench.left("files").contains("src/secret.c\n"), "{}", bench.left("files"));
+    assert_eq!(bench.left("count").trim(), "1");
+    assert_eq!(bench.left("remotes"), "");
+    assert!(text_of(&run.stderr).contains("in bubblewrap"), "{}", text_of(&run.stderr));
+}
+
+#[test]
+fn test_WB_VIEW_74_in_the_breakdown_s_view_only_the_issues_folder_can_be_written() {
+    if !sandbox("test_WB_VIEW_74") {
+        return;
+    }
+    let bench = on_99();
+    let yml = read(&config(&bench.repo.path));
+    bench.session(
+        "echo x >> .watchbill/watchbill.yml 2> /dev/null && echo yes > {log}/yml\n\
+         echo x > new.txt 2> /dev/null && echo yes > {log}/new\n\
+         echo x >> src/brake.c 2> /dev/null && echo yes > {log}/brake\n\
+         mkdir .watchbill/other 2> /dev/null && echo yes > {log}/other\n\
+         echo 'issue: x' > .watchbill/issues/99.yml && echo yes > {log}/issue\n",
+    );
+
+    let run = bench.start(&["start", "breakdown", "99"]);
+
+    assert!(bench.started(), "{}", text_of(&run.stderr));
+    for name in ["yml", "new", "brake", "other"] {
+        assert_eq!(bench.left(name), "", "{} was written", name);
+    }
+    assert_eq!(bench.left("issue"), "yes\n");
+    assert_eq!(read(&config(&bench.repo.path)), yml);
+    assert!(!bench.repo.path.join("new.txt").exists());
+}
+
+#[test]
+fn test_WB_VIEW_75_what_the_breakdown_writes_in_its_git_does_not_reach_the_checkout() {
+    if !sandbox("test_WB_VIEW_75") {
+        return;
+    }
+    let bench = on_99();
+    let head = bench.head();
+    bench.session(GIT_WRITER);
+
+    ok(&bench.start(&["start", "breakdown", "99"]));
+
+    git_of_the_checkout_untouched(&bench, &head);
+}
+
+#[test]
+fn test_WB_VIEW_75_what_a_role_with_no_issue_s_file_writes_in_its_git_does_not_reach_the_checkout() {
+    if !sandbox("test_WB_VIEW_75") {
+        return;
+    }
+    let bench = on_99();
+    let head = bench.head();
+    bench.session(GIT_WRITER);
+
+    ok(&bench.start(&["start", "build", "99"]));
+
+    git_of_the_checkout_untouched(&bench, &head);
+}
+
+#[test]
+fn test_WB_VIEW_76_the_breakdown_s_commit_of_its_issue_s_file_comes_back_onto_the_branch() {
+    if !sandbox("test_WB_VIEW_76") {
+        return;
+    }
+    let bench = on_99();
+    let before = bench.head();
+    bench.session("printf 'issue: 99\\n' > .watchbill/issues/99.yml && git add .watchbill/issues/99.yml && git commit -q -m 'The issue file of 99'\n");
+
+    let run = bench.start(&["start", "breakdown", "99"]);
+
+    ok(&run);
+    assert_eq!(subjects(&bench, 1), vec!["The issue file of 99"]);
+    assert_eq!(bench.git_text(&["show", "HEAD:.watchbill/issues/99.yml"]), "issue: 99\n");
+    assert_eq!(bench.git_text(&["rev-parse", "HEAD~1"]).trim(), before);
+    assert_eq!(bench.git_text(&["show", "--name-only", "--format=", "HEAD"]), ".watchbill/issues/99.yml\n");
+    assert!(text_of(&run.stderr).contains("git push origin issue-99"), "{}", text_of(&run.stderr));
+    assert!(bench.below("views").is_empty(), "{:?}", bench.below("views"));
+}
+
+#[test]
+fn test_WB_VIEW_77_a_commit_of_the_breakdown_that_changes_any_other_path_is_refused_and_named() {
+    if !sandbox("test_WB_VIEW_77") {
+        return;
+    }
+    // One commit that changes the issue's file and, by git's plumbing, a file of the code.
+    let bench = on_99();
+    let before = bench.head();
+    bench.session(
+        "blob=$(echo evil | git hash-object -w --stdin) && git update-index --cacheinfo \"100644,$blob,src/brake.c\"\n\
+         printf 'issue: 99\\n' > .watchbill/issues/99.yml && git add .watchbill/issues/99.yml && git commit -q -m 'Both'\n",
+    );
+    let run = bench.start(&["start", "breakdown", "99"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("src/brake.c"), "{}", text_of(&run.stderr));
+    assert_eq!(bench.head(), before);
+
+    // The issue's file first, then the file of another issue: the first comes back, the second is refused.
+    let bench = on_99();
+    let before = bench.head();
+    bench.session(
+        "printf 'issue: 99\\n' > .watchbill/issues/99.yml && git add .watchbill/issues/99.yml && git commit -q -m 'The file of 99'\n\
+         printf 'issue: 54\\n' > .watchbill/issues/54.yml && git add .watchbill/issues/54.yml && git commit -q -m 'The file of 54'\n",
+    );
+    let run = bench.start(&["start", "breakdown", "99"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains(".watchbill/issues/54.yml"), "{}", text_of(&run.stderr));
+    assert_eq!(subjects(&bench, 1), vec!["The file of 99"]);
+    assert_eq!(bench.git_text(&["rev-parse", "HEAD~1"]).trim(), before);
+}
+
+#[test]
+fn test_WB_VIEW_78_a_local_change_or_an_untracked_file_anywhere_stops_the_breakdown() {
+    // A file of the code changed, and not committed.
+    let bench = on_99();
+    put(&bench.repo.path, "src/secret.c", "changed here\n");
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "breakdown", "99"]));
+    assert!(err.contains("src/secret.c") && err.contains("guard"), "{}", err);
+    // A file staged, and one deleted.
+    let bench = on_99();
+    put(&bench.repo.path, "include/a.h", "#define A 2\n");
+    git(&bench.repo.path, &["add", "--", "include/a.h"]);
+    fs::remove_file(bench.repo.path.join("build/Makefile")).unwrap();
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "breakdown", "99"]));
+    assert!(err.contains("include/a.h") && err.contains("build/Makefile"), "{}", err);
+    // An untracked file that git does not ignore.
+    let bench = on_99();
+    put(&bench.repo.path, "notes.txt", "mine\n");
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "breakdown", "99"]));
+    assert!(err.contains("notes.txt"), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_78_an_untracked_file_that_git_ignores_does_not_stop_the_breakdown() {
+    let bench = on_99();
+    commit_file(&bench, ".gitignore", "*.o\n");
+    put(&bench.repo.path, "src/brake.o", "an object\n");
+    // The start goes on to the view, which is where no bubblewrap is.
+    let err = text_of(&start_unsandboxed(&bench, &["start", "breakdown", "99"]).stderr);
+    assert!(err.contains("bubblewrap") && !err.contains("guard") && !err.contains("brake.o"), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_79_ignore_local_passes_a_change_that_is_not_the_issue_s_file() {
+    let bench = on_99();
+    put(&bench.repo.path, "src/secret.c", "changed here\n");
+    put(&bench.repo.path, "notes.txt", "mine\n");
+    let err = text_of(&start_unsandboxed(&bench, &["start", "breakdown", "99", "--ignore-local"]).stderr);
+    assert!(err.contains("bubblewrap") && !err.contains("guard"), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_79_no_flag_passes_a_change_to_the_issue_s_file() {
+    // Untracked.
+    let bench = on_99();
+    put(&bench.repo.path, ".watchbill/issues/99.yml", "issue: 99\n");
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "breakdown", "99", "--ignore-local"]));
+    assert!(err.contains(".watchbill/issues/99.yml") && err.contains("cannot be overridden"), "{}", err);
+    // Untracked, and ignored by the checkout.
+    let bench = on_99();
+    commit_file(&bench, ".gitignore", "*.yml\n");
+    put(&bench.repo.path, ".watchbill/issues/99.yml", "issue: 99\n");
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "breakdown", "99", "--ignore-local"]));
+    assert!(err.contains(".watchbill/issues/99.yml") && err.contains("cannot be overridden"), "{}", err);
+    // Changed, where it is in HEAD: the breakdown of 54 again.
+    let bench = self::bench();
+    put(&bench.repo.path, ".watchbill/issues/54.yml", &format!("{}# changed\n", ISSUE_54));
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "breakdown", "54", "--ignore-local"]));
+    assert!(err.contains(".watchbill/issues/54.yml") && err.contains("cannot be overridden"), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_79_the_stamp_of_a_breakdown_that_ignored_local_changes_says_how_many() {
+    if !sandbox("test_WB_VIEW_79") {
+        return;
+    }
+    let bench = on_99();
+    put(&bench.repo.path, "src/secret.c", "changed here\n");
+    put(&bench.repo.path, "notes.txt", "mine\n");
+    ok(&bench.start(&["start", "breakdown", "99", "--ignore-local"]));
+    let posted = bench.left("posted-issue-99");
+    assert_eq!(line_of(&posted, "local").as_deref(), Some("ignored 2"), "{}", posted);
+}
+
+#[test]
+fn test_WB_VIEW_80_a_role_with_no_issue_s_file_runs_in_a_writable_view_of_every_file_of_head() {
+    if !sandbox("test_WB_VIEW_80") {
+        return;
+    }
+    let bench = on_99();
+    bench.session("pwd > {log}/pwd\ngit ls-files > {log}/files\ngit rev-list --all --count > {log}/count\necho x > src/written.c && echo yes > {log}/written\n");
+
+    let run = bench.start(&["start", "build", "99"]);
+
+    ok(&run);
+    assert_eq!(bench.left("pwd").trim(), bench.root());
+    assert_eq!(bench.left("files"), head_paths(&bench));
+    assert_eq!(bench.left("count").trim(), "1");
+    assert_eq!(bench.left("written"), "yes\n");
+    assert!(!bench.repo.path.join("src/written.c").exists());
+    assert!(text_of(&run.stderr).contains("in bubblewrap"), "{}", text_of(&run.stderr));
+}
+
+#[test]
+fn test_WB_VIEW_80_a_review_of_a_change_with_no_issue_runs_in_a_view_of_every_file_of_head() {
+    if !sandbox("test_WB_VIEW_80") {
+        return;
+    }
+    let bench = bench();
+    bench.session("pwd > {log}/pwd\ngit ls-files > {log}/files\ngit rev-list --all --count > {log}/count\n");
+
+    let run = bench.start(&["start", "review", "--change", "174"]);
+
+    ok(&run);
+    assert_eq!(bench.left("pwd").trim(), bench.root());
+    assert_eq!(bench.left("files"), head_paths(&bench));
+    assert_eq!(bench.left("count").trim(), "1");
+}
+
+#[test]
+fn test_WB_VIEW_81_in_the_view_of_a_role_with_no_issue_s_file_watchbill_cannot_be_written() {
+    if !sandbox("test_WB_VIEW_81") {
+        return;
+    }
+    let bench = on_99();
+    let yml = read(&config(&bench.repo.path));
+    bench.session(
+        "echo x >> .watchbill/watchbill.yml 2> /dev/null && echo yes > {log}/yml\n\
+         mkdir -p .watchbill/issues 2> /dev/null; echo x > .watchbill/issues/99.yml 2> /dev/null && echo yes > {log}/issue\n\
+         test -f .watchbill/watchbill.yml && echo yes > {log}/there\n",
+    );
+
+    ok(&bench.start(&["start", "build", "99"]));
+
+    assert_eq!(bench.left("there"), "yes\n");
+    assert_eq!(bench.left("yml"), "");
+    assert_eq!(bench.left("issue"), "");
+    assert_eq!(read(&config(&bench.repo.path)), yml);
+}
+
+#[test]
+fn test_WB_VIEW_82_the_commits_of_a_role_with_no_issue_s_file_come_back_with_the_same_commands() {
+    if !sandbox("test_WB_VIEW_82") {
+        return;
+    }
+    let bench = on_99();
+    with_line(&bench, "draft_change: 'draft-stand-in --head {branch}'");
+    bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\n");
+
+    let run = bench.start(&["start", "build", "99"]);
+
+    ok(&run);
+    assert_eq!(subjects(&bench, 1), vec!["A new file"]);
+    assert_eq!(bench.git_text(&["show", "HEAD:src/new.c"]), "int fresh;\n");
+    let err = text_of(&run.stderr);
+    assert!(err.contains("git show --stat"), "{}", err);
+    assert!(err.contains("git push origin issue-99"), "{}", err);
+    assert!(err.contains("draft-stand-in --head issue-99"), "{}", err);
+    assert!(!bench.at("network").exists());
+
+    // A session that commits nothing gets no command.
+    let bench = on_99();
+    let run = bench.start(&["start", "build", "99"]);
+    ok(&run);
+    assert!(!text_of(&run.stderr).contains("git push"), "{}", text_of(&run.stderr));
+}
+
+#[test]
+fn test_WB_VIEW_83_a_commit_of_a_role_with_no_issue_s_file_under_build_files_or_watchbill_is_refused() {
+    if !sandbox("test_WB_VIEW_83") {
+        return;
+    }
+    let bench = on_99();
+    let before = bench.head();
+    bench.session("echo 'all: evil' > build/Makefile && git commit -q -a -m 'The build'\n");
+    let run = bench.start(&["start", "build", "99"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    assert!(err.contains("build/Makefile") && err.contains("build_files"), "{}", err);
+    assert_eq!(bench.head(), before);
+
+    // Under `.watchbill/`, by git's plumbing, after a commit that keeps to the rule.
+    let bench = on_99();
+    let before = bench.head();
+    bench.session(
+        "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\n\
+         blob=$(echo evil | git hash-object -w --stdin) && git update-index --cacheinfo \"100644,$blob,.watchbill/watchbill.yml\" && git commit -q -m 'Evil'\n",
+    );
+    let run = bench.start(&["start", "build", "99"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains(".watchbill/watchbill.yml"), "{}", text_of(&run.stderr));
+    assert_eq!(subjects(&bench, 1), vec!["A new file"]);
+    assert_eq!(bench.git_text(&["rev-parse", "HEAD~1"]).trim(), before);
+}
+
+#[test]
+fn test_WB_VIEW_84_before_a_view_of_the_whole_tree_starts_it_says_how_many_files_and_bytes() {
+    if !sandbox("test_WB_VIEW_84") {
+        return;
+    }
+    for role in ["build", "breakdown"] {
+        let bench = on_99();
+        let listed = bench.git_text(&["ls-tree", "-r", "-l", "HEAD"]);
+        let files = listed.lines().count();
+        let bytes: u64 = listed.lines().map(|line| line.split_whitespace().nth(3).unwrap().parse::<u64>().unwrap()).sum();
+
+        let run = bench.start(&["start", role, "99"]);
+
+        ok(&run);
+        let err = text_of(&run.stderr);
+        let said = format!("wb start {}: the view holds the whole tree of HEAD: {} files, {} bytes", role, files, bytes);
+        let at = err.lines().position(|line| line == said).unwrap_or_else(|| panic!("{} not in: {}", said, err));
+        let starts = err.lines().position(|line| line.starts_with(&format!("wb start {}: starts {}", role, role))).unwrap();
+        assert!(at < starts, "{}", err);
+    }
+}
+
+#[test]
+fn test_WB_VIEW_88_take_back_takes_a_kept_view_of_the_breakdown_by_its_issue_s_file_alone() {
+    let bench = bench();
+    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-breakdown-54", role: "breakdown", round: 1, commits: &[], uncommitted: &[], outcome: RAN });
+    commit_in(&folder, ".watchbill/issues/54.yml", "issue: '54'\n", "The file again");
+    let run = bench.start(&["start", "breakdown", "54", "--take-back"]);
+    assert_eq!(code(&run), Some(0), "{}", text_of(&run.stderr));
+    assert_eq!(subjects(&bench, 1), vec!["The file again"]);
+
+    let bench = self::bench();
+    let before = bench.head();
+    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-breakdown-54", role: "breakdown", round: 1, commits: &[], uncommitted: &[], outcome: RAN });
+    commit_in(&folder, "src/brake.c", "int brake(void) { return 9; }\n", "The code");
+    let run = bench.start(&["start", "breakdown", "54", "--take-back"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("src/brake.c"), "{}", text_of(&run.stderr));
+    assert_eq!(bench.head(), before);
+    assert!(folder.exists());
+}
+
+#[test]
+fn test_WB_VIEW_88_take_back_takes_a_kept_view_of_a_role_with_no_issue_s_file_by_its_rule() {
+    let bench = bench();
+    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-build-99", role: "build", round: 1, commits: &[], uncommitted: &[], outcome: RAN });
+    commit_in(&folder, "src/other.c", "int other;\n", "Another file");
+    let run = bench.start(&["start", "build", "99", "--take-back"]);
+    assert_eq!(code(&run), Some(0), "{}", text_of(&run.stderr));
+    assert_eq!(subjects(&bench, 1), vec!["Another file"]);
+
+    let bench = self::bench();
+    let before = bench.head();
+    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-build-99", role: "build", round: 1, commits: &[], uncommitted: &[], outcome: RAN });
+    commit_in(&folder, "build/Makefile", "all: evil\n", "The build");
+    let run = bench.start(&["start", "build", "99", "--take-back"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("build/Makefile"), "{}", text_of(&run.stderr));
+    assert_eq!(bench.head(), before);
+}
+
+// ---- The review of #276 (#202) ----
+
+#[test]
+fn test_WB_VIEW_91_a_local_change_stops_a_role_with_no_issue_s_file_and_ignore_local_passes_it() {
+    let bench = on_99();
+    put(&bench.repo.path, "src/secret.c", "changed here\n");
+    put(&bench.repo.path, "notes.txt", "mine\n");
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "99"]));
+    assert!(err.contains("src/secret.c") && err.contains("notes.txt") && err.contains("guard"), "{}", err);
+    // `--ignore-local` passes every one: the start goes on to the view, which is where no bubblewrap is.
+    let err = text_of(&start_unsandboxed(&bench, &["start", "build", "99", "--ignore-local"]).stderr);
+    assert!(err.contains("bubblewrap") && !err.contains("guard"), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_92_a_commit_that_adds_a_path_untracked_in_the_checkout_is_refused_and_nothing_is_written_over() {
+    if !sandbox("test_WB_VIEW_92") {
+        return;
+    }
+    // Ignored in the checkout, so the guard leaves it out.
+    let bench = on_99();
+    commit_file(&bench, ".gitignore", "*.env\n");
+    put(&bench.repo.path, "local.env", "the person's own\n");
+    let before = bench.head();
+    bench.session("echo session > local.env && git add -f local.env && git commit -q -m 'An env'\n");
+    let run = bench.start(&["start", "build", "99"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("local.env"), "{}", text_of(&run.stderr));
+    assert_eq!(read(&bench.repo.path.join("local.env")), "the person's own\n");
+    assert_eq!(bench.head(), before);
+
+    // An ignored file where the commit puts a folder: git takes it as expendable, and would put the folder there.
+    let bench = on_99();
+    commit_file(&bench, ".gitignore", "*.env\n");
+    put(&bench.repo.path, "out.env", "the person's own\n");
+    let before = bench.head();
+    bench.session("mkdir out.env && echo session > out.env/a && git add -f out.env/a && git commit -q -m 'A folder'\n");
+    let run = bench.start(&["start", "build", "99"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("out.env"), "{}", text_of(&run.stderr));
+    assert_eq!(read(&bench.repo.path.join("out.env")), "the person's own\n");
+    assert_eq!(bench.head(), before);
+
+    // An ignored link where the commit puts a folder: the link is looked at, never followed.
+    let bench = on_99();
+    commit_file(&bench, ".gitignore", "*.env\n");
+    let elsewhere = folder_named("elsewhere");
+    std::os::unix::fs::symlink(&elsewhere.path, bench.repo.path.join("link.env")).unwrap();
+    let before = bench.head();
+    bench.session("mkdir link.env && echo session > link.env/a && git add -f link.env/a && git commit -q -m 'Through a link'\n");
+    let run = bench.start(&["start", "build", "99"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("link.env"), "{}", text_of(&run.stderr));
+    assert!(fs::symlink_metadata(bench.repo.path.join("link.env")).unwrap().file_type().is_symlink());
+    assert_eq!(fs::read_dir(&elsewhere.path).unwrap().count(), 0);
+    assert_eq!(bench.head(), before);
+
+    // Not ignored, and passed by `--ignore-local`.
+    let bench = on_99();
+    put(&bench.repo.path, "notes.txt", "mine\n");
+    let before = bench.head();
+    bench.session("echo session > notes.txt && git add notes.txt && git commit -q -m 'Notes'\n");
+    let run = bench.start(&["start", "build", "99", "--ignore-local"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("notes.txt"), "{}", text_of(&run.stderr));
+    assert_eq!(read(&bench.repo.path.join("notes.txt")), "mine\n");
+    assert_eq!(bench.head(), before);
+}
+
+#[test]
+fn test_WB_VIEW_93_take_back_refuses_where_the_stamp_s_view_and_head_differ() {
+    // The stamp says no list, and HEAD's issue's file gives one.
+    let bench = bench();
+    let before = bench.head();
+    let (folder, session) = kept_tester(&bench);
+    commit_in(&folder, "src/brake.c", "int brake(void) { return 7; }\n", "Tests");
+    fs::write(session.join("stamp"), "[stamp] tester round 1\nview: none\n").unwrap();
+    let run = take_back(&bench, &[]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("view: none"), "{}", text_of(&run.stderr));
+    assert_eq!(bench.head(), before);
+    assert!(folder.exists());
+
+    // The issue's file is taken out of HEAD after the view was made: the rule its session ran under is not known.
+    let bench = self::bench();
+    let (folder, _) = kept_tester(&bench);
+    commit_in(&folder, "src/brake.c", "int brake(void) { return 8; }\n", "Tests");
+    git(&bench.repo.path, &["rm", "-q", "--", ".watchbill/issues/54.yml", ".watchbill/issues/54.accepted"]);
+    git(&bench.repo.path, &["commit", "-q", "-m", "No file"]);
+    let before = bench.head();
+    let run = take_back(&bench, &[]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("view: none"), "{}", text_of(&run.stderr));
+    assert_eq!(bench.head(), before);
+}
+
+#[test]
+fn test_WB_PROMPT_72_the_breakdown_s_stamp_holds_the_level_after_the_view_line() {
+    let bench = bench();
+    let run = prompt_with(&bench.repo.path, &bench.organisation(), &["breakdown", "54", "--runner", "stand-in", "--round", "1", "--stamp"]);
+    ok(&run);
+    let stamp = text_of(&run.stdout);
+    let names: Vec<&str> = stamp.lines().map(|line| line.split(':').next().unwrap()).collect();
+    let view = names.iter().position(|name| *name == "view").unwrap();
+    assert_eq!(names[view + 1], "level", "{}", stamp);
+    assert_eq!(line_of(&stamp, "level").as_deref(), Some("public"), "{}", stamp);
+}
+
+#[test]
+fn test_WB_PROMPT_72_the_posted_stamp_of_a_role_with_no_issue_s_file_holds_the_level() {
+    if !sandbox("test_WB_PROMPT_72") {
+        return;
+    }
+    let bench = on_99();
+    ok(&bench.start(&["start", "build", "99"]));
+    let posted = bench.left("posted-issue-99");
+    assert_eq!(line_of(&posted, "level").as_deref(), Some("public"), "{}", posted);
 }

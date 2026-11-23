@@ -927,16 +927,14 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
         Ok(found) => found,
         Err(why) => return Err(refused(err, &why)),
     };
-    // The level goes in the stamp of a session that runs in a view (#209), from the same place `--parts` has it.
-    let level = match view_paths_of(role, file.as_ref()) {
-        Some(_) => {
-            let (level, why) = stamp_level(&root, organisation);
-            if let Some(why) = why {
-                let _ = writeln!(err, "{}: the level of the stamp is {}: {}", name, level, why);
-            }
-            Some(level)
+    // The level goes in the stamp of every session, as every session runs in a view (#209, #202), from the same place
+    // `--parts` has it.
+    let level = {
+        let (level, why) = stamp_level(&root, organisation);
+        if let Some(why) = why {
+            let _ = writeln!(err, "{}: the level of the stamp is {}: {}", name, level, why);
         }
-        None => None,
+        Some(level)
     };
     Ok(Handed { root, values, found, cleared, file, requirements_given, stamps: worked.stamps, level })
 }
@@ -985,16 +983,66 @@ fn stamp_of(role: &str, handed: &Handed, runner: &str, local: Option<usize>, kep
     Ok(prompt::stamp(&said, &given, &handed.found))
 }
 
-/// The local changes the view of a session of `role` would miss (#172): none looked for where the session runs
-/// without a view.
+/// The local changes the view of a session of `role` would miss (#172): over the whole checkout for the breakdown
+/// (#202), its issue's file as its `changes`, and for a role with no issue's file, which `--ignore-local` passes.
 fn local_of(role: &str, handed: &Handed, root: &str) -> Option<Result<Vec<view::Local>, String>> {
-    let file = handed.file.as_ref()?;
-    issue::ROLES.contains(&role).then(|| view::local_changes(root, &file.issue, role))
+    if role == "breakdown" {
+        let issue = value_of(&handed.values, "issue")?;
+        return Some(view::local_changes_whole(root, Some(&issue_file_of(issue))));
+    }
+    match handed.file.as_ref() {
+        Some(file) if issue::ROLES.contains(&role) => Some(view::local_changes(root, &file.issue, role)),
+        _ => Some(view::local_changes_whole(root, None)),
+    }
+}
+
+/// Why the runner's `program`, where it is named by its path, cannot be found inside the sandbox, if it cannot: it
+/// lies, as written or as resolved, under none of the system's folders the sandbox holds (`view::SYSTEM`) and none of
+/// the runner's `binds`.
+fn outside_the_sandbox(program: &str, binds: &[(std::path::PathBuf, bool)]) -> Option<String> {
+    if !program.starts_with('/') {
+        return None;
+    }
+    let held: Vec<String> = view::SYSTEM.iter().map(|folder| folder.to_string()).chain(binds.iter().map(|(path, _)| path.display().to_string())).collect();
+    let inside = |path: &str| {
+        let parts = starter::parts(path);
+        held.iter().any(|folder| {
+            let folder = starter::parts(folder);
+            !folder.is_empty() && parts.len() >= folder.len() && parts[..folder.len()] == folder[..]
+        })
+    };
+    let real = std::fs::canonicalize(program).map(|path| path.display().to_string()).unwrap_or_else(|_| program.to_string());
+    (!inside(program) || !inside(&real)).then(|| {
+        format!(
+            "the runner's program {} lies outside what the sandbox holds ({} and the runner's `binds`), so no session can be started with it",
+            program.escape_debug(),
+            view::SYSTEM.join(", ")
+        )
+    })
+}
+
+/// The issue's file of `issue`, from the root, as the breakdown writes it.
+fn issue_file_of(issue: &str) -> String {
+    format!("{}/{}.yml", issue::FOLDER, issue)
+}
+
+/// What may come back from the view of a session of `role` (#202): for the breakdown its issue's file alone, for a
+/// role with an issue's file its `changes`, and for any other session every path but `.watchbill/` and
+/// `build_files`.
+fn allowed_of(role: &str, file: Option<&issue::Used>, issue: Option<&str>) -> view::Allowed {
+    if role == "breakdown" {
+        return view::Allowed::IssueFile(issue_file_of(issue.unwrap_or_default()));
+    }
+    match file {
+        Some(file) if issue::ROLES.contains(&role) => view::Allowed::Changes(file.issue.changes.clone()),
+        _ => view::Allowed::Whole,
+    }
 }
 
 /// The paths of the view a session of `role` runs in (#126): those of the issue's file for the role, when the
-/// role is one the file lists paths for and a file is used. `None`: the session runs without a view, as the
-/// breakdown, which reads the whole code by its role, and a role started with no issue's file (#116) do.
+/// role is one the file lists paths for and a file is used. `None`: the session runs in a view of every file of
+/// `HEAD` (#202), as the breakdown, which reads the whole code by its role, and a role started with no issue's file
+/// (#116) do.
 fn view_paths(role: &str, handed: &Handed) -> Option<Vec<String>> {
     view_paths_of(role, handed.file.as_ref())
 }
@@ -1280,6 +1328,19 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         );
         return refused(&mut lines, err, "start", &why);
     }
+    // In the sandbox a program that is not there is said only on the terminal, by `env`: one named by its path is
+    // looked for first, before anything is posted (#202).
+    if let Some(program) = filled.first().filter(|program| program.starts_with('/')) {
+        if !Path::new(program).is_file() {
+            let why = format!(
+                "the runner's program {} is not there, so no session can be started with it. Install it, or change `start` of the runner '{}' in the organisation's file {}",
+                program.escape_debug(),
+                runner,
+                organisation.display()
+            );
+            return refused(&mut lines, err, "start", &why);
+        }
+    }
     // 5. A terminal: no session is started out of a person's sight before the sandbox (#65).
     if !terminal {
         return refused(
@@ -1313,9 +1374,9 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
             }
         }
     }
-    // 7. The view (#126): a session of an issue with an accepted file runs in one, in bubblewrap. A local change to
-    // a file of it stops the start (#172) before its binds, the sandbox and the view itself are made sure of; none
-    // of it is posted.
+    // 7. The view (#126): every session runs in one, in bubblewrap (#202): of the paths of its issue's file, or of
+    // every file of `HEAD`. A local change to a file of it stops the start (#172) before its binds, the sandbox and
+    // the view itself are made sure of; none of it is posted.
     match &local {
         Some(Err(why)) => return refused(&mut lines, err, "local", &format!("the local changes to the view could not be looked at: {}", why)),
         Some(Ok(found)) if !found.is_empty() && ignored.is_none() => {
@@ -1324,19 +1385,24 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         _ => {}
     }
     let paths = view_paths(role, &handed);
-    let mut prepared: Option<Prepared> = None;
-    if let Some(paths) = &paths {
-        match prepare_view(root, role, words.get("issue"), paths, &chosen.binds, machine) {
-            Ok(found) => prepared = Some(found),
-            Err(why) => return refused(&mut lines, err, "view", &why),
-        }
-    }
-    // A view made and not run in is removed, whatever ends the start.
-    let discard = |prepared: &Option<Prepared>| {
-        if let Some(prepared) = prepared {
-            view::discard(&prepared.view);
-        }
+    let layout = match (role, &paths) {
+        ("breakdown", _) => view::Layout::Breakdown,
+        (_, Some(_)) => view::Layout::Listed,
+        (_, None) => view::Layout::Whole,
     };
+    let prepared = match prepare_view(root, role, words.get("issue"), paths.as_deref(), &chosen.binds, machine) {
+        Ok(found) => found,
+        Err(why) => return refused(&mut lines, err, "view", &why),
+    };
+    // A view made and not run in is removed, whatever ends the start.
+    let discard = |prepared: &Prepared| view::discard(&prepared.view);
+    // A program named by its path lies under what the sandbox holds, as it is there: the system's folders and the
+    // runner's binds, once they are made sure of (#202).
+    if let Some(why) = filled.first().and_then(|program| outside_the_sandbox(program, &prepared.binds)) {
+        discard(&prepared);
+        let why = format!("{}. Bind it in `binds` of the runner '{}' in the organisation's file {}", why, runner, organisation.display());
+        return refused(&mut lines, err, "start", &why);
+    }
     // The pattern that posts the stamp. From here, a fault leaves the stamp not posted, and no view.
     let not_posted = |lines: &mut sessions::Lines, err: &mut dyn Write, why: &str| {
         discard(&prepared);
@@ -1362,10 +1428,8 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     }
     // Where the view is, and what it was made from (#222): a `wb` ended before its session leaves no `back`, and the
     // view is found by this file.
-    if let Some(prepared) = &prepared {
-        if let Some(text) = kept::folder_text(&prepared.view, words.get("issue")) {
-            lines.write("folder", &text, err);
-        }
+    if let Some(text) = kept::folder_text(&prepared.view, words.get("issue")) {
+        lines.write("folder", &text, err);
     }
     if let (Some(Ok(found)), Some(_)) = (&local, ignored) {
         let named: String = found.iter().map(|local| format!("{}\n", issue::shown(&local.path))).collect();
@@ -1384,58 +1448,48 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
             return 1;
         }
     }
-    // Where the checkout's branch stands, to see after a session with no view whether it committed (#145).
-    let before = if prepared.is_none() { view::branch_of(root).ok() } else { None };
     let began = std::time::Instant::now();
     // The signals stay held until the commits are taken back and `back` and `outcome` are written (#221).
     let _held = interrupt::hold();
     // `outcome` says `running` first (#222): a `wb` that is ended before its session leaves it so.
     lines.running(err);
-    let ran = match &prepared {
-        None => {
-            // A role started with no issue's file (#116) runs as in revision 0.0.8, and the person is told (#126).
-            if role != "breakdown" {
-                let _ = writeln!(
-                    err,
-                    "{}: there is no issue's file, so the session runs without a view: it sees the whole checkout and its history, and the limits of its prompt rest on the prompt alone",
-                    name
-                );
-            }
-            let _ = writeln!(err, "{}: starts {} on the runner {}, in {}", name, role, runner, root);
-            starter::session(root, &filled)
-        }
-        Some(prepared) => {
+    // A view of the whole tree (#202) is said: what it holds, and for a role with no issue's file what it is not.
+    if let Some(size) = &prepared.size {
+        let _ = writeln!(err, "{}: the view holds the whole tree of HEAD: {} files, {} bytes", name, size.files, size.bytes);
+        if layout == view::Layout::Whole {
             let _ = writeln!(
                 err,
-                "{}: starts {} on the runner {}, in a view of {} at {}, in bubblewrap",
-                name,
-                role,
-                runner,
-                prepared.view.folder.display(),
-                root
+                "{}: there is no issue's file, so the session runs in a view of every file of HEAD, with .watchbill/ read-only and no history: a change not committed is not in it, and the limits of its prompt on what it reads rest on the prompt alone",
+                name
             );
-            let organisation_folder = organisation.parent().filter(|folder| folder.is_dir());
-            let plan = view::Plan {
-                view: &prepared.view.folder,
-                checkout: Path::new(root),
-                binds: prepared.binds.clone(),
-                organisation: organisation_folder,
-                home: machine.home,
-                new_session: view::new_session(),
-                words: &filled,
-            };
-            view::run_saying(machine.sandbox, &plan, name, err)
         }
+    }
+    let _ = writeln!(
+        err,
+        "{}: starts {} on the runner {}, in a view of {} at {}, in bubblewrap",
+        name,
+        role,
+        runner,
+        prepared.view.folder.display(),
+        root
+    );
+    let organisation_folder = organisation.parent().filter(|folder| folder.is_dir());
+    let plan = view::Plan {
+        view: &prepared.view.folder,
+        checkout: Path::new(root),
+        binds: prepared.binds.clone(),
+        organisation: organisation_folder,
+        home: machine.home,
+        new_session: view::new_session(),
+        words: &filled,
     };
-    let status = match ran {
+    let status = match view::run_in(machine.sandbox, &plan, layout, name, err) {
         Ok(status) => status,
         Err(why) => {
             let _ = writeln!(err, "{}: {}", name, why);
-            if let Some(prepared) = &prepared {
-                let back = view::Back { failed: Some(why.clone()), ..Default::default() };
-                let kept = view::tidy(name, &prepared.view, &back, err);
-                lines.write("back", &back.text(kept.as_deref()), err);
-            }
+            let back = view::Back { failed: Some(why.clone()), ..Default::default() };
+            let kept = view::tidy(name, &prepared.view, &back, err);
+            lines.write("back", &back.text(kept.as_deref()), err);
             lines.close(None, sessions::Outcome::Refused { check: "start", status: 1, message: why }, err);
             return 1;
         }
@@ -1445,31 +1499,21 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     if code != 0 {
         let _ = writeln!(err, "{}: the session did not end with 0", name);
     }
-    // What the session committed in its view comes back onto the branch, as far as it keeps to `changes`.
-    if let (Some(prepared), Some(file)) = (&prepared, &handed.file) {
-        let list = lines.file("back");
-        let back = view::take_back(name, root, &prepared.view, &file.issue.changes, &prepared.build_files, list.as_deref(), err);
-        let kept = view::tidy(name, &prepared.view, &back, err);
-        lines.write("back", &back.text(kept.as_deref()), err);
-        if back.refused_any() {
-            code = 1;
-        }
-        if !back.taken.is_empty() {
-            // How to look at what was taken (#159): the commits keep who wrote them, the tests, the checks.
-            for (commit, _) in &back.taken {
-                let _ = writeln!(err, "{}: to see what the commit changes, run:\n  git show --stat {}", name, commit);
-            }
-            say_push(name, role, root, prepared.view.branch_name(), err);
-        }
+    // What the session committed in its view comes back onto the branch, as far as it keeps to what may come back.
+    let allowed = allowed_of(role, handed.file.as_ref(), words.get("issue"));
+    let list = lines.file("back");
+    let back = view::take_back(name, root, &prepared.view, &allowed, &prepared.build_files, list.as_deref(), err);
+    let kept = view::tidy(name, &prepared.view, &back, err);
+    lines.write("back", &back.text(kept.as_deref()), err);
+    if back.refused_any() {
+        code = 1;
     }
-    // Without a view (#116), the tester, the build and the fix commit in the checkout: the same commands are said
-    // when the branch checked out has new commits (#145).
-    if let (None, Some((branch, head)), true) = (&prepared, &before, COMMITTED.contains(&role)) {
-        if let Ok((now_branch, now)) = view::branch_of(root) {
-            if now_branch == *branch && now != *head {
-                say_push(name, role, root, branch.strip_prefix("refs/heads/").unwrap_or(branch), err);
-            }
+    if !back.taken.is_empty() {
+        // How to look at what was taken (#159): the commits keep who wrote them, the tests, the checks.
+        for (commit, _) in &back.taken {
+            let _ = writeln!(err, "{}: to see what the commit changes, run:\n  git show --stat {}", name, commit);
         }
+        say_push(name, role, root, prepared.view.branch_name(), err);
     }
     lines.close(None, sessions::Outcome::Ended { status, seconds }, err);
     code
@@ -1516,12 +1560,37 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
         Ok(kept) => kept,
         Err(why) => return refuse(err, &why),
     };
-    // What may come back: the issue's accepted file, and the build files of watchbill.yml, as at the end of a session.
-    let file = match issue::for_prompt(Path::new(&root), issue) {
-        Ok(Some(file)) if issue::ROLES.contains(&role) => file,
-        Ok(_) => return refuse(err, &format!("issue {} has no accepted file with a view for the {}, so what may come back is not known", issue::shown(issue), role)),
-        Err(why) => return refuse(err, &why),
+    // What may come back, as at the end of a session: by the issue's accepted file, or by the rule of the breakdown
+    // or of a role with no issue's file (#202); never the build files of watchbill.yml. The rule is the one the
+    // session ran under, as its stamp's `view:` says it: where HEAD now gives another, nothing is taken.
+    let file = if role == "breakdown" {
+        None
+    } else {
+        match issue::for_prompt(Path::new(&root), issue) {
+            Ok(file) => file,
+            Err(why) => return refuse(err, &why),
+        }
     };
+    let stamped = crate::bounded::read_plain(&kept.session.join("stamp"), crate::bounded::TEXT_CAP)
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .and_then(|text| text.lines().find_map(|line| line.strip_prefix("view: ").map(str::to_string)));
+    let now = view_hash(role, file.as_ref());
+    match stamped {
+        Some(stamped) if stamped == now => {}
+        Some(stamped) => {
+            return refuse(
+                err,
+                &format!(
+                    "the stamp of the kept view says `view: {}`, and the issue's file in HEAD gives `view: {}`: the rule its session ran under is not the one HEAD gives, so nothing is taken back",
+                    issue::shown(&stamped),
+                    now
+                ),
+            )
+        }
+        None => return refuse(err, "the stamp of the kept view has no line `view:` that can be read, so what may come back is not known, and nothing is taken back"),
+    }
+    let allowed = allowed_of(role, file.as_ref(), Some(issue));
     let build_files = match starter::settings(&root).and_then(|settings| issue::build_files_of(&settings)) {
         Ok(found) => found.unwrap_or_default(),
         Err(why) => return refuse(err, &why),
@@ -1552,7 +1621,7 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
         let _ = writeln!(err, "{}:   uncommitted, and not taken: {}", name, issue::shown(path));
     }
     let list = kept.session.join("back");
-    let back = view::take_back_later(name, &root, &kept.view, &file.issue.changes, &build_files, total, Some(&list), err);
+    let back = view::take_back_later_of(name, &root, &kept.view, &allowed, &build_files, total, Some(&list), err);
     let still = view::tidy(name, &kept.view, &back, err);
     let written = sessions::append_back(&kept.session, &format!("take-back\n{}", back.text(still.as_deref())));
     if let Err(error) = &written {
@@ -1571,9 +1640,6 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
         1
     }
 }
-
-/// The roles whose sessions commit on the branch, and push nothing (#145).
-const COMMITTED: [&str; 3] = ["tester", "build", "fix"];
 
 /// Says the command that pushes `branch` and, after a build, the command that opens the change as a draft: the
 /// pattern `draft_change` of `watchbill.yml`, filled. `wb` runs neither (#145): a person does.
@@ -1598,22 +1664,24 @@ fn say_push(name: &str, role: &str, root: &str, branch: &str, err: &mut dyn Writ
     }
 }
 
-/// A view made for a session, before it is posted: the view, the runner's binds as paths, and `build_files` of
-/// `watchbill.yml`.
+/// A view made for a session, before it is posted: the view, the runner's binds as paths, `build_files` of
+/// `watchbill.yml`, and for a view of the whole tree (#202) its files and bytes.
 struct Prepared {
     view: view::View,
     binds: Vec<(std::path::PathBuf, bool)>,
     build_files: Vec<String>,
+    size: Option<view::Size>,
 }
 
 /// Makes sure of what a session in a view needs, and makes the view (#126): the runner's binds, each from the
 /// root and holding neither the checkout, the folder of the organisation's file nor the state folder; a state
-/// folder to make the view below; bubblewrap that can make a sandbox; `build_files`. The error says why not.
+/// folder to make the view below; bubblewrap that can make a sandbox; `build_files`. The view is of `paths`, or of
+/// every file of `HEAD` where they are none (#202). The error says why not.
 fn prepare_view(
     root: &str,
     role: &str,
     issue: Option<&str>,
-    paths: &[String],
+    paths: Option<&[String]>,
     binds: &[confidentiality::Bind],
     machine: &Machine,
 ) -> Result<Prepared, String> {
@@ -1668,8 +1736,12 @@ fn prepare_view(
     let build_files = issue::build_files_of(&settings)?.unwrap_or_default();
     let time = now().map(|seconds| prompt::utc(seconds).replace(':', ""))?;
     let base = format!("{}-{}-{}", time, role, issue.unwrap_or("none"));
-    let made = view::make(root, paths, &state.join("watchbill").join("views"), &base)?;
-    Ok(Prepared { view: made, binds: resolved, build_files })
+    let below = state.join("watchbill").join("views");
+    let (made, size) = match paths {
+        Some(paths) => (view::make(root, paths, &below, &base)?, None),
+        None => view::make_whole(root, &below, &base).map(|(made, size)| (made, Some(size)))?,
+    };
+    Ok(Prepared { view: made, binds: resolved, build_files, size })
 }
 
 /// `wb accept <issue>`: accepts the issue's file (`issue::accept`).
@@ -1876,7 +1948,7 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
         1
     };
     if role == Some("breakdown") {
-        return refused(err, "the breakdown runs without a view: it reads the whole code by its role");
+        return refused(err, "the breakdown runs in a view of every file of HEAD, where only .watchbill/issues/ is writable: it reads the whole code by its role, and has no list of paths");
     }
     let settings = match starter::settings(&root) {
         Ok(settings) => settings,
@@ -1891,7 +1963,7 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
         Ok(Some(file)) => file,
         Ok(None) => {
             let why = format!(
-                "the issue {} has no file {}/{}.yml, so {} would run without a view: it sees the whole checkout and its history",
+                "the issue {} has no file {}/{}.yml, so {} would run in a view of every file of HEAD, with .watchbill/ read-only and no history",
                 issue,
                 issue::FOLDER,
                 issue,
@@ -1899,10 +1971,10 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
             );
             return refused(err, &why);
         }
-        Err(why) => return refused(err, &why.replace(not_started, "wb start refuses it, so no session of it runs, in a view or without.")),
+        Err(why) => return refused(err, &why.replace(not_started, "wb start refuses it, so no session of it runs.")),
     };
     if let Err(why) = issue::committed(Path::new(&root), issue) {
-        return refused(err, &why.replace(not_started, "wb start refuses it, so no session of it runs, in a view or without."));
+        return refused(err, &why.replace(not_started, "wb start refuses it, so no session of it runs."));
     }
     let Some(role) = role else {
         // `wb view <issue> <path>`: for each role with a view, in or out, and why.

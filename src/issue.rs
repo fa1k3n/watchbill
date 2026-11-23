@@ -617,8 +617,14 @@ pub fn accept(root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &
         return crate::refusal::limit(err, "wb accept", format_args!("{} is there already, and is never written over. To accept the file again, remove it first. Nothing written.", shown_accepted));
     }
     if commit {
-        if let Err(why) = ready_to_commit(root, issue) {
-            return crate::refusal::guard(err, "wb accept", "--no-commit", format_args!("{} Nothing written. Or give --no-commit to write the acceptance and commit nothing.", why));
+        match ready_to_commit(root, issue) {
+            Ok(()) => {}
+            Err(NotReady::Fault(why)) => {
+                return crate::refusal::limit(err, "wb accept", format_args!("{} Nothing written. --no-commit skips the commit, and this with it: it writes the acceptance and commits nothing.", why));
+            }
+            Err(NotReady::Guard(why)) => {
+                return crate::refusal::guard(err, "wb accept", "--no-commit", format_args!("{} Nothing written. Or give --no-commit to write the acceptance and commit nothing.", why));
+            }
         }
     }
     let identity = git_value(root, "user.name").and_then(|name| git_value(root, "user.email").map(|email| (name, email)));
@@ -761,40 +767,50 @@ fn current_branch(root: &str) -> Option<String> {
 /// What must hold before the acceptance is written, when it is to be committed (#157): the checkout is on
 /// the branch of the issue, by the pattern `branch`, and the issue's file is committed in `HEAD` and the
 /// same in the working tree.
-fn ready_to_commit(root: &str, issue: &str) -> Result<(), String> {
+fn ready_to_commit(root: &str, issue: &str) -> Result<(), NotReady> {
     let pattern = crate::prompt::pattern_of(root, "branch")
-        .map_err(|why| why.to_string().replace(&format!("{}/", root.trim_end_matches('/')), ""))?
+        .map_err(|why| NotReady::Fault(why.to_string().replace(&format!("{}/", root.trim_end_matches('/')), "")))?
         .filter(|pattern| pattern.contains("{issue}"))
-        .ok_or_else(|| "watchbill.yml has no pattern `branch` with {issue}, so the branch of the issue is not known.".to_string())?;
+        .ok_or_else(|| NotReady::Fault("watchbill.yml has no pattern `branch` with {issue}, so the branch of the issue is not known.".to_string()))?;
     let expected = pattern.replace("{issue}", issue);
     match current_branch(root) {
         Some(branch) if crate::status::is_of(&pattern, issue, &branch) => {}
         Some(branch) => {
-            return Err(format!(
+            return Err(NotReady::Guard(format!(
                 "the checkout is on the branch {}, not on the branch of the issue, {} (the pattern `branch`: {}). Switch to it first.",
                 shown(&branch),
                 expected,
                 pattern
-            ))
+            )))
         }
         None => {
-            return Err(format!("the checkout is on no branch, not on the branch of the issue, {} (the pattern `branch`: {}). Switch to it first.", expected, pattern))
+            return Err(NotReady::Guard(format!(
+                "the checkout is on no branch, not on the branch of the issue, {} (the pattern `branch`: {}). Switch to it first.",
+                expected, pattern
+            )))
         }
     }
     let path = format!("{}/{}.yml", FOLDER, issue);
-    let ask = |args: &[&str]| -> Result<bool, String> {
+    let ask = |args: &[&str]| -> Result<bool, NotReady> {
         let mut all = vec!["-C", root];
         all.extend(args);
-        crate::detect::git_output(&all, None).map(|run| run.status.success()).ok_or_else(|| "git could not be run.".to_string())
+        crate::detect::git_output(&all, None).map(|run| run.status.success()).ok_or_else(|| NotReady::Fault("git could not be run.".to_string()))
     };
     let todo = format!("Commit it alone on the branch of the issue first: git add {} && git commit -m \"The issue's file ({})\" -- {}.", path, issue, path);
     if !ask(&["cat-file", "-e", &format!("HEAD:{}", path)])? {
-        return Err(format!("the issue's file {} is not committed in HEAD. {} The acceptance holds for the file as the history has it.", path, todo));
+        return Err(NotReady::Guard(format!("the issue's file {} is not committed in HEAD. {} The acceptance holds for the file as the history has it.", path, todo)));
     }
     if !ask(&["diff", "--quiet", "HEAD", "--", &path])? {
-        return Err(format!("the issue's file {} differs from HEAD. {} The acceptance holds for the file as the history has it.", path, todo));
+        return Err(NotReady::Guard(format!("the issue's file {} differs from HEAD. {} The acceptance holds for the file as the history has it.", path, todo)));
     }
     Ok(())
+}
+
+/// Why the acceptance cannot be committed by `wb accept`: a fault, where the commit cannot be made here at all, or a
+/// guard, where the checkout is not as the commit needs it. `--no-commit` skips the commit, and both with it (#180).
+enum NotReady {
+    Fault(String),
+    Guard(String),
 }
 
 /// Commits the acceptance of the issue alone: `git add` of the one file, then `git commit --only` of it,

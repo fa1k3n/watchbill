@@ -23,8 +23,8 @@ The words `wb` and its documents use, one line each, and how they are like git. 
 - **Pattern:** a shell line in `watchbill.yml` that asks the tracker or the git server.
 - **Adapter:** a file for each tool that gives every pattern. Proposed, not built.
 - **The lines:** the local folder each start leaves: the stamp and the outcome.
-- **Limit:** a refusal that protects the process. Never overridable.
-- **Guard:** a refusal that protects a person's time. Overridable, by a flag named for it. In 0.10.0 the one flag is `--ignore-local`. The rule for every refusal is #180, planned for 0.11.0.
+- **Limit:** a refusal that protects the process, or a fault `wb` cannot go past, such as a pattern that failed or a file that cannot be written. Never passed by a flag. Said as `<command>: limit: <why>` (#180).
+- **Guard:** a refusal that protects a person's time, passed by the flag named for it, and by that flag alone. Said as `<command>: guard: <why>`, naming the flag (#180). The flags are `--ignore-local` (a local change under `reads`) and `--ignore-kept` (a kept view) of `wb start`, and `--no-commit` of `wb accept` (the checks of its commit). After `--no-commit` the acceptance is written and not committed, and the limit of #97 still holds: no prompt is handed out and no session started until the issue's file and its acceptance are committed.
 - **Plumbing and porcelain:** output that is fixed, for scripts, and wording, for people.
 - **Captain:** the person who decides what is built.
 - **Officer:** the watch officer, the agent role that is given issues and hands them on. Not built (#86, planned for 0.12.0).

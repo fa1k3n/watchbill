@@ -557,7 +557,8 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
                         questions.len()
                     );
                     let _ = out.flush();
-                    // not a refusal: the person ended the input before every question was answered.
+                    // The person ended the input before every question was answered: not a refusal.
+                    crate::refusal::answer();
                     1
                 };
                 loop {

@@ -487,13 +487,15 @@ pub fn init(
             Ok(None) => {
                 // No answer at all, because the input ended, is no yes.
                 talk.say("Nothing written.");
-                // not a refusal: the person gave no yes.
+                // The person gave no yes: not a refusal.
+                crate::refusal::answer();
                 return 1;
             }
             Ok(Some(answer)) => {
                 if !["", "y", "yes"].contains(&strip(&answer).to_lowercase().as_str()) {
                     talk.say("Nothing written.");
-                    // not a refusal: the person answered no.
+                    // The person answered no: not a refusal.
+                    crate::refusal::answer();
                     return 1;
                 }
             }

@@ -518,7 +518,7 @@ pub fn upgrade(root: &str, version: &str, package: &Path, dry_run: bool, out: &m
         return crate::refusal::limit(err, "wb upgrade", format_args!("cannot write {}: {}. What it had written is put back. Nothing written.", shown.display(), error));
     }
     let _ = writeln!(out, "\nWritten.\n\nThe check of wb check:");
-    // The check after the upgrade is an answer, not a refusal: it ends with 1 where it does not hold.
+    // not a refusal: the check after the upgrade is an answer, which `check` marks; it ends with 1 where it does not hold.
     let checked = crate::check::check(root, version, package, out, err);
     let _ = writeln!(
         out,

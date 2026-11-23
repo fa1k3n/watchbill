@@ -221,9 +221,11 @@ pub fn guarded(body: impl FnOnce() -> i32, err: &mut dyn Write) -> i32 {
     std::panic::set_hook(Box::new(|_| {}));
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)) {
         Ok(code) => code,
+        // In a test build a 1 neither said nor marked (#180) ends the program with no status, so no test passes it.
+        Err(payload) if cfg!(debug_assertions) && payload.downcast_ref::<&str>() == Some(&refusal::FAULT) => std::process::abort(),
         Err(_) => {
             let _ = writeln!(err, "wb: an internal error. This is a fault in wb, not in what it was given.");
-            // not a refusal: a fault in wb itself.
+            // not a refusal: a fault in wb itself, after the command; `refusal::ended` is not reached.
             1
         }
     }
@@ -293,7 +295,14 @@ fn named(found: Word, parser: &mut Parser) -> String {
 
 /// Runs `wb` with the words after its name and returns the exit status:
 /// 0 it holds or it is done, 1 it does not hold or it was refused, 2 it was used wrongly.
+/// Every command's status passes `refusal::ended` (#180).
 pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    refusal::begin();
+    let code = run_command(args, input, out, err);
+    refusal::ended(code, err)
+}
+
+fn run_command(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     // A failed write, such as a closed pipe, does not change what the command ended with.
     let mut parser = Parser::from_args(args.iter().cloned());
     // The first word is the command. `-h` and `-v` are taken only alone, so an option there that is
@@ -506,7 +515,9 @@ fn run_upgrade(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) ->
 /// (`confidentiality::ORGANISATION_FILE`); this is so that a test can give its own, as `revision` does (#93).
 /// The variables `GIT_*` of this process are not handed to git here: `folder` alone says the repository.
 pub fn prompt(args: &[OsString], folder: &Path, organisation: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    run_prompt(&mut Parser::from_args(args.iter().cloned()), Some(folder), organisation, out, err)
+    refusal::begin();
+    let code = run_prompt(&mut Parser::from_args(args.iter().cloned()), Some(folder), organisation, out, err);
+    refusal::ended(code, err)
 }
 
 /// `wb start <role>`, with the role and the words after it, in the repository of `folder`, with the organisation's
@@ -551,6 +562,12 @@ fn home_folder() -> Option<std::path::PathBuf> {
 
 /// `wb start <role>`, as `start` runs it, on the machine `machine` says.
 pub fn start_on(args: &[OsString], folder: &Path, machine: &Machine, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    refusal::begin();
+    let code = start_words(args, folder, machine, out, err);
+    refusal::ended(code, err)
+}
+
+fn start_words(args: &[OsString], folder: &Path, machine: &Machine, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let mut parser = Parser::from_args(args.iter().cloned());
     match next(&mut parser) {
         Ok(Some(Word::Value(value))) if value.to_str() == Some("start") => run_start_word(&mut parser, Some(folder), machine, out, err),
@@ -1493,7 +1510,10 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         }
     };
     let seconds = began.elapsed().as_secs();
-    // A session that did not end with 0 is no refusal: it is said, and the start ends with 1.
+    if !status.success() {
+        refusal::answer();
+    }
+    // not a refusal: a session that did not end with 0 is an answer, marked above, and it is said below.
     let mut code = if status.success() { 0 } else { 1 };
     if code != 0 {
         let _ = writeln!(err, "{}: the session did not end with 0", name);
@@ -1841,7 +1861,9 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
 /// `organisation`: `run` gives the folder it runs in and the path fixed in `wb`; this is so that a test can give
 /// its own, as `prompt` does.
 pub fn view_command(args: &[OsString], folder: &Path, organisation: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    run_view(&mut Parser::from_args(args.iter().cloned()), Some(folder), organisation, out, err)
+    refusal::begin();
+    let code = run_view(&mut Parser::from_args(args.iter().cloned()), Some(folder), organisation, out, err);
+    refusal::ended(code, err)
 }
 
 /// `wb view <issue> <role> [--in | --out]` and `wb view <issue> <path>` (#173): what a session of a role will see,
@@ -1996,7 +2018,10 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
             }
         }
         let _ = out.write_all(text.as_bytes());
-        // In no view is the answer, not a refusal: it ends with 1.
+        if !any {
+            refusal::answer();
+        }
+        // not a refusal: in no view is the answer, marked above.
         return if any { 0 } else { 1 };
     };
     let paths = view::paths(&file.issue, role);
@@ -2266,7 +2291,9 @@ fn stamp_fault(values: &[(&'static str, String)]) -> Option<String> {
 /// nothing. The folder that holds `revision/` is an argument so that a test can give its own; `run`
 /// gives the one fixed when `wb` was built.
 pub fn revision(args: &[OsString], base: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    run_revision(&mut Parser::from_args(args.iter().cloned()), base, out, err)
+    refusal::begin();
+    let code = run_revision(&mut Parser::from_args(args.iter().cloned()), base, out, err);
+    refusal::ended(code, err)
 }
 
 fn run_revision(parser: &mut Parser, base: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {

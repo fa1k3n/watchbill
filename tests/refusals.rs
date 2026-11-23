@@ -192,9 +192,11 @@ fn test_WB_CMD_30_a_refusal_of_the_plumbing_is_said_on_standard_error_only() {
 
 // ---- WB-CMD-31: a refusal written without a label fails a test ----
 
-/// The lines of `src/` that end a command with 1 by a shape a refusal takes: `return 1;`, `Err(1)`, `code = 1;`,
-/// `=> 1,` or a line `1`. Each is allowed only with a comment `// not a refusal:` on it or on one of the three lines
-/// above: every refusal goes through `refusal::limit`, `refusal::guard` or `refusal::say`, which write the label.
+/// The lines of `src/` that may end a command with 1 by a shape a refusal takes: `return 1`, `Err(1)`, `code = 1;`,
+/// `=> 1,`, a line `1`, `{ 1 }`, `; 1 }`, `exit(1)` or `_exit(1)`, and `1 as`. Each is allowed only with a comment
+/// `// not a refusal:` or a mark `refusal::answer()` on it or on the line above: every refusal goes through
+/// `refusal::limit`, `refusal::guard` or `refusal::say`, which write the label and give the 1. This is the second
+/// net: the first is `refusal::ended`, which every command's status passes (WB-CMD-34).
 #[test]
 fn test_WB_CMD_31_every_site_that_ends_with_1_writes_through_refusal_or_says_why_it_is_none() {
     let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -209,11 +211,12 @@ fn test_WB_CMD_31_every_site_that_ends_with_1_writes_through_refusal_or_says_why
         let lines: Vec<&str> = code.lines().collect();
         for (at, line) in lines.iter().enumerate() {
             let trimmed = line.trim();
-            let ends = trimmed.contains("return 1;") || trimmed.contains("Err(1)") || trimmed.contains("code = 1;") || trimmed.ends_with("=> 1,") || trimmed == "1";
+            let shapes = ["return 1;", "return 1 ", "Err(1)", "code = 1;", "{ 1 }", "; 1 }", "exit(1)", "1 as "];
+            let ends = shapes.iter().any(|shape| trimmed.contains(shape)) || trimmed.ends_with("=> 1,") || trimmed == "1";
             if !ends {
                 continue;
             }
-            let said = lines[at.saturating_sub(3)..=at].iter().any(|line| line.contains("// not a refusal:"));
+            let said = lines[at.saturating_sub(1)..=at].iter().any(|line| line.contains("// not a refusal:") || line.contains("refusal::answer()"));
             if !said {
                 bare.push(format!("{}:{}: {}", path.file_name().unwrap().to_string_lossy(), at + 1, trimmed));
             }
@@ -230,6 +233,46 @@ fn test_WB_CMD_31_the_refusal_functions_write_the_label_and_give_1() {
     let mut err = Vec::new();
     assert_eq!(watchbill::refusal::guard(&mut err, "wb x", "--ignore-y", "a y is there; --ignore-y passes it."), 1);
     assert_eq!(text(&err), "wb x: guard: a y is there; --ignore-y passes it.\n");
+}
+
+// ---- WB-CMD-34: every command's status passes one place, which holds that a 1 was said or marked ----
+
+/// `refusal::ended` after `before`, in a thread of its own: whether it panicked, and what it said.
+fn ended_after(before: fn(&mut Vec<u8>), code: i32) -> (bool, String) {
+    std::thread::spawn(move || {
+        let mut err = Vec::new();
+        watchbill::refusal::begin();
+        before(&mut err);
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| watchbill::refusal::ended(code, &mut err)));
+        (caught.is_err(), text(&err))
+    })
+    .join()
+    .unwrap()
+}
+
+#[test]
+fn test_WB_CMD_34_a_1_with_no_refusal_said_and_no_answer_marked_fails_in_a_test_build() {
+    let (panicked, err) = ended_after(|_| {}, 1);
+    assert!(panicked, "{}", err);
+    assert!(err.contains("a fault in wb") && err.contains("limit:"), "{}", err);
+    // A refusal written by `refusal`, or a mark of an answer, lets the 1 through; 0 and 2 always go through.
+    assert!(!ended_after(|err| { watchbill::refusal::limit(err, "wb x", "no."); }, 1).0);
+    assert!(!ended_after(|err| { watchbill::refusal::guard(err, "wb x", "--ignore-kept", "--ignore-kept passes it."); }, 1).0);
+    assert!(!ended_after(|_| watchbill::refusal::answer(), 1).0);
+    assert!(!ended_after(|_| {}, 0).0 && !ended_after(|_| {}, 2).0);
+    // A line written by hand is not a refusal said.
+    assert!(ended_after(|err| { let _ = std::io::Write::write_all(err, b"wb x: no.\n"); }, 1).0);
+    // `begin` forgets what the command before it said.
+    assert!(ended_after(|err| { watchbill::refusal::limit(err, "wb x", "no."); watchbill::refusal::begin(); }, 1).0);
+}
+
+#[test]
+fn test_WB_CMD_34_each_entry_of_a_command_passes_its_status_through_refusal_ended() {
+    let lib = fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs")).unwrap();
+    for entry in ["pub fn run(", "pub fn prompt(", "pub fn start_on(", "pub fn view_command(", "pub fn revision("] {
+        let body: String = lib.split(entry).nth(1).unwrap_or_else(|| panic!("{} is not in src/lib.rs", entry)).lines().take(5).collect::<Vec<_>>().join("\n");
+        assert!(body.contains("refusal::begin();") && body.contains("refusal::ended(code, err)"), "{}:\n{}", entry, body);
+    }
 }
 
 // ---- WB-CMD-32: a command that posts checks every part before the first post ----
@@ -270,4 +313,20 @@ fn test_WB_CMD_32_wb_answer_with_one_answer_wrong_posts_none_and_says_it_as_a_li
     let run = wb(&folder.path, &["answer", "174", "q1", "1", "tester.q1", "9"], "");
     refused_as(&run, "wb answer", "limit");
     assert!(posted(&folder.path, "174").is_empty(), "{:?}", posted(&folder.path, "174"));
+}
+
+// ---- WB-CMD-35: where wb accept cannot make the commit at all, it is a limit, and --no-commit skips it ----
+
+#[test]
+fn test_WB_CMD_35_with_no_pattern_branch_wb_accept_refuses_as_a_limit_that_names_no_commit() {
+    let folder = not_on_the_branch();
+    let yml = read(&config(&folder.path));
+    let without: String = yml.lines().filter(|line| !line.starts_with("branch:")).map(|line| format!("{}\n", line)).collect();
+    assert_ne!(yml, without);
+    fs::write(config(&folder.path), without).unwrap();
+    commit_config(&folder.path);
+    let err = refused_as(&wb(&folder.path, &["accept", "54"], ""), "wb accept", "limit");
+    assert!(labelled(&err, "wb accept").unwrap().contains("--no-commit"), "{}", err);
+    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
 }

@@ -438,7 +438,8 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
     if failed.is_empty() {
         0
     } else {
-        // not a refusal: the issue is listed under Not read, and the rest is printed.
+        // The issue is listed under Not read, and the rest is printed: not a refusal.
+        crate::refusal::answer();
         1
     }
 }

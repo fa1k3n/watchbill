@@ -81,18 +81,29 @@ impl Drop for ReadOnly {
     }
 }
 
+/// Why `read_only` did not begin: what the command says, and how it ends. Not set up is 2; a file that is set up
+/// and refused (over 1 MiB in `HEAD`) is 1, as a refusal is in every command.
+#[derive(Debug)]
+pub struct NotRead {
+    pub status: i32,
+    pub why: String,
+}
+
 /// For a command that only reads (#254: `wb status`, `wb view`). `Err` where `watchbill.yml` is not in `HEAD` at
 /// all (the repository is not set up). Otherwise, while the guard is held, every pattern and key is read from the
 /// file of `HEAD`, never the working tree's, and the result says whether the working tree's file differs from
 /// it (a file missing there counts as differing): the command says so on standard error and goes on.
-pub fn read_only(root: &str) -> Result<(ReadOnly, bool), String> {
+pub fn read_only(root: &str) -> Result<(ReadOnly, bool), NotRead> {
     let place = format!("{}/{}", crate::init::CONFIG_FOLDER, crate::init::CONFIG_FILE);
-    head_too_big(root, &place)?;
+    head_too_big(root, &place).map_err(|why| NotRead { status: 1, why })?;
     let Some(head) = head_file(root, &place) else {
         if !Path::new(root).join(&place).is_file() {
-            return Err(format!("{} is not there. Watchbill is not set up in this repository", place));
+            return Err(NotRead { status: 2, why: format!("{} is not there. Watchbill is not set up in this repository", place) });
         }
-        return Err(format!("{} is not in HEAD. Watchbill is not set up in this repository: commit the file first", place));
+        return Err(NotRead {
+            status: 2,
+            why: format!("{} is not in HEAD. Watchbill is not set up in this repository: commit the file first", place),
+        });
     };
     READ_ONLY.with(|flag| flag.set(true));
     Ok((ReadOnly(()), working_tree_differs(&Path::new(root).join(&place), &head)))

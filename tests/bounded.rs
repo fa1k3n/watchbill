@@ -9,9 +9,17 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 use watchbill::bounded::{read_plain, Fault};
 
-fn place(name: &str) -> PathBuf {
+fn folder_of(pid: u32, name: &str) -> PathBuf {
     let base = std::env::var_os("TMPDIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    let folder = base.join(format!("wb-bounded-{}-{}", std::process::id(), name));
+    base.join(format!("wb-bounded-{}-{}", pid, name))
+}
+
+fn hostile_folder(pid: u32) -> PathBuf {
+    folder_of(pid, "hostile")
+}
+
+fn place(name: &str) -> PathBuf {
+    let folder = folder_of(std::process::id(), name);
     let _ = fs::remove_dir_all(&folder);
     fs::create_dir_all(&folder).unwrap();
     folder
@@ -83,17 +91,22 @@ fn test_WB_BUILD_101_a_link_to_dev_zero_and_a_fifo_are_not_plain() {
         .spawn()
         .expect("the test binary could not be started again");
     let start = Instant::now();
-    loop {
+    let ended = loop {
         if let Some(status) = child.try_wait().unwrap() {
-            assert!(status.success(), "the child ended with {}", status);
-            return;
+            break Some(status);
         }
         if start.elapsed() > Duration::from_secs(10) {
             // Only the child this test started is ended.
             let _ = child.kill();
             let _ = child.wait();
-            panic!("the reader did not end within 10 seconds on a link to /dev/zero or a FIFO");
+            break None;
         }
         std::thread::sleep(Duration::from_millis(50));
+    };
+    // The child's folder is named by the child's process ID, so it is the parent's to remove when the child failed.
+    let _ = fs::remove_dir_all(hostile_folder(child.id()));
+    match ended {
+        Some(status) => assert!(status.success(), "the child ended with {}", status),
+        None => panic!("the reader did not end within 10 seconds on a link to /dev/zero or a FIFO"),
     }
 }

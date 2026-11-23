@@ -1856,9 +1856,9 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
     };
     // `wb view` only reads (#254): a file that differs from `HEAD` is said, and `HEAD`'s file is the one read.
     let _read_only = match starter::read_only(&root) {
-        Err(why) => {
-            let _ = writeln!(err, "{}: {}.", name, why);
-            return 2;
+        Err(not_read) => {
+            let _ = writeln!(err, "{}: {}.", name, not_read.why);
+            return not_read.status;
         }
         Ok((guard, differs)) => {
             if differs {

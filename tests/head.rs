@@ -621,7 +621,7 @@ fn assert_text_refused(bench: &Bench, file: &str, what: &str) {
     assert_eq!(code(&stamp), Some(1), "{} stamp: {}", what, text(&stamp.stderr));
     assert_eq!(text(&stamp.stdout), "", "{}", what);
     // The binary, under the cap and the time of `wb_within` (#261): `start_with` runs in the test process.
-    let start = wb_within(&bench.repo.path, &["start", "build", "54", "--prompt"], 10);
+    let start = wb_within(&bench.repo.path, &["start", "build", "54", "--runner", "any"], 10);
     assert_eq!(code(&start), Some(1), "{} start: {}{}", what, text(&start.stdout), text(&start.stderr));
     assert!(text(&start.stderr).contains(file), "{}: {}", what, text(&start.stderr));
     // The refusal comes before any pattern runs: not a read of the comments either.
@@ -794,10 +794,15 @@ fn assert_config_refused(bench: &Bench, what: &str) {
     assert_eq!(code(&prompt), Some(1), "{} prompt: {}", what, text(&prompt.stderr));
     assert_eq!(text(&prompt.stdout), "", "{}", what);
     assert!(text(&prompt.stderr).contains(".watchbill/watchbill.yml"), "{}: the file is not named: {}", what, text(&prompt.stderr));
+    // The held check's words, not those of `wb check`, which also refuses such a file but reads it first.
+    assert!(text(&prompt.stderr).contains("differs from HEAD"), "{}: {}", what, text(&prompt.stderr));
     // The binary, under the cap and the time of `wb_within`: `start_with` runs in the test process, with no bound.
-    let start = wb_within(&bench.repo.path, &["start", "build", "54", "--prompt"], 10);
+    // A runner that is given skips the organisation's file, so the real path of a start reaches the held check on
+    // a machine with no such file too.
+    let start = wb_within(&bench.repo.path, &["start", "build", "54", "--runner", "any"], 10);
     assert_eq!(code(&start), Some(1), "{} start: {}{}", what, text(&start.stdout), text(&start.stderr));
     assert!(text(&start.stderr).contains(".watchbill/watchbill.yml"), "{}: {}", what, text(&start.stderr));
+    assert!(text(&start.stderr).contains("differs from HEAD"), "{}: {}", what, text(&start.stderr));
     assert_eq!(bench.ran(), "", "{} ran something", what);
 }
 
@@ -879,9 +884,10 @@ fn test_WB_BUILD_104_a_watchbill_yml_over_1_mib_in_head_is_refused_as_too_big() 
     big.push_str(&format!("# {}\n", "x".repeat(2 * 1024 * 1024)));
     fs::write(config(&bench.repo.path), big).unwrap();
     bench.commit();
-    for words in [&["prompt", "build", "54"][..], &["status"]] {
+    // A refusal ends with 1 in every command, `wb status` and `wb view` too (not 2, which is "not set up").
+    for words in [&["prompt", "build", "54"][..], &["status"], &["view", "54", "build"]] {
         let run = wb_within(&bench.repo.path, words, 10);
-        assert_ne!(code(&run), Some(0), "{:?}: {}", words, text(&run.stdout));
+        assert_eq!(code(&run), Some(1), "{:?}: {}{}", words, text(&run.stdout), text(&run.stderr));
         let err = text(&run.stderr);
         assert!(err.contains(".watchbill/watchbill.yml") && err.contains("over 1 MiB in HEAD"), "{:?}: {}", words, err);
     }

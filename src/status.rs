@@ -324,9 +324,9 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
     // `wb status` only reads (#254): a file that is not as `HEAD` has it is said, and every pattern is read from
     // the file of `HEAD`. Where the file is not in `HEAD` at all, the repository is not set up.
     let _read_only = match starter::read_only(root) {
-        Err(why) => {
-            let _ = writeln!(err, "wb status: {}.", why);
-            return 2;
+        Err(not_read) => {
+            let _ = writeln!(err, "wb status: {}.", not_read.why);
+            return not_read.status;
         }
         Ok((guard, differs)) => {
             if differs {

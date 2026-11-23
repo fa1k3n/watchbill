@@ -628,29 +628,12 @@ pub(crate) fn is_object(name: &str) -> bool {
 }
 
 /// The most a small file of a view or of the lines of a start is read.
-const MOST_BYTES: u64 = 1024 * 1024;
+const MOST_BYTES: u64 = crate::bounded::TEXT_CAP;
 
-/// A small file, read as it is: a plain file, never through a link. It is opened first, without waiting (a FIFO
-/// opens at once), and it is the open file that is looked at: a plain file of 1 MiB or less, read through a cap.
-/// What is not, or is not text, is none.
+/// A small file, read as it is by the one reader (`bounded::read_plain`): a plain file of 1 MiB or less, never
+/// through a link, never waiting. What is not, or is not text, is none.
 pub(crate) fn small_file(path: &Path) -> Option<String> {
-    use std::io::Read;
-    use std::os::unix::fs::OpenOptionsExt;
-    if fs::symlink_metadata(path).ok()?.file_type().is_symlink() {
-        return None;
-    }
-    // O_NONBLOCK, which is 0o4000 on Linux.
-    let file = fs::OpenOptions::new().read(true).custom_flags(0o4000).open(path).ok()?;
-    let found = file.metadata().ok()?;
-    if !found.is_file() || found.len() > MOST_BYTES {
-        return None;
-    }
-    let mut bytes = Vec::new();
-    file.take(MOST_BYTES + 1).read_to_end(&mut bytes).ok()?;
-    if bytes.len() as u64 > MOST_BYTES {
-        return None;
-    }
-    String::from_utf8(bytes).ok()
+    String::from_utf8(crate::bounded::read_plain(path, MOST_BYTES).ok()?).ok()
 }
 
 /// The commit the view's `HEAD` names, read from the files of its `.git`, without git: a branch, loose or packed,
@@ -1339,10 +1322,13 @@ fn rules(root: &str, store: &Path, head: &str, notes: &mut Vec<String>) -> Resul
             notes.push(format!("the checkout's {} was not read, and its rules are not applied: it is not a plain file of 64 MiB or less", said));
             String::new()
         }
-        Ok(_) => fs::read_to_string(&exclude).unwrap_or_else(|error| {
-            notes.push(format!("the checkout's {} was not read, and its rules are not applied: {}", said, error));
-            String::new()
-        }),
+        Ok(_) => crate::bounded::read_plain(&exclude, 64 * 1024 * 1024)
+            .map_err(|fault| fault.to_string())
+            .and_then(|bytes| String::from_utf8(bytes).map_err(|_| "it is not UTF-8 text".to_string()))
+            .unwrap_or_else(|error| {
+                notes.push(format!("the checkout's {} was not read, and its rules are not applied: {}", said, error));
+                String::new()
+            }),
     };
     fs::write(info.join("exclude"), text).map_err(|error| error.to_string())?;
     Ok(tree)

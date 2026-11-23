@@ -633,7 +633,7 @@ fn build(text: &str) -> Result<Option<Node>, Vec<(usize, String)>> {
 }
 
 /// The text of an error of the system, without the number Rust adds to it.
-fn system_words(error: &std::io::Error) -> String {
+pub(crate) fn system_words(error: &std::io::Error) -> String {
     let words = error.to_string();
     match words.find(" (os error") {
         Some(at) => words[..at].to_string(),
@@ -644,8 +644,17 @@ fn system_words(error: &std::io::Error) -> String {
 /// Reads a YAML file into a `Document`, or refuses it with the file named.
 pub fn load(path: impl AsRef<Path>) -> Result<Document, YamlError> {
     let path = path.as_ref();
-    let bytes = std::fs::read(path)
-        .map_err(|error| YamlError::new(format!("{}: cannot be read ({})", path.display(), system_words(&error))))?;
+    let bytes = crate::bounded::read_plain(path, crate::bounded::TEXT_CAP)
+        .map_err(|fault| YamlError::new(format!("{}: cannot be read ({})", path.display(), fault)))?;
+    load_bytes(path, bytes)
+}
+
+/// As `load`, for a file outside the working tree that a session cannot write (the organisation's file, the
+/// installed tables): it is read where it is kept as a link, through the cap.
+pub fn load_following(path: impl AsRef<Path>) -> Result<Document, YamlError> {
+    let path = path.as_ref();
+    let bytes = crate::bounded::read_following(path, crate::bounded::TEXT_CAP)
+        .map_err(|fault| YamlError::new(format!("{}: cannot be read ({})", path.display(), fault)))?;
     load_bytes(path, bytes)
 }
 

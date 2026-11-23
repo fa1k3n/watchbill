@@ -242,7 +242,7 @@ pub fn read(path: &Path) -> Result<Organisation, String> {
             path.display()
         ));
     }
-    let doc = yamlfile::load(path).map_err(|why| why.to_string())?;
+    let doc = yamlfile::load_following(path).map_err(|why| why.to_string())?;
     read_document(&doc).map_err(|why| why.to_string())
 }
 

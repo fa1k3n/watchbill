@@ -439,3 +439,12 @@ fn test_WB_CONF_24_a_default_that_names_no_runner_or_is_not_a_name_is_refused_wi
     let why = read_organisation(&with_start("[claude]", Some("default: other"))).unwrap_err();
     assert!(why.contains("other") && why.contains("claude-code"), "{}", why);
 }
+
+#[test]
+fn test_WB_BUILD_103_an_organisation_file_kept_as_a_link_is_read() {
+    let (_folder, place, path) = ready();
+    let link = place.path.join("linked.yml");
+    std::os::unix::fs::symlink(&path, &link).unwrap();
+    let read = watchbill::confidentiality::read(&link);
+    assert!(read.is_ok(), "{:?}", read.err());
+}

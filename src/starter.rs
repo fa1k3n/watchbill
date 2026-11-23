@@ -40,6 +40,17 @@ fn head_file(root: impl AsRef<std::ffi::OsStr>, place: &str) -> Option<Vec<u8>> 
     output.status.success().then_some(output.stdout)
 }
 
+/// The refusal where `place` is over 1 MiB in `HEAD`, from its size and before the blob is read (#261): a session
+/// can commit a big file, and `git show` would hold all of it.
+fn head_too_big(root: &str, place: &str) -> Result<(), String> {
+    match head_size(Path::new(root), place) {
+        Some(size) if size > crate::bounded::TEXT_CAP => {
+            Err(format!("{} is over 1 MiB in HEAD, which is too big. A person makes it smaller and commits it", place))
+        }
+        _ => Ok(()),
+    }
+}
+
 /// The size of `place` in `HEAD`, from the object database with no replace refs, without reading the file.
 fn head_size(root: &Path, place: &str) -> Option<u64> {
     let output = Command::new("git")
@@ -70,17 +81,29 @@ impl Drop for ReadOnly {
     }
 }
 
+/// Why `read_only` did not begin: what the command says, and how it ends. Not set up is 2; a file that is set up
+/// and refused (over 1 MiB in `HEAD`) is 1, as a refusal is in every command.
+#[derive(Debug)]
+pub struct NotRead {
+    pub status: i32,
+    pub why: String,
+}
+
 /// For a command that only reads (#254: `wb status`, `wb view`). `Err` where `watchbill.yml` is not in `HEAD` at
 /// all (the repository is not set up). Otherwise, while the guard is held, every pattern and key is read from the
 /// file of `HEAD`, never the working tree's, and the result says whether the working tree's file differs from
 /// it (a file missing there counts as differing): the command says so on standard error and goes on.
-pub fn read_only(root: &str) -> Result<(ReadOnly, bool), String> {
+pub fn read_only(root: &str) -> Result<(ReadOnly, bool), NotRead> {
     let place = format!("{}/{}", crate::init::CONFIG_FOLDER, crate::init::CONFIG_FILE);
+    head_too_big(root, &place).map_err(|why| NotRead { status: 1, why })?;
     let Some(head) = head_file(root, &place) else {
         if !Path::new(root).join(&place).is_file() {
-            return Err(format!("{} is not there. Watchbill is not set up in this repository", place));
+            return Err(NotRead { status: 2, why: format!("{} is not there. Watchbill is not set up in this repository", place) });
         }
-        return Err(format!("{} is not in HEAD. Watchbill is not set up in this repository: commit the file first", place));
+        return Err(NotRead {
+            status: 2,
+            why: format!("{} is not in HEAD. Watchbill is not set up in this repository: commit the file first", place),
+        });
     };
     READ_ONLY.with(|flag| flag.set(true));
     Ok((ReadOnly(()), working_tree_differs(&Path::new(root).join(&place), &head)))
@@ -89,15 +112,8 @@ pub fn read_only(root: &str) -> Result<(ReadOnly, bool), String> {
 /// Whether the working tree's file is not the file of `HEAD`. What is not a plain file (a FIFO, a device, a folder, a
 /// symlink) or is over 1 MiB counts as differing and is never opened: reading it could wait or grow without end.
 fn working_tree_differs(path: &Path, head: &[u8]) -> bool {
-    use std::io::Read;
-    const CAP: u64 = 1024 * 1024;
-    match std::fs::symlink_metadata(path) {
-        Ok(found) if found.is_file() && found.len() <= CAP => {}
-        _ => return true,
-    }
-    let mut now = Vec::new();
-    match std::fs::File::open(path).and_then(|opened| opened.take(CAP + 1).read_to_end(&mut now)) {
-        Ok(_) => now.len() as u64 > CAP || now != head,
+    match crate::bounded::read_plain(path, crate::bounded::TEXT_CAP) {
+        Ok(now) => now != head,
         Err(_) => true,
     }
 }
@@ -146,6 +162,7 @@ pub fn drift_line(name: &str) -> String {
 /// replace refs, which a session can write with nothing on the branch to show it. No flag lifts it.
 pub fn held_bytes(root: &str) -> Result<Option<Vec<u8>>, String> {
     let place = format!("{}/{}", crate::init::CONFIG_FOLDER, crate::init::CONFIG_FILE);
+    head_too_big(root, &place)?;
     // A command that only reads (`read_only`) goes on with the file of `HEAD`, before the working tree is looked at.
     if READ_ONLY.with(|flag| flag.get()) {
         // In this mode the working tree is never the fallback: `HEAD`'s file was there when the mode began.
@@ -154,17 +171,17 @@ pub fn held_bytes(root: &str) -> Result<Option<Vec<u8>>, String> {
             None => Err(format!("{} could not be read from HEAD. Nothing is run and nothing is posted", place)),
         };
     }
-    let Ok(now) = std::fs::read(Path::new(root).join(&place)) else {
-        return Ok(None);
+    // The file is read by the one reader (#261): what is not a plain file, or is over the cap, is never opened.
+    let now = match crate::bounded::read_plain(&Path::new(root).join(&place), crate::bounded::TEXT_CAP) {
+        Ok(now) => Some(now),
+        Err(crate::bounded::Fault::NotPlain | crate::bounded::Fault::TooBig(_)) => None,
+        Err(_) => return Ok(None),
     };
-    let said = match head_file(root, &place) {
-        Some(bytes) => {
-            if bytes == now {
-                return Ok(Some(bytes));
-            }
-            "differs from HEAD"
-        }
-        None => "is not in HEAD",
+    let said = match (head_file(root, &place), now) {
+        (Some(bytes), Some(now)) if bytes == now => return Ok(Some(bytes)),
+        (Some(_), _) => "differs from HEAD",
+        (None, Some(_)) => "is not in HEAD",
+        (None, None) => "is not a plain file of 1 MiB or less",
     };
     Err(format!(
         "{} {}, and a pattern of it is run as the person: a person reads the change and commits it, or takes it back with git, before the next command. Nothing is run and nothing is posted",

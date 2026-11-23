@@ -1,7 +1,7 @@
 //! An interrupt (Ctrl-C) while `wb init` asks: it says `Nothing written.` and ends with 1. While a session
 //! that `wb start <role>` started runs, an interrupt, a quit and a hangup go to the session, a termination is sent on to it, and `wb` waits for it (`hold`).
-//! In a view the session is inside bubblewrap: bubblewrap ignores the hangup and the termination, and `wb` sends them on
-//! to the session itself, held by a pidfd (#257).
+//! In a view the session is inside bubblewrap: bubblewrap ignores the interrupt, the quit, the hangup and the
+//! termination, and `wb` sends them on to the session itself, held by a pidfd (#257, #271).
 //!
 //! A Rust program is ended by SIGINT unless it handles the signal. The handler uses only what a
 //! handler may: `write(2)` and `_exit(2)`. They are declared here, for the C library that the
@@ -53,13 +53,11 @@ pub fn writing() {
 const SIGQUIT: c_int = 3;
 pub(crate) const SIGHUP: c_int = 1;
 pub(crate) const SIGTERM: c_int = 15;
+/// The held signals with their names, as `env --default-signal` takes them.
+pub(crate) const NAMED: [(c_int, &str); 4] = [(SIGINT, "INT"), (SIGQUIT, "QUIT"), (SIGHUP, "HUP"), (SIGTERM, "TERM")];
 
 /// The signals held while a session runs.
 const HELD_SIGNALS: [c_int; 4] = [SIGINT, SIGQUIT, SIGHUP, SIGTERM];
-
-/// A handler that does nothing. A signal that is caught, not ignored, is set back to its default in a
-/// program that is started, so the session gets an interrupt as it would without `wb`.
-extern "C" fn on_nothing(_: c_int) {}
 
 extern "C" {
     fn kill(pid: c_int, signal: c_int) -> c_int;
@@ -84,8 +82,13 @@ static SESSION_FD: AtomicI32 = AtomicI32::new(-1);
 static TERMINATED: AtomicBool = AtomicBool::new(false);
 /// Set when a hangup came.
 static HUNG_UP: AtomicBool = AtomicBool::new(false);
-/// Whether a hangup is sent on to the session too: only where it has no controlling terminal (#257).
-static HANGUPS: AtomicBool = AtomicBool::new(false);
+/// Set when an interrupt came.
+static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+/// Set when a quit came.
+static QUIT: AtomicBool = AtomicBool::new(false);
+/// Whether the signals of the terminal (a hangup, an interrupt, a quit) are sent on to the session too: only
+/// where it has no controlling terminal (#257, #271).
+static FROM_TERMINAL: AtomicBool = AtomicBool::new(false);
 
 /// Sends `signal` to the session, when there is one. Only atomics, `kill(2)` and the call of the kernel.
 fn send(signal: c_int) {
@@ -104,20 +107,28 @@ fn send(signal: c_int) {
     }
 }
 
-/// A termination (#221), or a hangup: `wb` goes on waiting. The session is sent the termination, as a person's
-/// `kill` of `wb` meant it, and the hangup where the terminal cannot reach it (#257). Only `kill(2)`, the call
-/// of the kernel and atomics are used, as a handler may.
+/// A termination (#221), a hangup, an interrupt or a quit: `wb` goes on waiting. The session is sent the
+/// termination, as a person's `kill` of `wb` meant it, and the hangup, the interrupt and the quit where the
+/// terminal cannot reach it (#257, #271). Only `kill(2)`, the call of the kernel and atomics are used, as a
+/// handler may.
+///
+/// A signal that is caught, not ignored, is set back to its default in a program that is started, so a session
+/// with no view gets an interrupt as it would without `wb`.
 extern "C" fn on_signal(number: c_int) {
     // `kill` sets `errno` when it fails, and the program that was interrupted may be reading it: put it back.
     let errno = unsafe { __errno_location() };
     let saved = unsafe { *errno };
-    if number == SIGTERM {
-        TERMINATED.store(true, Ordering::SeqCst);
-        send(SIGTERM);
-    } else if number == SIGHUP {
-        HUNG_UP.store(true, Ordering::SeqCst);
-        if HANGUPS.load(Ordering::SeqCst) {
-            send(SIGHUP);
+    let came = match number {
+        SIGTERM => Some(&TERMINATED),
+        SIGHUP => Some(&HUNG_UP),
+        SIGINT => Some(&INTERRUPTED),
+        SIGQUIT => Some(&QUIT),
+        _ => None,
+    };
+    if let Some(came) = came {
+        came.store(true, Ordering::SeqCst);
+        if number == SIGTERM || FROM_TERMINAL.load(Ordering::SeqCst) {
+            send(number);
         }
     }
     unsafe { *errno = saved };
@@ -130,8 +141,8 @@ static HELD: std::sync::Mutex<(usize, [usize; 4])> = std::sync::Mutex::new((0, [
 /// While it is kept, an interrupt (SIGINT), a quit (SIGQUIT), a hangup (SIGHUP) or a termination (SIGTERM) does
 /// not end `wb` (#84, #221): at a terminal an interrupt, a quit and a hangup go to every program of the
 /// foreground, the session too, and `wb` waits for the session to end and gives its status. A termination goes
-/// to `wb` alone, and `wb` sends it on to the session (`session`). A signal that was ignored stays ignored, as
-/// `install` keeps it.
+/// to `wb` alone, and `wb` sends it on to the session (`session`). A session with no controlling terminal is sent
+/// the others too (`terminal_sent_on`). A signal that was ignored stays ignored, as `install` keeps it.
 pub struct Held;
 
 pub fn hold() -> Held {
@@ -139,16 +150,14 @@ pub fn hold() -> Held {
     if held.0 == 0 {
         TERMINATED.store(false, Ordering::SeqCst);
         HUNG_UP.store(false, Ordering::SeqCst);
-        HANGUPS.store(false, Ordering::SeqCst);
+        INTERRUPTED.store(false, Ordering::SeqCst);
+        QUIT.store(false, Ordering::SeqCst);
+        FROM_TERMINAL.store(false, Ordering::SeqCst);
         SESSION.store(0, Ordering::SeqCst);
         SESSION_FD.store(-1, Ordering::SeqCst);
         for (index, number) in HELD_SIGNALS.into_iter().enumerate() {
-            let handler = match number {
-                SIGTERM | SIGHUP => on_signal as extern "C" fn(c_int) as usize,
-                _ => on_nothing as extern "C" fn(c_int) as usize,
-            };
             unsafe {
-                let before = signal(number, handler);
+                let before = signal(number, on_signal as extern "C" fn(c_int) as usize);
                 if before == IGNORED {
                     signal(number, IGNORED);
                 }
@@ -165,7 +174,7 @@ impl Held {
     pub fn ended(&self) {
         SESSION_FD.store(-1, Ordering::SeqCst);
         SESSION.store(0, Ordering::SeqCst);
-        HANGUPS.store(false, Ordering::SeqCst);
+        FROM_TERMINAL.store(false, Ordering::SeqCst);
     }
 
     /// The session was started, with process number `pid`: a termination of `wb` is sent on to it, also one that
@@ -183,10 +192,10 @@ impl Held {
         self.pending();
     }
 
-    /// From now on a hangup of `wb` is sent on to the session too, also one that came before: the session has no
-    /// controlling terminal, so the terminal's own hangup cannot reach it (#257).
-    pub fn hangups_sent_on(&self) {
-        HANGUPS.store(true, Ordering::SeqCst);
+    /// From now on a hangup, an interrupt and a quit of `wb` are sent on to the session too, also one that came
+    /// before: the session has no controlling terminal, so the terminal's own cannot reach it (#257, #271).
+    pub fn terminal_sent_on(&self) {
+        FROM_TERMINAL.store(true, Ordering::SeqCst);
     }
 
     /// Sends what came before the session was registered.
@@ -194,8 +203,12 @@ impl Held {
         if TERMINATED.load(Ordering::SeqCst) {
             send(SIGTERM);
         }
-        if HANGUPS.load(Ordering::SeqCst) && HUNG_UP.load(Ordering::SeqCst) {
-            send(SIGHUP);
+        if FROM_TERMINAL.load(Ordering::SeqCst) {
+            for (came, number) in [(&HUNG_UP, SIGHUP), (&INTERRUPTED, SIGINT), (&QUIT, SIGQUIT)] {
+                if came.load(Ordering::SeqCst) {
+                    send(number);
+                }
+            }
         }
     }
 }
@@ -207,7 +220,7 @@ impl Drop for Held {
         if held.0 == 0 {
             SESSION_FD.store(-1, Ordering::SeqCst);
             SESSION.store(0, Ordering::SeqCst);
-            HANGUPS.store(false, Ordering::SeqCst);
+            FROM_TERMINAL.store(false, Ordering::SeqCst);
             for (index, number) in HELD_SIGNALS.into_iter().enumerate() {
                 unsafe {
                     signal(number, held.1[index]);
@@ -217,8 +230,8 @@ impl Drop for Held {
     }
 }
 
-/// Whether `number` (SIGHUP or SIGTERM) was ignored when the first hold began, as by `nohup`: the session is
-/// then started with it ignored too.
+/// Whether `number` (one of the held signals) was ignored when the first hold began, as by `nohup`, or by a shell
+/// that runs `wb` in the background: the session is then started with it ignored too.
 pub fn was_ignored(number: c_int) -> bool {
     let held = HELD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     match HELD_SIGNALS.iter().position(|one| *one == number) {
@@ -227,15 +240,16 @@ pub fn was_ignored(number: c_int) -> bool {
     }
 }
 
-/// What the child does between fork and exec, before it becomes bubblewrap (#257): SIGHUP and SIGTERM are
-/// ignored, where `ignore` says so, so that bubblewrap is not ended by them, and `fd` is kept open across the
-/// exec. Only `signal(2)` and `fcntl(2)`, which may be called there.
+/// What the child does between fork and exec, before it becomes bubblewrap (#257, #271): SIGINT, SIGQUIT, SIGHUP
+/// and SIGTERM are ignored, where `ignore` says so, so that bubblewrap is not ended by them, and `fd` is kept
+/// open across the exec. Only `signal(2)` and `fcntl(2)`, which may be called there.
 pub fn before_bubblewrap(fd: c_int, ignore: bool) -> std::io::Result<()> {
     const F_SETFD: c_int = 2;
     if ignore {
-        unsafe {
-            signal(SIGHUP, IGNORED);
-            signal(SIGTERM, IGNORED);
+        for number in HELD_SIGNALS {
+            unsafe {
+                signal(number, IGNORED);
+            }
         }
     }
     if unsafe { fcntl(fd, F_SETFD, 0 as c_int) } == -1 {

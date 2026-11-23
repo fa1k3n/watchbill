@@ -64,4 +64,4 @@ What a session of the tester, the build, the review or the fix sees when `wb sta
 | WB-VIEW-58 | The session in a view shall start with SIGHUP and SIGTERM as `wb` found them: ignored only where they were ignored when `wb` started. Issue: #257. | T | Implemented |
 | WB-VIEW-70 | A take-back shall check the objects its commits add where the take reads them (in `wb`'s own store, the view as its only alternate), so that a FIFO in the view's copy of a blob the checkout also holds ends it with 1 within about 3 seconds and takes nothing. Issue: #265. | T | Implemented |
 | WB-VIEW-71 | Where waiting for a git run fails, the git process shall be killed and waited for, as on a time-out. Issue: #265. | I | Implemented |
-| WB-VIEW-72 | A deadline held inside another shall keep the one that ends sooner, and the earlier one shall be held again when the inner one is dropped. Issue: #265. | T | Draft |
+| WB-VIEW-72 | A deadline held inside another shall keep the one that ends sooner, and the earlier one shall be held again when the inner one is dropped. Issue: #265. | T | Implemented |

@@ -150,7 +150,9 @@ pub const USAGE: &str = "usage:
             <folder> for each view kept with work not taken back, and cut off:
             <role> round <n>, <folder> for each session whose wb ended before
             it did. With no issue it says on standard error how many such
-            views are kept on this machine. Ends with 0 when
+            views are kept on this machine. A view of over 200 commits is
+            said as the first 200 and 'and <k> more', and each view is
+            read within 20 seconds. Ends with 0 when
             every issue could be read, 1 when a pattern failed for one (it is
             listed under Not read), 2 when it was used wrongly or the
             repository is not set up. Writes nothing but a temporary repository
@@ -1526,12 +1528,14 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
     };
     // What will be taken, said first: the view, its role and round, each commit with its subject.
     let shown_view = issue::shown(&kept.view.folder.display().to_string());
-    let (commits, left) = match view::work_left(&root, &kept.view) {
-        Ok(found) => (found.commits, found.uncommitted),
+    let (commits, more, left) = match view::work_left(&root, &kept.view) {
+        Ok(found) => (found.commits, found.more, found.uncommitted),
         Err(why) => return refuse(err, &format!("the view {} was not read, and nothing is taken back: {}", shown_view, issue::shown(&why))),
     };
-    let total = match view::count_left(&root, &kept.view).and_then(|total| view::objects_readable(&root, &kept.view).map(|()| total)) {
-        Ok(total) => total,
+    // The count is the one `work_left` made: the commits named and the ones more.
+    let total = commits.len() + more;
+    match view::objects_readable(&root, &kept.view) {
+        Ok(()) => {}
         Err(why) => return refuse(err, &format!("the view {} was not read, and nothing is taken back: {}", shown_view, issue::shown(&why))),
     };
     let _ = writeln!(err, "{}: will take back {}, kept by the {} round {}, onto {}:", name, shown_view, issue::shown(role), kept.round, kept.view.branch_name());

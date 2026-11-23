@@ -197,17 +197,21 @@ thread_local! {
 
 /// Holds the deadline of a whole piece of work (a take-back, the read of one view) for this thread, until it is
 /// dropped.
-struct Deadline(());
+struct Deadline(Option<(std::time::Instant, std::time::Duration, &'static str)>);
 
 impl Drop for Deadline {
     fn drop(&mut self) {
-        DEADLINE.with(|deadline| deadline.set(None));
+        DEADLINE.with(|deadline| deadline.set(self.0));
     }
 }
 
+/// A deadline of `total` from now. Where one is held already that ends sooner, it stays; the earlier one is held
+/// again when the guard is dropped (#265).
 fn deadline(total: std::time::Duration, what: &'static str) -> Deadline {
-    DEADLINE.with(|deadline| deadline.set(Some((std::time::Instant::now() + total, total, what))));
-    Deadline(())
+    let before = DEADLINE.with(|deadline| deadline.get());
+    let new = (std::time::Instant::now() + total, total, what);
+    DEADLINE.with(|deadline| deadline.set(Some(before.filter(|held| held.0 <= new.0).unwrap_or(new))));
+    Deadline(before)
 }
 
 /// Holds the time bound of `git` for this thread, until it is dropped (#222).
@@ -275,6 +279,24 @@ fn command_of<'a>(args: &[&'a str]) -> &'a str {
 
 /// `git` as `git` runs it, with `before` words after `git`, in `at` where there is a folder.
 fn run_git(at: Option<&Path>, before: &[OsString], args: &[&str], env: &[(&str, &Path)], input: Option<&[u8]>) -> Result<Vec<u8>, String> {
+    let ran = run_git_status(at, before, args, env, input)?;
+    if ran.code == 0 {
+        Ok(ran.stdout)
+    } else {
+        Err(ran.said)
+    }
+}
+
+/// A git run that ended: its exit status, its standard output, and the words for an end that is not 0.
+struct Ran {
+    code: i32,
+    stdout: Vec<u8>,
+    said: String,
+}
+
+/// As `run_git`, with the exit status kept, so that a decision is made on the status and never on the words. The error
+/// is a git that could not be run, or was ended after its bound.
+fn run_git_status(at: Option<&Path>, before: &[OsString], args: &[&str], env: &[(&str, &Path)], input: Option<&[u8]>) -> Result<Ran, String> {
     let mut limit = BOUND.with(|bound| bound.get());
     // What is said where the deadline, and not the bound of the run, ended it.
     let mut by_deadline = None;
@@ -328,11 +350,13 @@ fn run_git(at: Option<&Path>, before: &[OsString], args: &[&str], env: &[(&str, 
         }
     })?;
     if output.status.success() {
-        return Ok(output.stdout);
+        return Ok(Ran { code: 0, stdout: output.stdout, said: String::new() });
     }
     let said = String::from_utf8_lossy(&output.stderr);
     let first = said.lines().find(|line| !line.trim().is_empty()).unwrap_or("").trim().to_string();
-    Err(format!("`git {}` ended with {}{}", command_of(args), output.status.code().unwrap_or(-1), if first.is_empty() { String::new() } else { format!(": {}", first) }))
+    let code = output.status.code().unwrap_or(-1);
+    let said = format!("`git {}` ended with {}{}", command_of(args), code, if first.is_empty() { String::new() } else { format!(": {}", first) });
+    Ok(Ran { code, stdout: output.stdout, said })
 }
 
 fn line(bytes: &[u8]) -> String {
@@ -1154,13 +1178,13 @@ pub fn work_left(root: &str, view: &View) -> Result<Left, String> {
     let mut commits: Vec<(String, String)> = Vec::new();
     let mut more = 0;
     if head != view.base {
-        match on(&["merge-base", "--is-ancestor", &view.base, &head]) {
-            Ok(_) => {}
-            // Git ends with 1 where the commit is not an ancestor; anything else (a time-out, a failure) is said as it was.
-            Err(why) if why.starts_with("`git merge-base` ended with 1") => {
-                return Err(format!("the view's HEAD, {}, does not come from the commit the view was made with", short(&head)));
-            }
-            Err(why) => return Err(why),
+        // Git ends with 1 where the commit is not an ancestor; any other end (128 for an object it cannot read, a
+        // time-out) is said as what it is.
+        let ran = run_git_status(None, &before, &["merge-base", "--is-ancestor", &view.base, &head], &env, None)?;
+        match ran.code {
+            0 => {}
+            1 => return Err(format!("the view's HEAD, {}, does not come from the commit the view was made with", short(&head))),
+            _ => return Err(ran.said),
         }
         let range = format!("{}..{}", view.base, head);
         let listed = on(&["rev-list", "--first-parent", "--reverse", &range])?;
@@ -1211,19 +1235,6 @@ fn on_view(root: &str, view: &View, args: &[&str], input: Option<&[u8]>) -> Resu
     ];
     let before = [OsString::from("--no-replace-objects"), OsString::from(format!("--git-dir={}", gitdir))];
     run_git(None, &before, args, &env, input)
-}
-
-/// How many commits a take-back of the view takes: all of the first-parent ones after the view's first commit (#223).
-/// Every git run ends after 3 seconds.
-pub fn count_left(root: &str, view: &View) -> Result<usize, String> {
-    let _bound = bounded(std::time::Duration::from_secs(3));
-    let _deadline = deadline(VIEW_DEADLINE, "read of the view");
-    let head = head_of(&view.folder.join(".git"))?;
-    if head == view.base {
-        return Ok(0);
-    }
-    let counted = on_view(root, view, &["rev-list", "--first-parent", "--count", &format!("{}..{}", view.base, head)], None)?;
-    line(&counted).parse().map_err(|_| "the count of the commits of the view is not a number".to_string())
 }
 
 /// Reads the header of every commit, tree and file the view's commits add, before a take-back starts, so that an
@@ -1555,11 +1566,12 @@ fn ignored(store: &Path, tree: &Path, paths: &[String]) -> Result<Vec<String>, S
     ];
     let input: Vec<u8> = paths.iter().flat_map(|path| path.bytes().chain(std::iter::once(0))).collect();
     let args = ["check-ignore", "--no-index", "-z", "--stdin"];
-    let found = match git(tree, &args, &env, Some(&input)) {
-        Ok(found) => found,
+    let ran = run_git_status(Some(tree), &[], &args, &env, Some(&input))?;
+    let found = match ran.code {
+        0 => ran.stdout,
         // git ends with 1 where nothing is ignored.
-        Err(why) if why == "`git check-ignore` ended with 1" => Vec::new(),
-        Err(why) => return Err(why),
+        1 => Vec::new(),
+        _ => return Err(ran.said),
     };
     Ok(found.split(|byte| *byte == 0).filter(|path| !path.is_empty()).map(|path| String::from_utf8_lossy(path).to_string()).collect())
 }
@@ -1765,9 +1777,10 @@ pub fn facts(root: &str, path: &str) -> Result<Facts, String> {
     if at_head.is_none() && refused_by_git(&path, "100644").is_none() {
         let args = ["--no-optional-locks", "-c", "core.excludesFile=/dev/null", "check-ignore", "--no-index", "-v", "-z", "--stdin"];
         let input: Vec<u8> = path.bytes().chain(std::iter::once(0)).collect();
-        match git(Path::new(root), &args, &[], Some(&input)) {
-            Ok(found) => {
-                let fields: Vec<String> = found.split(|byte| *byte == 0).map(|field| String::from_utf8_lossy(field).to_string()).collect();
+        let ran = run_git_status(Some(Path::new(root)), &[], &args, &[], Some(&input))?;
+        match ran.code {
+            0 => {
+                let fields: Vec<String> = ran.stdout.split(|byte| *byte == 0).map(|field| String::from_utf8_lossy(field).to_string()).collect();
                 if let [source, number, pattern, ..] = fields.as_slice() {
                     if !pattern.starts_with('!') {
                         ignored = Some(format!("{}, line {}: {}", crate::issue::shown(source), number, crate::issue::shown(pattern)));
@@ -1775,8 +1788,8 @@ pub fn facts(root: &str, path: &str) -> Result<Facts, String> {
                 }
             }
             // git ends with 1 where nothing is ignored.
-            Err(why) if why == "`git check-ignore` ended with 1" => {}
-            Err(why) => return Err(why),
+            1 => {}
+            _ => return Err(ran.said),
         }
     }
     Ok(Facts { path, at_head, ignored })

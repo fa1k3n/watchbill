@@ -2512,7 +2512,7 @@ fn keep(bench: &Bench, keep: &Keep) -> (PathBuf, PathBuf) {
         git(&made.folder, &["add", "--", &path]);
         git(
             &made.folder,
-            &["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false", "commit", "-q", "-m", subject],
+            &["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false", "-c", "maintenance.auto=false", "commit", "-q", "-m", subject],
         );
     }
     for path in keep.uncommitted {
@@ -3046,7 +3046,7 @@ fn test_WB_STATUS_66_a_commit_message_of_many_mebibytes_is_not_read_whole_or_pri
     fs::write(&message, format!("{}\n", "x".repeat(5 * 1024 * 1024))).unwrap();
     put(&folder, "huge.c", "int huge;\n");
     git(&folder, &["add", "--", "huge.c"]);
-    git(&folder, &["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false", "commit", "-q", "-F", message.to_str().unwrap()]);
+    git(&folder, &["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false", "-c", "maintenance.auto=false", "commit", "-q", "-F", message.to_str().unwrap()]);
     let run = start_bounded(&bench, &[], 10).expect("the start did not end");
     assert_eq!(code(&run), Some(1));
     assert!(run.stderr.len() < 64 * 1024, "{} bytes", run.stderr.len());
@@ -3111,7 +3111,7 @@ fn test_WB_STATUS_68_status_leaves_nothing_in_the_temporary_folder() {
 fn commit_in(view: &Path, path: &str, text: &str, subject: &str) {
     put(view, path, text);
     git(view, &["add", "--", path]);
-    git(view, &["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false", "commit", "-q", "-m", subject]);
+    git(view, &["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false", "-c", "maintenance.auto=false", "commit", "-q", "-m", subject]);
 }
 
 /// A kept view of the tester for 54, with no commit yet.
@@ -3571,8 +3571,10 @@ fn test_WB_STATUS_70_a_time_out_of_merge_base_is_said_as_a_time_out_naming_it() 
 fn test_WB_STATUS_71_a_view_slow_on_every_git_run_is_not_read_within_the_deadline_of_one_view() {
     let bench = bench();
     keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &["a.c"], outcome: "outcome: running\npid: 1\n" });
-    // Each run on the view takes 2.2 seconds, below its bound of 3 by what a loaded machine adds to a run (#273), and the 10 runs of a read are 22 seconds: the runs together are what has to end.
-    let (_held, path) = stand_in_git("case \"$*\" in *--git-dir=*|*wb-view-*) sleep 2.2;; esac");
+    // The stand-in counts its runs on the view in a file. The first 9 take 2 seconds, 1 below the bound of a run,
+    // and from the 10th it waits until it is ended: that run starts with less than 3 seconds of the 20 left, so the
+    // deadline ends it, however slow the machine is (#273).
+    let (_held, path) = stand_in_git(r#"case "$*" in *--git-dir=*|*wb-view-*) echo x >> "$(dirname "$0")/runs"; if [ "$(wc -l < "$(dirname "$0")/runs")" -le 9 ]; then sleep 2; else exec sleep 1000; fi;; esac"#);
     let (run, took) = status_with_path(&bench, &path, 40).expect("wb status did not end in 40 seconds");
     let out = text_of(&run.stdout);
     assert!(out.lines().any(|line| line.starts_with("kept: tester round 2, not read: ") && line.contains("20 seconds in all")), "{}", out);

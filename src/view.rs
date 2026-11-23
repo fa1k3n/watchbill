@@ -551,21 +551,152 @@ pub fn works(bwrap: &Path) -> Result<(), String> {
 /// Runs the session in its view, in bubblewrap at `bwrap`, in the foreground, with the person's standard
 /// input, output and error, and no variable `GIT_*` of this process. While it runs, an interrupt, a quit or a hangup at the
 /// terminal does not end `wb`, and a termination is sent on to the session (`interrupt::hold`).
+///
+/// bubblewrap passes no signal on and dies of a hangup or a termination, and the session with it (#257). So it is
+/// started with both ignored, the session is started with them as `wb` found them (`env --default-signal`),
+/// and `wb` sends them on to the session itself, which bubblewrap names on `--info-fd` (`session_of`).
 pub fn run(bwrap: &Path, plan: &Plan) -> Result<ExitStatus, String> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::process::{CommandExt, ExitStatusExt};
     let held = crate::interrupt::hold();
+    let (reader, writer) = std::io::pipe().map_err(|error| format!("the session could not be started: no pipe: {}", error))?;
+    let info = writer.as_raw_fd();
+    // The signals the session gets back: those that were not ignored when `wb` started.
+    let back: Vec<&str> = [(crate::interrupt::SIGHUP, "HUP"), (crate::interrupt::SIGTERM, "TERM")]
+        .into_iter()
+        .filter(|(number, _)| !crate::interrupt::was_ignored(*number))
+        .map(|(_, name)| name)
+        .collect();
+    let mut words = arguments(plan);
+    // Without `env` the signals cannot be given back to the session, and bubblewrap ignores none, as before #257.
+    let ignore = back.is_empty() || Path::new(ENV).is_file();
+    if ignore && !back.is_empty() {
+        let at = words.len() - plan.words.len();
+        words.splice(at..at, [OsString::from(ENV), OsString::from(format!("--default-signal={}", back.join(",")))]);
+    }
+    words.splice(0..0, [OsString::from("--info-fd"), OsString::from(info.to_string())]);
     let mut command = Command::new(bwrap);
-    command.args(arguments(plan)).current_dir(plan.checkout);
+    command.args(words).current_dir(plan.checkout);
     for (name, _) in std::env::vars_os() {
         if name.to_string_lossy().starts_with("GIT_") {
             command.env_remove(name);
         }
     }
     command.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
-    let mut child = command.spawn().map_err(|error| format!("the session could not be started: {} could not be run: {}", bwrap.display(), error))?;
-    held.session(child.id());
+    // Only `signal(2)` and `fcntl(2)` run between fork and exec.
+    unsafe {
+        command.pre_exec(move || crate::interrupt::before_bubblewrap(info, ignore));
+    }
+    if plan.new_session {
+        held.hangups_sent_on();
+    }
+    let spawned = command.spawn();
+    drop(writer);
+    let mut child = spawned.map_err(|error| format!("the session could not be started: {} could not be run: {}", bwrap.display(), error))?;
+    let session = session_of(reader, child.id());
+    match &session {
+        Some(fd) => held.session_held(fd),
+        // No session found: the termination goes to bubblewrap, as before #257.
+        None => held.session(child.id()),
+    }
     let status = child.wait();
     held.ended();
-    status.map_err(|error| format!("the session could not be waited for: {}", error))
+    drop(session);
+    let status = status.map_err(|error| format!("the session could not be waited for: {}", error))?;
+    // bubblewrap gives a session ended by signal n as 128 + n.
+    Ok(match status.code() {
+        Some(code) if (129..=192).contains(&code) => ExitStatus::from_raw(code - 128),
+        _ => status,
+    })
+}
+
+/// `env` of the system, which the sandbox has read-only under `/usr`.
+const ENV: &str = "/usr/bin/env";
+
+/// How long `wb` waits for bubblewrap to name its child, and then for that child's own child, the session.
+const FIND_SESSION: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The session that bubblewrap at `bwrap` (its process number) started, held by a pidfd, or none (#257).
+///
+/// With `--unshare-pid` the `child-pid` of `--info-fd` is bubblewrap's own reaper, process 1 of the sandbox, and
+/// the session is its one child. Each step is checked before the next: the reaper's parent is `bwrap`, it has one
+/// child, that child's parent is the reaper, and it still is after the pidfd is open, so that the pidfd is of
+/// the session and of no other process. The info is read for 2 seconds and 4 KiB at most.
+fn session_of(reader: std::io::PipeReader, bwrap: u32) -> Option<std::os::fd::OwnedFd> {
+    use std::io::Read;
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut reader = reader;
+        let mut info = Vec::new();
+        let mut buffer = [0u8; 512];
+        while info.len() < 4096 && !info.contains(&b'}') {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(count) => info.extend_from_slice(&buffer[..count]),
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => break,
+            }
+        }
+        let _ = send.send(info);
+    });
+    let info = receive.recv_timeout(FIND_SESSION).ok()?;
+    let reaper = child_pid(&info)?;
+    if parent_of(reaper)? != bwrap as i32 {
+        return None;
+    }
+    let end = std::time::Instant::now() + FIND_SESSION;
+    let session = loop {
+        let children = children_of(reaper)?;
+        match children.as_slice() {
+            [one] => break *one,
+            [] if std::time::Instant::now() < end => std::thread::sleep(std::time::Duration::from_millis(5)),
+            _ => return None,
+        }
+    };
+    if parent_of(session)? != reaper {
+        return None;
+    }
+    let fd = crate::interrupt::pidfd(session)?;
+    if parent_of(session)? != reaper {
+        return None;
+    }
+    Some(fd)
+}
+
+/// The number after `"child-pid":` in bubblewrap's info, when it is a process other than the first.
+fn child_pid(info: &[u8]) -> Option<i32> {
+    let text = std::str::from_utf8(info).ok()?;
+    let rest = text[text.find("\"child-pid\"")? + "\"child-pid\"".len()..].trim_start().strip_prefix(':')?.trim_start();
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    if digits.is_empty() || digits.len() > 10 {
+        return None;
+    }
+    digits.parse::<i32>().ok().filter(|pid| *pid > 1)
+}
+
+/// A file of `/proc`, 4 KiB at most.
+fn proc_file(path: &str) -> Option<String> {
+    use std::io::Read;
+    let mut text = String::new();
+    fs::File::open(path).ok()?.take(4096).read_to_string(&mut text).ok()?;
+    Some(text)
+}
+
+/// The parent of process `pid`, from `/proc/<pid>/stat`, unless it has ended (a zombie).
+fn parent_of(pid: i32) -> Option<i32> {
+    let stat = proc_file(&format!("/proc/{}/stat", pid))?;
+    // The name of the program, in brackets, may hold anything: the fields after it are read.
+    let mut fields = stat[stat.rfind(')')? + 1..].split_whitespace();
+    if fields.next()? == "Z" {
+        return None;
+    }
+    fields.next()?.parse().ok()
+}
+
+/// The children of process `pid` (of its first thread), from `/proc`.
+fn children_of(pid: i32) -> Option<Vec<i32>> {
+    let text = proc_file(&format!("/proc/{}/task/{}/children", pid, pid))?;
+    text.split_whitespace().map(|word| word.parse().ok()).collect()
 }
 
 /// What was done with the commits of a view.

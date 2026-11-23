@@ -60,5 +60,5 @@ What a session of the tester, the build, the review or the fix sees when `wb sta
 | WB-VIEW-54 | A take-back shall not take back the view of a session whose `outcome` says `running` while its `wb` is alive: it shall end with 1 saying the session still runs. Issue: #223. | T | Implemented |
 | WB-VIEW-55 | A take-back shall read the header of every object its commits add before it starts, each git run within 3 seconds, so that a FIFO for a file of the view ends it with 1 within 10 seconds and takes nothing. Issue: #223. | T | Implemented |
 | WB-VIEW-56 | Every git run in the temporary store of `wb` shall read no setting of the system or of the person. Issue: #223. | T | Implemented |
-| WB-VIEW-57 | bubblewrap shall be started with SIGHUP and SIGTERM ignored, so that a hangup or a termination that reaches it, as from a terminal or to the whole group, ends neither bubblewrap nor the session in it. Issue: #257. | T | Draft |
-| WB-VIEW-58 | The session in a view shall start with SIGHUP and SIGTERM as `wb` found them: ignored only where they were ignored when `wb` started. Issue: #257. | T | Draft |
+| WB-VIEW-57 | bubblewrap shall be started with SIGHUP and SIGTERM ignored, so that a hangup or a termination that reaches it, as from a terminal or to the whole group, ends neither bubblewrap nor the session in it. Issue: #257. | T | Implemented |
+| WB-VIEW-58 | The session in a view shall start with SIGHUP and SIGTERM as `wb` found them: ignored only where they were ignored when `wb` started. Issue: #257. | T | Implemented |

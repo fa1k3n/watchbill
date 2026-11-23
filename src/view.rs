@@ -556,6 +556,11 @@ pub fn works(bwrap: &Path) -> Result<(), String> {
 /// started with both ignored, the session is started with them as `wb` found them (`env --default-signal`),
 /// and `wb` sends them on to the session itself, which bubblewrap names on `--info-fd` (`session_of`).
 pub fn run(bwrap: &Path, plan: &Plan) -> Result<ExitStatus, String> {
+    run_saying(bwrap, plan, "wb start", &mut std::io::sink())
+}
+
+/// The same, saying on `err`, as `name`, where the session was not found in bubblewrap (WB-BUILD-87).
+pub fn run_saying(bwrap: &Path, plan: &Plan, name: &str, err: &mut dyn Write) -> Result<ExitStatus, String> {
     use std::os::fd::AsRawFd;
     use std::os::unix::process::{CommandExt, ExitStatusExt};
     let held = crate::interrupt::hold();
@@ -572,7 +577,7 @@ pub fn run(bwrap: &Path, plan: &Plan) -> Result<ExitStatus, String> {
     let ignore = back.is_empty() || Path::new(ENV).is_file();
     if ignore && !back.is_empty() {
         let at = words.len() - plan.words.len();
-        words.splice(at..at, [OsString::from(ENV), OsString::from(format!("--default-signal={}", back.join(",")))]);
+        words.splice(at..at, [OsString::from(ENV), OsString::from(format!("--default-signal={}", back.join(","))), OsString::from("--")]);
     }
     words.splice(0..0, [OsString::from("--info-fd"), OsString::from(info.to_string())]);
     let mut command = Command::new(bwrap);
@@ -596,8 +601,14 @@ pub fn run(bwrap: &Path, plan: &Plan) -> Result<ExitStatus, String> {
     let session = session_of(reader, child.id());
     match &session {
         Some(fd) => held.session_held(fd),
-        // No session found: the termination goes to bubblewrap, as before #257.
-        None => held.session(child.id()),
+        // No session found: the termination goes to bubblewrap, which ignores it where it was started so.
+        None => {
+            held.session(child.id());
+            // A session that has ended already is not said to be lost.
+            if matches!(child.try_wait(), Ok(None)) {
+                let _ = writeln!(err, "{}: the session was not found in bubblewrap, so a termination of wb goes to bubblewrap, not to the session", name);
+            }
+        }
     }
     let status = child.wait();
     held.ended();
@@ -657,7 +668,9 @@ fn session_of(reader: std::io::PipeReader, bwrap: u32) -> Option<std::os::fd::Ow
         return None;
     }
     let fd = crate::interrupt::pidfd(session)?;
-    if parent_of(session)? != reaper {
+    // The parent is checked again, and the pidfd's process found alive: a live process keeps its number, so the
+    // process whose parent was checked is the pidfd's own.
+    if parent_of(session)? != reaper || !crate::interrupt::alive(&fd) {
         return None;
     }
     Some(fd)

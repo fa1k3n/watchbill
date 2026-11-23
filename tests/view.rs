@@ -2131,6 +2131,35 @@ fn test_WB_VIEW_57_a_hangup_to_the_group_of_wb_ends_neither_bubblewrap_nor_the_s
 }
 
 #[test]
+fn test_WB_VIEW_57_with_no_controlling_terminal_a_hangup_to_the_group_ends_neither_bubblewrap_nor_the_session() {
+    // The session is in a terminal session of its own: the group's hangup reaches `wb` and bubblewrap only, and
+    // `wb` sends it on (WB-BUILD-85).
+    let how = How { session_is: "hangs-up-alone", sandbox: "run", to_wb: Some(SIGHUP), to_group: true, to_session: None, hangup_ignored: false };
+    let Some(found) = in_bubblewrap("test_WB_VIEW_57_with_no_controlling_terminal", how) else { return };
+    assert_eq!(found.got, "got\n", "the session did not end by itself");
+    assert_eq!(found.status, 0);
+}
+
+#[test]
+fn test_WB_BUILD_87_where_bubblewrap_names_no_session_wb_says_a_termination_will_not_reach_it() {
+    // The stand-in writes nothing on the info fd, and the session runs on past the 2 seconds `wb` waits.
+    let slow = bench();
+    slow.session("sleep 3\nexit 0\n");
+    let sandbox = stand_in_bwrap(&slow);
+    let run = slow.start_by(&sandbox, &["start", "build", "54"]);
+    let err = text_of(&run.stderr);
+    let said: Vec<&str> = err.lines().filter(|line| line.contains("a termination of wb goes to bubblewrap")).collect();
+    assert_eq!(said.len(), 1, "{}", err);
+    assert!(said[0].starts_with("wb start build: the session was not found in bubblewrap"), "{}", err);
+    // A session that ends at once is not said to be lost.
+    let quick = bench();
+    quick.session("exit 0\n");
+    let sandbox = stand_in_bwrap(&quick);
+    let run = quick.start_by(&sandbox, &["start", "build", "54"]);
+    assert!(!text_of(&run.stderr).contains("was not found in bubblewrap"), "{}", text_of(&run.stderr));
+}
+
+#[test]
 fn test_WB_BUILD_85_with_no_controlling_terminal_a_hangup_sent_to_wb_is_sent_on_to_the_session() {
     let how = How { session_is: "hangs-up-alone", sandbox: "run", to_wb: Some(SIGHUP), to_group: false, to_session: None, hangup_ignored: false };
     let Some(found) = in_bubblewrap("test_WB_BUILD_85", how) else { return };

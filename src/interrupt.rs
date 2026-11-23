@@ -50,7 +50,6 @@ pub fn writing() {
     WRITING.store(true, Ordering::SeqCst);
 }
 
-
 const SIGQUIT: c_int = 3;
 pub(crate) const SIGHUP: c_int = 1;
 pub(crate) const SIGTERM: c_int = 15;
@@ -259,3 +258,8 @@ pub fn pidfd(pid: i32) -> Option<std::os::fd::OwnedFd> {
     Some(unsafe { std::os::fd::OwnedFd::from_raw_fd(fd as c_int) })
 }
 
+/// Whether the process of the pidfd `fd` is alive: signal 0, which sends nothing, is let through to it.
+pub fn alive(fd: &std::os::fd::OwnedFd) -> bool {
+    use std::os::fd::AsRawFd;
+    unsafe { syscall(PIDFD_SEND_SIGNAL, fd.as_raw_fd() as c_long, 0 as c_long, 0 as c_long, 0 as c_long) == 0 }
+}

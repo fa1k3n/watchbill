@@ -128,11 +128,13 @@ const USAGE: &str = "usage:
             <folder> for each view kept with work not taken back, and cut off:
             <role> round <n>, <folder> for each session whose wb ended before
             it did. With no issue it says on standard error how many such
-            views are kept on this machine. Ends with 0 when
+            views are kept on this machine. A view of over 200 commits is
+            said as the first 200 and 'and <k> more', and each view is
+            read within 20 seconds. Ends with 0 when
             every issue could be read, 1 when a pattern failed for one (it is
             listed under Not read), 2 when it was used wrongly or the
-            repository is not set up. Writes nothing but a temporary index in
-            $TMPDIR, removed after, where it reads a kept view
+            repository is not set up. Writes nothing but a temporary repository
+            in $TMPDIR, removed after, where it reads a kept view
   view      show what a session of a role will see, before it starts. wb view
             <issue> <role> prints the paths of its view, one to a line, the
             list the start makes the view from, and nothing else. --in

@@ -190,22 +190,28 @@ thread_local! {
 }
 
 thread_local! {
-    /// The time by which a whole take-back must be over, while a `Deadline` is held (#223).
-    static DEADLINE: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
+    /// The time by which a whole piece of work must be over, while a `Deadline` is held (#223, #265): the instant,
+    /// the time it was given, and what the work is called.
+    static DEADLINE: std::cell::Cell<Option<(std::time::Instant, std::time::Duration, &'static str)>> = const { std::cell::Cell::new(None) };
 }
 
-/// Holds the deadline of a whole take-back for this thread, until it is dropped.
-struct Deadline(());
+/// Holds the deadline of a whole piece of work (a take-back, the read of one view) for this thread, until it is
+/// dropped.
+struct Deadline(Option<(std::time::Instant, std::time::Duration, &'static str)>);
 
 impl Drop for Deadline {
     fn drop(&mut self) {
-        DEADLINE.with(|deadline| deadline.set(None));
+        DEADLINE.with(|deadline| deadline.set(self.0));
     }
 }
 
-fn deadline(total: std::time::Duration) -> Deadline {
-    DEADLINE.with(|deadline| deadline.set(Some(std::time::Instant::now() + total)));
-    Deadline(())
+/// A deadline of `total` from now. Where one is held already that ends sooner, it stays; the earlier one is held
+/// again when the guard is dropped (#265).
+fn deadline(total: std::time::Duration, what: &'static str) -> Deadline {
+    let before = DEADLINE.with(|deadline| deadline.get());
+    let new = (std::time::Instant::now() + total, total, what);
+    DEADLINE.with(|deadline| deadline.set(Some(before.filter(|held| held.0 <= new.0).unwrap_or(new))));
+    Deadline(before)
 }
 
 /// Holds the time bound of `git` for this thread, until it is dropped (#222).
@@ -238,8 +244,15 @@ fn wait_bounded(mut child: std::process::Child, limit: std::time::Duration) -> s
     let (out, err) = (reading(child.stdout.take()), reading(child.stderr.take()));
     let began = std::time::Instant::now();
     let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            // As on a time-out: the child is not left to run.
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
         }
         if began.elapsed() > limit {
             let _ = child.kill();
@@ -251,14 +264,50 @@ fn wait_bounded(mut child: std::process::Child, limit: std::time::Duration) -> s
     Ok(std::process::Output { status, stdout: out.join().unwrap_or_default(), stderr: err.join().unwrap_or_default() })
 }
 
+/// The git command of a run: the first word that is not an option (`-c` takes a word of its own).
+fn command_of<'a>(args: &[&'a str]) -> &'a str {
+    let mut words = args.iter().copied();
+    while let Some(word) = words.next() {
+        if word == "-c" || word == "-C" {
+            words.next();
+        } else if !word.starts_with('-') {
+            return word;
+        }
+    }
+    ""
+}
+
 /// `git` as `git` runs it, with `before` words after `git`, in `at` where there is a folder.
 fn run_git(at: Option<&Path>, before: &[OsString], args: &[&str], env: &[(&str, &Path)], input: Option<&[u8]>) -> Result<Vec<u8>, String> {
+    let ran = run_git_status(at, before, args, env, input)?;
+    if ran.code == 0 {
+        Ok(ran.stdout)
+    } else {
+        Err(ran.said)
+    }
+}
+
+/// A git run that ended: its exit status, its standard output, and the words for an end that is not 0.
+struct Ran {
+    code: i32,
+    stdout: Vec<u8>,
+    said: String,
+}
+
+/// As `run_git`, with the exit status kept, so that a decision is made on the status and never on the words. The error
+/// is a git that could not be run, or was ended after its bound.
+fn run_git_status(at: Option<&Path>, before: &[OsString], args: &[&str], env: &[(&str, &Path)], input: Option<&[u8]>) -> Result<Ran, String> {
     let mut limit = BOUND.with(|bound| bound.get());
-    // One deadline for a whole take-back, besides the bound of each run.
-    if let Some(end) = DEADLINE.with(|deadline| deadline.get()) {
+    // What is said where the deadline, and not the bound of the run, ended it.
+    let mut by_deadline = None;
+    // One deadline for a whole piece of work, besides the bound of each run.
+    if let Some((end, total, what)) = DEADLINE.with(|deadline| deadline.get()) {
         let left = end.saturating_duration_since(std::time::Instant::now());
         if left.is_zero() {
-            return Err(format!("the take-back took more than {} seconds in all, and was ended", TAKE_BACK_DEADLINE.as_secs()));
+            return Err(format!("the {} took more than {} seconds in all, and was ended", what, total.as_secs()));
+        }
+        if limit.map_or(true, |limit| left < limit) {
+            by_deadline = Some(format!("the {} took more than {} seconds in all, and was ended", what, total.as_secs()));
         }
         limit = Some(limit.map_or(left, |limit| limit.min(left)));
     }
@@ -295,17 +344,19 @@ fn run_git(at: Option<&Path>, before: &[OsString], args: &[&str], env: &[(&str, 
     })
     .map_err(|error| {
         if error.kind() == std::io::ErrorKind::TimedOut {
-            format!("`git {}` took more than {} seconds and was ended", args.first().copied().unwrap_or(""), limit.map_or(0, |limit| limit.as_secs()))
+            by_deadline.unwrap_or_else(|| format!("`git {}` took more than {} seconds and was ended", command_of(args), limit.map_or(0, |limit| limit.as_secs())))
         } else {
             format!("git could not be waited for: {}", error)
         }
     })?;
     if output.status.success() {
-        return Ok(output.stdout);
+        return Ok(Ran { code: 0, stdout: output.stdout, said: String::new() });
     }
     let said = String::from_utf8_lossy(&output.stderr);
     let first = said.lines().find(|line| !line.trim().is_empty()).unwrap_or("").trim().to_string();
-    Err(format!("`git {}` ended with {}{}", args.first().copied().unwrap_or(""), output.status.code().unwrap_or(-1), if first.is_empty() { String::new() } else { format!(": {}", first) }))
+    let code = output.status.code().unwrap_or(-1);
+    let said = format!("`git {}` ended with {}{}", command_of(args), code, if first.is_empty() { String::new() } else { format!(": {}", first) });
+    Ok(Ran { code, stdout: output.stdout, said })
 }
 
 fn line(bytes: &[u8]) -> String {
@@ -1070,7 +1121,7 @@ const TAKE_BACK_DEADLINE: std::time::Duration = std::time::Duration::from_secs(3
 /// the view's. Every git run ends within a bound, for a view is hostile.
 pub fn take_back_later(name: &str, root: &str, view: &View, changes: &[String], build_files: &[String], expected: usize, list: Option<&Path>, err: &mut dyn Write) -> Back {
     let _bound = bounded(std::time::Duration::from_secs(60));
-    let _deadline = deadline(TAKE_BACK_DEADLINE);
+    let _deadline = deadline(TAKE_BACK_DEADLINE, "take-back");
     take_back_in(name, root, view, changes, build_files, list, Some(expected), err)
 }
 
@@ -1102,9 +1153,11 @@ fn take_back_in(name: &str, root: &str, view: &View, changes: &[String], build_f
 /// What a kept view holds that is not on the branch (#222), read as `take_back` reads a view and through a
 /// repository of `wb`'s own, never with the settings of the view: the commits of the view after the one it was made
 /// with (the first 200, the first parent only), each its name and subject, and the paths left uncommitted. Reads only.
-pub fn work_left(root: &str, view: &View) -> Result<(Vec<(String, String)>, Vec<String>), String> {
-    // Every git run here ends after 3 seconds: a view is hostile, and git may wait for ever on what it holds.
+pub fn work_left(root: &str, view: &View) -> Result<Left, String> {
+    // Every git run here ends after 3 seconds: a view is hostile, and git may wait for ever on what it holds. All of
+    // them end within one deadline for the view (#265).
     let _bound = bounded(std::time::Duration::from_secs(3));
+    let _deadline = deadline(VIEW_DEADLINE, "read of the view");
     let objects = view.folder.join(".git").join("objects");
     match fs::symlink_metadata(&objects) {
         Ok(found) if found.is_dir() => {}
@@ -1123,20 +1176,46 @@ pub fn work_left(root: &str, view: &View) -> Result<(Vec<(String, String)>, Vec<
     let before = [OsString::from("--no-replace-objects"), OsString::from(format!("--git-dir={}", gitdir))];
     let on = |args: &[&str]| run_git(None, &before, args, &env, None);
     let mut commits: Vec<(String, String)> = Vec::new();
+    let mut more = 0;
     if head != view.base {
-        if on(&["merge-base", "--is-ancestor", &view.base, &head]).is_err() {
-            return Err(format!("the view's HEAD, {}, does not come from the commit the view was made with", short(&head)));
+        // Git ends with 1 where the commit is not an ancestor; any other end (128 for an object it cannot read, a
+        // time-out) is said as what it is.
+        let ran = run_git_status(None, &before, &["merge-base", "--is-ancestor", &view.base, &head], &env, None)?;
+        match ran.code {
+            0 => {}
+            1 => return Err(format!("the view's HEAD, {}, does not come from the commit the view was made with", short(&head))),
+            _ => return Err(ran.said),
         }
         let range = format!("{}..{}", view.base, head);
         let listed = on(&["rev-list", "--first-parent", "--reverse", &range])?;
-        for commit in String::from_utf8_lossy(&listed).lines().filter(|commit| is_object(commit)).take(200) {
+        let listed = String::from_utf8_lossy(&listed);
+        let all: Vec<&str> = listed.lines().filter(|commit| is_object(commit)).collect();
+        more = all.len().saturating_sub(MOST_COMMITS);
+        for commit in all.into_iter().take(MOST_COMMITS) {
             commits.push((commit.to_string(), subject_capped(&on, commit)?));
         }
     }
     let store = Store::new(view)?;
     let mut notes = Vec::new();
-    let paths = uncommitted(root, &store.path, &view.folder, &view.head, &mut notes)?;
-    Ok((commits, paths))
+    let uncommitted = uncommitted(root, &store.path, &view.folder, &view.head, &mut notes)?;
+    Ok(Left { commits, more, uncommitted })
+}
+
+/// The time `wb` may spend on reading one kept view, besides the bound of each git run (#265).
+const VIEW_DEADLINE: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// The most commits of a kept view that are named.
+const MOST_COMMITS: usize = 200;
+
+/// What `work_left` found.
+#[derive(Debug)]
+pub struct Left {
+    /// The first commits of the view not taken, each its name and subject.
+    pub commits: Vec<(String, String)>,
+    /// How many more commits there are than are named.
+    pub more: usize,
+    /// The paths left uncommitted.
+    pub uncommitted: Vec<String>,
 }
 
 /// A git run on the objects of a view, as `work_left` makes it: through the checkout's own repository with the view's
@@ -1158,22 +1237,11 @@ fn on_view(root: &str, view: &View, args: &[&str], input: Option<&[u8]>) -> Resu
     run_git(None, &before, args, &env, input)
 }
 
-/// How many commits a take-back of the view takes: all of the first-parent ones after the view's first commit (#223).
-/// Every git run ends after 3 seconds.
-pub fn count_left(root: &str, view: &View) -> Result<usize, String> {
-    let _bound = bounded(std::time::Duration::from_secs(3));
-    let head = head_of(&view.folder.join(".git"))?;
-    if head == view.base {
-        return Ok(0);
-    }
-    let counted = on_view(root, view, &["rev-list", "--first-parent", "--count", &format!("{}..{}", view.base, head)], None)?;
-    line(&counted).parse().map_err(|_| "the count of the commits of the view is not a number".to_string())
-}
-
 /// Reads the header of every commit, tree and file the view's commits add, before a take-back starts, so that an
 /// object git would wait for fails here, within 3 seconds per run, and not later in the take (#223).
 pub fn objects_readable(root: &str, view: &View) -> Result<(), String> {
     let _bound = bounded(std::time::Duration::from_secs(3));
+    let _deadline = deadline(VIEW_DEADLINE, "read of the view");
     let head = head_of(&view.folder.join(".git"))?;
     if head == view.base {
         return Ok(());
@@ -1184,7 +1252,10 @@ pub fn objects_readable(root: &str, view: &View) -> Result<(), String> {
         .filter_map(|entry| entry.split(' ').next().filter(|name| is_object(name)))
         .flat_map(|name| format!("{}\n", name).into_bytes())
         .collect();
-    let checked = on_view(root, view, &["cat-file", "--batch-check"], Some(&names))?;
+    // The header is read where the take reads it, in `wb`'s own store with the view as its only alternate: an object
+    // the checkout holds too is checked from the view's copy, which is the one the take reads (#265).
+    let store = Store::new(view)?;
+    let checked = git(&store.path, &["cat-file", "--batch-check"], &[], Some(&names))?;
     if String::from_utf8_lossy(&checked).lines().any(|entry| entry.ends_with(" missing")) {
         return Err("an object of the view's commits is missing".to_string());
     }
@@ -1495,11 +1566,12 @@ fn ignored(store: &Path, tree: &Path, paths: &[String]) -> Result<Vec<String>, S
     ];
     let input: Vec<u8> = paths.iter().flat_map(|path| path.bytes().chain(std::iter::once(0))).collect();
     let args = ["check-ignore", "--no-index", "-z", "--stdin"];
-    let found = match git(tree, &args, &env, Some(&input)) {
-        Ok(found) => found,
+    let ran = run_git_status(Some(tree), &[], &args, &env, Some(&input))?;
+    let found = match ran.code {
+        0 => ran.stdout,
         // git ends with 1 where nothing is ignored.
-        Err(why) if why == "`git check-ignore` ended with 1" => Vec::new(),
-        Err(why) => return Err(why),
+        1 => Vec::new(),
+        _ => return Err(ran.said),
     };
     Ok(found.split(|byte| *byte == 0).filter(|path| !path.is_empty()).map(|path| String::from_utf8_lossy(path).to_string()).collect())
 }
@@ -1705,9 +1777,10 @@ pub fn facts(root: &str, path: &str) -> Result<Facts, String> {
     if at_head.is_none() && refused_by_git(&path, "100644").is_none() {
         let args = ["--no-optional-locks", "-c", "core.excludesFile=/dev/null", "check-ignore", "--no-index", "-v", "-z", "--stdin"];
         let input: Vec<u8> = path.bytes().chain(std::iter::once(0)).collect();
-        match git(Path::new(root), &args, &[], Some(&input)) {
-            Ok(found) => {
-                let fields: Vec<String> = found.split(|byte| *byte == 0).map(|field| String::from_utf8_lossy(field).to_string()).collect();
+        let ran = run_git_status(Some(Path::new(root)), &[], &args, &[], Some(&input))?;
+        match ran.code {
+            0 => {
+                let fields: Vec<String> = ran.stdout.split(|byte| *byte == 0).map(|field| String::from_utf8_lossy(field).to_string()).collect();
                 if let [source, number, pattern, ..] = fields.as_slice() {
                     if !pattern.starts_with('!') {
                         ignored = Some(format!("{}, line {}: {}", crate::issue::shown(source), number, crate::issue::shown(pattern)));
@@ -1715,8 +1788,8 @@ pub fn facts(root: &str, path: &str) -> Result<Facts, String> {
                 }
             }
             // git ends with 1 where nothing is ignored.
-            Err(why) if why == "`git --no-optional-locks` ended with 1" => {}
-            Err(why) => return Err(why),
+            1 => {}
+            _ => return Err(ran.said),
         }
     }
     Ok(Facts { path, at_head, ignored })
@@ -1793,4 +1866,25 @@ pub fn judge(root: &str, used: &crate::issue::Used, role: &str, facts: &Facts, b
         below.push(format!("and {} more", more));
     }
     Ok(Verdict::Out(format!("{}; the view holds paths below it: {}", unlisted, below.join(", "))))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_WB_VIEW_72_a_deadline_inside_another_keeps_the_earlier_and_restores_it_when_dropped() {
+        let outer = deadline(std::time::Duration::from_secs(300), "take-back");
+        let held = || DEADLINE.with(|deadline| deadline.get()).map(|(_, total, what)| (total.as_secs(), what));
+        {
+            let _inner = deadline(std::time::Duration::from_secs(20), "read of the view");
+            assert_eq!(held(), Some((20, "read of the view")));
+            let _longer = deadline(std::time::Duration::from_secs(100), "later");
+            assert_eq!(held(), Some((20, "read of the view")), "a later deadline took the place of an earlier one");
+        }
+        assert_eq!(held(), Some((300, "take-back")), "the deadline of the take-back was not held again");
+        drop(outer);
+        assert_eq!(held(), None);
+    }
 }

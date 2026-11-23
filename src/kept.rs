@@ -167,6 +167,8 @@ pub struct Kept {
     pub folder: PathBuf,
     /// The commits not taken: each its name and its subject (and, for a commit refused, why).
     pub commits: Vec<(String, String)>,
+    /// How many more commits there are than are named (#265).
+    pub more: usize,
     /// The paths left uncommitted, each written escaped.
     pub uncommitted: Vec<String>,
     /// Why the view could not be read, where it could not: what it holds is then not known.
@@ -193,7 +195,7 @@ fn kept_of(root: &str, state: &Path, session: &Session, look: bool) -> Option<Ke
     if session.running() == Some(true) {
         return None;
     }
-    let made = |folder: PathBuf, commits, uncommitted, unread| Kept { role: session.role.clone(), round: session.round(), folder, commits, uncommitted, unread };
+    let made = |folder: PathBuf, commits, uncommitted, unread| Kept { role: session.role.clone(), round: session.round(), folder, commits, more: 0, uncommitted, unread };
     let back = small(&session.folder.join("back"));
     // A take-back appends its lines after a line `take-back` (#223): only they say what is left.
     let back = back.as_deref().map(section);
@@ -223,10 +225,10 @@ fn kept_of(root: &str, state: &Path, session: &Session, look: bool) -> Option<Ke
         return folder_of_back.map(|folder| made(folder, Vec::new(), Vec::new(), Some("it was not read: its session left no file `folder`".to_string())));
     };
     match view::work_left(root, &place.view) {
-        Ok((commits, uncommitted)) => {
-            let commits: Vec<(String, String)> = commits.into_iter().map(|(commit, subject)| (view::short(&commit).to_string(), subject)).collect();
-            let uncommitted: Vec<String> = uncommitted.iter().map(|path| crate::issue::shown(path)).collect();
-            (!commits.is_empty() || !uncommitted.is_empty()).then(|| made(place.view.folder.clone(), commits, uncommitted, None))
+        Ok(left) => {
+            let commits: Vec<(String, String)> = left.commits.into_iter().map(|(commit, subject)| (view::short(&commit).to_string(), subject)).collect();
+            let uncommitted: Vec<String> = left.uncommitted.iter().map(|path| crate::issue::shown(path)).collect();
+            (!commits.is_empty() || !uncommitted.is_empty()).then(|| Kept { more: left.more, ..made(place.view.folder.clone(), commits, uncommitted, None) })
         }
         Err(why) => Some(made(place.view.folder.clone(), Vec::new(), Vec::new(), Some(crate::issue::shown(&why)))),
     }
@@ -321,6 +323,7 @@ impl Kept {
         match (self.count(), &self.unread) {
             (_, Some(why)) => parts.push(format!("not read: {}", why)),
             (1, None) => parts.push("1 commit not taken".to_string()),
+            (n, None) if self.more > 0 => parts.push(format!("{} commits not taken and {} more", n, self.more)),
             (n, None) => parts.push(format!("{} commits not taken", n)),
         }
         if !self.uncommitted.is_empty() {
@@ -349,6 +352,9 @@ pub fn refusal(issue: &str, found: &[Kept]) -> String {
         text.push_str(&format!("\n  {}: {} round {}", crate::issue::shown(&one.folder.display().to_string()), one.role, one.round));
         for (commit, subject) in &one.commits {
             text.push_str(&format!("\n    {} {}", commit, subject));
+        }
+        if one.more > 0 {
+            text.push_str(&format!("\n    and {} more", one.more));
         }
         for path in &one.uncommitted {
             text.push_str(&format!("\n    uncommitted: {}", path));

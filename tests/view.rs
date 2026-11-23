@@ -3271,3 +3271,110 @@ fn test_WB_VIEW_56_no_setting_of_the_person_or_the_system_is_read_by_a_git_run_i
     let ran = fs::read_to_string(marks.path.join("ran")).unwrap_or_default();
     assert!(!ran.lines().any(|line| line.contains("wb-view-")), "{}", ran);
 }
+
+// ---- #265: what `wb` says of a kept view it could not read is true, and a view has one deadline ----
+
+/// A folder with a `git` that runs `before` (a shell line, with the words of the run as `$@`) and then the real
+/// one, and the `PATH` that finds it first. The folder is held until the test ends.
+fn stand_in_git(before: &str) -> (Folder, String) {
+    let folder = folder_named("stand-in");
+    script(&folder.path.join("git"), &format!("{}\nexec /usr/bin/git \"$@\"\n", before));
+    let path = format!("{}:{}", folder.path.display(), std::env::var("PATH").unwrap_or_default());
+    (folder, path)
+}
+
+/// `wb status 54` with a `PATH`, with a bound, and how long it took.
+fn status_with_path(bench: &Bench, path: &str, seconds: u64) -> Option<(Output, std::time::Duration)> {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_wb"));
+    command.args(["status", "54"]).current_dir(&bench.repo.path).env_clear().envs(env()).env("XDG_STATE_HOME", &bench.state.path).env("PATH", path);
+    bounded(command, seconds)
+}
+
+#[test]
+fn test_WB_STATUS_70_a_time_out_of_merge_base_is_said_as_a_time_out_naming_it() {
+    let bench = bench();
+    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &[], outcome: "outcome: running\npid: 1\n" });
+    fifo_for_head(&folder);
+    let run = wb_state_bounded(&bench, &["status", "54"], 20).expect("wb status did not end in 20 seconds");
+    let out = text_of(&run.stdout);
+    let line = out.lines().find(|line| line.starts_with("kept: tester round 2, not read: ")).unwrap_or_else(|| panic!("{}", out));
+    assert!(line.contains("`git merge-base` took more than 3 seconds"), "{}", line);
+    assert!(!line.contains("does not come from"), "{}", line);
+}
+
+#[test]
+fn test_WB_STATUS_71_a_view_slow_on_every_git_run_is_not_read_within_the_deadline_of_one_view() {
+    let bench = bench();
+    keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &["a.c"], outcome: "outcome: running\npid: 1\n" });
+    // Each run on the view takes 2.5 seconds, below its bound of 3: the runs together are what has to end.
+    let (_held, path) = stand_in_git("case \"$*\" in *--git-dir=*|*wb-view-*) sleep 2.5;; esac");
+    let (run, took) = status_with_path(&bench, &path, 40).expect("wb status did not end in 40 seconds");
+    let out = text_of(&run.stdout);
+    assert!(out.lines().any(|line| line.starts_with("kept: tester round 2, not read: ") && line.contains("20 seconds in all")), "{}", out);
+    assert!(took < std::time::Duration::from_secs(26), "{:?}", took);
+}
+
+#[test]
+fn test_WB_STATUS_72_the_time_out_of_a_git_run_names_the_command_and_not_an_option() {
+    let bench = bench();
+    keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &["a.c"], outcome: "outcome: running\npid: 1\n" });
+    // The paths left uncommitted are read by runs that start with `-c`.
+    let (_held, path) = stand_in_git("case \"$*\" in *read-tree*) sleep 6;; esac");
+    let (run, _) = status_with_path(&bench, &path, 40).expect("wb status did not end in 40 seconds");
+    let out = text_of(&run.stdout);
+    assert!(out.contains("`git read-tree` took more than 3 seconds"), "{}", out);
+    assert!(!out.contains("`git -c`"), "{}", out);
+}
+
+#[test]
+fn test_WB_VIEW_70_a_fifo_for_a_blob_that_the_checkout_also_holds_ends_a_take_back_in_about_3_seconds() {
+    let bench = bench();
+    let (folder, _) = kept_tester(&bench);
+    commit_in(&folder, "src/brake.c", "int brake(void) { return 70; }\n", "Tests");
+    let blob = {
+        let run = Command::new("git").arg("-C").arg(&folder).args(["rev-parse", "HEAD:src/brake.c"]).env_clear().envs(env()).output().unwrap();
+        text(&run.stdout).trim().to_string()
+    };
+    // The checkout holds the same blob, as a session can make it do by committing a file equal to one it has.
+    let copy = bench.log.path.join("same.c");
+    fs::write(&copy, "int brake(void) { return 70; }\n").unwrap();
+    let held = Command::new("git").arg("-C").arg(&bench.repo.path).args(["hash-object", "-w"]).arg(&copy).env_clear().envs(env()).output().unwrap();
+    assert_eq!(text(&held.stdout).trim(), blob);
+    fifo_for_object(&folder, &blob);
+    let began = std::time::Instant::now();
+    let run = take_back_bounded(&bench, 30).expect("the take-back did not end in 30 seconds");
+    assert!(began.elapsed() < std::time::Duration::from_secs(8), "{:?}", began.elapsed());
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert_eq!(subjects(&bench, 1), vec!["The issue's file of 54"]);
+    assert!(folder.exists());
+}
+
+#[test]
+fn test_WB_STATUS_69_a_view_of_more_than_200_commits_says_and_k_more_in_status_and_in_the_refusal() {
+    let bench = bench();
+    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 1, commits: &[], uncommitted: &[], outcome: "outcome: running\npid: 1\n" });
+    many_commits(&folder, 205);
+    let out = text_of(&wb_state(&bench, &["status", "54"]).stdout);
+    assert!(out.lines().any(|line| line.starts_with("kept: tester round 1, 200 commits not taken and 5 more,")), "{}", out);
+    let run = start_54(&bench, &[]);
+    assert_eq!(code(&run), Some(1));
+    let err = text_of(&run.stderr);
+    assert!(err.contains("Commit 200\n    and 5 more\n"), "{}", err);
+    assert!(!err.contains("Commit 201"), "{}", err);
+}
+
+#[test]
+fn test_WB_STATUS_75_a_missing_head_commit_is_said_as_the_failure_of_merge_base_and_not_as_another_origin() {
+    let bench = bench();
+    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &[], outcome: "outcome: running\npid: 1\n" });
+    let head = {
+        let run = Command::new("git").arg("-C").arg(&folder).args(["rev-parse", "HEAD"]).env_clear().envs(env()).output().unwrap();
+        text(&run.stdout).trim().to_string()
+    };
+    fs::remove_file(folder.join(".git/objects").join(&head[..2]).join(&head[2..])).unwrap();
+    let run = wb_state_bounded(&bench, &["status", "54"], 20).expect("wb status did not end in 20 seconds");
+    let out = text_of(&run.stdout);
+    let line = out.lines().find(|line| line.starts_with("kept: tester round 2, not read: ")).unwrap_or_else(|| panic!("{}", out));
+    assert!(line.contains("`git merge-base` ended with 128"), "{}", line);
+    assert!(!line.contains("does not come from"), "{}", line);
+}

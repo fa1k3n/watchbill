@@ -20,8 +20,8 @@ pub enum Fault {
     NotFound,
     /// A FIFO, a device, a folder or a link: never opened as a file to read.
     NotPlain,
-    /// More than the cap.
-    TooBig,
+    /// More than the cap, which is held here.
+    TooBig(u64),
     /// The system would not open or read it.
     Io(io::Error),
 }
@@ -31,7 +31,8 @@ impl std::fmt::Display for Fault {
         match self {
             Fault::NotFound => f.write_str("it is not there"),
             Fault::NotPlain => f.write_str("it is not a plain file"),
-            Fault::TooBig => f.write_str("it is over its limit in size"),
+            Fault::TooBig(cap) if cap % (1024 * 1024) == 0 => write!(f, "it is over {} MiB", cap / (1024 * 1024)),
+            Fault::TooBig(cap) => write!(f, "it is over {} bytes", cap),
             Fault::Io(error) => write!(f, "{}", crate::yamlfile::system_words(error)),
         }
     }
@@ -67,7 +68,11 @@ impl From<io::Error> for Fault {
 /// waiting (a FIFO opens at once), and it is the open file that is looked at again, so a file swapped for a
 /// FIFO between the look and the open does not make `wb` wait. The metadata is that of the open file.
 pub fn open_plain(path: &Path) -> Result<(File, fs::Metadata), Fault> {
-    let looked = fs::symlink_metadata(path)?;
+    open(path, false)
+}
+
+fn open(path: &Path, follow: bool) -> Result<(File, fs::Metadata), Fault> {
+    let looked = if follow { fs::metadata(path)? } else { fs::symlink_metadata(path)? };
     if !looked.file_type().is_file() {
         return Err(Fault::NotPlain);
     }
@@ -81,14 +86,28 @@ pub fn open_plain(path: &Path) -> Result<(File, fs::Metadata), Fault> {
 
 /// The bytes of a plain file of `cap` bytes or fewer. A larger file is not read past `cap` and one byte.
 pub fn read_plain(path: &Path, cap: u64) -> Result<Vec<u8>, Fault> {
-    let (file, opened) = open_plain(path)?;
+    read_from(open(path, false)?, cap)
+}
+
+/// As `read_plain`, for a file outside the working tree that a session cannot write (the organisation's file, the
+/// installed tables), which is read where it is kept as a link: the file the link names must be a plain file.
+pub fn read_following(path: &Path, cap: u64) -> Result<Vec<u8>, Fault> {
+    read_from(open(path, true)?, cap)
+}
+
+fn read_from((file, opened): (File, fs::Metadata), cap: u64) -> Result<Vec<u8>, Fault> {
     if opened.len() > cap {
-        return Err(Fault::TooBig);
+        return Err(Fault::TooBig(cap));
     }
     let mut bytes = Vec::new();
     file.take(cap + 1).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > cap {
-        return Err(Fault::TooBig);
+        return Err(Fault::TooBig(cap));
     }
     Ok(bytes)
+}
+
+/// Whether there is nothing at the path (a link counts as something).
+pub fn is_absent(path: &Path) -> bool {
+    matches!(fs::symlink_metadata(path), Err(error) if error.kind() == io::ErrorKind::NotFound)
 }

@@ -40,6 +40,17 @@ fn head_file(root: impl AsRef<std::ffi::OsStr>, place: &str) -> Option<Vec<u8>> 
     output.status.success().then_some(output.stdout)
 }
 
+/// The refusal where `place` is over 1 MiB in `HEAD`, from its size and before the blob is read (#261): a session
+/// can commit a big file, and `git show` would hold all of it.
+fn head_too_big(root: &str, place: &str) -> Result<(), String> {
+    match head_size(Path::new(root), place) {
+        Some(size) if size > crate::bounded::TEXT_CAP => {
+            Err(format!("{} is over 1 MiB in HEAD, which is too big. A person makes it smaller and commits it", place))
+        }
+        _ => Ok(()),
+    }
+}
+
 /// The size of `place` in `HEAD`, from the object database with no replace refs, without reading the file.
 fn head_size(root: &Path, place: &str) -> Option<u64> {
     let output = Command::new("git")
@@ -76,6 +87,7 @@ impl Drop for ReadOnly {
 /// it (a file missing there counts as differing): the command says so on standard error and goes on.
 pub fn read_only(root: &str) -> Result<(ReadOnly, bool), String> {
     let place = format!("{}/{}", crate::init::CONFIG_FOLDER, crate::init::CONFIG_FILE);
+    head_too_big(root, &place)?;
     let Some(head) = head_file(root, &place) else {
         if !Path::new(root).join(&place).is_file() {
             return Err(format!("{} is not there. Watchbill is not set up in this repository", place));
@@ -139,6 +151,7 @@ pub fn drift_line(name: &str) -> String {
 /// replace refs, which a session can write with nothing on the branch to show it. No flag lifts it.
 pub fn held_bytes(root: &str) -> Result<Option<Vec<u8>>, String> {
     let place = format!("{}/{}", crate::init::CONFIG_FOLDER, crate::init::CONFIG_FILE);
+    head_too_big(root, &place)?;
     // A command that only reads (`read_only`) goes on with the file of `HEAD`, before the working tree is looked at.
     if READ_ONLY.with(|flag| flag.get()) {
         // In this mode the working tree is never the fallback: `HEAD`'s file was there when the mode began.
@@ -150,7 +163,7 @@ pub fn held_bytes(root: &str) -> Result<Option<Vec<u8>>, String> {
     // The file is read by the one reader (#261): what is not a plain file, or is over the cap, is never opened.
     let now = match crate::bounded::read_plain(&Path::new(root).join(&place), crate::bounded::TEXT_CAP) {
         Ok(now) => Some(now),
-        Err(crate::bounded::Fault::NotPlain | crate::bounded::Fault::TooBig) => None,
+        Err(crate::bounded::Fault::NotPlain | crate::bounded::Fault::TooBig(_)) => None,
         Err(_) => return Ok(None),
     };
     let said = match (head_file(root, &place), now) {

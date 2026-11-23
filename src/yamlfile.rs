@@ -649,6 +649,15 @@ pub fn load(path: impl AsRef<Path>) -> Result<Document, YamlError> {
     load_bytes(path, bytes)
 }
 
+/// As `load`, for a file outside the working tree that a session cannot write (the organisation's file, the
+/// installed tables): it is read where it is kept as a link, through the cap.
+pub fn load_following(path: impl AsRef<Path>) -> Result<Document, YamlError> {
+    let path = path.as_ref();
+    let bytes = crate::bounded::read_following(path, crate::bounded::TEXT_CAP)
+        .map_err(|fault| YamlError::new(format!("{}: cannot be read ({})", path.display(), fault)))?;
+    load_bytes(path, bytes)
+}
+
 /// As `load`, for bytes that were read already (named by `path` in the faults): the file is read once,
 /// and what is held to its form is what was hashed.
 pub fn load_bytes(path: impl AsRef<Path>, bytes: Vec<u8>) -> Result<Document, YamlError> {

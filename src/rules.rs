@@ -132,7 +132,7 @@ fn role(doc: &Document, name: &str) -> Result<Role, YamlError> {
 }
 
 fn read_rules(path: &Path) -> Result<Rules, YamlError> {
-    let doc = yamlfile::load(path)?;
+    let doc = yamlfile::load_following(path)?;
     let top = [
         "review_rounds",
         "last_message_asks",
@@ -241,7 +241,7 @@ pub(crate) fn is_exact(model: &str) -> bool {
 type Models = (BTreeMap<String, Model>, Vec<String>);
 
 fn read_models(path: &Path, roles: &BTreeMap<String, Role>) -> Result<Models, YamlError> {
-    let doc = yamlfile::load(path)?;
+    let doc = yamlfile::load_following(path)?;
     doc.only(&[], &["models", "local_models"])?;
     doc.need(&[], &["models", "local_models"])?;
     let local = doc.table(&at(&["local_models"]))?;

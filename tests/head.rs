@@ -620,7 +620,8 @@ fn assert_text_refused(bench: &Bench, file: &str, what: &str) {
     let stamp = wb_within(&bench.repo.path, &["prompt", "build", "54", "--stamp"], 10);
     assert_eq!(code(&stamp), Some(1), "{} stamp: {}", what, text(&stamp.stderr));
     assert_eq!(text(&stamp.stdout), "", "{}", what);
-    let start = start_with(&bench.repo.path, &bench.org, true, &["start", "build", "54"]);
+    // The binary, under the cap and the time of `wb_within` (#261): `start_with` runs in the test process.
+    let start = wb_within(&bench.repo.path, &["start", "build", "54", "--prompt"], 10);
     assert_eq!(code(&start), Some(1), "{} start: {}{}", what, text(&start.stdout), text(&start.stderr));
     assert!(text(&start.stderr).contains(file), "{}: {}", what, text(&start.stderr));
     // The refusal comes before any pattern runs: not a read of the comments either.
@@ -793,7 +794,8 @@ fn assert_config_refused(bench: &Bench, what: &str) {
     assert_eq!(code(&prompt), Some(1), "{} prompt: {}", what, text(&prompt.stderr));
     assert_eq!(text(&prompt.stdout), "", "{}", what);
     assert!(text(&prompt.stderr).contains(".watchbill/watchbill.yml"), "{}: the file is not named: {}", what, text(&prompt.stderr));
-    let start = start_with(&bench.repo.path, &bench.org, true, &["start", "build", "54"]);
+    // The binary, under the cap and the time of `wb_within`: `start_with` runs in the test process, with no bound.
+    let start = wb_within(&bench.repo.path, &["start", "build", "54", "--prompt"], 10);
     assert_eq!(code(&start), Some(1), "{} start: {}{}", what, text(&start.stdout), text(&start.stderr));
     assert!(text(&start.stderr).contains(".watchbill/watchbill.yml"), "{}: {}", what, text(&start.stderr));
     assert_eq!(bench.ran(), "", "{} ran something", what);
@@ -831,4 +833,56 @@ fn test_WB_BUILD_100_a_file_over_1_mib_in_the_place_of_watchbill_yml_is_refused_
     big.push_str(&format!("# {}\n", "x".repeat(2 * 1024 * 1024)));
     fs::write(config(&bench.repo.path), big).unwrap();
     assert_config_refused(&bench, "a file over 1 MiB");
+}
+
+/// Puts a thing of the kind in the place of `watchbill.yml`: a FIFO, a folder or a link to `/dev/zero`.
+fn put_thing(bench: &Bench, kind: &str) {
+    fs::remove_file(config(&bench.repo.path)).unwrap();
+    match kind {
+        "a FIFO" => assert!(std::process::Command::new("mkfifo").arg(config(&bench.repo.path)).status().unwrap().success()),
+        "a folder" => fs::create_dir(config(&bench.repo.path)).unwrap(),
+        _ => std::os::unix::fs::symlink("/dev/zero", config(&bench.repo.path)).unwrap(),
+    }
+}
+
+#[test]
+fn test_WB_BUILD_106_accept_answer_and_revert_refuse_a_thing_in_the_place_of_watchbill_yml_with_1() {
+    for kind in ["a FIFO", "a folder", "a link to /dev/zero"] {
+        let bench = bench();
+        put(&bench.repo.path, ".watchbill/issues/54.yml", ISSUE);
+        put_thing(&bench, kind);
+        for words in [&["accept", "--no-commit", "54"][..], &["answer", "54", "--suggested"], &["revert", "54", "review"]] {
+            let run = wb_within(&bench.repo.path, words, 10);
+            assert_eq!(code(&run), Some(1), "{} {:?}: {}", kind, words, text(&run.stderr));
+            assert!(text(&run.stderr).contains(".watchbill/watchbill.yml"), "{} {:?}: {}", kind, words, text(&run.stderr));
+            assert!(!text(&run.stderr).contains("is not there"), "{} {:?}: {}", kind, words, text(&run.stderr));
+        }
+    }
+}
+
+#[test]
+fn test_WB_BUILD_106_accept_answer_and_revert_still_end_with_2_where_watchbill_yml_is_not_there() {
+    let bench = bench();
+    put(&bench.repo.path, ".watchbill/issues/54.yml", ISSUE);
+    fs::remove_file(config(&bench.repo.path)).unwrap();
+    for words in [&["accept", "--no-commit", "54"][..], &["answer", "54", "--suggested"], &["revert", "54", "review"]] {
+        let run = wb_within(&bench.repo.path, words, 10);
+        assert_eq!(code(&run), Some(2), "{:?}: {}", words, text(&run.stderr));
+        assert!(text(&run.stderr).contains("is not there"), "{:?}: {}", words, text(&run.stderr));
+    }
+}
+
+#[test]
+fn test_WB_BUILD_104_a_watchbill_yml_over_1_mib_in_head_is_refused_as_too_big() {
+    let bench = bench();
+    let mut big = read(&config(&bench.repo.path));
+    big.push_str(&format!("# {}\n", "x".repeat(2 * 1024 * 1024)));
+    fs::write(config(&bench.repo.path), big).unwrap();
+    bench.commit();
+    for words in [&["prompt", "build", "54"][..], &["status"]] {
+        let run = wb_within(&bench.repo.path, words, 10);
+        assert_ne!(code(&run), Some(0), "{:?}: {}", words, text(&run.stdout));
+        let err = text(&run.stderr);
+        assert!(err.contains(".watchbill/watchbill.yml") && err.contains("over 1 MiB in HEAD"), "{:?}: {}", words, err);
+    }
 }

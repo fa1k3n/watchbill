@@ -2077,7 +2077,7 @@ fn run_answer(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write,
             2
         }
         Ok(Some(root)) => {
-            if !Path::new(&root).join(init::CONFIG_FOLDER).join(init::CONFIG_FILE).is_file() {
+            if bounded::is_absent(&Path::new(&root).join(init::CONFIG_FOLDER).join(init::CONFIG_FILE)) {
                 let _ = writeln!(err, "wb answer: .watchbill/watchbill.yml is not there. Watchbill is not set up in this repository.");
                 return 2;
             }
@@ -2157,7 +2157,7 @@ fn run_revert(parser: &mut Parser, err: &mut dyn Write) -> i32 {
             2
         }
         Ok(Some(root)) => {
-            if !Path::new(&root).join(init::CONFIG_FOLDER).join(init::CONFIG_FILE).is_file() {
+            if bounded::is_absent(&Path::new(&root).join(init::CONFIG_FOLDER).join(init::CONFIG_FILE)) {
                 let _ = writeln!(err, "wb revert: .watchbill/watchbill.yml is not there. Watchbill is not set up in this repository.");
                 return 2;
             }

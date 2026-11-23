@@ -315,7 +315,7 @@ pub fn for_prompt(root: &Path, issue: &str) -> Result<Option<Used>, String> {
     let too_big = || format!("{} is larger than 1 MiB, and an issue's file is not. No prompt is handed out.", shown);
     let bytes = match read_plain(&file, MAX_BYTES) {
         Ok(bytes) => bytes,
-        Err(crate::bounded::Fault::TooBig) => return Err(too_big()),
+        Err(crate::bounded::Fault::TooBig(_)) => return Err(too_big()),
         Err(error) => return Err(format!("{} cannot be read ({}). No prompt is handed out.", shown, error)),
     };
     let hash = crate::manifest::hash_bytes(&bytes);
@@ -546,7 +546,7 @@ pub fn accept(root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &
         let _ = writeln!(err, "wb accept: {}. Nothing read, nothing written.", why);
         return 1;
     }
-    if !base.join(".watchbill").join("watchbill.yml").is_file() {
+    if crate::bounded::is_absent(&base.join(".watchbill").join("watchbill.yml")) {
         let _ = writeln!(err, "wb accept: .watchbill/watchbill.yml is not there. Watchbill is not set up in this repository.");
         return 2;
     }

@@ -2145,7 +2145,7 @@ fn test_WB_BUILD_67_a_start_is_refused_naming_the_paths_left_uncommitted_in_a_ke
 }
 
 #[test]
-fn test_WB_BUILD_68_the_refusal_says_how_to_remove_it_and_names_the_flag() {
+fn test_WB_BUILD_82_the_refusal_names_the_folder_to_remove_and_the_flag_that_ignores_it() {
     let bench = bench();
     let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 1, commits: &["Tests"], uncommitted: &[], outcome: RAN });
     let err = text_of(&start_54(&bench, &[]).stderr);
@@ -2747,14 +2747,20 @@ fn test_WB_BUILD_80_take_back_with_other_options_of_start_or_with_no_issue_ends_
     let bench = bench();
     let (folder, _) = kept_tester(&bench);
     commit_in(&folder, "src/brake.c", "int brake(void) { return 6; }\n", "Kept");
-    for more in [&["--prompt"][..], &["--stamp"], &["--parts"], &["--runner", "x"], &["--ignore-local"], &["--ignore-kept"], &["--round", "2"], &["--take-back"]] {
+    for more in [&["--prompt"][..], &["--stamp"], &["--parts"], &["--runner", "x"], &["--ignore-local"], &["--ignore-kept"], &["--round", "2"]] {
         let run = take_back(&bench, more);
         assert_eq!(code(&run), Some(2), "{:?}: {}", more, text_of(&run.stderr));
+        assert!(text_of(&run.stderr).contains("used with the role and the issue alone"), "{:?}: {}", more, text_of(&run.stderr));
     }
+    let run = take_back(&bench, &["--take-back"]);
+    assert_eq!(code(&run), Some(2), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("'--take-back' is given twice"), "{}", text_of(&run.stderr));
     let run = bench.start(&["start", "review", "--change", "5", "--take-back"]);
     assert_eq!(code(&run), Some(2), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("used with the role and the issue alone"), "{}", text_of(&run.stderr));
     let run = bench.start(&["start", "tester", "--take-back"]);
     assert_eq!(code(&run), Some(2), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("the tester is handed out for an issue"), "{}", text_of(&run.stderr));
     assert!(folder.exists());
     assert_eq!(subjects(&bench, 1), vec!["The issue's file of 54"]);
 }
@@ -2892,7 +2898,15 @@ fn test_WB_VIEW_52_a_fifo_for_an_object_of_the_view_ends_a_take_back_within_a_bo
     assert_eq!(subjects(&bench, 1), vec!["The issue's file of 54"]);
     assert!(folder.exists());
     let prefix = format!("wb-view-{}-", std::process::id());
-    let temporary: Vec<_> = fs::read_dir(std::env::temp_dir()).unwrap().filter_map(|entry| entry.ok()).filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix)).collect();
+    // Other tests of this process make and remove their own stores at the same time: it is gone when none is there.
+    let mut temporary = Vec::new();
+    for _ in 0..300 {
+        temporary = fs::read_dir(std::env::temp_dir()).unwrap().filter_map(|entry| entry.ok()).filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix)).collect::<Vec<_>>();
+        if temporary.is_empty() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
     assert!(temporary.is_empty(), "{:?}", temporary);
 }
 
@@ -2961,4 +2975,107 @@ fn test_WB_MON_14_what_a_take_back_does_is_appended_to_back_and_status_names_onl
     let run = wb_state(&bench, &["status", "54"]);
     let out = text_of(&run.stdout);
     assert!(out.lines().any(|line| line.starts_with("kept: tester round 1, 1 commit not taken, ")), "{}", out);
+}
+
+// ---- #223, the review of #266: a hostile blob fails fast, what is said is what is taken ----
+
+/// Puts a FIFO in place of the loose object `object` of the view.
+fn fifo_for_object(view: &Path, object: &str) {
+    let path = view.join(".git/objects").join(&object[..2]).join(&object[2..]);
+    fs::remove_file(&path).unwrap();
+    assert!(Command::new("mkfifo").arg(&path).status().unwrap().success());
+}
+
+#[test]
+fn test_WB_VIEW_55_a_fifo_for_a_blob_of_the_view_ends_a_take_back_within_10_seconds_and_takes_nothing() {
+    let bench = bench();
+    let (folder, _) = kept_tester(&bench);
+    commit_in(&folder, "src/brake.c", "int brake(void) { return 18; }\n", "Tests");
+    let blob = {
+        let run = Command::new("git").arg("-C").arg(&folder).args(["rev-parse", "HEAD:src/brake.c"]).env_clear().envs(env()).output().unwrap();
+        text(&run.stdout).trim().to_string()
+    };
+    fifo_for_object(&folder, &blob);
+    let began = std::time::Instant::now();
+    let run = take_back_bounded(&bench, 30).expect("the take-back did not end in 30 seconds");
+    assert!(began.elapsed() < std::time::Duration::from_secs(10), "{:?}", began.elapsed());
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert_eq!(subjects(&bench, 1), vec!["The issue's file of 54"]);
+    assert!(folder.exists());
+}
+
+/// A view with `count` commits to `src/brake.c`, made in one shell.
+fn many_commits(folder: &Path, count: usize) {
+    let body = format!(
+        "for i in $(seq 1 {count}); do echo \"int brake$i;\" > src/brake.c; git -c user.name=Ada -c user.email=ada@example.org -c commit.gpgsign=false commit -q -a -m \"Commit $i\"; done"
+    );
+    let run = Command::new("sh").arg("-c").arg(body).current_dir(folder).env_clear().envs(env()).output().unwrap();
+    assert!(run.status.success(), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_83_take_back_says_the_first_200_commits_and_how_many_more_and_takes_all_of_them() {
+    let bench = bench();
+    let (folder, _) = kept_tester(&bench);
+    many_commits(&folder, 201);
+    let run = take_back(&bench, &[]);
+    assert_eq!(code(&run), Some(0), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    let said = err.split("taken onto").next().unwrap();
+    assert!(said.contains("Commit 1\n") && said.contains("Commit 200\n") && !said.contains("Commit 201\n") && said.contains("and 1 more"), "{}", err);
+    assert_eq!(subjects(&bench, 1), vec!["Commit 201"]);
+    assert!(!folder.exists());
+}
+
+#[test]
+fn test_WB_BUILD_83_take_back_takes_nothing_when_the_count_found_at_the_take_differs_from_the_one_said() {
+    let bench = bench();
+    let (folder, session) = kept_tester(&bench);
+    commit_in(&folder, "src/brake.c", "int brake(void) { return 19; }\n", "One");
+    commit_in(&folder, "src/brake.c", "int brake(void) { return 20; }\n", "Two");
+    let file = read(&session.join("folder"));
+    let get = |name: &str| file.lines().find_map(|line| line.strip_prefix(&format!("{}: ", name))).unwrap().to_string();
+    let view = watchbill::view::View { folder: PathBuf::from(get("folder")), base: get("base"), head: get("head"), branch: get("branch") };
+    let mut err = Vec::new();
+    let back = watchbill::view::take_back_later("wb start tester", &bench.root(), &view, &["src/brake.c".to_string()], &[], 1, None, &mut err);
+    assert!(back.failed.is_some() && back.taken.is_empty(), "{}", text_of(&err));
+    assert_eq!(subjects(&bench, 1), vec!["The issue's file of 54"]);
+    assert!(folder.exists());
+}
+
+#[test]
+fn test_WB_BUILD_84_take_back_ends_with_1_where_its_lines_cannot_be_written_and_says_the_commits_are_on_the_branch() {
+    let bench = bench();
+    let (folder, session) = kept_tester(&bench);
+    commit_in(&folder, "src/brake.c", "int brake(void) { return 21; }\n", "Tests");
+    std::os::unix::fs::symlink("/dev/zero", session.join("back")).unwrap();
+    let run = take_back(&bench, &[]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("the commits are on the branch, but the lines of this take-back could not be written"), "{}", text_of(&run.stderr));
+    assert_eq!(subjects(&bench, 1), vec!["Tests"]);
+}
+
+#[test]
+fn test_WB_VIEW_56_no_setting_of_the_person_or_the_system_is_read_by_a_git_run_in_the_temporary_store() {
+    let bench = bench();
+    let (folder, _) = kept_tester(&bench);
+    commit_in(&folder, "src/brake.c", "int brake(void) { return 22; }\n", "Tests");
+    let home = folder_named("home2");
+    let marks = folder_named("marks2");
+    let m = marks.path.to_str().unwrap();
+    script(&marks.path.join("reference-transaction"), &format!("pwd >> {m}/ran\nexit 0\n"));
+    fs::write(home.path.join(".gitconfig"), format!("[core]\n\thooksPath = {m}\n[user]\n\tname = Ada Lovelace\n\temail = ada@example.org\n")).unwrap();
+    let run = Command::new(env!("CARGO_BIN_EXE_wb"))
+        .args(["start", "tester", "54", "--take-back"])
+        .current_dir(&bench.repo.path)
+        .env_clear()
+        .envs(env())
+        .env("HOME", &home.path)
+        .env("XDG_STATE_HOME", &bench.state.path)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(code(&run), Some(0), "{}", text_of(&run.stderr));
+    let ran = fs::read_to_string(marks.path.join("ran")).unwrap_or_default();
+    assert!(!ran.lines().any(|line| line.contains("wb-view-")), "{}", ran);
 }

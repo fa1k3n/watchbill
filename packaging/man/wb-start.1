@@ -29,7 +29,7 @@ Start although a file the view reads has a local change: the session sees HEAD. 
 Start although a view of the issue is kept with work not taken back. It passes that check alone, and the stamp says kept: ignored <n>.
 .TP
 .B \-\-take\-back
-Take back the kept view of the role and the issue. It is used with the role and the issue alone. The commits are taken as at the end of a session; the branch must be the view's, and its HEAD the commit the view was made from or a descendant of it whose changes touch none of the paths of the commits. Where the view still holds work not taken, it is kept and named.
+Take back the kept view of the role and the issue. It is used with the role and the issue alone. The commits are taken as at the end of a session; the branch must be the view's, and its HEAD the commit the view was made from or a descendant of it whose changes touch none of the paths of the commits. Where the view still holds work not taken, it is kept and named. Before it takes, it reads every object the commits add and counts the commits, each git run within 3 seconds; during the take each git run ends within 60 seconds and the whole take\-back within 300 seconds. It says every commit, or the first 200 and and <k> more, and takes exactly that many. Where the lines of the take\-back cannot be written it ends with 1.
 .TP
 .B \-\-issue <text>
 The issue, for {issue}. It is also the word after the role.

@@ -1520,6 +1520,10 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
         Ok(found) => found,
         Err(why) => return refuse(err, &format!("the view {} was not read, and nothing is taken back: {}", shown_view, issue::shown(&why))),
     };
+    let total = match view::count_left(&root, &kept.view).and_then(|total| view::objects_readable(&root, &kept.view).map(|()| total)) {
+        Ok(total) => total,
+        Err(why) => return refuse(err, &format!("the view {} was not read, and nothing is taken back: {}", shown_view, issue::shown(&why))),
+    };
     let _ = writeln!(err, "{}: will take back {}, kept by the {} round {}, onto {}:", name, shown_view, issue::shown(role), kept.round, kept.view.branch_name());
     for (commit, subject) in &commits {
         let _ = writeln!(err, "{}:   {} {}", name, view::short(commit), subject);
@@ -1527,14 +1531,19 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
     if commits.is_empty() {
         let _ = writeln!(err, "{}:   no commit", name);
     }
+    if total > commits.len() {
+        let _ = writeln!(err, "{}:   and {} more", name, total - commits.len());
+    }
     for path in &left {
         let _ = writeln!(err, "{}:   uncommitted, and not taken: {}", name, issue::shown(path));
     }
     let list = kept.session.join("back");
-    let back = view::take_back_later(name, &root, &kept.view, &file.issue.changes, &build_files, Some(&list), err);
+    let back = view::take_back_later(name, &root, &kept.view, &file.issue.changes, &build_files, total, Some(&list), err);
     let still = view::tidy(name, &kept.view, &back, err);
-    if let Err(error) = sessions::append_back(&kept.session, &format!("take-back\n{}", back.text(still.as_deref()))) {
-        let _ = writeln!(err, "{}: the lines of this take-back could not be written in {}: {}", name, kept.session.display(), error);
+    let written = sessions::append_back(&kept.session, &format!("take-back\n{}", back.text(still.as_deref())));
+    if let Err(error) = &written {
+        let held = if back.taken.is_empty() { "" } else { "the commits are on the branch, but " };
+        let _ = writeln!(err, "{}: {}the lines of this take-back could not be written in {}: {}", name, held, kept.session.display(), error);
     }
     for (commit, _) in &back.taken {
         let _ = writeln!(err, "{}: to see what the commit changes, run:\n  git show --stat {}", name, commit);
@@ -1542,7 +1551,7 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
     if !back.taken.is_empty() {
         say_push(name, role, &root, kept.view.branch_name(), err);
     }
-    if back.all_taken() {
+    if back.all_taken() && written.is_ok() {
         0
     } else {
         1

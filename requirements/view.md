@@ -58,3 +58,5 @@ What a session of the tester, the build, the review or the fix sees when `wb sta
 | WB-VIEW-52 | A take-back of a view that holds an object git would wait for (a FIFO) shall end with 1 within a bound, take nothing, and leave no temporary repository. Issue: #223. | T | Implemented |
 | WB-VIEW-53 | A take-back shall name the paths left uncommitted in the view, not take them, end with 1 and keep the view. Issue: #223. | T | Implemented |
 | WB-VIEW-54 | A take-back shall not take back the view of a session whose `outcome` says `running` while its `wb` is alive: it shall end with 1 saying the session still runs. Issue: #223. | T | Implemented |
+| WB-VIEW-55 | A take-back shall read the header of every object its commits add before it starts, each git run within 3 seconds, so that a FIFO for a file of the view ends it with 1 within 10 seconds and takes nothing. Issue: #223. | T | Implemented |
+| WB-VIEW-56 | Every git run in the temporary store of `wb` shall read no setting of the system or of the person. Issue: #223. | T | Implemented |

@@ -189,6 +189,25 @@ thread_local! {
     static BOUND: std::cell::Cell<Option<std::time::Duration>> = const { std::cell::Cell::new(None) };
 }
 
+thread_local! {
+    /// The time by which a whole take-back must be over, while a `Deadline` is held (#223).
+    static DEADLINE: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
+}
+
+/// Holds the deadline of a whole take-back for this thread, until it is dropped.
+struct Deadline(());
+
+impl Drop for Deadline {
+    fn drop(&mut self) {
+        DEADLINE.with(|deadline| deadline.set(None));
+    }
+}
+
+fn deadline(total: std::time::Duration) -> Deadline {
+    DEADLINE.with(|deadline| deadline.set(Some(std::time::Instant::now() + total)));
+    Deadline(())
+}
+
 /// Holds the time bound of `git` for this thread, until it is dropped (#222).
 struct Bounded(());
 
@@ -234,7 +253,15 @@ fn wait_bounded(mut child: std::process::Child, limit: std::time::Duration) -> s
 
 /// `git` as `git` runs it, with `before` words after `git`, in `at` where there is a folder.
 fn run_git(at: Option<&Path>, before: &[OsString], args: &[&str], env: &[(&str, &Path)], input: Option<&[u8]>) -> Result<Vec<u8>, String> {
-    let limit = BOUND.with(|bound| bound.get());
+    let mut limit = BOUND.with(|bound| bound.get());
+    // One deadline for a whole take-back, besides the bound of each run.
+    if let Some(end) = DEADLINE.with(|deadline| deadline.get()) {
+        let left = end.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return Err(format!("the take-back took more than {} seconds in all, and was ended", TAKE_BACK_DEADLINE.as_secs()));
+        }
+        limit = Some(limit.map_or(left, |limit| limit.min(left)));
+    }
     let mut command = Command::new("git");
     if let Some(at) = at {
         command.arg("-C").arg(at);
@@ -244,6 +271,10 @@ fn run_git(at: Option<&Path>, before: &[OsString], args: &[&str], env: &[(&str, 
         if name.to_string_lossy().starts_with("GIT_") {
             command.env_remove(name);
         }
+    }
+    // A git run in the temporary store of `wb` is fully `wb`'s own: no setting of the system or of the person is read.
+    if at.is_some_and(|at| at.parent() == Some(std::env::temp_dir().as_path()) && at.file_name().is_some_and(|name| name.to_string_lossy().starts_with("wb-view-"))) {
+        command.env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_CONFIG_GLOBAL", "/dev/null");
     }
     for (name, value) in env {
         command.env(name, value);
@@ -900,20 +931,24 @@ pub(crate) fn short(commit: &str) -> &str {
 /// keeps to `changes`, then the paths left uncommitted. A commit that does not is refused, and none after it is
 /// taken. What is said goes to `err`, after `name`; `list` is where the whole list of paths left is written.
 pub fn take_back(name: &str, root: &str, view: &View, changes: &[String], build_files: &[String], list: Option<&Path>, err: &mut dyn Write) -> Back {
-    take_back_in(name, root, view, changes, build_files, list, false, err)
+    take_back_in(name, root, view, changes, build_files, list, None, err)
 }
+
+/// The time a whole take-back may take, besides the 60 seconds of each git run.
+const TAKE_BACK_DEADLINE: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// The same for a view kept after its session (#223), by a person who runs `wb start <role> <issue> --take-back`:
 /// the checkout's `HEAD` need not be the commit the view was made from. It may be a descendant of it whose changes
 /// touch none of the paths that a commit of the view changes; the commits then go on top of it. The branch must be
 /// the view's. Every git run ends within a bound, for a view is hostile.
-pub fn take_back_later(name: &str, root: &str, view: &View, changes: &[String], build_files: &[String], list: Option<&Path>, err: &mut dyn Write) -> Back {
+pub fn take_back_later(name: &str, root: &str, view: &View, changes: &[String], build_files: &[String], expected: usize, list: Option<&Path>, err: &mut dyn Write) -> Back {
     let _bound = bounded(std::time::Duration::from_secs(60));
-    take_back_in(name, root, view, changes, build_files, list, true, err)
+    let _deadline = deadline(TAKE_BACK_DEADLINE);
+    take_back_in(name, root, view, changes, build_files, list, Some(expected), err)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn take_back_in(name: &str, root: &str, view: &View, changes: &[String], build_files: &[String], list: Option<&Path>, later: bool, err: &mut dyn Write) -> Back {
+fn take_back_in(name: &str, root: &str, view: &View, changes: &[String], build_files: &[String], list: Option<&Path>, later: Option<usize>, err: &mut dyn Write) -> Back {
     let mut back = Back::default();
     let store = match Store::new(view) {
         Ok(store) => store,
@@ -966,8 +1001,8 @@ pub fn work_left(root: &str, view: &View) -> Result<(Vec<(String, String)>, Vec<
             return Err(format!("the view's HEAD, {}, does not come from the commit the view was made with", short(&head)));
         }
         let range = format!("{}..{}", view.base, head);
-        let listed = on(&["rev-list", "--first-parent", "--reverse", "--max-count=200", &range])?;
-        for commit in String::from_utf8_lossy(&listed).lines().filter(|commit| is_object(commit)) {
+        let listed = on(&["rev-list", "--first-parent", "--reverse", &range])?;
+        for commit in String::from_utf8_lossy(&listed).lines().filter(|commit| is_object(commit)).take(200) {
             commits.push((commit.to_string(), subject_capped(&on, commit)?));
         }
     }
@@ -975,6 +1010,58 @@ pub fn work_left(root: &str, view: &View) -> Result<(Vec<(String, String)>, Vec<
     let mut notes = Vec::new();
     let paths = uncommitted(root, &store.path, &view.folder, &view.head, &mut notes)?;
     Ok((commits, paths))
+}
+
+/// A git run on the objects of a view, as `work_left` makes it: through the checkout's own repository with the view's
+/// objects as alternates, and no setting read. The caller holds the bound.
+fn on_view(root: &str, view: &View, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>, String> {
+    let objects = view.folder.join(".git").join("objects");
+    match fs::symlink_metadata(&objects) {
+        Ok(found) if found.is_dir() => {}
+        _ => return Err(format!("{} is not the folder it was made as, and nothing of the view is read through it", objects.display())),
+    }
+    let gitdir = line(&git(Path::new(root), &["rev-parse", "--absolute-git-dir"], &[], None)?);
+    let env = [
+        ("GIT_ALTERNATE_OBJECT_DIRECTORIES", objects.as_path()),
+        ("GIT_CONFIG_NOSYSTEM", Path::new("1")),
+        ("GIT_CONFIG_GLOBAL", Path::new("/dev/null")),
+        ("GIT_ATTR_NOSYSTEM", Path::new("1")),
+    ];
+    let before = [OsString::from("--no-replace-objects"), OsString::from(format!("--git-dir={}", gitdir))];
+    run_git(None, &before, args, &env, input)
+}
+
+/// How many commits a take-back of the view takes: all of the first-parent ones after the view's first commit (#223).
+/// Every git run ends after 3 seconds.
+pub fn count_left(root: &str, view: &View) -> Result<usize, String> {
+    let _bound = bounded(std::time::Duration::from_secs(3));
+    let head = head_of(&view.folder.join(".git"))?;
+    if head == view.base {
+        return Ok(0);
+    }
+    let counted = on_view(root, view, &["rev-list", "--first-parent", "--count", &format!("{}..{}", view.base, head)], None)?;
+    line(&counted).parse().map_err(|_| "the count of the commits of the view is not a number".to_string())
+}
+
+/// Reads the header of every commit, tree and file the view's commits add, before a take-back starts, so that an
+/// object git would wait for fails here, within 3 seconds per run, and not later in the take (#223).
+pub fn objects_readable(root: &str, view: &View) -> Result<(), String> {
+    let _bound = bounded(std::time::Duration::from_secs(3));
+    let head = head_of(&view.folder.join(".git"))?;
+    if head == view.base {
+        return Ok(());
+    }
+    let listed = on_view(root, view, &["rev-list", "--objects", "--first-parent", &format!("{}..{}", view.base, head)], None)?;
+    let names: Vec<u8> = String::from_utf8_lossy(&listed)
+        .lines()
+        .filter_map(|entry| entry.split(' ').next().filter(|name| is_object(name)))
+        .flat_map(|name| format!("{}\n", name).into_bytes())
+        .collect();
+    let checked = on_view(root, view, &["cat-file", "--batch-check"], Some(&names))?;
+    if String::from_utf8_lossy(&checked).lines().any(|entry| entry.ends_with(" missing")) {
+        return Err("an object of the view's commits is missing".to_string());
+    }
+    Ok(())
 }
 
 /// The subject of a commit of a view, read with a cap: a message over 64 KiB is not read, and a subject is cut at
@@ -1025,7 +1112,7 @@ impl Drop for Store {
 
 /// Takes the commits of the view back onto the branch, as far as they keep to the lists. The error is why none
 /// could be taken.
-fn commits(root: &str, view: &View, store: &Path, changes: &[String], build_files: &[String], later: bool, back: &mut Back) -> Result<(), String> {
+fn commits(root: &str, view: &View, store: &Path, changes: &[String], build_files: &[String], later: Option<usize>, back: &mut Back) -> Result<(), String> {
     let head = head_of(&view.folder.join(".git"))?;
     if head == view.base {
         return Ok(());
@@ -1033,7 +1120,7 @@ fn commits(root: &str, view: &View, store: &Path, changes: &[String], build_file
     // After the session (#223): the branch is the view's, and its `HEAD` the commit the view was made from or a
     // descendant of it. The commits then go on top of `HEAD` as it is now, once their paths are seen to be untouched.
     let moved;
-    let (view, origin) = if later {
+    let (view, origin) = if later.is_some() {
         let (branch, now) = branch_of(root)?;
         if branch != view.branch {
             return Err(format!(
@@ -1061,6 +1148,13 @@ fn commits(root: &str, view: &View, store: &Path, changes: &[String], build_file
     }
     let listed = git(store, &["rev-list", "--first-parent", "--reverse", "--parents", &format!("{}..{}", view.base, head)], &[], None)?;
     let listed = String::from_utf8_lossy(&listed).to_string();
+    // What was said is what is taken: the count found now is the one said, or nothing is taken.
+    if let Some(said) = later {
+        let found = listed.lines().count();
+        if found != said {
+            return Err(format!("the view holds {} commits now, and {} were said, so nothing is taken back", found, said));
+        }
+    }
     // Each commit of the view, its parent and what it changes, until one is refused.
     let mut wanted: Vec<(String, Raw, Vec<Change>)> = Vec::new();
     let mut parent = view.base.clone();

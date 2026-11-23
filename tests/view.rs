@@ -1363,13 +1363,14 @@ fn test_WB_BUILD_33_a_change_under_changes_is_refused_also_with_ignore_local_say
 }
 
 #[test]
-fn test_WB_BUILD_35_the_refusal_says_it_is_a_guard_names_the_paths_with_their_list_and_the_flag() {
+fn test_WB_BUILD_133_the_refusal_of_a_local_change_names_the_paths_with_their_list_and_the_flag() {
     let bench = bench();
     put(&bench.repo.path, "src/brake.h", "int brake(int);\n");
     put(&bench.repo.path, "src/brake.c", "int brake(void) { return 2; }\n");
     let run = start_unsandboxed(&bench, &["start", "build", "54"]);
     let err = guarded(&bench, &run);
-    assert!(err.contains("guard") && err.contains("--ignore-local"), "{}", err);
+    // A change under `changes` makes it a limit (#180): the flag is named for what it passes, a change under `reads`.
+    assert!(err.lines().any(|line| line.starts_with("wb start build: limit: ")) && err.contains("--ignore-local"), "{}", err);
     assert!(err.lines().any(|line| line.contains("changes") && line.contains("src/brake.c")), "{}", err);
     assert!(err.lines().any(|line| line.contains("reads") && line.contains("src/brake.h")), "{}", err);
     // The outcome of the lines is a refusal at a check of its own.
@@ -1378,12 +1379,95 @@ fn test_WB_BUILD_35_the_refusal_says_it_is_a_guard_names_the_paths_with_their_li
 }
 
 #[test]
-fn test_WB_BUILD_35_a_path_with_a_line_break_is_named_escaped() {
+fn test_WB_BUILD_133_a_path_with_a_line_break_is_named_escaped() {
     let bench = bench();
     put(&bench.repo.path, "include/a\nb.h", "#define A 3\n");
     git(&bench.repo.path, &["add", "--", "include/a\nb.h"]);
     let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54"]));
     assert!(err.contains("include/a\\nb.h") && !err.contains("a\nb.h"), "{}", err);
+}
+
+// ---- #180: each refusal of the start says limit or guard, and a guard names the flag that passes it ----
+
+/// The first line of standard error that starts with `<name>: <kind>: `.
+fn labelled_line(err: &str, name: &str, kind: &str) -> Option<String> {
+    let start = format!("{}: {}: ", name, kind);
+    err.lines().find(|line| line.starts_with(&start)).map(str::to_string)
+}
+
+/// The kept view of the tester for 54 that holds a commit not taken back.
+fn kept_with_a_commit(bench: &Bench) {
+    keep(bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 1, commits: &["Tests"], uncommitted: &[], outcome: RAN });
+}
+
+#[test]
+fn test_WB_BUILD_130_a_kept_view_is_refused_as_a_guard_that_names_ignore_kept() {
+    let bench = bench();
+    kept_with_a_commit(&bench);
+    let run = start_unsandboxed(&bench, &["start", "build", "54"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    let line = labelled_line(&err, "wb start build", "guard").unwrap_or_else(|| panic!("no guard: {}", err));
+    assert!(line.contains("is kept"), "{}", err);
+    assert!(err.contains("--ignore-kept"), "{}", err);
+    assert!(labelled_line(&err, "wb start build", "limit").is_none(), "{}", err);
+}
+
+#[test]
+fn test_WB_CMD_29_ignore_kept_passes_the_guard_of_a_kept_view_and_no_other_refusal() {
+    let bench = bench();
+    kept_with_a_commit(&bench);
+    // Past the guard, the start goes on to the view, where no bubblewrap is: a limit.
+    let run = start_unsandboxed(&bench, &["start", "build", "54", "--ignore-kept"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    assert!(labelled_line(&err, "wb start build", "guard").is_none() && !err.contains("is kept"), "{}", err);
+    assert!(labelled_line(&err, "wb start build", "limit").is_some(), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_131_a_local_change_under_reads_only_is_refused_as_a_guard_that_names_ignore_local() {
+    let bench = bench();
+    put(&bench.repo.path, "src/brake.h", "int brake(int);\n");
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54"]));
+    let line = labelled_line(&err, "wb start build", "guard").unwrap_or_else(|| panic!("no guard: {}", err));
+    assert!(line.contains("local change"), "{}", err);
+    assert!(err.contains("--ignore-local"), "{}", err);
+}
+
+#[test]
+fn test_WB_CMD_29_ignore_local_passes_the_guard_of_a_local_change_under_reads_and_no_other_refusal() {
+    let bench = bench();
+    put(&bench.repo.path, "src/brake.h", "int brake(int);\n");
+    let run = start_unsandboxed(&bench, &["start", "build", "54", "--ignore-local"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    assert!(labelled_line(&err, "wb start build", "guard").is_none() && !err.contains("local change"), "{}", err);
+    assert!(labelled_line(&err, "wb start build", "limit").is_some(), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_132_a_local_change_under_changes_is_refused_as_a_limit_also_with_ignore_local() {
+    let bench = bench();
+    put(&bench.repo.path, "src/brake.c", "int brake(void) { return 2; }\n");
+    for words in [&["start", "build", "54"][..], &["start", "build", "54", "--ignore-local"][..]] {
+        let err = guarded(&bench, &start_unsandboxed(&bench, words));
+        let line = labelled_line(&err, "wb start build", "limit").unwrap_or_else(|| panic!("no limit: {}", err));
+        assert!(line.contains("local change"), "{}", err);
+        assert!(labelled_line(&err, "wb start build", "guard").is_none(), "{}", err);
+    }
+}
+
+#[test]
+fn test_WB_BUILD_134_a_commit_refused_at_the_take_back_is_said_as_a_limit() {
+    let bench = bench();
+    let (folder, _) = kept_tester(&bench);
+    commit_in(&folder, "src/brake.h", "int brake(int);\n", "Change a read");
+    let run = take_back(&bench, &[]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    let line = labelled_line(&err, "wb start tester", "limit").unwrap_or_else(|| panic!("no limit: {}", err));
+    assert!(line.contains("refused, and not taken") && line.contains("Change a read"), "{}", err);
 }
 
 // ---- #192: a commit is taken only as it was made ----

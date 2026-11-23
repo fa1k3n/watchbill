@@ -396,6 +396,7 @@ fn lines(text: &str) -> Vec<&str> {
     let mut rest = text;
     while let Some(at) = rest.find(['\r', '\n']) {
         all.push(&rest[..at]);
+        // not a refusal: the width of a line break, no status.
         let width = if rest[at..].starts_with("\r\n") { 2 } else { 1 };
         rest = &rest[at + width..];
     }

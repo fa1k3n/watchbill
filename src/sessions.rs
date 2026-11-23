@@ -32,9 +32,11 @@ impl Outcome {
     fn text(&self) -> String {
         match self {
             Outcome::Refused { check, status, message } => {
-                format!("outcome: refused\ncheck: {}\nstatus: {}\nmessage: {}\n", check, status, first_line(message))
+                format!("outcome: refused\ncheck: {}\nstatus: {}\nmessage: {}\n", check, status, first_line(crate::refusal::unlabelled(message)))
             }
-            Outcome::NotPosted { status, message } => format!("outcome: not posted\nstatus: {}\nmessage: {}\n", status, first_line(message)),
+            Outcome::NotPosted { status, message } => {
+                format!("outcome: not posted\nstatus: {}\nmessage: {}\n", status, first_line(crate::refusal::unlabelled(message)))
+            }
             Outcome::Ended { status, seconds } => match (status.code(), status.signal()) {
                 (Some(code), _) => format!("outcome: ended\nstatus: {}\nseconds: {}\n", code, seconds),
                 (None, Some(signal)) => format!("outcome: ended\nsignal: {}\nseconds: {}\n", signal_name(signal), seconds),

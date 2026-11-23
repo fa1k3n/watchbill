@@ -196,7 +196,7 @@ fn test_WB_INIT_19_a_file_that_is_already_there_is_left_as_it_is() {
     let run = wb(&folder.path, &["init", "--yes"], "");
 
     assert_eq!(code(&run), Some(1));
-    assert!(text(&run.stdout).contains("is already there"));
+    assert!(text(&run.stderr).contains("wb init: limit: ") && text(&run.stderr).contains("is already there"), "{}", text(&run.stderr));
     assert_eq!(read(&config(&folder.path)), "project: kept\n");
 }
 
@@ -524,7 +524,7 @@ fn test_WB_INIT_38_an_answer_that_is_not_utf_8_is_refused_in_words() {
     let run = wb_bytes(&folder.path, &["init"], b"bra\xffkes\n");
 
     assert_eq!(code(&run), Some(1));
-    assert_eq!(text(&run.stderr), "wb init: what was typed is not UTF-8 text. Nothing written.\n");
+    assert_eq!(text(&run.stderr), "wb init: limit: what was typed is not UTF-8 text. Nothing written.\n");
     assert!(!text(&run.stdout).contains("About to write"));
     assert!(!folder.path.join(".watchbill").exists());
 
@@ -544,7 +544,7 @@ fn test_WB_INIT_38_a_path_that_is_not_utf_8_is_refused_in_words() {
     let run = wb(&folder.path, &["init", "--yes"], "");
 
     assert_eq!(code(&run), Some(1));
-    assert_eq!(text(&run.stderr), "wb init: the path of the repository is not UTF-8 text. Nothing written.\n");
+    assert_eq!(text(&run.stderr), "wb init: limit: the path of the repository is not UTF-8 text. Nothing written.\n");
     assert!(!folder.path.join(".watchbill").exists());
 }
 
@@ -596,7 +596,7 @@ fn test_WB_INIT_38_an_error_of_reading_is_not_called_not_utf_8() {
 
     assert_eq!(code(&run), Some(1));
     let err = text(&run.stderr);
-    assert!(err.starts_with("wb init: cannot read standard input: "), "{}", err);
+    assert!(err.starts_with("wb init: limit: cannot read standard input: "), "{}", err);
     assert!(err.ends_with(". Nothing written.\n"), "{}", err);
     assert!(!err.contains("UTF-8"), "{}", err);
     assert!(!folder.path.join(".watchbill").exists());

@@ -16,6 +16,7 @@ pub mod interrupt;
 pub mod kept;
 pub mod manifest;
 pub mod prompt;
+pub mod refusal;
 pub mod revert;
 pub mod rules;
 pub mod issue;
@@ -220,8 +221,11 @@ pub fn guarded(body: impl FnOnce() -> i32, err: &mut dyn Write) -> i32 {
     std::panic::set_hook(Box::new(|_| {}));
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)) {
         Ok(code) => code,
+        // In a test build a 1 neither said nor marked (#180) ends the program with no status, so no test passes it.
+        Err(payload) if cfg!(debug_assertions) && payload.downcast_ref::<&str>() == Some(&refusal::FAULT) => std::process::abort(),
         Err(_) => {
             let _ = writeln!(err, "wb: an internal error. This is a fault in wb, not in what it was given.");
+            // not a refusal: a fault in wb itself, after the command; `refusal::ended` is not reached.
             1
         }
     }
@@ -291,7 +295,14 @@ fn named(found: Word, parser: &mut Parser) -> String {
 
 /// Runs `wb` with the words after its name and returns the exit status:
 /// 0 it holds or it is done, 1 it does not hold or it was refused, 2 it was used wrongly.
+/// Every command's status passes `refusal::ended` (#180).
 pub fn run(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    refusal::begin();
+    let code = run_command(args, input, out, err);
+    refusal::ended(code, err)
+}
+
+fn run_command(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     // A failed write, such as a closed pipe, does not change what the command ended with.
     let mut parser = Parser::from_args(args.iter().cloned());
     // The first word is the command. `-h` and `-v` are taken only alone, so an option there that is
@@ -432,12 +443,10 @@ fn run_init(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write, e
     interrupt::install();
     match init::repository_root(None) {
         Err(why) => {
-            let _ = writeln!(err, "wb init: {}. Nothing written.", why);
-            1
+            crate::refusal::limit(err, "wb init", format_args!("{}. Nothing written.", why))
         }
         Ok(None) => {
-            let _ = writeln!(err, "wb init: this folder is not in a git repository. Watchbill is set up in one.");
-            1
+            crate::refusal::limit(err, "wb init", format_args!("this folder is not in a git repository. Watchbill is set up in one."))
         }
         Ok(Some(root)) => init::init(&root, VERSION, Path::new(manifest::PACKAGE_FOLDER), yes, input, out, err, None),
     }
@@ -506,7 +515,9 @@ fn run_upgrade(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) ->
 /// (`confidentiality::ORGANISATION_FILE`); this is so that a test can give its own, as `revision` does (#93).
 /// The variables `GIT_*` of this process are not handed to git here: `folder` alone says the repository.
 pub fn prompt(args: &[OsString], folder: &Path, organisation: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    run_prompt(&mut Parser::from_args(args.iter().cloned()), Some(folder), organisation, out, err)
+    refusal::begin();
+    let code = run_prompt(&mut Parser::from_args(args.iter().cloned()), Some(folder), organisation, out, err);
+    refusal::ended(code, err)
 }
 
 /// `wb start <role>`, with the role and the words after it, in the repository of `folder`, with the organisation's
@@ -551,6 +562,12 @@ fn home_folder() -> Option<std::path::PathBuf> {
 
 /// `wb start <role>`, as `start` runs it, on the machine `machine` says.
 pub fn start_on(args: &[OsString], folder: &Path, machine: &Machine, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    refusal::begin();
+    let code = start_words(args, folder, machine, out, err);
+    refusal::ended(code, err)
+}
+
+fn start_words(args: &[OsString], folder: &Path, machine: &Machine, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let mut parser = Parser::from_args(args.iter().cloned());
     match next(&mut parser) {
         Ok(Some(Word::Value(value))) if value.to_str() == Some("start") => run_start_word(&mut parser, Some(folder), machine, out, err),
@@ -798,10 +815,7 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
         }
         Ok(Some(root)) => root,
     };
-    let refused = |err: &mut dyn Write, why: &dyn std::fmt::Display| {
-        let _ = writeln!(err, "{}: {}", name, why);
-        1
-    };
+    let refused = |err: &mut dyn Write, why: &dyn std::fmt::Display| refusal::limit(err, name, why);
     // `wb prompt` and a start read the patterns of `watchbill.yml`, and only while it is as `HEAD` has it (#186).
     if let Err(why) = starter::held(&root) {
         return Err(refused(err, &format!("{}.", why)));
@@ -810,16 +824,17 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
     // any pattern runs and before the check.
     let refusals = prompt::project_refusals(Path::new(&root), role);
     if !refusals.is_empty() {
+        let mut code = 0;
         for why in &refusals {
-            let _ = writeln!(err, "{}: {}", name, why);
+            code = refusal::limit(err, name, why);
         }
-        return Err(1);
+        return Err(code);
     }
     // What `wb check` says is for standard error here: standard output holds the prompt or nothing.
     let (mut said, mut why) = (Vec::new(), Vec::new());
     let status = check::check(&root, VERSION, Path::new(manifest::PACKAGE_FOLDER), &mut said, &mut why);
     if status != 0 {
-        let _ = writeln!(err, "{}: nothing printed, the check of `wb check` does not hold.", name);
+        refusal::limit(err, name, "nothing printed, the check of `wb check` does not hold.");
         let _ = err.write_all(&said);
         let _ = err.write_all(&why);
         return Err(status);
@@ -903,12 +918,11 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
                 "checkout" => "the root of the repository",
                 _ => "the pattern of watchbill.yml and the branches of the repository",
             };
-            let _ = writeln!(
-                err,
-                "{}: the {} was derived from {} and holds a control character or a line break, or white space at its start or end, and a stamp holds it as one line. Give --{}.",
-                name, name_of, source, name_of
+            let why = format!(
+                "the {} was derived from {} and holds a control character or a line break, or white space at its start or end, and a stamp holds it as one line. Give --{}.",
+                name_of, source, name_of
             );
-            return Err(1);
+            return Err(refusal::limit(err, name, why));
         }
     }
     // The text of a review or a fix of a change with no issue says what to do where the issue is `none`
@@ -1069,10 +1083,7 @@ fn print(name: &str, words: &Words, handed: &Handed, out: &mut dyn Write, err: &
             Ok(text) => {
                 let _ = out.write_all(text.as_bytes());
             }
-            Err(why) => {
-                let _ = writeln!(err, "{}: {}", name, why);
-                return 1;
-            }
+            Err(why) => return refusal::limit(err, name, why),
         }
     } else if words.parts {
         let mut lines: String = handed.found.parts.iter().map(|part| format!("{}  {}\n", part.hash, part.path)).collect();
@@ -1199,10 +1210,7 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
                 );
                 return used(err, name, &why);
             }
-            Err(why) => {
-                let _ = writeln!(err, "{}: {}", name, why);
-                return 1;
-            }
+            Err(why) => return refusal::limit(err, name, why),
         }
     }
     let runner = words.runner.clone().unwrap_or_default();
@@ -1246,16 +1254,18 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         Some(round) => stamp_of(role, &handed, &runner, ignored, kept_ignored, seconds).map(|stamp| format!("[stamp] {} round {}\n{}", role, round, stamp)),
         None => Err("no round was given or worked out. Give --round".to_string()),
     };
-    let refused = |lines: &mut sessions::Lines, err: &mut dyn Write, check: &'static str, why: &str| {
-        let _ = writeln!(err, "{}: {}", name, why);
-        lines.close(stamp.as_deref().ok(), sessions::Outcome::Refused { check, status: 1, message: why.to_string() }, err);
-        1
+    // A refusal at a check of the start, said and kept in the lines.
+    let said = |lines: &mut sessions::Lines, err: &mut dyn Write, check: &'static str, message: String| {
+        let code = refusal::say(err, name, &message);
+        lines.close(stamp.as_deref().ok(), sessions::Outcome::Refused { check, status: code, message }, err);
+        code
     };
+    let refused = |lines: &mut sessions::Lines, err: &mut dyn Write, check: &'static str, why: &str| said(lines, err, check, refusal::limit_text(why));
     // 1b. A view kept with work not taken back (#222): what a session left there is not on the branch, and the next
     // session would not see it. Before anything is posted. Only `--ignore-kept` passes it.
     if !kept_views.is_empty() && kept_ignored.is_none() {
         let issue = words.get("issue").unwrap_or_default();
-        return refused(&mut lines, err, "kept", &kept::refusal(issue, &kept_views));
+        return said(&mut lines, err, "kept", refusal::guard_text("--ignore-kept", kept::refusal(issue, &kept_views)));
     }
     // 2. The rule table: a fix follows a review. The number of rounds is no rule for a person (#84).
     if role == "fix" {
@@ -1380,7 +1390,10 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     match &local {
         Some(Err(why)) => return refused(&mut lines, err, "local", &format!("the local changes to the view could not be looked at: {}", why)),
         Some(Ok(found)) if !found.is_empty() && ignored.is_none() => {
-            return refused(&mut lines, err, "local", &view::local_message(found, words.ignore_local));
+            // Only a change under `reads` is passed, by `--ignore-local`: a change under `changes` is a limit.
+            let message = view::local_message(found, words.ignore_local);
+            let message = if found.iter().any(|local| local.changes) { refusal::limit_text(message) } else { refusal::guard_text("--ignore-local", message) };
+            return said(&mut lines, err, "local", message);
         }
         _ => {}
     }
@@ -1406,9 +1419,10 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     // The pattern that posts the stamp. From here, a fault leaves the stamp not posted, and no view.
     let not_posted = |lines: &mut sessions::Lines, err: &mut dyn Write, why: &str| {
         discard(&prepared);
-        let _ = writeln!(err, "{}: {}", name, why);
-        lines.close(stamp.as_deref().ok(), sessions::Outcome::NotPosted { status: 1, message: why.to_string() }, err);
-        1
+        let message = refusal::limit_text(why);
+        let code = refusal::say(err, name, &message);
+        lines.close(stamp.as_deref().ok(), sessions::Outcome::NotPosted { status: code, message }, err);
+        code
     };
     let line = match prompt::pattern_of(root, post) {
         Ok(Some(line)) => line,
@@ -1442,10 +1456,10 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         }
         Err(why) => {
             discard(&prepared);
-            let why = format!("{}. The stamp may not be posted, and no session is started.", why);
-            let _ = writeln!(err, "{}: {}", name, why);
-            lines.close(None, sessions::Outcome::NotPosted { status: 1, message: why }, err);
-            return 1;
+            let message = refusal::limit_text(format!("{}. The stamp may not be posted, and no session is started.", why));
+            let code = refusal::say(err, name, &message);
+            lines.close(None, sessions::Outcome::NotPosted { status: code, message }, err);
+            return code;
         }
     }
     let began = std::time::Instant::now();
@@ -1486,15 +1500,20 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     let status = match view::run_in(machine.sandbox, &plan, layout, name, err) {
         Ok(status) => status,
         Err(why) => {
-            let _ = writeln!(err, "{}: {}", name, why);
-            let back = view::Back { failed: Some(why.clone()), ..Default::default() };
+            let message = refusal::limit_text(&why);
+            let code = refusal::say(err, name, &message);
+            let back = view::Back { failed: Some(why), ..Default::default() };
             let kept = view::tidy(name, &prepared.view, &back, err);
             lines.write("back", &back.text(kept.as_deref()), err);
-            lines.close(None, sessions::Outcome::Refused { check: "start", status: 1, message: why }, err);
-            return 1;
+            lines.close(None, sessions::Outcome::Refused { check: "start", status: code, message }, err);
+            return code;
         }
     };
     let seconds = began.elapsed().as_secs();
+    if !status.success() {
+        refusal::answer();
+    }
+    // not a refusal: a session that did not end with 0 is an answer, marked above, and it is said below.
     let mut code = if status.success() { 0 } else { 1 };
     if code != 0 {
         let _ = writeln!(err, "{}: the session did not end with 0", name);
@@ -1506,6 +1525,7 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     let kept = view::tidy(name, &prepared.view, &back, err);
     lines.write("back", &back.text(kept.as_deref()), err);
     if back.refused_any() {
+        // not a refusal: what was refused at the take-back is said by `view::take_back` as a limit.
         code = 1;
     }
     if !back.taken.is_empty() {
@@ -1549,10 +1569,7 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
         }
         Ok(Some(root)) => root,
     };
-    let refuse = |err: &mut dyn Write, why: &str| {
-        let _ = writeln!(err, "{}: {}", name, why);
-        1
-    };
+    let refuse = |err: &mut dyn Write, why: &str| refusal::limit(err, name, why);
     let Some(state) = state else {
         return refuse(err, "neither XDG_STATE_HOME nor HOME names an absolute folder, and the views are kept below the state folder of Watchbill");
     };
@@ -1626,7 +1643,7 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
     let written = sessions::append_back(&kept.session, &format!("take-back\n{}", back.text(still.as_deref())));
     if let Err(error) = &written {
         let held = if back.taken.is_empty() { "" } else { "the commits are on the branch, but " };
-        let _ = writeln!(err, "{}: {}the lines of this take-back could not be written in {}: {}", name, held, kept.session.display(), error);
+        refusal::limit(err, name, format_args!("{}the lines of this take-back could not be written in {}: {}", held, kept.session.display(), error));
     }
     for (commit, _) in &back.taken {
         let _ = writeln!(err, "{}: to see what the commit changes, run:\n  git show --stat {}", name, commit);
@@ -1637,6 +1654,7 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
     if back.all_taken() && written.is_ok() {
         0
     } else {
+        // not a refusal: each thing not taken, and the lines not written, is said above as a limit.
         1
     }
 }
@@ -1843,7 +1861,9 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
 /// `organisation`: `run` gives the folder it runs in and the path fixed in `wb`; this is so that a test can give
 /// its own, as `prompt` does.
 pub fn view_command(args: &[OsString], folder: &Path, organisation: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    run_view(&mut Parser::from_args(args.iter().cloned()), Some(folder), organisation, out, err)
+    refusal::begin();
+    let code = run_view(&mut Parser::from_args(args.iter().cloned()), Some(folder), organisation, out, err);
+    refusal::ended(code, err)
 }
 
 /// `wb view <issue> <role> [--in | --out]` and `wb view <issue> <path>` (#173): what a session of a role will see,
@@ -1932,10 +1952,12 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
     };
     // `wb view` only reads (#254): a file that differs from `HEAD` is said, and `HEAD`'s file is the one read.
     let _read_only = match starter::read_only(&root) {
-        Err(not_read) => {
+        // Not set up is 2, and no refusal; a file of `HEAD` over its bound is a limit (#261).
+        Err(not_read) if not_read.status == 2 => {
             let _ = writeln!(err, "{}: {}.", name, not_read.why);
             return not_read.status;
         }
+        Err(not_read) => return refusal::limit(err, name, format_args!("{}.", not_read.why)),
         Ok((guard, differs)) => {
             if differs {
                 let _ = writeln!(err, "{}", starter::drift_line(name));
@@ -1943,10 +1965,7 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
             guard
         }
     };
-    let refused = |err: &mut dyn Write, why: &str| {
-        let _ = writeln!(err, "{}: {}", name, why);
-        1
-    };
+    let refused = |err: &mut dyn Write, why: &str| refusal::limit(err, name, why);
     if role == Some("breakdown") {
         return refused(err, "the breakdown runs in a view of every file of HEAD, where only .watchbill/issues/ is writable: it reads the whole code by its role, and has no list of paths");
     }
@@ -1999,6 +2018,10 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
             }
         }
         let _ = out.write_all(text.as_bytes());
+        if !any {
+            refusal::answer();
+        }
+        // not a refusal: in no view is the answer, marked above.
         return if any { 0 } else { 1 };
     };
     let paths = view::paths(&file.issue, role);
@@ -2268,7 +2291,9 @@ fn stamp_fault(values: &[(&'static str, String)]) -> Option<String> {
 /// nothing. The folder that holds `revision/` is an argument so that a test can give its own; `run`
 /// gives the one fixed when `wb` was built.
 pub fn revision(args: &[OsString], base: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    run_revision(&mut Parser::from_args(args.iter().cloned()), base, out, err)
+    refusal::begin();
+    let code = run_revision(&mut Parser::from_args(args.iter().cloned()), base, out, err);
+    refusal::ended(code, err)
 }
 
 fn run_revision(parser: &mut Parser, base: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
@@ -2283,8 +2308,7 @@ fn run_revision(parser: &mut Parser, base: &Path, out: &mut dyn Write, err: &mut
     }
     match manifest::manifest(base) {
         Err(why) => {
-            let _ = writeln!(err, "wb revision: {}", why);
-            1
+            crate::refusal::limit(err, "wb revision", format_args!("{}", why))
         }
         Ok(text) => {
             let _ = write!(out, "watchbill {}\nrevision {}\n\n{}", VERSION, manifest::hash_of(&text), text);

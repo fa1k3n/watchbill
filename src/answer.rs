@@ -465,8 +465,7 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
         On::Change(change) => ("change", change, "change_comment_bodies", "change_comment"),
     };
     if let Err(why) = starter::held(root) {
-        let _ = writeln!(err, "wb answer: {}.", why);
-        return 1;
+        return crate::refusal::limit(err, "wb answer", format_args!("{}.", why));
     }
     let mut commands = Vec::new();
     // `--show` posts nothing, so it needs only the pattern that reads.
@@ -475,24 +474,20 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
         match prompt::pattern_of(root, key) {
             Ok(Some(line)) if prompt::is_plain_name(value) => commands.push(line.replace(&format!("{{{}}}", word), value)),
             Ok(Some(_)) => {
-                let _ = writeln!(err, "wb answer: '{}' is not a plain name that fills `{}`.", value.escape_debug(), key);
-                return 1;
+                return crate::refusal::limit(err, "wb answer", format_args!("'{}' is not a plain name that fills `{}`.", value.escape_debug(), key));
             }
             Ok(None) => {
-                let _ = writeln!(err, "wb answer: watchbill.yml has no `{}`. Add the line (see the README). Nothing is posted.", key);
-                return 1;
+                return crate::refusal::limit(err, "wb answer", format_args!("watchbill.yml has no `{}`. Add the line (see the README). Nothing is posted.", key));
             }
             Err(why) => {
-                let _ = writeln!(err, "wb answer: {}", why);
-                return 1;
+                return crate::refusal::limit(err, "wb answer", format_args!("{}", why));
             }
         }
     }
     let printed = match starter::run(root, read, &commands[0], None) {
         Ok(printed) => printed,
         Err(why) => {
-            let _ = writeln!(err, "wb answer: {}. Nothing is posted.", why);
-            return 1;
+            return crate::refusal::limit(err, "wb answer", format_args!("{}. Nothing is posted.", why));
         }
     };
     let questions = open_questions(value, &split_bodies(&printed));
@@ -517,8 +512,7 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
                 match named(value, &questions, which) {
                     Ok(question) => given.push((question, text)),
                     Err(why) => {
-                        let _ = writeln!(err, "wb answer: {}. Nothing is posted.", why);
-                        return 1;
+                        return crate::refusal::limit(err, "wb answer", format_args!("{}. Nothing is posted.", why));
                     }
                 }
             }
@@ -527,8 +521,7 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
                 match take(question, text) {
                     Ok((line, role)) => taken.push((question, line, settled(question, role))),
                     Err(why) => {
-                        let _ = writeln!(err, "wb answer: {} Nothing is posted.", why);
-                        return 1;
+                        return crate::refusal::limit(err, "wb answer", format_args!("{} Nothing is posted.", why));
                     }
                 }
             }
@@ -545,8 +538,7 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
                     }
                 }
                 if answered.is_empty() {
-                    let _ = writeln!(err, "wb answer: no open question on {} {} has a suggested answer. Nothing is posted.", word, value);
-                    return 1;
+                    return crate::refusal::limit(err, "wb answer", format_args!("no open question on {} {} has a suggested answer. Nothing is posted.", word, value));
                 }
             } else {
                 answered = taken;
@@ -565,6 +557,8 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
                         questions.len()
                     );
                     let _ = out.flush();
+                    // The person ended the input before every question was answered: not a refusal.
+                    crate::refusal::answer();
                     1
                 };
                 loop {
@@ -628,8 +622,7 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
                     0 => "No comment was posted".to_string(),
                     n => format!("The first {} of {} comments were posted", n, texts.len()),
                 };
-                let _ = writeln!(err, "wb answer: {}. {}; this one may not be.", why, posted);
-                return 1;
+                return crate::refusal::limit(err, "wb answer", format_args!("{}. {}; this one may not be.", why, posted));
             }
         }
     }

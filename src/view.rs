@@ -181,7 +181,7 @@ pub fn local_message(found: &[Local], ignore: bool) -> String {
     };
     let (changes, reads) = (list(true), list(false));
     let mut text = String::from(
-        "a local change to a file of the view stops the start. This is a guard: the view is made from HEAD, and a session in it would not see the change",
+        "a local change to a file of the view stops the start: the view is made from HEAD, and a session in it would not see the change",
     );
     if !changes.is_empty() {
         text.push_str(&format!("\n  changes: {}", changes));
@@ -1935,27 +1935,29 @@ fn said(name: &str, view: &View, back: Back, list: Option<&Path>, err: &mut dyn 
         let _ = writeln!(err, "{}: taken onto {}: {} {}", name, view.branch_name(), short(commit), subject);
     }
     if let Some((commit, subject, why)) = &back.refused {
-        let _ = writeln!(err, "{}: refused, and not taken: the commit {} \"{}\" of the view: {}", name, short(commit), subject, why);
+        crate::refusal::limit(err, name, format_args!("refused, and not taken: the commit {} \"{}\" of the view: {}", short(commit), subject, why));
     }
     for (commit, subject) in &back.after {
         let _ = writeln!(err, "{}: not taken: the commit {} \"{}\" of the view", name, short(commit), subject);
     }
     if back.uncommitted.len() > SHOWN {
         let place = list.map(|file| file.display().to_string()).unwrap_or_else(|| "the file `back` of the session's folder".to_string());
-        let _ = writeln!(
+        crate::refusal::limit(
             err,
-            "{}: {} paths left uncommitted in the view, and not taken; the first {}: {}. The whole list is in {}",
             name,
-            back.uncommitted.len(),
-            SHOWN,
-            shown_all(&back.uncommitted[..SHOWN]),
-            place
+            format_args!(
+                "{} paths left uncommitted in the view, and not taken; the first {}: {}. The whole list is in {}",
+                back.uncommitted.len(),
+                SHOWN,
+                shown_all(&back.uncommitted[..SHOWN]),
+                place
+            ),
         );
     } else if !back.uncommitted.is_empty() {
-        let _ = writeln!(err, "{}: left uncommitted in the view, and not taken: {}", name, shown_all(&back.uncommitted));
+        crate::refusal::limit(err, name, format_args!("left uncommitted in the view, and not taken: {}", shown_all(&back.uncommitted)));
     }
     if let Some(why) = &back.failed {
-        let _ = writeln!(err, "{}: {}", name, crate::issue::shown(why));
+        crate::refusal::limit(err, name, crate::issue::shown(why));
     }
     back
 }

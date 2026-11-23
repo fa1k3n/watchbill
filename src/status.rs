@@ -324,10 +324,12 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
     // `wb status` only reads (#254): a file that is not as `HEAD` has it is said, and every pattern is read from
     // the file of `HEAD`. Where the file is not in `HEAD` at all, the repository is not set up.
     let _read_only = match starter::read_only(root) {
-        Err(not_read) => {
+        // Not set up is 2, and no refusal; a file of `HEAD` over its bound is a limit (#261).
+        Err(not_read) if not_read.status == 2 => {
             let _ = writeln!(err, "wb status: {}.", not_read.why);
             return not_read.status;
         }
+        Err(not_read) => return crate::refusal::limit(err, "wb status", format_args!("{}.", not_read.why)),
         Ok((guard, differs)) => {
             if differs {
                 let _ = writeln!(err, "{}", starter::drift_line("wb status"));
@@ -436,6 +438,8 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
     if failed.is_empty() {
         0
     } else {
+        // The issue is listed under Not read, and the rest is printed: not a refusal.
+        crate::refusal::answer();
         1
     }
 }

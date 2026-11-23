@@ -38,7 +38,7 @@ What `wb start <role> <issue>` checks, posts and starts. One path for a person a
 | WB-BUILD-32 | `--ignore-local` shall let the start go on when every local change is under the role's `reads` only. Issue: #172. | T | Implemented |
 | WB-BUILD-33 | A local change under `changes` shall be refused with 1 also with `--ignore-local`, saying that it cannot be overridden. Issue: #172. | T | Implemented |
 | WB-BUILD-34 | A start that `--ignore-local` let go on shall have the line `local: ignored <n>` in its stamp, after `view:`, and the file `local` with the paths in its session's folder. Issue: #172. | T | Implemented |
-| WB-BUILD-35 | The refusal of a local change shall say that it is a guard, name the paths and their list, and name `--ignore-local`. Issue: #172. | T | Implemented |
+| WB-BUILD-35 | The refusal of a local change shall say that it is a guard, name the paths and their list, and name `--ignore-local`. Issue: #172. Replaced by WB-BUILD-131, WB-BUILD-132 and WB-BUILD-133: a change under `changes` is a limit (#180). | T | Deprecated |
 | WB-BUILD-36 | `wb start <role> <issue>` shall do what `wb <role> <issue>` did, with the same options. Issue: #175. | T | Implemented |
 | WB-BUILD-37 | `wb <role> …` for a role of the revision shall end with 2 and say the form `wb start <role> …` with the same words. Issue: #175. | T | Implemented |
 | WB-BUILD-38 | `wb start` with a role that is not known shall end with 2 and name the roles. Issue: #175. | T | Implemented |
@@ -106,3 +106,8 @@ What `wb start <role> <issue>` checks, posts and starts. One path for a person a
 | WB-BUILD-120 | The README shall say that `kept: ignored <n>` counts every view named by `folder`, so it can be more than the start without the flag names. Issue: #265. | I | Implemented |
 | WB-BUILD-121 | `wb start <role>` shall refuse with 1, before anything is posted, a runner whose `start` names as its program an absolute path that is not a file, naming the path. Issue: #202. | T | Implemented |
 | WB-BUILD-122 | `wb start <role>` shall refuse with 1, before anything is posted, a runner whose `start` names as its program a path that lies outside what the sandbox holds (`/usr`, `/bin`, `/sbin`, `/lib*`, `/etc` and the runner's `binds`), as written or as resolved, naming it. Issue: #202. | T | Implemented |
+| WB-BUILD-130 | `wb start <role>` refused for a kept view shall say it as a guard, `guard:`, and name `--ignore-kept`. Issue: #180. | T | Implemented |
+| WB-BUILD-131 | `wb start <role>` refused for local changes all under the role's `reads` shall say it as a guard, `guard:`, and name `--ignore-local`. Issue: #180. | T | Implemented |
+| WB-BUILD-132 | `wb start <role>` refused for a local change under `changes` shall say it as a limit, `limit:`, also with `--ignore-local`. Issue: #180. | T | Implemented |
+| WB-BUILD-133 | The refusal of a local change shall name each path under its list, `changes` or `reads`, and name `--ignore-local`. It replaces WB-BUILD-35. Issue: #180. | T | Implemented |
+| WB-BUILD-134 | A commit refused when it is taken back from a view shall be said as a limit: `<command>: limit: refused, and not taken: the commit …`. Issue: #180. | T | Implemented |

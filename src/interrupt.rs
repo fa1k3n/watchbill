@@ -27,6 +27,7 @@ extern "C" fn on_interrupt(_: c_int) {
     if !WRITING.load(Ordering::SeqCst) {
         unsafe {
             write(1, MESSAGE.as_ptr() as *const c_void, MESSAGE.len());
+            // not a refusal: the person's own interrupt, before anything is written.
             _exit(1);
         }
     }

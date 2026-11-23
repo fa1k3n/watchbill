@@ -25,39 +25,34 @@ pub fn revert(root: &str, on: On, role: &str, round: Option<u64>, err: &mut dyn 
         On::Change(change) => ("change", change, "change_comments", "change_comment"),
     };
     if role == "breakdown" {
-        let _ = writeln!(
+        return crate::refusal::limit(
             err,
-            "wb revert: the breakdown is not taken back by a marker. The issue's file and its acceptance are files of the repository, and git takes them back."
+            "wb revert",
+            "the breakdown is not taken back by a marker. The issue's file and its acceptance are files of the repository, and git takes them back.",
         );
-        return 1;
     }
     if let Err(why) = starter::held(root) {
-        let _ = writeln!(err, "wb revert: {}.", why);
-        return 1;
+        return crate::refusal::limit(err, "wb revert", format_args!("{}.", why));
     }
     let mut commands = Vec::new();
     for key in [read, post] {
         match prompt::pattern_of(root, key) {
             Ok(Some(line)) if prompt::is_plain_name(value) => commands.push(line.replace(&format!("{{{}}}", word), value)),
             Ok(Some(_)) => {
-                let _ = writeln!(err, "wb revert: '{}' is not a plain name that fills `{}`.", value.escape_debug(), key);
-                return 1;
+                return crate::refusal::limit(err, "wb revert", format_args!("'{}' is not a plain name that fills `{}`.", value.escape_debug(), key));
             }
             Ok(None) => {
-                let _ = writeln!(err, "wb revert: watchbill.yml has no `{}`. Add the line (see the README).", key);
-                return 1;
+                return crate::refusal::limit(err, "wb revert", format_args!("watchbill.yml has no `{}`. Add the line (see the README).", key));
             }
             Err(why) => {
-                let _ = writeln!(err, "wb revert: {}", why);
-                return 1;
+                return crate::refusal::limit(err, "wb revert", format_args!("{}", why));
             }
         }
     }
     let printed = match starter::run(root, read, &commands[0], None) {
         Ok(printed) => printed,
         Err(why) => {
-            let _ = writeln!(err, "wb revert: {}", why);
-            return 1;
+            return crate::refusal::limit(err, "wb revert", format_args!("{}", why));
         }
     };
     let stamps = starter::stamps_in(&String::from_utf8_lossy(&printed));
@@ -67,16 +62,17 @@ pub fn revert(root: &str, on: On, role: &str, round: Option<u64>, err: &mut dyn 
             Some(round) => format!("no `[stamp] {} round {}` that still counts", role, round),
             None => format!("no `[stamp] {}` that still counts", role),
         };
-        let _ = writeln!(err, "wb revert: there is {} on {} {} (from `{}` of watchbill.yml), so there is no {} to take back.", which, word, value, read, role);
-        return 1;
+        return crate::refusal::limit(err, "wb revert", format_args!("there is {} on {} {} (from `{}` of watchbill.yml), so there is no {} to take back.", which, word, value, read, role));
     };
     if stamps[at..].iter().any(|(name, _)| name == "breakdown") {
-        let _ = writeln!(
+        return crate::refusal::limit(
             err,
-            "wb revert: a later breakdown took the issue back ({} {}), so the stamp `{} round {}` before it no longer counts and is not reverted. Nothing is posted.",
-            word, value, role, n
+            "wb revert",
+            format_args!(
+                "a later breakdown took the issue back ({} {}), so the stamp `{} round {}` before it no longer counts and is not reverted. Nothing is posted.",
+                word, value, role, n
+            ),
         );
-        return 1;
     }
     let marker = format!("[revert] {} round {}\n", role, n);
     let _ = write!(
@@ -89,8 +85,7 @@ pub fn revert(root: &str, on: On, role: &str, round: Option<u64>, err: &mut dyn 
             let _ = err.write_all(&said);
         }
         Err(why) => {
-            let _ = writeln!(err, "wb revert: {}. The marker may not be posted.", why);
-            return 1;
+            return crate::refusal::limit(err, "wb revert", format_args!("{}. The marker may not be posted.", why));
         }
     }
     let _ = writeln!(err, "wb revert: the commits of the steps taken back stay on the branch, and the issue's file, its acceptance and the change are as they were. Taking commits back is git's.");

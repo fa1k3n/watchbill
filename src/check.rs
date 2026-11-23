@@ -132,6 +132,8 @@ fn finish(found: &[String], settings: usize, unpinned: bool, project: &[String],
     } else {
         let _ = writeln!(out, "{} difference{}. The repository is not at the revision it is pinned to.", count, plural);
     }
+    // A difference is the answer of the check, on standard output, as the plumbing has it: not a refusal.
+    crate::refusal::answer();
     1
 }
 

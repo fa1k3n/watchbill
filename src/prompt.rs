@@ -859,6 +859,7 @@ pub fn utc(seconds: u64) -> String {
     let mp = (5 * doy + 2) / 153;
     let day = doy - (153 * mp + 2) / 5 + 1;
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    // not a refusal: arithmetic of the date, no status.
     let year = yoe + era * 400 + if month <= 2 { 1 } else { 0 };
     format!(
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",

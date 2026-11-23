@@ -1325,14 +1325,27 @@ fn not_allowed(path: &str, mode: &str, rule: &Rule, build_files: &[String]) -> O
     None
 }
 
-/// Whether `path` is there in the working tree of the checkout at `root` (anything at all, a link too) and is not in
-/// its `head`: a file the checkout does not track, ignored or not.
-fn untracked_in_checkout(root: &str, head: &str, path: &str) -> Result<bool, String> {
-    if fs::symlink_metadata(Path::new(root).join(path)).is_err() {
-        return Ok(false);
+/// The first of `path` and its leading parts that the working tree of the checkout at `root` holds untracked, ignored
+/// or not, if any: the path itself, there as anything at all, or a leading part that is there as anything but a
+/// folder (a file, a link), and that is not in its `head`. Each part is looked at, never followed: a link is a link.
+/// The fast-forward would write over it, or delete it to make a folder.
+fn untracked_in_checkout(root: &str, head: &str, path: &str) -> Result<Option<String>, String> {
+    let parts = parts(path);
+    let mut at = PathBuf::from(root);
+    for (index, part) in parts.iter().enumerate() {
+        at.push(part);
+        let last = index + 1 == parts.len();
+        let in_the_way = match fs::symlink_metadata(&at) {
+            Err(_) => return Ok(None),
+            Ok(found) => last || !found.file_type().is_dir(),
+        };
+        if in_the_way {
+            let shown = parts[..=index].join("/");
+            let listed = git(Path::new(root), &["ls-tree", "-z", "--full-tree", head, "--", &shown], &[("GIT_LITERAL_PATHSPECS", Path::new("1"))], None)?;
+            return Ok(listed.is_empty().then_some(shown));
+        }
     }
-    let listed = git(Path::new(root), &["ls-tree", "-z", "--full-tree", head, "--", path], &[("GIT_LITERAL_PATHSPECS", Path::new("1"))], None)?;
-    Ok(listed.is_empty())
+    Ok(None)
 }
 
 /// A commit of the view as git keeps it: its author, as `name`, `email` and `date`, and its message.
@@ -1643,8 +1656,8 @@ fn commits(root: &str, view: &View, store: &Path, allowed: &Allowed, build_files
             // a word (#202): it is refused, whatever may come back.
             if faults.is_empty() {
                 for change in found.iter().filter(|change| change.mode != "000000") {
-                    if untracked_in_checkout(root, &view.head, &change.path)? {
-                        faults.push(format!("{} is in the checkout and not tracked there, and would be written over", crate::issue::shown(&change.path)));
+                    if let Some(found) = untracked_in_checkout(root, &view.head, &change.path)? {
+                        faults.push(format!("{} is in the checkout and not tracked there, and would be written over", crate::issue::shown(&found)));
                     }
                 }
             }

@@ -48,7 +48,6 @@ roles:
     may:
       - Write the issue's file.
       - Commit the issue's file alone on the branch of the issue.
-      - Push its commit to the branch of the issue.
       - Post its questions on the issue, in one comment per session.
     may_not_also_hold: [tester, build, review, fix, officer]
     prompt: roles/breakdown.md

@@ -4066,6 +4066,32 @@ fn test_WB_VIEW_92_a_commit_that_adds_a_path_untracked_in_the_checkout_is_refuse
     assert_eq!(read(&bench.repo.path.join("local.env")), "the person's own\n");
     assert_eq!(bench.head(), before);
 
+    // An ignored file where the commit puts a folder: git takes it as expendable, and would put the folder there.
+    let bench = on_99();
+    commit_file(&bench, ".gitignore", "*.env\n");
+    put(&bench.repo.path, "out.env", "the person's own\n");
+    let before = bench.head();
+    bench.session("mkdir out.env && echo session > out.env/a && git add -f out.env/a && git commit -q -m 'A folder'\n");
+    let run = bench.start(&["start", "build", "99"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("out.env"), "{}", text_of(&run.stderr));
+    assert_eq!(read(&bench.repo.path.join("out.env")), "the person's own\n");
+    assert_eq!(bench.head(), before);
+
+    // An ignored link where the commit puts a folder: the link is looked at, never followed.
+    let bench = on_99();
+    commit_file(&bench, ".gitignore", "*.env\n");
+    let elsewhere = folder_named("elsewhere");
+    std::os::unix::fs::symlink(&elsewhere.path, bench.repo.path.join("link.env")).unwrap();
+    let before = bench.head();
+    bench.session("mkdir link.env && echo session > link.env/a && git add -f link.env/a && git commit -q -m 'Through a link'\n");
+    let run = bench.start(&["start", "build", "99"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("link.env"), "{}", text_of(&run.stderr));
+    assert!(fs::symlink_metadata(bench.repo.path.join("link.env")).unwrap().file_type().is_symlink());
+    assert_eq!(fs::read_dir(&elsewhere.path).unwrap().count(), 0);
+    assert_eq!(bench.head(), before);
+
     // Not ignored, and passed by `--ignore-local`.
     let bench = on_99();
     put(&bench.repo.path, "notes.txt", "mine\n");

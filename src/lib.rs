@@ -153,8 +153,8 @@ pub const USAGE: &str = "usage:
             views are kept on this machine. Ends with 0 when
             every issue could be read, 1 when a pattern failed for one (it is
             listed under Not read), 2 when it was used wrongly or the
-            repository is not set up. Writes nothing but a temporary index in
-            $TMPDIR, removed after, where it reads a kept view
+            repository is not set up. Writes nothing but a temporary repository
+            in $TMPDIR, removed after, where it reads a kept view
   view      show what a session of a role will see, before it starts. wb view
             <issue> <role> prints the paths of its view, one to a line, the
             list the start makes the view from, and nothing else. --in
@@ -1527,7 +1527,7 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
     // What will be taken, said first: the view, its role and round, each commit with its subject.
     let shown_view = issue::shown(&kept.view.folder.display().to_string());
     let (commits, left) = match view::work_left(&root, &kept.view) {
-        Ok(found) => found,
+        Ok(found) => (found.commits, found.uncommitted),
         Err(why) => return refuse(err, &format!("the view {} was not read, and nothing is taken back: {}", shown_view, issue::shown(&why))),
     };
     let total = match view::count_left(&root, &kept.view).and_then(|total| view::objects_readable(&root, &kept.view).map(|()| total)) {

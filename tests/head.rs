@@ -784,3 +784,51 @@ fn test_WB_PROMPT_56_the_refusal_of_a_prompt_does_not_say_that_anything_is_poste
     assert_eq!(code(&run), Some(1));
     assert!(!text(&run.stderr).contains("posted"), "{}", text(&run.stderr));
 }
+
+// ---- One bounded reader for a file a session can write (#261) ----
+
+/// `wb prompt build 54` and `wb start build 54` end with 1 within 10 seconds, naming `watchbill.yml`, and run nothing.
+fn assert_config_refused(bench: &Bench, what: &str) {
+    let prompt = wb_within(&bench.repo.path, &["prompt", "build", "54"], 10);
+    assert_eq!(code(&prompt), Some(1), "{} prompt: {}", what, text(&prompt.stderr));
+    assert_eq!(text(&prompt.stdout), "", "{}", what);
+    assert!(text(&prompt.stderr).contains(".watchbill/watchbill.yml"), "{}: the file is not named: {}", what, text(&prompt.stderr));
+    let start = start_with(&bench.repo.path, &bench.org, true, &["start", "build", "54"]);
+    assert_eq!(code(&start), Some(1), "{} start: {}{}", what, text(&start.stdout), text(&start.stderr));
+    assert!(text(&start.stderr).contains(".watchbill/watchbill.yml"), "{}: {}", what, text(&start.stderr));
+    assert_eq!(bench.ran(), "", "{} ran something", what);
+}
+
+#[test]
+fn test_WB_BUILD_100_a_fifo_in_the_place_of_watchbill_yml_is_refused_by_prompt_and_start() {
+    let bench = text_bench();
+    fs::remove_file(config(&bench.repo.path)).unwrap();
+    let made = std::process::Command::new("mkfifo").arg(config(&bench.repo.path)).status().unwrap();
+    assert!(made.success());
+    assert_config_refused(&bench, "a FIFO");
+}
+
+#[test]
+fn test_WB_BUILD_100_a_symlink_to_dev_zero_in_the_place_of_watchbill_yml_is_refused_by_prompt_and_start() {
+    let bench = text_bench();
+    fs::remove_file(config(&bench.repo.path)).unwrap();
+    std::os::unix::fs::symlink("/dev/zero", config(&bench.repo.path)).unwrap();
+    assert_config_refused(&bench, "a symlink to /dev/zero");
+}
+
+#[test]
+fn test_WB_BUILD_100_a_folder_in_the_place_of_watchbill_yml_is_refused_by_prompt_and_start() {
+    let bench = text_bench();
+    fs::remove_file(config(&bench.repo.path)).unwrap();
+    fs::create_dir(config(&bench.repo.path)).unwrap();
+    assert_config_refused(&bench, "a folder");
+}
+
+#[test]
+fn test_WB_BUILD_100_a_file_over_1_mib_in_the_place_of_watchbill_yml_is_refused_by_prompt_and_start() {
+    let bench = text_bench();
+    let mut big = read(&config(&bench.repo.path));
+    big.push_str(&format!("# {}\n", "x".repeat(2 * 1024 * 1024)));
+    fs::write(config(&bench.repo.path), big).unwrap();
+    assert_config_refused(&bench, "a file over 1 MiB");
+}

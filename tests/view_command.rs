@@ -641,14 +641,23 @@ fn test_WB_PROMPT_63_with_no_organisation_s_file_and_no_level_the_stamp_says_not
 }
 
 #[test]
-fn test_WB_PROMPT_61_the_stamp_of_a_session_with_no_view_holds_no_level_line() {
+fn test_WB_PROMPT_72_the_stamp_of_a_session_in_a_view_of_the_whole_tree_holds_the_level_after_the_view_line() {
     let bench = bench();
-    // A review of a change with no issue runs without a view.
-    let stamp = prompt_with(&bench.repo.path, &bench.organisation(), &["review", "--change", "174", "--stamp"]);
-    ok(&stamp);
-    let stamp = text(&stamp.stdout);
-    assert_eq!(value_of(&stamp, "view").as_deref(), Some("none"), "{}", stamp);
-    assert!(!stamp.lines().any(|line| line.starts_with("level")), "{}", stamp);
+    // A review of a change with no issue and a role with no issue's file run in a view of every file of
+    // HEAD (#202), and their stamps say the level as every other does.
+    for words in [
+        &["review", "--change", "174", "--stamp"][..],
+        &["build", "99", "--branch", "main", "--round", "1", "--stamp"][..],
+    ] {
+        let stamp = prompt_with(&bench.repo.path, &bench.organisation(), words);
+        ok(&stamp);
+        let stamp = text(&stamp.stdout);
+        assert_eq!(value_of(&stamp, "view").as_deref(), Some("none"), "{:?}: {}", words, stamp);
+        assert_eq!(value_of(&stamp, "level").as_deref(), Some("public"), "{:?}: {}", words, stamp);
+        let names: Vec<&str> = stamp.lines().map(|line| line.split(':').next().unwrap()).collect();
+        let view = names.iter().position(|name| *name == "view").unwrap();
+        assert_eq!(names[view + 1], "level", "{:?}: {}", words, stamp);
+    }
 }
 
 // ---- WB-VIEW-31: it writes nothing, runs no pattern, asks nothing of the network ----

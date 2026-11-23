@@ -465,6 +465,20 @@ fn test_WB_BUILD_121_a_runner_s_program_that_is_not_there_is_refused_with_1_befo
     }
 }
 
+#[test]
+fn test_WB_BUILD_122_a_runner_s_program_outside_what_the_sandbox_holds_is_refused_with_1_before_anything_is_posted() {
+    let bench = bench();
+    let elsewhere = folder_named("elsewhere");
+    let program = elsewhere.path.join("runner.sh");
+    script(&program, "exit 0\n");
+    let start = format!("{}/start.sh", bench.log.path.to_str().unwrap());
+    bench.organisation(&org(&bench.log.path, Some("stand-in")).replace(&start, program.to_str().unwrap()));
+    for role in ["build", "breakdown"] {
+        let run = bench.start(true, &["start", role, "54"]);
+        refused(&bench, &run, 1, &[program.to_str().unwrap(), "outside what the sandbox holds"]);
+    }
+}
+
 // ---- WB-BUILD-7: no terminal, and a runner without `start` ----
 
 #[test]

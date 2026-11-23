@@ -927,16 +927,14 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
         Ok(found) => found,
         Err(why) => return Err(refused(err, &why)),
     };
-    // The level goes in the stamp of a session that runs in a view (#209), from the same place `--parts` has it.
-    let level = match view_paths_of(role, file.as_ref()) {
-        Some(_) => {
-            let (level, why) = stamp_level(&root, organisation);
-            if let Some(why) = why {
-                let _ = writeln!(err, "{}: the level of the stamp is {}: {}", name, level, why);
-            }
-            Some(level)
+    // The level goes in the stamp of every session, as every session runs in a view (#209, #202), from the same place
+    // `--parts` has it.
+    let level = {
+        let (level, why) = stamp_level(&root, organisation);
+        if let Some(why) = why {
+            let _ = writeln!(err, "{}: the level of the stamp is {}: {}", name, level, why);
         }
-        None => None,
+        Some(level)
     };
     Ok(Handed { root, values, found, cleared, file, requirements_given, stamps: worked.stamps, level })
 }
@@ -986,14 +984,41 @@ fn stamp_of(role: &str, handed: &Handed, runner: &str, local: Option<usize>, kep
 }
 
 /// The local changes the view of a session of `role` would miss (#172): over the whole checkout for the breakdown
-/// (#202), its issue's file as its `changes`; none looked for where a role has no issue's file.
+/// (#202), its issue's file as its `changes`, and for a role with no issue's file, which `--ignore-local` passes.
 fn local_of(role: &str, handed: &Handed, root: &str) -> Option<Result<Vec<view::Local>, String>> {
     if role == "breakdown" {
         let issue = value_of(&handed.values, "issue")?;
-        return Some(view::local_changes_whole(root, &issue_file_of(issue)));
+        return Some(view::local_changes_whole(root, Some(&issue_file_of(issue))));
     }
-    let file = handed.file.as_ref()?;
-    issue::ROLES.contains(&role).then(|| view::local_changes(root, &file.issue, role))
+    match handed.file.as_ref() {
+        Some(file) if issue::ROLES.contains(&role) => Some(view::local_changes(root, &file.issue, role)),
+        _ => Some(view::local_changes_whole(root, None)),
+    }
+}
+
+/// Why the runner's `program`, where it is named by its path, cannot be found inside the sandbox, if it cannot: it
+/// lies, as written or as resolved, under none of the system's folders the sandbox holds (`view::SYSTEM`) and none of
+/// the runner's `binds`.
+fn outside_the_sandbox(program: &str, binds: &[(std::path::PathBuf, bool)]) -> Option<String> {
+    if !program.starts_with('/') {
+        return None;
+    }
+    let held: Vec<String> = view::SYSTEM.iter().map(|folder| folder.to_string()).chain(binds.iter().map(|(path, _)| path.display().to_string())).collect();
+    let inside = |path: &str| {
+        let parts = starter::parts(path);
+        held.iter().any(|folder| {
+            let folder = starter::parts(folder);
+            !folder.is_empty() && parts.len() >= folder.len() && parts[..folder.len()] == folder[..]
+        })
+    };
+    let real = std::fs::canonicalize(program).map(|path| path.display().to_string()).unwrap_or_else(|_| program.to_string());
+    (!inside(program) || !inside(&real)).then(|| {
+        format!(
+            "the runner's program {} lies outside what the sandbox holds ({} and the runner's `binds`), so no session can be started with it",
+            program.escape_debug(),
+            view::SYSTEM.join(", ")
+        )
+    })
 }
 
 /// The issue's file of `issue`, from the root, as the breakdown writes it.
@@ -1371,6 +1396,13 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     };
     // A view made and not run in is removed, whatever ends the start.
     let discard = |prepared: &Prepared| view::discard(&prepared.view);
+    // A program named by its path lies under what the sandbox holds, as it is there: the system's folders and the
+    // runner's binds, once they are made sure of (#202).
+    if let Some(why) = filled.first().and_then(|program| outside_the_sandbox(program, &prepared.binds)) {
+        discard(&prepared);
+        let why = format!("{}. Bind it in `binds` of the runner '{}' in the organisation's file {}", why, runner, organisation.display());
+        return refused(&mut lines, err, "start", &why);
+    }
     // The pattern that posts the stamp. From here, a fault leaves the stamp not posted, and no view.
     let not_posted = |lines: &mut sessions::Lines, err: &mut dyn Write, why: &str| {
         discard(&prepared);
@@ -1529,15 +1561,36 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
         Err(why) => return refuse(err, &why),
     };
     // What may come back, as at the end of a session: by the issue's accepted file, or by the rule of the breakdown
-    // or of a role with no issue's file (#202); never the build files of watchbill.yml.
-    let allowed = if role == "breakdown" {
-        allowed_of(role, None, Some(issue))
+    // or of a role with no issue's file (#202); never the build files of watchbill.yml. The rule is the one the
+    // session ran under, as its stamp's `view:` says it: where HEAD now gives another, nothing is taken.
+    let file = if role == "breakdown" {
+        None
     } else {
         match issue::for_prompt(Path::new(&root), issue) {
-            Ok(file) => allowed_of(role, file.as_ref(), Some(issue)),
+            Ok(file) => file,
             Err(why) => return refuse(err, &why),
         }
     };
+    let stamped = crate::bounded::read_plain(&kept.session.join("stamp"), crate::bounded::TEXT_CAP)
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .and_then(|text| text.lines().find_map(|line| line.strip_prefix("view: ").map(str::to_string)));
+    let now = view_hash(role, file.as_ref());
+    match stamped {
+        Some(stamped) if stamped == now => {}
+        Some(stamped) => {
+            return refuse(
+                err,
+                &format!(
+                    "the stamp of the kept view says `view: {}`, and the issue's file in HEAD gives `view: {}`: the rule its session ran under is not the one HEAD gives, so nothing is taken back",
+                    issue::shown(&stamped),
+                    now
+                ),
+            )
+        }
+        None => return refuse(err, "the stamp of the kept view has no line `view:` that can be read, so what may come back is not known, and nothing is taken back"),
+    }
+    let allowed = allowed_of(role, file.as_ref(), Some(issue));
     let build_files = match starter::settings(&root).and_then(|settings| issue::build_files_of(&settings)) {
         Ok(found) => found.unwrap_or_default(),
         Err(why) => return refuse(err, &why),

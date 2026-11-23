@@ -846,24 +846,32 @@ fn stop_line(role: &str) -> String {
     stop.unwrap_or_else(|| panic!("{}: no line that starts with Stop when", role))
 }
 
+// The breakdown runs in a view with no remote too (#202), and pushes nothing.
+
 #[test]
-fn test_WB_ROLE_91_the_breakdown_says_to_commit_and_then_push_to_the_branch() {
+fn test_WB_ROLE_102_the_breakdown_commits_on_the_branch_and_pushes_nothing() {
     let body = part("breakdown", "## What you produce");
-    let found = body.split('\n').any(|line| {
+    let point = body.split('\n').find(|line| line.contains("You push nothing and open no change: a person pushes the branch."));
+    let point = point.unwrap_or_else(|| panic!("no point says that a person pushes: {}", body));
+    assert!(point.to_lowercase().contains("commit") && point.contains("{branch}"), "{}", point);
+    let never = part("breakdown", "## What you never do");
+    assert!(never.contains("- You never push, and never open a change."), "{}", never);
+    let stop = stop_line("breakdown");
+    assert!(stop.contains("committed alone on {branch}"), "{}", stop);
+    assert!(!stop.contains("push"), "{}", stop);
+    for line in prompt("breakdown").split('\n') {
         let lower = line.to_lowercase();
-        match (lower.find("commit"), lower.find("push")) {
-            (Some(commit), Some(push)) => commit < push && lower[push..].contains("to {branch}"),
-            _ => false,
-        }
-    });
-    assert!(found, "no point says to commit and then push to {{branch}}: {}", body);
-    assert!(stop_line("breakdown").contains("pushed to {branch}"), "{}", stop_line("breakdown"));
+        let allowed = ["how work is pushed and posted here", "you push nothing", "you never push", "a person pushes"];
+        let rest = allowed.iter().fold(lower.clone(), |text, phrase| text.replace(phrase, ""));
+        assert!(!rest.contains("push"), "{}", line);
+    }
 }
 
 #[test]
-fn test_WB_ROLE_91_the_last_message_of_the_breakdown_names_the_commit_that_was_pushed() {
+fn test_WB_ROLE_103_the_last_message_of_the_breakdown_names_the_commit_on_the_branch() {
     let file = field_line("breakdown", "file");
-    assert!(file.contains("the commit that holds it, as pushed to {branch}"), "{}", file);
+    assert!(file.contains("the commit that holds it, on {branch}"), "{}", file);
+    assert!(!file.contains("push"), "{}", file);
 }
 
 // The roles that commit in a view, and push nothing (#145).

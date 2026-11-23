@@ -81,15 +81,17 @@ pub fn local_changes(root: &str, issue: &crate::issue::Issue, role: &str) -> Res
         .collect())
 }
 
-/// The local changes the breakdown's view of the whole tree would miss (#202), sorted: as `local_changes`, over
-/// every path of the checkout, with every untracked file that git does not ignore. `file`, the issue's file, stands
-/// as `changes`: it is named also where it is untracked and ignored, and no flag passes it.
-pub fn local_changes_whole(root: &str, file: &str) -> Result<Vec<Local>, String> {
-    let names = changed(root, None, &[file.to_string()])?;
+/// The local changes a view of the whole tree would miss (#202), sorted: as `local_changes`, over every path of the
+/// checkout, with every untracked file that git does not ignore. `file`, the breakdown's issue's file, stands as
+/// `changes`: it is named also where it is untracked and ignored, and no flag passes it. With none, for a role with
+/// no issue's file, `--ignore-local` passes every one.
+pub fn local_changes_whole(root: &str, file: Option<&str>) -> Result<Vec<Local>, String> {
+    let others: Vec<String> = file.map(str::to_string).into_iter().collect();
+    let names = changed(root, None, &others)?;
     Ok(names
         .into_iter()
         .map(|path| {
-            let changes = under(&path, file);
+            let changes = file.is_some_and(|file| under(&path, file));
             Local { path, changes }
         })
         .collect())
@@ -669,6 +671,10 @@ pub struct Plan<'a> {
 /// The system, as the sandbox has it, read-only: `/usr`, the links to it or the folders beside it, `/etc` and
 /// `/sys`; `/proc` and `/dev` of its own; `/tmp` and `/run` empty, but for the folder of the resolver where
 /// `/etc/resolv.conf` points into `/run`, so that the model can be reached.
+/// The folders of the system a program of a runner may lie in, as the sandbox holds them (`system`); `/sys` and
+/// `/proc` hold no program.
+pub const SYSTEM: [&str; 8] = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/lib32", "/libx32", "/etc"];
+
 fn system() -> Vec<OsString> {
     let mut words: Vec<OsString> = Vec::new();
     let mut add = |more: &[&str]| words.extend(more.iter().map(OsString::from));
@@ -1293,6 +1299,9 @@ fn not_allowed(path: &str, mode: &str, rule: &Rule, build_files: &[String]) -> O
         if found != parts(file) {
             return Some(format!("{} is not {}, the one file the breakdown's work comes back as", crate::issue::shown(path), file));
         }
+        if mode == "000000" {
+            return Some(format!("{} is deleted, and the breakdown's work comes back only as that file, written", crate::issue::shown(path)));
+        }
         if mode != "100644" {
             return Some(format!("{} comes back only as a plain file", crate::issue::shown(path)));
         }
@@ -1314,6 +1323,16 @@ fn not_allowed(path: &str, mode: &str, rule: &Rule, build_files: &[String]) -> O
         return Some(format!("{} is outside `changes`", crate::issue::shown(path)));
     }
     None
+}
+
+/// Whether `path` is there in the working tree of the checkout at `root` (anything at all, a link too) and is not in
+/// its `head`: a file the checkout does not track, ignored or not.
+fn untracked_in_checkout(root: &str, head: &str, path: &str) -> Result<bool, String> {
+    if fs::symlink_metadata(Path::new(root).join(path)).is_err() {
+        return Ok(false);
+    }
+    let listed = git(Path::new(root), &["ls-tree", "-z", "--full-tree", head, "--", path], &[("GIT_LITERAL_PATHSPECS", Path::new("1"))], None)?;
+    Ok(listed.is_empty())
 }
 
 /// A commit of the view as git keeps it: its author, as `name`, `email` and `date`, and its message.
@@ -1620,6 +1639,15 @@ fn commits(root: &str, view: &View, store: &Path, allowed: &Allowed, build_files
             let found = changes_of(store, &parent, &commit)?;
             let mut faults: Vec<String> = found.iter().filter_map(|change| not_allowed(&change.path, &change.mode, &rule, build_files)).collect();
             faults.extend(found.iter().filter(|change| change.mode == "160000").map(|change| format!("{} is a submodule", crate::issue::shown(&change.path))));
+            // A path that the checkout holds untracked, ignored or not, would be written over by the fast-forward without
+            // a word (#202): it is refused, whatever may come back.
+            if faults.is_empty() {
+                for change in found.iter().filter(|change| change.mode != "000000") {
+                    if untracked_in_checkout(root, &view.head, &change.path)? {
+                        faults.push(format!("{} is in the checkout and not tracked there, and would be written over", crate::issue::shown(&change.path)));
+                    }
+                }
+            }
             // The paths are judged first: a tree that holds a path git does not take is said so, not as odd.
             if faults.is_empty() {
                 if let Some(why) = not_standard(store, &parent, &commit)? {

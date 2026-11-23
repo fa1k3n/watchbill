@@ -64,7 +64,7 @@ How a prompt is put together from the revision and the project's own text, and t
 | WB-PROMPT-58 | `wb prompt --stamp` shall print a line `job: <hash>`, besides the lines it printed before. Issue: #236. | T | Draft |
 | WB-PROMPT-59 | `wb prompt --stamp` shall print a line `base: <commit>`, the commit of `HEAD` the view was made from, besides the lines it printed before. Issue: #236. | T | Draft |
 | WB-PROMPT-60 | `wb prompt <role> <issue> --stamp` for a role that runs in a view shall print the line `level: <level>` after the line `view:`, the level of the repository as `--parts` of the breakdown gives it, from the function the stamp of `wb start` is made by. Issue: #209. | T | Implemented |
-| WB-PROMPT-61 | A stamp of a session that runs without a view shall hold no line `level:`. Issue: #209. | T | Implemented |
+| WB-PROMPT-61 | A stamp of a session that runs without a view shall hold no line `level:`. Replaced by WB-PROMPT-72. Issue: #209. | T | Deprecated |
 | WB-PROMPT-62 | Where the organisation's file can be read and `watchbill.yml` gives no level that holds (a level not on the organisation's list, or the key `levels` or `runners`), the `level:` of the stamp shall be the organisation's most restrictive level, and `wb prompt` shall say why on standard error. Issue: #209. | T | Implemented |
 | WB-PROMPT-63 | Where there is no organisation's file and `watchbill.yml` has no line `confidentiality:`, the `level:` of the stamp shall be `not known`, with nothing added to standard error. Issue: #209. | T | Implemented |
 | WB-PROMPT-64 | The `level:` and `view:` lines of `wb prompt <role> <issue> --stamp` shall equal those that `wb start <role> <issue>` posts for the same `HEAD`. Issue: #209. | T | Implemented |
@@ -75,3 +75,4 @@ How a prompt is put together from the revision and the project's own text, and t
 | WB-PROMPT-69 | `{classed}` and `{classed_touched}` shall be on the list of `placeholders.md`, and `wb check` shall take them in the project's own text. Issue: #227. | T | Implemented |
 | WB-PROMPT-70 | `wb prompt` shall put in the value of every placeholder but `{classed}` and `{classed_touched}` as it is given, with the lines of a value of several lines not indented, where the placeholder stands after spaces. Issue: #227. | T | Implemented |
 | WB-PROMPT-71 | `wb prompt` and `wb start` shall refuse with 1, naming the file and saying it is over 1 MiB, a file of the project's text that is over 1 MiB in `HEAD`, without reading it whole. Issue: #211. | T | Implemented |
+| WB-PROMPT-72 | The stamp of every session, `wb prompt --stamp` and `wb start <role>` alike, shall hold the line `level:` after the line `view:`, a view of the whole tree too. Replaces WB-PROMPT-61. Issue: #202. | T | Implemented |

@@ -253,6 +253,10 @@ pub fn start_in(folder: &Path, organisation: &Path, terminal: bool, state: Optio
     let stand_in = folder_named("bwrap");
     let sandbox = match watchbill::view::works(Path::new(watchbill::view::BWRAP)) {
         Ok(()) => PathBuf::from(watchbill::view::BWRAP),
+        // For the container and release checks (#202): no stand-in, a failure.
+        Err(why) if std::env::var_os("WB_TEST_REQUIRE_SANDBOX").is_some_and(|value| value == "1") => {
+            panic!("WB_TEST_REQUIRE_SANDBOX=1, and bubblewrap cannot make a sandbox here: {}", why)
+        }
         Err(why) => {
             eprintln!("the session runs by a stand-in for bubblewrap, which cannot make a sandbox here: {}", why);
             let path = stand_in.path.join("bwrap");

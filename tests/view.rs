@@ -1840,6 +1840,21 @@ fn stand_in_bwrap(bench: &Bench) -> PathBuf {
     path
 }
 
+/// A `bwrap` that makes no sandbox but names the session on `--info-fd` as bubblewrap does: its own child, a
+/// reaper, has the session as its one child. It writes the info only once the test has signalled `wb` (`sent` in
+/// `log`), or after a second and a half, so that the signal comes before the session is found (#271).
+fn slow_info_bwrap(bench: &Bench) -> PathBuf {
+    let path = bench.at("bwrap-slow-info");
+    let log = bench.log.path.to_str().unwrap();
+    script(
+        &path,
+        &format!(
+            "view=\nfd=\nwhile [ $# -gt 0 ]; do\n  case \"$1\" in\n    --info-fd) fd=$2; shift 2;;\n    --bind) view=$2; shift 3;;\n    --) shift; break;;\n    *) shift;;\n  esac\ndone\n[ \"$1\" = /usr/bin/true ] && exit 0\ncd \"$view\" || exit 1\n( \"$@\" & wait $! ) &\nreaper=$!\nn=0\nwhile [ ! -e {log}/sent ] && [ $n -lt 150 ]; do sleep 0.01; n=$((n+1)); done\necho \"{{\\\"child-pid\\\": $reaper}}\" >&\"$fd\"\nwait $reaper\nexit $?\n"
+        ),
+    );
+    path
+}
+
 /// What the session of the signal tests does: it commits a file in its view, says its number, and waits.
 const WAITS: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\necho $$ > {log}/pid\nexec sleep 30\n";
 
@@ -1876,6 +1891,30 @@ const ENDS_ITSELF: &str = "echo 'int fresh;' > src/new.c && git add src/new.c &&
 /// A session that writes the signals it started with ignored, as `/proc` gives them.
 const SAYS_IGNORED: &str = "grep SigIgn /proc/self/status > {log}/ignored\necho $$ > {log}/pid\n";
 
+// ---- #271: in a view Ctrl-C and Ctrl-\ reach the session inside bubblewrap ----
+
+const SIGINT: i32 = 2;
+const SIGQUIT: i32 = 3;
+
+/// A session that commits, and at an interrupt takes a second, writes `got` and ends by the interrupt.
+const CLEANLY_INT: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\ntrap 'sleep 1; echo got > {log}/got; kill $!; trap - INT; kill -INT $$' INT\nsleep 30 &\necho $$ > {log}/pid\nwait\n";
+
+/// The same at a quit, with no core written.
+const CLEANLY_QUIT: &str = "ulimit -c 0\necho 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\ntrap 'sleep 1; echo got > {log}/got; kill $!; trap - QUIT; kill -QUIT $$' QUIT\nsleep 30 &\necho $$ > {log}/pid\nwait\n";
+
+/// A session with no repository, run by `view::run`: at an interrupt it takes a second, writes `got` and ends by it.
+const INT_ALONE: &str = "trap 'sleep 1; echo got > {log}/got; kill $!; trap - INT; kill -INT $$' INT\nsleep 10 &\necho $$ > {log}/pid\nwait\n";
+
+/// The same at a quit.
+const QUIT_ALONE: &str = "ulimit -c 0\ntrap 'sleep 1; echo got > {log}/got; kill $!; trap - QUIT; kill -QUIT $$' QUIT\nsleep 10 &\necho $$ > {log}/pid\nwait\n";
+
+/// A session with no repository that writes a line `int` for each interrupt it gets, and ends by itself after
+/// two seconds, writing `got`.
+const COUNTS_INTS: &str = "trap 'echo int >> {log}/ints' INT\nsleep 2 &\necho $$ > {log}/pid\nwhile ! wait $!; do :; done\necho got > {log}/got\n";
+
+/// A session with no repository that ends by itself after four seconds, writing `got`.
+const ENDS_LATER: &str = "echo $$ > {log}/pid\nsleep 4\necho got > {log}/got\n";
+
 /// Not a test of a row: it does nothing unless a signal test started it. It is the part that runs `wb` in the process the signal tests start: it writes the folders it made, writes the
 /// status when `wb` ends, and waits for the parent to be done with the folders.
 #[test]
@@ -1890,17 +1929,28 @@ fn a_helper_that_runs_wb_for_the_signal_tests_and_checks_nothing() {
         Ok("hangs-up-alone") => HANGS_UP_ALONE,
         Ok("ends-itself") => ENDS_ITSELF,
         Ok("says-ignored") => SAYS_IGNORED,
+        Ok("cleanly-int") => CLEANLY_INT,
+        Ok("cleanly-quit") => CLEANLY_QUIT,
+        Ok("int-alone") => INT_ALONE,
+        Ok("quit-alone") => QUIT_ALONE,
+        Ok("counts-ints") => COUNTS_INTS,
+        Ok("ends-later") => ENDS_LATER,
         _ => WAITS,
     });
     let sandbox = match std::env::var(CHILD_SANDBOX).as_deref() {
-        Ok("real") | Ok("run") => PathBuf::from(watchbill::view::BWRAP),
+        Ok("real") | Ok("run") | Ok("run-in-group") => PathBuf::from(watchbill::view::BWRAP),
+        Ok("run-slow-info") => slow_info_bwrap(&bench),
+        // The stand-in that writes nothing on the info fd, through `view::run`, with and without `--new-session`.
+        Ok("run-stand-in") | Ok("run-stand-in-in-group") => stand_in_bwrap(&bench),
         _ => stand_in_bwrap(&bench),
     };
     let paths = format!("{}\n{}\n{}\n", bench.repo.path.display(), bench.log.path.display(), bench.state.path.display());
     fs::write(folder.join("paths.tmp"), paths).unwrap();
     fs::rename(folder.join("paths.tmp"), folder.join("paths")).unwrap();
-    let status = if std::env::var(CHILD_SANDBOX).as_deref() == Ok("run") {
-        // The session in bubblewrap with no controlling terminal, as where `dev.tty.legacy_tiocsti` is not 0 (#257).
+    let through_run = std::env::var(CHILD_SANDBOX).ok().filter(|how| ["run", "run-in-group", "run-slow-info", "run-stand-in", "run-stand-in-in-group"].contains(&how.as_str()));
+    let status = if let Some(how) = through_run {
+        // The session in bubblewrap with no controlling terminal, as where `dev.tty.legacy_tiocsti` is not 0 (#257),
+        // or, with `run-in-group`, in the process group of `wb` (#271).
         let view = folder_named("view");
         let words = [bench.at("session.sh").to_str().unwrap().to_string()];
         let plan = watchbill::view::Plan {
@@ -1909,11 +1959,18 @@ fn a_helper_that_runs_wb_for_the_signal_tests_and_checks_nothing() {
             binds: vec![(bench.log.path.clone(), true)],
             organisation: None,
             home: Some(&bench.home.path),
-            new_session: true,
+            new_session: !how.ends_with("in-group"),
             words: &words,
         };
         match watchbill::view::run(&sandbox, &plan) {
-            Ok(status) => status.code().unwrap_or(-3),
+            Ok(status) => {
+                use std::os::unix::process::ExitStatusExt;
+                // The signal that ended the session, as `wb start` names it in `outcome` (#271).
+                if let Some(number) = status.signal() {
+                    fs::write(folder.join("signal"), format!("{}\n", number)).unwrap();
+                }
+                status.code().unwrap_or(-3)
+            }
             Err(_) => -1,
         }
     } else {
@@ -1952,6 +2009,12 @@ struct Signalled {
     got: String,
     /// The line `SigIgn` of a session that wrote it.
     ignored: String,
+    /// A line `int` for each interrupt a session that counts them got.
+    ints: String,
+    /// The signal that ended the session, by its number, where `view::run` ran it.
+    signal: String,
+    /// From the start of the helper to the end of `wb`.
+    took: std::time::Duration,
 }
 
 /// Starts `wb start build 54`, sends `to_wb` to it when the session waits, then, after a moment, `to_session` to
@@ -1963,7 +2026,8 @@ fn signalled(session_is: &str, to_wb: Option<i32>, to_session: Option<i32>) -> S
 /// How `signalled_how` runs `wb` and signals it.
 struct How<'a> {
     session_is: &'a str,
-    /// `stand-in`, `real` or `run`, as `CHILD_SANDBOX` says.
+    /// `stand-in`, `real`, `run`, `run-in-group`, `run-slow-info`, `run-stand-in` or `run-stand-in-in-group`, as
+    /// `CHILD_SANDBOX` says.
     sandbox: &'a str,
     to_wb: Option<i32>,
     /// Whether `to_wb` goes to the whole process group of `wb`, as a terminal sends a hangup, and not to `wb` alone.
@@ -1974,8 +2038,18 @@ struct How<'a> {
 }
 
 fn signalled_how(how: How) -> Signalled {
+    signalled_ignoring(how, &[])
+}
+
+/// The same, with `wb` started with the signals `ignored` ignored too, as by a shell that runs it in the
+/// background (#271).
+fn signalled_ignoring(how: How, ignored: &[i32]) -> Signalled {
     use std::os::unix::process::CommandExt;
     let How { session_is, sandbox, to_wb, to_group, to_session, hangup_ignored } = how;
+    let mut ignored = ignored.to_vec();
+    if hangup_ignored {
+        ignored.push(SIGHUP);
+    }
     let parent = folder_named("signalled");
     let folder = parent.path.clone();
     let mut command = Command::new(std::env::current_exe().unwrap());
@@ -1991,15 +2065,21 @@ fn signalled_how(how: How) -> Signalled {
         // A group of its own, so that a signal to the group reaches no process but those of this run.
         command.process_group(0);
     }
-    if hangup_ignored {
-        // Only `signal(2)`, which may be called between fork and exec.
-        unsafe {
-            command.pre_exec(|| {
-                signal(SIGHUP, 1);
-                Ok(())
-            });
-        }
+    // The held signals start at their default, whatever this test was started with (`nohup cargo test`, a
+    // background job), and then those of `ignored` are ignored. Only `signal(2)`, which may be called between
+    // fork and exec.
+    unsafe {
+        command.pre_exec(move || {
+            for number in [SIGINT, SIGQUIT, SIGHUP, SIGTERM] {
+                signal(number, 0);
+            }
+            for number in &ignored {
+                signal(*number, 1);
+            }
+            Ok(())
+        });
     }
+    let began = std::time::Instant::now();
     let mut child = command.spawn().expect("the test binary could not be started");
     let found = (|| {
         if !wait_for(60, || folder.join("paths").exists()) {
@@ -2017,6 +2097,8 @@ fn signalled_how(how: How) -> Signalled {
             if unsafe { kill(to, signal) } != 0 {
                 return Err("the signal could not be sent to wb".to_string());
             }
+            // For a stand-in that names the session only after the signal (`slow_info_bwrap`).
+            fs::write(log.join("sent"), "").unwrap();
         }
         std::thread::sleep(std::time::Duration::from_millis(300));
         if let Some(signal) = to_session {
@@ -2038,6 +2120,9 @@ fn signalled_how(how: How) -> Signalled {
             subjects: log_of.map(|run| text_of(&run.stdout)).unwrap_or_default(),
             got: read_if(&log.join("got")),
             ignored: read_if(&log.join("ignored")),
+            ints: read_if(&log.join("ints")),
+            signal: read_if(&folder.join("signal")),
+            took: began.elapsed(),
         })
     })();
     // The session of a run that went wrong is ended too, by its number.
@@ -2191,6 +2276,165 @@ fn test_WB_VIEW_58_the_session_in_a_view_starts_with_the_hangup_and_the_terminat
     let how = How { session_is: "says-ignored", sandbox: "real", to_wb: None, to_group: false, to_session: None, hangup_ignored: true };
     let found = signalled_how(how);
     assert!(ignores(&found.ignored, 1) && !ignores(&found.ignored, 15), "{}", found.ignored);
+}
+
+#[test]
+fn test_WB_VIEW_59_an_interrupt_to_the_group_of_wb_ends_neither_bubblewrap_nor_the_session_under_it() {
+    // Ctrl-C: the terminal sends the interrupt to the whole foreground group. `wb start` gives the session a
+    // controlling terminal or none as the kernel says; with none, `wb` sends it on (WB-BUILD-107).
+    let how = How { session_is: "cleanly-int", sandbox: "real", to_wb: Some(SIGINT), to_group: true, to_session: None, hangup_ignored: false };
+    let Some(found) = in_bubblewrap("test_WB_VIEW_59_an_interrupt", how) else { return };
+    assert_eq!(found.got, "got\n", "the session did not end by itself: {}", found.outcome);
+    assert_eq!(found.subjects.lines().next(), Some("A new file"), "{}", found.subjects);
+    assert!(found.back.lines().any(|line| line.starts_with("taken: ") && line.contains("A new file")), "{}", found.back);
+    assert!(found.outcome.lines().any(|line| line == "signal: SIGINT"), "{}", found.outcome);
+    assert_eq!(found.status, 1);
+}
+
+#[test]
+fn test_WB_VIEW_59_a_quit_to_the_group_of_wb_ends_neither_bubblewrap_nor_the_session_under_it() {
+    // Ctrl-\, as Ctrl-C.
+    let how = How { session_is: "cleanly-quit", sandbox: "real", to_wb: Some(SIGQUIT), to_group: true, to_session: None, hangup_ignored: false };
+    let Some(found) = in_bubblewrap("test_WB_VIEW_59_a_quit", how) else { return };
+    assert_eq!(found.got, "got\n", "the session did not end by itself: {}", found.outcome);
+    assert_eq!(found.subjects.lines().next(), Some("A new file"), "{}", found.subjects);
+    assert!(found.back.lines().any(|line| line.starts_with("taken: ") && line.contains("A new file")), "{}", found.back);
+    assert!(found.outcome.lines().any(|line| line == "signal: SIGQUIT"), "{}", found.outcome);
+    assert_eq!(found.status, 1);
+}
+
+#[test]
+fn test_WB_BUILD_107_with_no_controlling_terminal_an_interrupt_to_the_group_reaches_the_session() {
+    // The session is in a terminal session of its own (`--new-session`): the group's interrupt reaches `wb` and
+    // bubblewrap only, and `wb` sends it on. The session ends by it, which `wb start` names in `outcome`.
+    let how = How { session_is: "int-alone", sandbox: "run", to_wb: Some(SIGINT), to_group: true, to_session: None, hangup_ignored: false };
+    let Some(found) = in_bubblewrap("test_WB_BUILD_107_an_interrupt", how) else { return };
+    assert_eq!(found.got, "got\n", "the session was not sent the interrupt, or was killed under it");
+    assert_eq!(found.signal, "2\n", "the session did not end by the interrupt (status {})", found.status);
+}
+
+#[test]
+fn test_WB_BUILD_107_with_no_controlling_terminal_a_quit_to_the_group_reaches_the_session() {
+    let how = How { session_is: "quit-alone", sandbox: "run", to_wb: Some(SIGQUIT), to_group: true, to_session: None, hangup_ignored: false };
+    let Some(found) = in_bubblewrap("test_WB_BUILD_107_a_quit", how) else { return };
+    assert_eq!(found.got, "got\n", "the session was not sent the quit, or was killed under it");
+    assert_eq!(found.signal, "3\n", "the session did not end by the quit (status {})", found.status);
+}
+
+#[test]
+fn test_WB_BUILD_108_with_a_controlling_terminal_the_session_gets_an_interrupt_to_the_group_once() {
+    // No `--new-session`: the session is in the group, and gets the interrupt there. `wb` does not send it on.
+    let how = How { session_is: "counts-ints", sandbox: "run-in-group", to_wb: Some(SIGINT), to_group: true, to_session: None, hangup_ignored: false };
+    let Some(found) = in_bubblewrap("test_WB_BUILD_108", how) else { return };
+    assert_eq!(found.got, "got\n", "the session did not end by itself");
+    assert_eq!(found.ints, "int\n", "the session did not get the interrupt once");
+    assert_eq!(found.status, 0);
+}
+
+#[test]
+fn test_WB_BUILD_108_with_a_controlling_terminal_an_interrupt_to_wb_alone_is_not_sent_on() {
+    // If `wb` sent it on, the session would get one; it gets none.
+    let how = How { session_is: "counts-ints", sandbox: "run-in-group", to_wb: Some(SIGINT), to_group: false, to_session: None, hangup_ignored: false };
+    let Some(found) = in_bubblewrap("test_WB_BUILD_108_to_wb_alone", how) else { return };
+    assert_eq!(found.got, "got\n", "the session did not end by itself");
+    assert_eq!(found.ints, "", "the interrupt was sent on to the session");
+    assert_eq!(found.status, 0);
+}
+
+#[test]
+fn test_WB_BUILD_109_where_bubblewrap_names_no_session_an_interrupt_to_wb_ends_bubblewrap_and_the_session() {
+    // The stand-in writes nothing on the info fd and runs the session itself, which waits 30 seconds, with no
+    // controlling terminal. The interrupt is sent to `wb` alone, so only `wb` can end it.
+    let how = How { session_is: "waits", sandbox: "run-stand-in", to_wb: Some(SIGINT), to_group: false, to_session: None, hangup_ignored: false };
+    let found = signalled_how(how);
+    assert_ne!(found.status, -2, "wb had not ended after a minute");
+    assert!(found.took < std::time::Duration::from_secs(20), "bubblewrap was not ended: {:?}", found.took);
+    assert_eq!(found.signal, "9\n", "bubblewrap was not killed (status {})", found.status);
+}
+
+#[test]
+fn test_WB_BUILD_109_where_bubblewrap_names_no_session_a_quit_to_wb_ends_bubblewrap_and_the_session() {
+    let how = How { session_is: "waits", sandbox: "run-stand-in", to_wb: Some(SIGQUIT), to_group: false, to_session: None, hangup_ignored: false };
+    let found = signalled_how(how);
+    assert_ne!(found.status, -2, "wb had not ended after a minute");
+    assert!(found.took < std::time::Duration::from_secs(20), "bubblewrap was not ended: {:?}", found.took);
+    assert_eq!(found.signal, "9\n", "bubblewrap was not killed (status {})", found.status);
+}
+
+#[test]
+fn test_WB_BUILD_109_with_a_controlling_terminal_an_interrupt_to_wb_does_not_kill_bubblewrap() {
+    // No `--new-session`: the session would get Ctrl-C from the terminal itself, so bubblewrap is not killed
+    // under it. The session runs on and ends by itself.
+    let how = How { session_is: "ends-later", sandbox: "run-stand-in-in-group", to_wb: Some(SIGINT), to_group: false, to_session: None, hangup_ignored: false };
+    let found = signalled_how(how);
+    assert_eq!(found.got, "got\n", "bubblewrap was killed under the session (status {}, signal {:?})", found.status, found.signal);
+    assert_eq!(found.status, 0);
+}
+
+/// What `view::run_saying` says, with the stand-in that writes nothing on the info fd and a session of three
+/// seconds, with `--new-session` or without it.
+fn said_for_lost(new_session: bool) -> String {
+    let slow = bench();
+    slow.session("sleep 3\nexit 0\n");
+    let sandbox = stand_in_bwrap(&slow);
+    let view = folder_named("view");
+    let words = [slow.at("session.sh").to_str().unwrap().to_string()];
+    let plan = watchbill::view::Plan {
+        view: &view.path,
+        checkout: &slow.repo.path,
+        binds: vec![(slow.log.path.clone(), true)],
+        organisation: None,
+        home: Some(&slow.home.path),
+        new_session,
+        words: &words,
+    };
+    let mut err = Vec::new();
+    watchbill::view::run_saying(&sandbox, &plan, "wb start build", &mut err).unwrap();
+    text_of(&err)
+}
+
+#[test]
+fn test_WB_BUILD_110_the_line_for_a_session_not_found_says_what_an_interrupt_and_a_hangup_do() {
+    let err = said_for_lost(true);
+    let said: Vec<&str> = err.lines().filter(|line| line.contains("was not found in bubblewrap")).collect();
+    assert_eq!(said.len(), 1, "{}", err);
+    assert!(said[0].contains("a hangup does not reach it either"), "{}", err);
+    assert!(said[0].contains("an interrupt or a quit (Ctrl-C, Ctrl-\\) ends bubblewrap and the session with it"), "{}", err);
+    // With a controlling terminal the session gets those from the terminal, and the line does not name them.
+    let err = said_for_lost(false);
+    let said: Vec<&str> = err.lines().filter(|line| line.contains("was not found in bubblewrap")).collect();
+    assert_eq!(said.len(), 1, "{}", err);
+    assert!(!said[0].contains("hangup") && !said[0].contains("interrupt"), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_111_an_interrupt_that_comes_before_the_session_is_found_is_sent_on_when_it_is() {
+    // The stand-in names the session only once the interrupt has been sent to `wb` alone. With no controlling
+    // terminal, `wb` sends it on when the session is found: the session ends by it, not killed.
+    let how = How { session_is: "int-alone", sandbox: "run-slow-info", to_wb: Some(SIGINT), to_group: false, to_session: None, hangup_ignored: false };
+    let found = signalled_how(how);
+    assert_eq!(found.got, "got\n", "the session was not sent the interrupt, or was killed");
+    assert_eq!(found.signal, "2\n", "the session did not end by the interrupt (status {})", found.status);
+}
+
+#[test]
+fn test_WB_BUILD_111_a_quit_that_comes_before_the_session_is_found_is_sent_on_when_it_is() {
+    let how = How { session_is: "quit-alone", sandbox: "run-slow-info", to_wb: Some(SIGQUIT), to_group: false, to_session: None, hangup_ignored: false };
+    let found = signalled_how(how);
+    assert_eq!(found.got, "got\n", "the session was not sent the quit, or was killed");
+    assert_eq!(found.signal, "3\n", "the session did not end by the quit (status {})", found.status);
+}
+
+#[test]
+fn test_WB_VIEW_60_the_session_in_a_view_starts_with_the_interrupt_and_the_quit_as_wb_found_them() {
+    let how = How { session_is: "says-ignored", sandbox: "real", to_wb: None, to_group: false, to_session: None, hangup_ignored: false };
+    let Some(found) = in_bubblewrap("test_WB_VIEW_60", how) else { return };
+    assert!(!ignores(&found.ignored, 2) && !ignores(&found.ignored, 3), "{}", found.ignored);
+    // As by a shell that runs `wb` in the background with no job control: the interrupt stays ignored, the quit
+    // does not.
+    let how = How { session_is: "says-ignored", sandbox: "real", to_wb: None, to_group: false, to_session: None, hangup_ignored: false };
+    let found = signalled_ignoring(how, &[SIGINT]);
+    assert!(ignores(&found.ignored, 2) && !ignores(&found.ignored, 3), "{}", found.ignored);
 }
 
 /// A terminal that is gone: every write fails once the session has started.

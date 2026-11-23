@@ -603,9 +603,11 @@ pub fn works(bwrap: &Path) -> Result<(), String> {
 /// input, output and error, and no variable `GIT_*` of this process. While it runs, an interrupt, a quit or a hangup at the
 /// terminal does not end `wb`, and a termination is sent on to the session (`interrupt::hold`).
 ///
-/// bubblewrap passes no signal on and dies of a hangup or a termination, and the session with it (#257). So it is
-/// started with both ignored, the session is started with them as `wb` found them (`env --default-signal`),
-/// and `wb` sends them on to the session itself, which bubblewrap names on `--info-fd` (`session_of`).
+/// bubblewrap passes no signal on and dies of an interrupt, a quit, a hangup or a termination, and the session
+/// with it (#257, #271). So it is started with all four ignored, the session is started with them as `wb` found
+/// them (`env --default-signal`), and `wb` sends them on to the session itself, which bubblewrap names on
+/// `--info-fd` (`session_of`): the termination always, the others only where the session has no controlling
+/// terminal, as elsewhere it gets them from the terminal.
 pub fn run(bwrap: &Path, plan: &Plan) -> Result<ExitStatus, String> {
     run_saying(bwrap, plan, "wb start", &mut std::io::sink())
 }
@@ -618,7 +620,7 @@ pub fn run_saying(bwrap: &Path, plan: &Plan, name: &str, err: &mut dyn Write) ->
     let (reader, writer) = std::io::pipe().map_err(|error| format!("the session could not be started: no pipe: {}", error))?;
     let info = writer.as_raw_fd();
     // The signals the session gets back: those that were not ignored when `wb` started.
-    let back: Vec<&str> = [(crate::interrupt::SIGHUP, "HUP"), (crate::interrupt::SIGTERM, "TERM")]
+    let back: Vec<&str> = crate::interrupt::NAMED
         .into_iter()
         .filter(|(number, _)| !crate::interrupt::was_ignored(*number))
         .map(|(_, name)| name)
@@ -644,7 +646,7 @@ pub fn run_saying(bwrap: &Path, plan: &Plan, name: &str, err: &mut dyn Write) ->
         command.pre_exec(move || crate::interrupt::before_bubblewrap(info, ignore));
     }
     if plan.new_session {
-        held.hangups_sent_on();
+        held.terminal_sent_on();
     }
     let spawned = command.spawn();
     drop(writer);
@@ -652,12 +654,24 @@ pub fn run_saying(bwrap: &Path, plan: &Plan, name: &str, err: &mut dyn Write) ->
     let session = session_of(reader, child.id());
     match &session {
         Some(fd) => held.session_held(fd),
-        // No session found: the termination goes to bubblewrap, which ignores it where it was started so.
+        // No session found: a termination and a hangup go to bubblewrap, which ignores them where it was started
+        // so, and, with no controlling terminal, an interrupt or a quit kills bubblewrap, and the session with it
+        // (#271). With one, the session gets those from the terminal.
         None => {
-            held.session(child.id());
-            // A session that has ended already is not said to be lost.
-            if matches!(child.try_wait(), Ok(None)) {
-                let _ = writeln!(err, "{}: the session was not found in bubblewrap, so a termination of wb goes to bubblewrap, not to the session", name);
+            held.session_lost(child.id());
+            // A session that has ended already is not said to be lost, and bubblewrap's number, waited for now and
+            // free for another, is let go at once.
+            match child.try_wait() {
+                Ok(None) => {
+                    let more = if plan.new_session {
+                        ", and a hangup does not reach it either; an interrupt or a quit (Ctrl-C, Ctrl-\\) ends bubblewrap and the session with it"
+                    } else {
+                        ""
+                    };
+                    let _ = writeln!(err, "{}: the session was not found in bubblewrap, so a termination of wb goes to bubblewrap, not to the session{}", name, more);
+                }
+                Ok(Some(_)) => held.ended(),
+                Err(_) => {}
             }
         }
     }

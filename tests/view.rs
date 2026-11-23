@@ -3362,3 +3362,19 @@ fn test_WB_STATUS_69_a_view_of_more_than_200_commits_says_and_k_more_in_status_a
     assert!(err.contains("Commit 200\n    and 5 more\n"), "{}", err);
     assert!(!err.contains("Commit 201"), "{}", err);
 }
+
+#[test]
+fn test_WB_STATUS_75_a_missing_head_commit_is_said_as_the_failure_of_merge_base_and_not_as_another_origin() {
+    let bench = bench();
+    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &[], outcome: "outcome: running\npid: 1\n" });
+    let head = {
+        let run = Command::new("git").arg("-C").arg(&folder).args(["rev-parse", "HEAD"]).env_clear().envs(env()).output().unwrap();
+        text(&run.stdout).trim().to_string()
+    };
+    fs::remove_file(folder.join(".git/objects").join(&head[..2]).join(&head[2..])).unwrap();
+    let run = wb_state_bounded(&bench, &["status", "54"], 20).expect("wb status did not end in 20 seconds");
+    let out = text_of(&run.stdout);
+    let line = out.lines().find(|line| line.starts_with("kept: tester round 2, not read: ")).unwrap_or_else(|| panic!("{}", out));
+    assert!(line.contains("`git merge-base` ended with 128"), "{}", line);
+    assert!(!line.contains("does not come from"), "{}", line);
+}

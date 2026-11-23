@@ -1854,3 +1854,24 @@ pub fn judge(root: &str, used: &crate::issue::Used, role: &str, facts: &Facts, b
     }
     Ok(Verdict::Out(format!("{}; the view holds paths below it: {}", unlisted, below.join(", "))))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_WB_VIEW_72_a_deadline_inside_another_keeps_the_earlier_and_restores_it_when_dropped() {
+        let outer = deadline(std::time::Duration::from_secs(300), "take-back");
+        let held = || DEADLINE.with(|deadline| deadline.get()).map(|(_, total, what)| (total.as_secs(), what));
+        {
+            let _inner = deadline(std::time::Duration::from_secs(20), "read of the view");
+            assert_eq!(held(), Some((20, "read of the view")));
+            let _longer = deadline(std::time::Duration::from_secs(100), "later");
+            assert_eq!(held(), Some((20, "read of the view")), "a later deadline took the place of an earlier one");
+        }
+        assert_eq!(held(), Some((300, "take-back")), "the deadline of the take-back was not held again");
+        drop(outer);
+        assert_eq!(held(), None);
+    }
+}

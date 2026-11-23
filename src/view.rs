@@ -661,7 +661,7 @@ pub fn run_saying(bwrap: &Path, plan: &Plan, name: &str, err: &mut dyn Write) ->
             held.session_lost(child.id());
             // A session that has ended already is not said to be lost, and bubblewrap's number, waited for now and
             // free for another, is let go at once.
-            match child.try_wait() {
+            match ended_within(&mut child, ENDING) {
                 Ok(None) => {
                     let more = if plan.new_session {
                         ", and a hangup does not reach it either; an interrupt or a quit (Ctrl-C, Ctrl-\\) ends bubblewrap and the session with it"
@@ -691,6 +691,21 @@ const ENV: &str = "/usr/bin/env";
 
 /// How long `wb` waits for bubblewrap to name its child, and then for that child's own child, the session.
 const FIND_SESSION: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// How long a child is given to be waited for after the info of bubblewrap ended with no session in it: a process
+/// that ends closes its files, the info fd among them, before it can be waited for (#273).
+const ENDING: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// `child.try_wait()`, repeated for `grace` while the child still runs.
+fn ended_within(child: &mut std::process::Child, grace: std::time::Duration) -> std::io::Result<Option<ExitStatus>> {
+    let end = std::time::Instant::now() + grace;
+    loop {
+        match child.try_wait() {
+            Ok(None) if std::time::Instant::now() < end => std::thread::sleep(std::time::Duration::from_millis(5)),
+            other => return other,
+        }
+    }
+}
 
 /// The session that bubblewrap at `bwrap` (its process number) started, held by a pidfd, or none (#257).
 ///

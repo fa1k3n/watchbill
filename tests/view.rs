@@ -1822,6 +1822,7 @@ fn test_WB_BUILD_30_a_view_with_no_paths_checks_nothing_and_a_changed_file_elsew
 
 extern "C" {
     fn kill(pid: i32, signal: i32) -> i32;
+    fn signal(signal: i32, handler: usize) -> usize;
 }
 
 const SIGHUP: i32 = 1;
@@ -1851,6 +1852,30 @@ const TRAPS: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git c
 /// it never signals a process of anyone else.
 const STORM: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\nwb=$PPID\ntrap 'exit 0' TERM\n(n=0; while [ $n -lt 1000 ] && ! ls {state}/watchbill/sessions/*/outcome >/dev/null 2>&1 && grep -qa a_helper_that_runs_wb /proc/$wb/cmdline 2>/dev/null && kill -TERM $wb 2>/dev/null; do n=$((n+1)); sleep 0.005; done) >/dev/null 2>&1 &\necho $$ > {log}/pid\nsleep 5 &\nwait\n";
 
+// ---- #257: in a view the signal reaches the session inside bubblewrap ----
+//
+// These sessions run in the real bubblewrap. Each one that ends at a signal takes a second before it writes
+// `got`, as a session does that ends cleanly: a session that is killed under it writes nothing.
+
+/// Which `bwrap` the helper uses: `real`, `run` (the real one, through `view::run` with no controlling
+/// terminal), or else the stand-in.
+const CHILD_SANDBOX: &str = "WB_SIGNAL_CHILD_SANDBOX";
+
+/// A session that commits, and at a termination takes a second, writes `got` and ends by the termination.
+const CLEANLY_TERM: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\ntrap 'sleep 1; echo got > {log}/got; kill $!; trap - TERM; kill -TERM $$' TERM\nsleep 30 &\necho $$ > {log}/pid\nwait\n";
+
+/// The same at a hangup.
+const CLEANLY_HUP: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\ntrap 'sleep 1; echo got > {log}/got; kill $!; trap - HUP; kill -HUP $$' HUP\nsleep 30 &\necho $$ > {log}/pid\nwait\n";
+
+/// A session with no repository, run by `view::run`: at a hangup it takes a second, writes `got` and ends.
+const HANGS_UP_ALONE: &str = "trap 'sleep 1; echo got > {log}/got; kill $!; exit 0' HUP\nsleep 10 &\necho $$ > {log}/pid\nwait\n";
+
+/// A session that commits and ends by a termination it sends itself, with no one signalling `wb`.
+const ENDS_ITSELF: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\necho $$ > {log}/pid\nsleep 0.5\nkill -TERM $$\n";
+
+/// A session that writes the signals it started with ignored, as `/proc` gives them.
+const SAYS_IGNORED: &str = "grep SigIgn /proc/self/status > {log}/ignored\necho $$ > {log}/pid\n";
+
 /// Not a test of a row: it does nothing unless a signal test started it. It is the part that runs `wb` in the process the signal tests start: it writes the folders it made, writes the
 /// status when `wb` ends, and waits for the parent to be done with the folders.
 #[test]
@@ -1860,14 +1885,41 @@ fn a_helper_that_runs_wb_for_the_signal_tests_and_checks_nothing() {
     bench.session(match std::env::var("WB_SIGNAL_CHILD_SESSION").as_deref() {
         Ok("traps") => TRAPS,
         Ok("storm") => STORM,
+        Ok("cleanly-term") => CLEANLY_TERM,
+        Ok("cleanly-hup") => CLEANLY_HUP,
+        Ok("hangs-up-alone") => HANGS_UP_ALONE,
+        Ok("ends-itself") => ENDS_ITSELF,
+        Ok("says-ignored") => SAYS_IGNORED,
         _ => WAITS,
     });
-    let sandbox = stand_in_bwrap(&bench);
+    let sandbox = match std::env::var(CHILD_SANDBOX).as_deref() {
+        Ok("real") | Ok("run") => PathBuf::from(watchbill::view::BWRAP),
+        _ => stand_in_bwrap(&bench),
+    };
     let paths = format!("{}\n{}\n{}\n", bench.repo.path.display(), bench.log.path.display(), bench.state.path.display());
     fs::write(folder.join("paths.tmp"), paths).unwrap();
     fs::rename(folder.join("paths.tmp"), folder.join("paths")).unwrap();
-    let run = bench.start_by(&sandbox, &["start", "build", "54"]);
-    fs::write(folder.join("status.tmp"), format!("{}\n", code(&run).unwrap_or(-1))).unwrap();
+    let status = if std::env::var(CHILD_SANDBOX).as_deref() == Ok("run") {
+        // The session in bubblewrap with no controlling terminal, as where `dev.tty.legacy_tiocsti` is not 0 (#257).
+        let view = folder_named("view");
+        let words = [bench.at("session.sh").to_str().unwrap().to_string()];
+        let plan = watchbill::view::Plan {
+            view: &view.path,
+            checkout: &bench.repo.path,
+            binds: vec![(bench.log.path.clone(), true)],
+            organisation: None,
+            home: Some(&bench.home.path),
+            new_session: true,
+            words: &words,
+        };
+        match watchbill::view::run(&sandbox, &plan) {
+            Ok(status) => status.code().unwrap_or(-3),
+            Err(_) => -1,
+        }
+    } else {
+        code(&bench.start_by(&sandbox, &["start", "build", "54"])).unwrap_or(-1)
+    };
+    fs::write(folder.join("status.tmp"), format!("{}\n", status)).unwrap();
     fs::rename(folder.join("status.tmp"), folder.join("status")).unwrap();
     for _ in 0..600 {
         if folder.join("release").exists() {
@@ -1898,22 +1950,57 @@ struct Signalled {
     subjects: String,
     /// What a session that traps the termination wrote when it got it.
     got: String,
+    /// The line `SigIgn` of a session that wrote it.
+    ignored: String,
 }
 
 /// Starts `wb start build 54`, sends `to_wb` to it when the session waits, then, after a moment, `to_session` to
 /// the session when there is one, and gathers what was left. Nothing waits longer than a minute.
 fn signalled(session_is: &str, to_wb: Option<i32>, to_session: Option<i32>) -> Signalled {
+    signalled_how(How { session_is, sandbox: "stand-in", to_wb, to_group: false, to_session, hangup_ignored: false })
+}
+
+/// How `signalled_how` runs `wb` and signals it.
+struct How<'a> {
+    session_is: &'a str,
+    /// `stand-in`, `real` or `run`, as `CHILD_SANDBOX` says.
+    sandbox: &'a str,
+    to_wb: Option<i32>,
+    /// Whether `to_wb` goes to the whole process group of `wb`, as a terminal sends a hangup, and not to `wb` alone.
+    to_group: bool,
+    to_session: Option<i32>,
+    /// Whether `wb` is started with SIGHUP ignored, as by `nohup`.
+    hangup_ignored: bool,
+}
+
+fn signalled_how(how: How) -> Signalled {
+    use std::os::unix::process::CommandExt;
+    let How { session_is, sandbox, to_wb, to_group, to_session, hangup_ignored } = how;
     let parent = folder_named("signalled");
     let folder = parent.path.clone();
-    let mut child = Command::new(std::env::current_exe().unwrap())
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
         .args(["--exact", "a_helper_that_runs_wb_for_the_signal_tests_and_checks_nothing", "--nocapture", "--test-threads=1"])
         .env(CHILD_ENV, &folder)
         .env(CHILD_SESSION, session_is)
+        .env(CHILD_SANDBOX, sandbox)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .expect("the test binary could not be started");
+        .stderr(std::process::Stdio::null());
+    if to_group {
+        // A group of its own, so that a signal to the group reaches no process but those of this run.
+        command.process_group(0);
+    }
+    if hangup_ignored {
+        // Only `signal(2)`, which may be called between fork and exec.
+        unsafe {
+            command.pre_exec(|| {
+                signal(SIGHUP, 1);
+                Ok(())
+            });
+        }
+    }
+    let mut child = command.spawn().expect("the test binary could not be started");
     let found = (|| {
         if !wait_for(60, || folder.join("paths").exists()) {
             return Err("the folders were not made".to_string());
@@ -1926,7 +2013,8 @@ fn signalled(session_is: &str, to_wb: Option<i32>, to_session: Option<i32>) -> S
         }
         let session: i32 = read(&log.join("pid")).trim().parse().unwrap();
         if let Some(signal) = to_wb {
-            if unsafe { kill(child.id() as i32, signal) } != 0 {
+            let to = if to_group { -(child.id() as i32) } else { child.id() as i32 };
+            if unsafe { kill(to, signal) } != 0 {
                 return Err("the signal could not be sent to wb".to_string());
             }
         }
@@ -1943,7 +2031,14 @@ fn signalled(session_is: &str, to_wb: Option<i32>, to_session: Option<i32>) -> S
             None => (String::new(), String::new()),
         };
         let log_of = Command::new("git").arg("-C").arg(&repo).args(["log", "--format=%s", "issue-54"]).env_clear().envs(env()).output();
-        Ok(Signalled { status, outcome, back, subjects: log_of.map(|run| text_of(&run.stdout)).unwrap_or_default(), got: read_if(&log.join("got")) })
+        Ok(Signalled {
+            status,
+            outcome,
+            back,
+            subjects: log_of.map(|run| text_of(&run.stdout)).unwrap_or_default(),
+            got: read_if(&log.join("got")),
+            ignored: read_if(&log.join("ignored")),
+        })
     })();
     // The session of a run that went wrong is ended too, by its number.
     let _ = fs::write(folder.join("release"), "");
@@ -1999,6 +2094,103 @@ fn test_WB_MON_9_outcome_names_the_signal_that_ended_the_session() {
     assert!(found.outcome.lines().any(|line| line == "signal: SIGHUP"), "{}", found.outcome);
     let found = signalled("waits", Some(SIGTERM), None);
     assert!(found.outcome.lines().any(|line| line == "signal: SIGTERM"), "{}", found.outcome);
+}
+
+/// What the run left with `how`, the real bubblewrap and the session `session_is`, or none where bubblewrap
+/// cannot make a sandbox here, which is said.
+fn in_bubblewrap(test: &str, how: How) -> Option<Signalled> {
+    if !sandbox(test) {
+        return None;
+    }
+    Some(signalled_how(how))
+}
+
+#[test]
+fn test_WB_BUILD_55_in_a_view_a_termination_sent_to_wb_reaches_the_session_inside_bubblewrap() {
+    let how = How { session_is: "cleanly-term", sandbox: "real", to_wb: Some(SIGTERM), to_group: false, to_session: None, hangup_ignored: false };
+    let Some(found) = in_bubblewrap("test_WB_BUILD_55_in_a_view", how) else { return };
+    // The test never signals the session: it got the termination from `wb`, and was not killed under it.
+    assert_eq!(found.got, "got\n", "the session did not end by itself: {}", found.outcome);
+    assert_eq!(found.subjects.lines().next(), Some("A new file"), "{}", found.subjects);
+    assert!(found.back.lines().any(|line| line.starts_with("taken: ") && line.contains("A new file")), "{}", found.back);
+    assert!(found.outcome.lines().any(|line| line == "signal: SIGTERM"), "{}", found.outcome);
+    assert_eq!(found.status, 1);
+}
+
+#[test]
+fn test_WB_VIEW_57_a_hangup_to_the_group_of_wb_ends_neither_bubblewrap_nor_the_session_under_it() {
+    // A terminal sends its hangup to the whole foreground group: `wb`, bubblewrap and, with no new terminal
+    // session, the session too. Where the session has no controlling terminal, `wb` sends it on (WB-BUILD-85).
+    let how = How { session_is: "cleanly-hup", sandbox: "real", to_wb: Some(SIGHUP), to_group: true, to_session: None, hangup_ignored: false };
+    let Some(found) = in_bubblewrap("test_WB_VIEW_57", how) else { return };
+    assert_eq!(found.got, "got\n", "the session did not end by itself: {}", found.outcome);
+    assert_eq!(found.subjects.lines().next(), Some("A new file"), "{}", found.subjects);
+    assert!(found.back.lines().any(|line| line.starts_with("taken: ") && line.contains("A new file")), "{}", found.back);
+    assert!(found.outcome.lines().any(|line| line == "signal: SIGHUP"), "{}", found.outcome);
+    assert_eq!(found.status, 1);
+}
+
+#[test]
+fn test_WB_VIEW_57_with_no_controlling_terminal_a_hangup_to_the_group_ends_neither_bubblewrap_nor_the_session() {
+    // The session is in a terminal session of its own: the group's hangup reaches `wb` and bubblewrap only, and
+    // `wb` sends it on (WB-BUILD-85).
+    let how = How { session_is: "hangs-up-alone", sandbox: "run", to_wb: Some(SIGHUP), to_group: true, to_session: None, hangup_ignored: false };
+    let Some(found) = in_bubblewrap("test_WB_VIEW_57_with_no_controlling_terminal", how) else { return };
+    assert_eq!(found.got, "got\n", "the session did not end by itself");
+    assert_eq!(found.status, 0);
+}
+
+#[test]
+fn test_WB_BUILD_87_where_bubblewrap_names_no_session_wb_says_a_termination_will_not_reach_it() {
+    // The stand-in writes nothing on the info fd, and the session runs on past the 2 seconds `wb` waits.
+    let slow = bench();
+    slow.session("sleep 3\nexit 0\n");
+    let sandbox = stand_in_bwrap(&slow);
+    let run = slow.start_by(&sandbox, &["start", "build", "54"]);
+    let err = text_of(&run.stderr);
+    let said: Vec<&str> = err.lines().filter(|line| line.contains("a termination of wb goes to bubblewrap")).collect();
+    assert_eq!(said.len(), 1, "{}", err);
+    assert!(said[0].starts_with("wb start build: the session was not found in bubblewrap"), "{}", err);
+    // A session that ends at once is not said to be lost.
+    let quick = bench();
+    quick.session("exit 0\n");
+    let sandbox = stand_in_bwrap(&quick);
+    let run = quick.start_by(&sandbox, &["start", "build", "54"]);
+    assert!(!text_of(&run.stderr).contains("was not found in bubblewrap"), "{}", text_of(&run.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_85_with_no_controlling_terminal_a_hangup_sent_to_wb_is_sent_on_to_the_session() {
+    let how = How { session_is: "hangs-up-alone", sandbox: "run", to_wb: Some(SIGHUP), to_group: false, to_session: None, hangup_ignored: false };
+    let Some(found) = in_bubblewrap("test_WB_BUILD_85", how) else { return };
+    assert_eq!(found.got, "got\n", "the session was not sent the hangup");
+    assert_eq!(found.status, 0);
+}
+
+#[test]
+fn test_WB_MON_15_a_session_in_a_view_ended_by_a_signal_is_named_by_the_signal_in_outcome() {
+    let how = How { session_is: "ends-itself", sandbox: "real", to_wb: None, to_group: false, to_session: None, hangup_ignored: false };
+    let Some(found) = in_bubblewrap("test_WB_MON_15", how) else { return };
+    assert!(found.outcome.starts_with("outcome: ended\nsignal: SIGTERM\n"), "{}", found.outcome);
+    assert!(!found.outcome.lines().any(|line| line.starts_with("status: ")), "{}", found.outcome);
+    assert!(found.back.lines().any(|line| line.starts_with("taken: ") && line.contains("A new file")), "{}", found.back);
+}
+
+/// Whether signal `number` is in the mask of a line `SigIgn:` of `/proc/<pid>/status`.
+fn ignores(line: &str, number: u32) -> bool {
+    let mask = line.trim().strip_prefix("SigIgn:").map(str::trim).unwrap_or_else(|| panic!("no SigIgn: {:?}", line));
+    u64::from_str_radix(mask, 16).unwrap() & (1 << (number - 1)) != 0
+}
+
+#[test]
+fn test_WB_VIEW_58_the_session_in_a_view_starts_with_the_hangup_and_the_termination_as_wb_found_them() {
+    let how = How { session_is: "says-ignored", sandbox: "real", to_wb: None, to_group: false, to_session: None, hangup_ignored: false };
+    let Some(found) = in_bubblewrap("test_WB_VIEW_58", how) else { return };
+    assert!(!ignores(&found.ignored, 1) && !ignores(&found.ignored, 15), "{}", found.ignored);
+    // As by `nohup`: the hangup stays ignored, the termination does not.
+    let how = How { session_is: "says-ignored", sandbox: "real", to_wb: None, to_group: false, to_session: None, hangup_ignored: true };
+    let found = signalled_how(how);
+    assert!(ignores(&found.ignored, 1) && !ignores(&found.ignored, 15), "{}", found.ignored);
 }
 
 /// A terminal that is gone: every write fails once the session has started.

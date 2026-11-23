@@ -1422,7 +1422,7 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
                 new_session: view::new_session(),
                 words: &filled,
             };
-            view::run(machine.sandbox, &plan)
+            view::run_saying(machine.sandbox, &plan, name, err)
         }
     };
     let status = match ran {

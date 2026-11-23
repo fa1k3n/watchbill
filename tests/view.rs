@@ -2227,9 +2227,10 @@ fn test_WB_VIEW_57_with_no_controlling_terminal_a_hangup_to_the_group_ends_neith
 
 #[test]
 fn test_WB_BUILD_87_where_bubblewrap_names_no_session_wb_says_a_termination_will_not_reach_it() {
-    // The stand-in writes nothing on the info fd, and the session runs on past the 2 seconds `wb` waits.
+    // The stand-in writes nothing on the info fd, and the session runs on past the 2 seconds `wb` waits, and past
+    // the moment `wb` gives an ended session to be waited for (#273), by a wide margin on a loaded machine.
     let slow = bench();
-    slow.session("sleep 3\nexit 0\n");
+    slow.session("sleep 10\nexit 0\n");
     let sandbox = stand_in_bwrap(&slow);
     let run = slow.start_by(&sandbox, &["start", "build", "54"]);
     let err = text_of(&run.stderr);
@@ -2241,6 +2242,18 @@ fn test_WB_BUILD_87_where_bubblewrap_names_no_session_wb_says_a_termination_will
     quick.session("exit 0\n");
     let sandbox = stand_in_bwrap(&quick);
     let run = quick.start_by(&sandbox, &["start", "build", "54"]);
+    assert!(!text_of(&run.stderr).contains("was not found in bubblewrap"), "{}", text_of(&run.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_87_a_session_that_ends_as_the_info_fd_closes_is_not_said_to_be_lost() {
+    // A process that ends closes its files before it can be waited for: `wb` sees the info end and the process still
+    // there (#273). The stand-in closes the info fd and ends a moment later, as a loaded machine makes `exit 0` do.
+    let bench = bench();
+    bench.session("exit 0\n");
+    let path = bench.at("bwrap-closing");
+    script(&path, "fd=\nwhile [ $# -gt 0 ]; do\n  case \"$1\" in\n    --info-fd) fd=$2; shift 2;;\n    --) shift; break;;\n    *) shift;;\n  esac\ndone\n[ \"$1\" = /usr/bin/true ] && exit 0\neval \"exec $fd>&-\"\nsleep 0.1\nexit 0\n");
+    let run = bench.start_by(&path, &["start", "build", "54"]);
     assert!(!text_of(&run.stderr).contains("was not found in bubblewrap"), "{}", text_of(&run.stderr));
 }
 
@@ -2499,7 +2512,7 @@ fn keep(bench: &Bench, keep: &Keep) -> (PathBuf, PathBuf) {
         git(&made.folder, &["add", "--", &path]);
         git(
             &made.folder,
-            &["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false", "commit", "-q", "-m", subject],
+            &["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false", "-c", "maintenance.auto=false", "commit", "-q", "-m", subject],
         );
     }
     for path in keep.uncommitted {
@@ -3033,7 +3046,7 @@ fn test_WB_STATUS_66_a_commit_message_of_many_mebibytes_is_not_read_whole_or_pri
     fs::write(&message, format!("{}\n", "x".repeat(5 * 1024 * 1024))).unwrap();
     put(&folder, "huge.c", "int huge;\n");
     git(&folder, &["add", "--", "huge.c"]);
-    git(&folder, &["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false", "commit", "-q", "-F", message.to_str().unwrap()]);
+    git(&folder, &["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false", "-c", "maintenance.auto=false", "commit", "-q", "-F", message.to_str().unwrap()]);
     let run = start_bounded(&bench, &[], 10).expect("the start did not end");
     assert_eq!(code(&run), Some(1));
     assert!(run.stderr.len() < 64 * 1024, "{} bytes", run.stderr.len());
@@ -3098,7 +3111,7 @@ fn test_WB_STATUS_68_status_leaves_nothing_in_the_temporary_folder() {
 fn commit_in(view: &Path, path: &str, text: &str, subject: &str) {
     put(view, path, text);
     git(view, &["add", "--", path]);
-    git(view, &["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false", "commit", "-q", "-m", subject]);
+    git(view, &["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false", "-c", "maintenance.auto=false", "commit", "-q", "-m", subject]);
 }
 
 /// A kept view of the tester for 54, with no commit yet.
@@ -3334,10 +3347,18 @@ fn test_WB_VIEW_52_a_fifo_for_an_object_of_the_view_ends_a_take_back_within_a_bo
     assert_eq!(subjects(&bench, 1), vec!["The issue's file of 54"]);
     assert!(folder.exists());
     let prefix = format!("wb-view-{}-", std::process::id());
-    // Other tests of this process make and remove their own stores at the same time: it is gone when none is there.
+    // Other tests of this process make and remove stores of their own at the same time, under the same name and
+    // process number. A store is this one's when its `alternates` names the objects of this view, and only such a
+    // store is looked for.
+    let objects = format!("{}\n", folder.join(".git/objects").display());
     let mut temporary = Vec::new();
     for _ in 0..300 {
-        temporary = fs::read_dir(std::env::temp_dir()).unwrap().filter_map(|entry| entry.ok()).filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix)).collect::<Vec<_>>();
+        temporary = fs::read_dir(std::env::temp_dir())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
+            .filter(|entry| fs::read_to_string(entry.path().join("objects/info/alternates")).is_ok_and(|text| text == objects))
+            .collect::<Vec<_>>();
         if temporary.is_empty() {
             break;
         }
@@ -3550,8 +3571,10 @@ fn test_WB_STATUS_70_a_time_out_of_merge_base_is_said_as_a_time_out_naming_it() 
 fn test_WB_STATUS_71_a_view_slow_on_every_git_run_is_not_read_within_the_deadline_of_one_view() {
     let bench = bench();
     keep(&bench, &Keep { session: "2026-11-22T100000Z-tester-54", role: "tester", round: 2, commits: &["Tests"], uncommitted: &["a.c"], outcome: "outcome: running\npid: 1\n" });
-    // Each run on the view takes 2.5 seconds, below its bound of 3: the runs together are what has to end.
-    let (_held, path) = stand_in_git("case \"$*\" in *--git-dir=*|*wb-view-*) sleep 2.5;; esac");
+    // The stand-in counts its runs on the view in a file. The first 9 take 2 seconds, 1 below the bound of a run,
+    // and from the 10th it waits until it is ended: that run starts with less than 3 seconds of the 20 left, so the
+    // deadline ends it, however slow the machine is (#273).
+    let (_held, path) = stand_in_git(r#"case "$*" in *--git-dir=*|*wb-view-*) echo x >> "$(dirname "$0")/runs"; if [ "$(wc -l < "$(dirname "$0")/runs")" -le 9 ]; then sleep 2; else exec sleep 1000; fi;; esac"#);
     let (run, took) = status_with_path(&bench, &path, 40).expect("wb status did not end in 40 seconds");
     let out = text_of(&run.stdout);
     assert!(out.lines().any(|line| line.starts_with("kept: tester round 2, not read: ") && line.contains("20 seconds in all")), "{}", out);

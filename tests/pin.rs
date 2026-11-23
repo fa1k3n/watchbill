@@ -179,8 +179,8 @@ fn refused_at(prepare: impl Fn(&Path, &Path), way: &str) -> Folder {
     assert!(text(&run.stdout).contains("Nothing written."), "{}", text(&run.stdout));
     assert!(all_files(&outside.path).is_empty(), "{}: something was written outside", way);
     assert!(!folder.path.join(".watchbill/watchbill.yml").exists(), "{}", way);
-    // Keep the folder of `outside` alive as long as the repository: it is a part of it.
-    std::mem::forget(outside);
+    // `outside` is removed here, with its folder: nothing is read of it past this point.
+    drop(outside);
     folder
 }
 

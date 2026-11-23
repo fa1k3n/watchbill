@@ -89,8 +89,9 @@ static QUIT: AtomicBool = AtomicBool::new(false);
 /// Whether the signals of the terminal (a hangup, an interrupt, a quit) are sent on to the session too: only
 /// where it has no controlling terminal (#257, #271).
 static FROM_TERMINAL: AtomicBool = AtomicBool::new(false);
-/// Set where the session was not found in bubblewrap, and `SESSION` is bubblewrap's own number: an interrupt or a
-/// quit then kills bubblewrap, and the session with it, as Ctrl-C did before #271.
+/// Set where the session was not found in bubblewrap, and `SESSION` is bubblewrap's own number: where the session
+/// has no controlling terminal, an interrupt or a quit then kills bubblewrap, and the session with it, as nothing
+/// else would reach it. Where it has one, it gets them from the terminal, and bubblewrap is not killed under it.
 static LOST: AtomicBool = AtomicBool::new(false);
 
 const SIGKILL: c_int = 9;
@@ -100,13 +101,10 @@ fn registered() -> bool {
     SESSION_FD.load(Ordering::SeqCst) >= 0 || SESSION.load(Ordering::SeqCst) > 0
 }
 
-/// Whether `number` is to reach the session (or bubblewrap, where the session was not found).
+/// Whether `number` is to reach the session (or bubblewrap, where the session was not found): a termination
+/// always, the others only where the session has no controlling terminal.
 fn wanted(number: c_int) -> bool {
-    match number {
-        SIGTERM => true,
-        SIGINT | SIGQUIT => FROM_TERMINAL.load(Ordering::SeqCst) || LOST.load(Ordering::SeqCst),
-        _ => FROM_TERMINAL.load(Ordering::SeqCst),
-    }
+    number == SIGTERM || FROM_TERMINAL.load(Ordering::SeqCst)
 }
 
 /// Sends on `number`, which came and was taken: an interrupt or a quit where the session was not found kills
@@ -215,8 +213,8 @@ impl Held {
     }
 
     /// The session was not found in bubblewrap, whose number is `pid` and which `wb` has not waited for (#271): a
-    /// termination and a hangup go to bubblewrap, which ignores them, and an interrupt or a quit kills it, and the
-    /// session with it, also one that came before this.
+    /// termination and a hangup go to bubblewrap, which ignores them, and, where the session has no controlling
+    /// terminal, an interrupt or a quit kills it, and the session with it, also one that came before this.
     pub fn session_lost(&self, pid: u32) {
         // Set before the number, so that a handler that sees the number sees this too.
         LOST.store(true, Ordering::SeqCst);

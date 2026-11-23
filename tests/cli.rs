@@ -16,6 +16,7 @@ const USAGE: &str = "usage:
   wb upgrade [--dry-run]
   wb accept <issue> [--no-commit]
   wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [--ignore-kept] [the options of prompt]
+            or <role> <issue> --take-back
   wb status [<issue>] [--stage <heading>]
   wb view <issue> (<role> [--in | --out] | <path>)
   wb answer (<issue> | --change <n>) [--show | [--suggested] [<question> <answer>]...]
@@ -90,7 +91,12 @@ const USAGE: &str = "usage:
             --parts print as prompt does, and post and start nothing. A view
             of the issue kept with work not taken back, from any role, stops the
             start with 1 before anything is posted; --ignore-kept goes on
-            without it, and the stamp says so. Ends with
+            without it, and the stamp says so. --take-back, given with the role
+            and the issue alone, starts and posts nothing: it says what it will
+            take, then takes back the commits of the newest view of that role
+            and issue that was kept, through the checks of the end of a
+            session; 0 when all of it is taken and the view removed, 1 when
+            anything is refused or left. Ends with
             the session: 0 when it ended with 0, else 1; 1 when it is refused,
             2 when it was used wrongly or the repository is not set up
   revision  print the version of the package, the hash of its revision and the

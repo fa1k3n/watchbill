@@ -191,3 +191,17 @@ fn new_file(path: &Path, text: &str) -> std::io::Result<()> {
     let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
     file.write_all(text.as_bytes())
 }
+
+/// Appends to the file `back` of the folder of a start what a take-back did (#223): the old lines, then `text`. The
+/// file is written anew beside it and moved onto it, as `outcome` is; where there is none, `text` is the file.
+pub fn append_back(folder: &Path, text: &str) -> std::io::Result<()> {
+    let path = folder.join("back");
+    match fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => new_file(&path, text),
+        Err(error) => Err(error),
+        Ok(_) => match crate::view::small_file(&path) {
+            Some(old) => replace_file(&path, &format!("{}{}", old, text)),
+            None => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "the file `back` is not a plain text file of 1 MiB or less")),
+        },
+    }
+}

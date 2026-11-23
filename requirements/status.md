@@ -1,6 +1,6 @@
 # Where each issue stands
 
-What `wb status` says of the issues in the flow. It only reads: it writes nothing but a temporary index in `$TMPDIR`, removed after, where it reads a view kept with work not taken back (#222).
+What `wb status` says of the issues in the flow. It only reads: it writes nothing but a temporary repository in `$TMPDIR`, removed after, where it reads a view kept with work not taken back (#222).
 
 | ID | Requirement | Ver | Status |
 |---|---|---|---|
@@ -71,4 +71,11 @@ What `wb status` says of the issues in the flow. It only reads: it writes nothin
 | WB-STATUS-65 | `wb status` shall skip a session whose `outcome` says `running` while its `wb` is alive: no `kept:` line for its view, no `cut off:` line, and no count of it on standard error. Issue: #222. | T | Implemented |
 | WB-STATUS-66 | `wb status` and the refusal of `wb start` shall read the subject of a commit of a kept view with a cap: a commit over 64 KiB is named by its size, and a subject is cut at 200 characters. Issue: #222. | T | Implemented |
 | WB-STATUS-67 | No filter driver or textconv defined in a config of the person or of the system shall run on a file of a kept view: every git run on a view reads neither, nor the view's own config. Issue: #222. | T | Implemented |
-| WB-STATUS-68 | `wb status` shall write nothing but a temporary index in `$TMPDIR`, removed after, where it reads a kept view: the folder is not left behind. Issue: #222. | T | Implemented |
+| WB-STATUS-68 | `wb status` shall write nothing but a temporary repository in `$TMPDIR`, removed after, where it reads a kept view: the folder is not left behind. Issue: #222. | T | Implemented |
+| WB-STATUS-69 | `wb status` and the refusal of `wb start` shall say a kept view of more than 200 commits not taken as the first 200 commits and `and <k> more`, not as `200 commits not taken`. Issue: #265. | T | Implemented |
+| WB-STATUS-70 | `wb status` shall say, for a view whose commit is a FIFO so that `merge-base` is ended after its bound, that the read of `merge-base` took more than its bound, and not that the view's HEAD does not come from the commit the view was made with. Issue: #265. | T | Implemented |
+| WB-STATUS-71 | `wb status` shall end within one deadline of 20 seconds for each view that is slow on every git run, each run below its bound, and say the view is `not read`. Issue: #265. | T | Implemented |
+| WB-STATUS-72 | The message of a git run that ended after its bound shall name the git command (the first word that is not an option), never `-c`. Issue: #265. | T | Implemented |
+| WB-STATUS-73 | The usage of `wb status`, `wb-status.1`, `requirements/status.md` and the code shall call what `wb status` writes in `$TMPDIR` "a temporary repository". Issue: #265. | I | Implemented |
+| WB-STATUS-74 | The README shall say that a Ctrl-C, a termination or a kill of `wb status` can leave the temporary repository. Issue: #265. | I | Implemented |
+| WB-STATUS-75 | `wb status` shall decide on the exit status of git and not on its words: a view whose HEAD commit object is missing shall be said as the failure of `merge-base` (exit 128), never as not coming from the commit the view was made with, which is said only where git ends with 1. Issue: #265. | T | Implemented |

@@ -684,21 +684,23 @@ fn test_WB_VIEW_31_view_writes_nothing_in_the_repository_or_the_state_folder_and
     assert_eq!(bench.left("network"), "");
 }
 
-// ---- WB-VIEW-32: no accepted, committed file ----
+// ---- WB-VIEW-85 to 87: no accepted, committed file, and the breakdown (#202) ----
 
 #[test]
-fn test_WB_VIEW_32_an_issue_with_no_file_ends_with_1_saying_the_role_would_run_without_a_view() {
+fn test_WB_VIEW_86_an_issue_with_no_file_ends_with_1_saying_the_role_would_run_in_a_view_of_the_whole_tree() {
     let bench = bench();
     for args in [&["99", "build"][..], &["99", "src/brake.c"][..]] {
         let run = bench.view(args);
         assert_eq!(code(&run), Some(1), "{:?}", args);
         assert_eq!(text(&run.stdout), "", "{:?}", args);
-        assert!(text(&run.stderr).contains("without a view"), "{}", text(&run.stderr));
+        let err = text(&run.stderr);
+        assert!(err.contains("a view of every file of HEAD") && err.contains(".watchbill/ read-only"), "{}", err);
+        assert!(!err.contains("without a view"), "{}", err);
     }
 }
 
 #[test]
-fn test_WB_VIEW_32_an_issue_s_file_not_accepted_or_not_committed_ends_with_1() {
+fn test_WB_VIEW_87_an_issue_s_file_not_accepted_or_not_committed_ends_with_1() {
     let bench = bench();
     // Not committed: a new issue's file, accepted and left in the working tree.
     put(&bench.repo.path, ".watchbill/issues/55.yml", &ISSUE_54.replace("'54'", "'55'"));
@@ -716,11 +718,13 @@ fn test_WB_VIEW_32_an_issue_s_file_not_accepted_or_not_committed_ends_with_1() {
 }
 
 #[test]
-fn test_WB_VIEW_32_the_breakdown_runs_without_a_view() {
+fn test_WB_VIEW_85_the_breakdown_runs_in_a_view_of_the_whole_tree_where_only_its_issues_folder_is_writable() {
     let bench = bench();
     let run = bench.view(&["54", "breakdown"]);
 
     assert_eq!(code(&run), Some(1));
     assert_eq!(text(&run.stdout), "");
-    assert!(text(&run.stderr).contains("without a view"), "{}", text(&run.stderr));
+    let err = text(&run.stderr);
+    assert!(err.contains("a view of every file of HEAD") && err.contains("only .watchbill/issues/ is writable"), "{}", err);
+    assert!(!err.contains("without a view"), "{}", err);
 }

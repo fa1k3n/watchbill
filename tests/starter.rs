@@ -196,17 +196,10 @@ fn ok(run: &Output) {
     assert_eq!(code(run), Some(0), "{}", text(&run.stderr));
 }
 
-/// A start of an issue with an accepted file, which runs in a view (#126): it ends with 0 where bubblewrap
-/// can make a sandbox, and where it cannot, it is refused at the view, after every check before it.
+/// A start of an issue with an accepted file, which runs in a view (#126): it ends with 0, in bubblewrap where it
+/// can make a sandbox, and elsewhere by the stand-in of `start_in` (#202).
 fn ok_in_view(run: &Output) {
-    match watchbill::view::works(Path::new(watchbill::view::BWRAP)) {
-        Ok(()) => ok(run),
-        Err(_) => {
-            assert_eq!(code(run), Some(1), "{}", text(&run.stderr));
-            assert!(text(&run.stderr).contains("bubblewrap"), "{}", text(&run.stderr));
-            assert!(!text(&run.stderr).contains("#65"), "{}", text(&run.stderr));
-        }
-    }
+    ok(run);
 }
 
 /// Refused with `status`, with each of `named` on standard error, and nothing posted or started.
@@ -459,6 +452,17 @@ fn test_WB_BUILD_6_a_start_that_cannot_be_run_ends_with_1_and_names_it() {
     let run = bench.start(true, &["start", "build", "54"]);
     assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
     assert!(text(&run.stderr).contains("no-such-program"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_121_a_runner_s_program_that_is_not_there_is_refused_with_1_before_anything_is_posted() {
+    let bench = bench();
+    bench.organisation(&org(&bench.log.path, Some("stand-in")).replace("/start.sh", "/no-such-program"));
+    for role in ["build", "breakdown"] {
+        let run = bench.start(true, &["start", role, "54"]);
+        refused(&bench, &run, 1, &["no-such-program", "is not there"]);
+        assert!(!text(&run.stderr).contains("bubblewrap"), "{}", text(&run.stderr));
+    }
 }
 
 // ---- WB-BUILD-7: no terminal, and a runner without `start` ----
@@ -1250,16 +1254,18 @@ fn test_WB_MON_5_a_state_folder_that_cannot_be_written_changes_neither_the_start
     for status in [0, 3] {
         let bench = bench();
         let place = folder_named("state");
-        // A file where the state folder would be: nothing can be made below it.
-        let state = place.path.join("a-file");
-        fs::write(&state, "").unwrap();
+        // A file where the folder of the lines would be: no line can be written below it. The views have a folder
+        // beside it, as every session runs in one (#202).
+        let lines = place.path.join("watchbill").join("sessions");
+        fs::create_dir_all(place.path.join("watchbill")).unwrap();
+        fs::write(&lines, "").unwrap();
         bench.ends_with("start", status);
-        let run = start_at(&bench, &state, true, &["start", "build", "54"]);
-        assert_eq!(code(&run), Some(if status == 0 { 0 } else { 1 }), "{}", text(&run.stderr));
-        assert!(bench.any_posted() && bench.started(), "{:?}", bench.calls());
+        let run = start_at(&bench, &place.path, true, &["start", "build", "54"]);
         let err = text(&run.stderr);
-        assert!(err.contains("could not be written") && err.contains(state.to_str().unwrap()), "{}", err);
-        assert_eq!(read(&state), "");
+        assert!(err.contains("could not be written") && err.contains(lines.to_str().unwrap()), "{}", err);
+        assert_eq!(read(&lines), "");
+        assert_eq!(code(&run), Some(if status == 0 { 0 } else { 1 }), "{}", err);
+        assert!(bench.any_posted() && bench.started(), "{:?}", bench.calls());
     }
 }
 
@@ -1276,12 +1282,13 @@ fn test_WB_MON_5_a_state_folder_that_cannot_be_written_changes_no_refusal() {
 }
 
 #[test]
-fn test_WB_MON_5_with_no_state_folder_known_the_session_still_starts() {
+fn test_WB_VIEW_90_with_no_state_folder_known_no_session_starts_and_both_are_said() {
+    // A role with no issue's file runs in a view too (#202), and a view is made below the state folder.
     let bench = bench();
     let run = start_in(&bench.repo.path, &bench.org, true, None, &["start", "build", "54"]);
-    ok(&run);
-    assert!(bench.started());
-    assert!(text(&run.stderr).contains("no lines of this start are written"), "{}", text(&run.stderr));
+    refused(&bench, &run, 1, &["no lines of this start are written", "a view is made below the state folder"]);
+    let run = start_in(&bench.repo.path, &bench.org, true, None, &["start", "breakdown", "54"]);
+    refused(&bench, &run, 1, &["no lines of this start are written", "a view is made below the state folder"]);
 }
 
 #[test]

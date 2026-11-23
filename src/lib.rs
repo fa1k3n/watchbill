@@ -803,6 +803,15 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
     if let Err(why) = starter::held(&root) {
         return Err(refused(err, &format!("{}.", why)));
     }
+    // The project's text goes into the prompt only as `HEAD` has it (#211): every file that is not is named, before
+    // any pattern runs and before the check.
+    let refusals = prompt::project_refusals(Path::new(&root), role);
+    if !refusals.is_empty() {
+        for why in &refusals {
+            let _ = writeln!(err, "{}: {}", name, why);
+        }
+        return Err(1);
+    }
     // What `wb check` says is for standard error here: standard output holds the prompt or nothing.
     let (mut said, mut why) = (Vec::new(), Vec::new());
     let status = check::check(&root, VERSION, Path::new(manifest::PACKAGE_FOLDER), &mut said, &mut why);

@@ -125,7 +125,7 @@ fn test_WB_PROMPT_25_an_accepted_file_fills_the_requirements_with_ids_and_texts_
 #[test]
 fn test_WB_PROMPT_26_the_interface_and_the_lists_come_after_the_role_and_before_the_project_text() {
     let folder = accepted_with(GOOD);
-    put(&folder.path, ".watchbill/project/all.md", "PROJECT-ALL\n");
+    put_committed(&folder.path, ".watchbill/project/all.md", "PROJECT-ALL\n");
     for role in ROLES {
         let said = ok(&prompt(&folder.path, role, &[]));
         let interface = said.find("fn read(path: &str) -> String").unwrap_or_else(|| panic!("{}: no interface", role));

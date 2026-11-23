@@ -568,7 +568,7 @@ fn test_WB_CHECK_13_a_run_with_such_text_still_writes_nothing() {
 #[test]
 fn test_WB_CHECK_14_wb_prompt_refuses_the_text_that_wb_check_refuses() {
     let folder = set_up();
-    put(&folder.path, ".watchbill/project/all.md", "Use {task}.\n");
+    put_committed(&folder.path, ".watchbill/project/all.md", "Use {task}.\n");
 
     let check = wb(&folder.path, &["check"], "");
     let prompt = wb(&folder.path, &["prompt", "build", "--issue", "1", "--requirements", "R", "--checkout", "/x", "--branch", "b", "--issue_address", "at 1"], "");
@@ -584,7 +584,7 @@ fn test_WB_CHECK_14_wb_prompt_refuses_the_text_that_wb_check_refuses() {
 #[test]
 fn test_WB_CHECK_14_the_same_text_with_a_known_placeholder_passes_both() {
     let folder = set_up();
-    put(&folder.path, ".watchbill/project/all.md", "Use {issue}.\n");
+    put_committed(&folder.path, ".watchbill/project/all.md", "Use {issue}.\n");
 
     let check = wb(&folder.path, &["check"], "");
     let prompt = wb(&folder.path, &["prompt", "build", "--issue", "1", "--requirements", "R", "--checkout", "/x", "--branch", "b", "--issue_address", "at 1"], "");
@@ -694,7 +694,7 @@ fn test_WB_CHECK_15_a_project_file_that_is_not_utf8_is_named_by_check() {
 #[test]
 fn test_WB_CHECK_14_the_refusal_of_assemble_is_the_line_that_check_prints() {
     let folder = set_up();
-    put(&folder.path, ".watchbill/project/all.md", "One.\nUse {task}.\n");
+    put_committed(&folder.path, ".watchbill/project/all.md", "One.\nUse {task}.\n");
 
     let refusal = watchbill::prompt::assemble(&folder.path, "build", &[]).unwrap_err().to_string();
     let run = wb(&folder.path, &["check"], "");

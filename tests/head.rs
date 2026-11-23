@@ -591,3 +591,196 @@ fn test_WB_BUILD_65_a_file_over_1_mib_counts_as_differing_and_a_folder_does_too(
     fs::create_dir(config(&bench.repo.path)).unwrap();
     assert_goes_on_as_with_head(&bench, "a folder");
 }
+
+// ---- The project's text is as `HEAD` has it (#211) ----
+
+/// A bench with issue 54 ready, and `project/all.md`, `project/build.md` and `project/review.md` committed.
+fn text_bench() -> Bench {
+    let bench = bench();
+    issues_ready(&bench.repo.path, &["54"]);
+    put(&bench.repo.path, ".watchbill/project/all.md", "Everyone: use make.\n");
+    put(&bench.repo.path, ".watchbill/project/build.md", "Builders: run make test.\n");
+    put(&bench.repo.path, ".watchbill/project/review.md", "Reviewers: read twice.\n");
+    git(&bench.repo.path, &["add", "--", ".watchbill/project/all.md", ".watchbill/project/build.md", ".watchbill/project/review.md"]);
+    git(&bench.repo.path, &["commit", "-q", "-m", "The project's text"]);
+    bench
+}
+
+const BUILD_MD: &str = ".watchbill/project/build.md";
+
+// `wb check` also refuses a FIFO or a link in the place of a project file; the check of the project's text comes
+// before it, so the words of this check are the ones said, and the file is never opened.
+/// `wb prompt build 54` and `wb start build 54` are both refused with 1, naming `file`, and nothing is posted or started.
+fn assert_text_refused(bench: &Bench, file: &str, what: &str) {
+    let prompt = wb_within(&bench.repo.path, &["prompt", "build", "54"], 10);
+    assert_eq!(code(&prompt), Some(1), "{} prompt: {}", what, text(&prompt.stderr));
+    assert_eq!(text(&prompt.stdout), "", "{}", what);
+    assert!(text(&prompt.stderr).contains(file), "{}: the file is not named: {}", what, text(&prompt.stderr));
+    assert!(text(&prompt.stderr).contains("commits it, or takes it back with git"), "{}: {}", what, text(&prompt.stderr));
+    let stamp = wb_within(&bench.repo.path, &["prompt", "build", "54", "--stamp"], 10);
+    assert_eq!(code(&stamp), Some(1), "{} stamp: {}", what, text(&stamp.stderr));
+    assert_eq!(text(&stamp.stdout), "", "{}", what);
+    let start = start_with(&bench.repo.path, &bench.org, true, &["start", "build", "54"]);
+    assert_eq!(code(&start), Some(1), "{} start: {}{}", what, text(&start.stdout), text(&start.stderr));
+    assert!(text(&start.stderr).contains(file), "{}: {}", what, text(&start.stderr));
+    // The refusal comes before any pattern runs: not a read of the comments either.
+    assert_eq!(bench.ran(), "", "{} ran something", what);
+}
+
+#[test]
+fn test_WB_PROMPT_56_a_project_file_changed_and_not_committed_is_refused() {
+    let bench = text_bench();
+    fs::write(bench.repo.path.join(BUILD_MD), "Builders: skip the tests.\n").unwrap();
+    assert_text_refused(&bench, BUILD_MD, "a changed file");
+}
+
+#[test]
+fn test_WB_PROMPT_56_both_files_changed_are_both_named_and_no_pattern_runs() {
+    let bench = text_bench();
+    fs::write(bench.repo.path.join(BUILD_MD), "Builders: skip the tests.\n").unwrap();
+    fs::write(bench.repo.path.join(".watchbill/project/all.md"), "Everyone: skip.\n").unwrap();
+    let run = wb_within(&bench.repo.path, &["prompt", "build", "54"], 10);
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    assert_eq!(text(&run.stdout), "");
+    assert!(text(&run.stderr).contains(".watchbill/project/all.md") && text(&run.stderr).contains(BUILD_MD), "{}", text(&run.stderr));
+    let start = start_with(&bench.repo.path, &bench.org, true, &["start", "build", "54"]);
+    assert_eq!(code(&start), Some(1));
+    assert!(text(&start.stderr).contains(".watchbill/project/all.md") && text(&start.stderr).contains(BUILD_MD), "{}", text(&start.stderr));
+    assert_eq!(bench.ran(), "");
+}
+
+#[test]
+fn test_WB_PROMPT_56_a_project_file_untracked_is_refused() {
+    let bench = text_bench();
+    git(&bench.repo.path, &["rm", "-q", "--", ".watchbill/project/all.md"]);
+    git(&bench.repo.path, &["commit", "-q", "-m", "Take the text out"]);
+    put(&bench.repo.path, ".watchbill/project/all.md", "Everyone: use make.\n");
+    assert_text_refused(&bench, ".watchbill/project/all.md", "an untracked file");
+}
+
+#[test]
+fn test_WB_PROMPT_56_a_project_file_in_head_and_deleted_in_the_working_tree_is_refused() {
+    let bench = text_bench();
+    fs::remove_file(bench.repo.path.join(BUILD_MD)).unwrap();
+    assert_text_refused(&bench, BUILD_MD, "a deleted file");
+}
+
+#[test]
+fn test_WB_PROMPT_56_a_file_of_another_role_changed_is_not_refused() {
+    let bench = text_bench();
+    fs::write(bench.repo.path.join(".watchbill/project/review.md"), "Reviewers: skim.\n").unwrap();
+    let run = wb_within(&bench.repo.path, &["prompt", "build", "54"], 10);
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("Builders: run make test."));
+    assert!(!text(&run.stdout).contains("Reviewers"));
+}
+
+#[test]
+fn test_WB_PROMPT_56_each_part_hash_of_the_stamp_is_the_hash_of_the_file_in_head() {
+    // By design this cannot be red on its own: a working tree that differs is refused, so where a stamp is
+    // made the working tree's file and the file of `HEAD` are the same bytes. The refusals above hold it.
+    use sha2::{Digest, Sha256};
+    let bench = text_bench();
+    let run = wb_within(&bench.repo.path, &["prompt", "build", "54", "--stamp"], 10);
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let out = text(&run.stdout);
+    for path in [".watchbill/project/all.md", BUILD_MD] {
+        let shown = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&bench.repo.path)
+            .args(["show", &format!("HEAD:{}", path)])
+            .env_clear()
+            .envs(env())
+            .output()
+            .unwrap();
+        let hash: String = Sha256::digest(&shown.stdout).iter().map(|b| format!("{:02x}", b)).collect();
+        assert!(out.lines().any(|l| l.starts_with("part: ") && l.contains(&hash) && l.ends_with(path)), "no part line for {} ({}) in {}", path, hash, out);
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_56_wb_check_still_ends_with_0_with_a_project_file_changed() {
+    let bench = text_bench();
+    fs::write(bench.repo.path.join(BUILD_MD), "Builders: skip the tests.\n").unwrap();
+    let run = wb_within(&bench.repo.path, &["check"], 10);
+    assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
+}
+
+#[test]
+fn test_WB_PROMPT_56_a_fifo_in_the_place_of_a_project_file_is_refused_and_not_read() {
+    let bench = text_bench();
+    fs::remove_file(bench.repo.path.join(BUILD_MD)).unwrap();
+    let made = std::process::Command::new("mkfifo").arg(bench.repo.path.join(BUILD_MD)).status().unwrap();
+    assert!(made.success());
+    assert_text_refused(&bench, BUILD_MD, "a FIFO");
+}
+
+#[test]
+fn test_WB_PROMPT_56_a_symlink_in_the_place_of_a_project_file_is_refused_and_not_followed() {
+    let bench = text_bench();
+    fs::remove_file(bench.repo.path.join(BUILD_MD)).unwrap();
+    std::os::unix::fs::symlink("/dev/zero", bench.repo.path.join(BUILD_MD)).unwrap();
+    assert_text_refused(&bench, BUILD_MD, "a symlink to /dev/zero");
+}
+
+#[test]
+fn test_WB_PROMPT_57_no_option_lifts_the_refusal() {
+    let bench = text_bench();
+    fs::write(bench.repo.path.join(BUILD_MD), "Builders: skip the tests.\n").unwrap();
+    for flag in ["--force", "--ignore-local", "--no-check", "--head"] {
+        let run = wb_within(&bench.repo.path, &["prompt", "build", "54", flag], 10);
+        assert_ne!(code(&run), Some(0), "{}: {}", flag, text(&run.stdout));
+        assert_eq!(text(&run.stdout), "", "{}", flag);
+    }
+    let run = wb_within(&bench.repo.path, &["prompt", "build", "54"], 10);
+    assert_eq!(code(&run), Some(1));
+}
+
+/// `starter::project_text` run for at most 10 seconds: a call that waits on a FIFO fails the test.
+fn project_text_within(root: &Path, place: &str) -> Result<Option<Vec<u8>>, String> {
+    let (send, receive) = std::sync::mpsc::channel();
+    let (root, place) = (root.to_path_buf(), place.to_string());
+    std::thread::spawn(move || {
+        let _ = send.send(watchbill::starter::project_text(&root, &place));
+    });
+    receive.recv_timeout(std::time::Duration::from_secs(10)).expect("project_text did not end within 10 seconds")
+}
+
+#[test]
+fn test_WB_PROMPT_56_project_text_counts_a_fifo_a_link_and_a_file_over_the_cap_as_differing() {
+    let repo = repository(None);
+    put_committed(&repo.path, BUILD_MD, "Builders: run make test.\n");
+    assert_eq!(project_text_within(&repo.path, BUILD_MD).unwrap().unwrap(), b"Builders: run make test.\n");
+    let file = repo.path.join(BUILD_MD);
+    fs::remove_file(&file).unwrap();
+    let made = std::process::Command::new("mkfifo").arg(&file).status().unwrap();
+    assert!(made.success());
+    let why = project_text_within(&repo.path, BUILD_MD).unwrap_err();
+    assert!(why.contains(BUILD_MD) && why.contains("differs from HEAD"), "{}", why);
+    fs::remove_file(&file).unwrap();
+    std::os::unix::fs::symlink("/dev/zero", &file).unwrap();
+    let why = project_text_within(&repo.path, BUILD_MD).unwrap_err();
+    assert!(why.contains("differs from HEAD"), "{}", why);
+    fs::remove_file(&file).unwrap();
+    fs::write(&file, format!("Builders: run make test.\n{}", "x".repeat(2 * 1024 * 1024))).unwrap();
+    let why = project_text_within(&repo.path, BUILD_MD).unwrap_err();
+    assert!(why.contains("differs from HEAD"), "{}", why);
+}
+
+#[test]
+fn test_WB_PROMPT_71_a_file_over_1_mib_in_head_is_refused_as_too_big_before_it_is_read() {
+    let repo = repository(None);
+    put_committed(&repo.path, BUILD_MD, &format!("Builders: {}\n", "x".repeat(2 * 1024 * 1024)));
+    let why = project_text_within(&repo.path, BUILD_MD).unwrap_err();
+    assert!(why.contains(BUILD_MD) && why.contains("too big") && why.contains("1 MiB"), "{}", why);
+    assert!(!why.contains("differs from HEAD"), "{}", why);
+}
+
+#[test]
+fn test_WB_PROMPT_56_the_refusal_of_a_prompt_does_not_say_that_anything_is_posted() {
+    let bench = text_bench();
+    fs::write(bench.repo.path.join(BUILD_MD), "Builders: skip the tests.\n").unwrap();
+    let run = wb_within(&bench.repo.path, &["prompt", "build", "54"], 10);
+    assert_eq!(code(&run), Some(1));
+    assert!(!text(&run.stderr).contains("posted"), "{}", text(&run.stderr));
+}

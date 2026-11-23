@@ -603,12 +603,22 @@ pub fn run_saying(bwrap: &Path, plan: &Plan, name: &str, err: &mut dyn Write) ->
     let session = session_of(reader, child.id());
     match &session {
         Some(fd) => held.session_held(fd),
-        // No session found: the termination goes to bubblewrap, which ignores it where it was started so.
+        // No session found: a termination and a hangup go to bubblewrap, which ignores them where it was started
+        // so, and an interrupt or a quit kills bubblewrap, and the session with it (#271).
         None => {
-            held.session(child.id());
-            // A session that has ended already is not said to be lost.
-            if matches!(child.try_wait(), Ok(None)) {
-                let _ = writeln!(err, "{}: the session was not found in bubblewrap, so a termination of wb goes to bubblewrap, not to the session", name);
+            held.session_lost(child.id());
+            // A session that has ended already is not said to be lost, and bubblewrap's number, waited for now and
+            // free for another, is let go at once.
+            match child.try_wait() {
+                Ok(None) => {
+                    let _ = writeln!(
+                        err,
+                        "{}: the session was not found in bubblewrap, so a termination of wb goes to bubblewrap, not to the session, and a hangup does not reach it either; an interrupt or a quit (Ctrl-C, Ctrl-\\) ends bubblewrap and the session with it",
+                        name
+                    );
+                }
+                Ok(Some(_)) => held.ended(),
+                Err(_) => {}
             }
         }
     }

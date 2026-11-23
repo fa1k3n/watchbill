@@ -89,6 +89,40 @@ static QUIT: AtomicBool = AtomicBool::new(false);
 /// Whether the signals of the terminal (a hangup, an interrupt, a quit) are sent on to the session too: only
 /// where it has no controlling terminal (#257, #271).
 static FROM_TERMINAL: AtomicBool = AtomicBool::new(false);
+/// Set where the session was not found in bubblewrap, and `SESSION` is bubblewrap's own number: an interrupt or a
+/// quit then kills bubblewrap, and the session with it, as Ctrl-C did before #271.
+static LOST: AtomicBool = AtomicBool::new(false);
+
+const SIGKILL: c_int = 9;
+
+/// Whether a session is registered, by a pidfd or by its number.
+fn registered() -> bool {
+    SESSION_FD.load(Ordering::SeqCst) >= 0 || SESSION.load(Ordering::SeqCst) > 0
+}
+
+/// Whether `number` is to reach the session (or bubblewrap, where the session was not found).
+fn wanted(number: c_int) -> bool {
+    match number {
+        SIGTERM => true,
+        SIGINT | SIGQUIT => FROM_TERMINAL.load(Ordering::SeqCst) || LOST.load(Ordering::SeqCst),
+        _ => FROM_TERMINAL.load(Ordering::SeqCst),
+    }
+}
+
+/// Sends on `number`, which came and was taken: an interrupt or a quit where the session was not found kills
+/// bubblewrap; anything else goes to the session.
+fn deliver(number: c_int) {
+    if (number == SIGINT || number == SIGQUIT) && LOST.load(Ordering::SeqCst) {
+        let bubblewrap = SESSION.load(Ordering::SeqCst);
+        if bubblewrap > 0 {
+            unsafe {
+                kill(bubblewrap, SIGKILL);
+            }
+        }
+    } else {
+        send(number);
+    }
+}
 
 /// Sends `signal` to the session, when there is one. Only atomics, `kill(2)` and the call of the kernel.
 fn send(signal: c_int) {
@@ -110,7 +144,8 @@ fn send(signal: c_int) {
 /// A termination (#221), a hangup, an interrupt or a quit: `wb` goes on waiting. The session is sent the
 /// termination, as a person's `kill` of `wb` meant it, and the hangup, the interrupt and the quit where the
 /// terminal cannot reach it (#257, #271). Only `kill(2)`, the call of the kernel and atomics are used, as a
-/// handler may.
+/// handler may. A signal is marked as come and taken back with one swap, here or in `pending`, so that exactly
+/// one of the two sends it.
 ///
 /// A signal that is caught, not ignored, is set back to its default in a program that is started, so a session
 /// with no view gets an interrupt as it would without `wb`.
@@ -127,8 +162,8 @@ extern "C" fn on_signal(number: c_int) {
     };
     if let Some(came) = came {
         came.store(true, Ordering::SeqCst);
-        if number == SIGTERM || FROM_TERMINAL.load(Ordering::SeqCst) {
-            send(number);
+        if wanted(number) && registered() && came.swap(false, Ordering::SeqCst) {
+            deliver(number);
         }
     }
     unsafe { *errno = saved };
@@ -153,6 +188,7 @@ pub fn hold() -> Held {
         INTERRUPTED.store(false, Ordering::SeqCst);
         QUIT.store(false, Ordering::SeqCst);
         FROM_TERMINAL.store(false, Ordering::SeqCst);
+        LOST.store(false, Ordering::SeqCst);
         SESSION.store(0, Ordering::SeqCst);
         SESSION_FD.store(-1, Ordering::SeqCst);
         for (index, number) in HELD_SIGNALS.into_iter().enumerate() {
@@ -175,6 +211,17 @@ impl Held {
         SESSION_FD.store(-1, Ordering::SeqCst);
         SESSION.store(0, Ordering::SeqCst);
         FROM_TERMINAL.store(false, Ordering::SeqCst);
+        LOST.store(false, Ordering::SeqCst);
+    }
+
+    /// The session was not found in bubblewrap, whose number is `pid` and which `wb` has not waited for (#271): a
+    /// termination and a hangup go to bubblewrap, which ignores them, and an interrupt or a quit kills it, and the
+    /// session with it, also one that came before this.
+    pub fn session_lost(&self, pid: u32) {
+        // Set before the number, so that a handler that sees the number sees this too.
+        LOST.store(true, Ordering::SeqCst);
+        SESSION.store(pid as c_int, Ordering::SeqCst);
+        self.pending();
     }
 
     /// The session was started, with process number `pid`: a termination of `wb` is sent on to it, also one that
@@ -200,14 +247,9 @@ impl Held {
 
     /// Sends what came before the session was registered.
     fn pending(&self) {
-        if TERMINATED.load(Ordering::SeqCst) {
-            send(SIGTERM);
-        }
-        if FROM_TERMINAL.load(Ordering::SeqCst) {
-            for (came, number) in [(&HUNG_UP, SIGHUP), (&INTERRUPTED, SIGINT), (&QUIT, SIGQUIT)] {
-                if came.load(Ordering::SeqCst) {
-                    send(number);
-                }
+        for (came, number) in [(&TERMINATED, SIGTERM), (&HUNG_UP, SIGHUP), (&INTERRUPTED, SIGINT), (&QUIT, SIGQUIT)] {
+            if wanted(number) && came.swap(false, Ordering::SeqCst) {
+                deliver(number);
             }
         }
     }
@@ -221,6 +263,7 @@ impl Drop for Held {
             SESSION_FD.store(-1, Ordering::SeqCst);
             SESSION.store(0, Ordering::SeqCst);
             FROM_TERMINAL.store(false, Ordering::SeqCst);
+            LOST.store(false, Ordering::SeqCst);
             for (index, number) in HELD_SIGNALS.into_iter().enumerate() {
                 unsafe {
                     signal(number, held.1[index]);

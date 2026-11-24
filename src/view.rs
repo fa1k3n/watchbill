@@ -2494,6 +2494,39 @@ mod tests {
         }
     }
 
+    /// The variables `without_logins` takes out of what a command is handed.
+    fn removed() -> Vec<String> {
+        let mut command = Command::new("/usr/bin/bwrap");
+        without_logins(&mut command);
+        command.get_envs().filter(|(_, value)| value.is_none()).map(|(name, _)| name.to_string_lossy().to_string()).collect()
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_WB_PUSH_12_glab_s_other_name_of_its_token_and_its_certificate_s_password_are_not_handed_in() {
+        let removed = removed();
+        for name in ["OAUTH_TOKEN", "GLAB_CLIENT_CERT_PASSWORD"] {
+            assert!(removed.iter().any(|one| one == name), "{} is handed in: {:?}", name, removed);
+        }
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_WB_PUSH_12_the_secrets_gitlab_ci_hands_a_job_are_not_handed_in() {
+        let removed = removed();
+        for name in ["CI_JOB_TOKEN", "CI_REGISTRY_PASSWORD", "CI_DEPENDENCY_PROXY_PASSWORD", "CI_JOB_JWT", "CI_JOB_JWT_V2"] {
+            assert!(removed.iter().any(|one| one == name), "{} is handed in: {:?}", name, removed);
+        }
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_WB_PUSH_12_the_address_of_the_session_bus_is_not_handed_in() {
+        // The bus leads to the keyring that `gh` keeps its login in by default.
+        let removed = removed();
+        assert!(removed.iter().any(|one| one == "DBUS_SESSION_BUS_ADDRESS"), "{:?}", removed);
+    }
+
     #[test]
     #[allow(non_snake_case)]
     fn test_WB_PUSH_8_the_folder_of_the_description_is_bound_at_run_watchbill_in_the_sandbox_s_own_run() {

@@ -5472,6 +5472,61 @@ fn test_WB_PUSH_12_a_runner_s_bind_that_holds_a_login_of_the_code_host_is_refuse
     }
 }
 
+/// The login of the code host that a runner's bind `bind` meets, where the environment holds `vars` alone and the
+/// person's home is `/home/ada`.
+fn login_met(bind: &str, vars: &[(&str, &str)]) -> Option<PathBuf> {
+    let vars: Vec<(String, String)> = vars.iter().map(|(name, value)| (name.to_string(), value.to_string())).collect();
+    let lookup = move |name: &str| vars.iter().find(|(one, _)| one == name).map(|(_, value)| std::ffi::OsString::from(value));
+    watchbill::push::login_of(Path::new(bind), Some(Path::new("/home/ada")), &lookup)
+}
+
+#[test]
+fn test_WB_PUSH_12_a_bind_of_a_login_below_xdg_config_home_is_refused() {
+    let vars = [("XDG_CONFIG_HOME", "/srv/ada/conf")];
+    for bad in ["/srv/ada/conf/gh", "/srv/ada/conf/gh/hosts.yml", "/srv/ada/conf/glab-cli", "/srv/ada/conf/git/credentials", "/srv/ada/conf", "/srv/ada"] {
+        assert!(login_met(bad, &vars).is_some(), "{} is let through", bad);
+    }
+    for good in ["/srv/ada/conf/nvim", "/srv/ada/conf/git/config", "/srv/other"] {
+        assert_eq!(login_met(good, &vars), None, "{}", good);
+    }
+    // A folder that is not absolute names nothing.
+    assert_eq!(login_met("/srv/ada/conf/gh", &[("XDG_CONFIG_HOME", "conf")]), None);
+    // Below the home, as before.
+    assert!(login_met("/home/ada/.config/gh", &[]).is_some());
+}
+
+#[test]
+fn test_WB_PUSH_12_a_bind_of_the_runtime_folder_or_of_a_keyring_in_it_is_refused() {
+    let vars = [("XDG_RUNTIME_DIR", "/run/user/1000")];
+    for bad in [
+        "/run/user/1000",
+        "/run/user",
+        "/run",
+        "/run/user/1000/keyring",
+        "/run/user/1000/keyring/ssh",
+        "/run/user/1000/gnupg",
+        "/run/user/1000/gcr",
+        "/run/user/1000/gcr/ssh",
+        "/run/user/1000/bus",
+    ] {
+        assert!(login_met(bad, &vars).is_some(), "{} is let through", bad);
+    }
+    for good in ["/run/user/1000/podman", "/run/user/1001", "/run/media"] {
+        assert_eq!(login_met(good, &vars), None, "{}", good);
+    }
+}
+
+#[test]
+fn test_WB_PUSH_12_a_bind_of_the_folder_of_the_ssh_agent_s_socket_is_refused() {
+    let vars = [("SSH_AUTH_SOCK", "/var/agents/ada/agent.4242")];
+    for bad in ["/var/agents/ada", "/var/agents/ada/agent.4242", "/var/agents"] {
+        assert!(login_met(bad, &vars).is_some(), "{} is let through", bad);
+    }
+    for good in ["/var/agents/bob", "/var/lib"] {
+        assert_eq!(login_met(good, &vars), None, "{}", good);
+    }
+}
+
 #[test]
 fn test_WB_PUSH_15_a_session_that_did_not_end_with_0_pushes_nothing() {
     if !sandbox("test_WB_PUSH_15") {
@@ -5508,27 +5563,84 @@ fn test_WB_PUSH_16_after_a_review_nothing_is_pushed_and_the_commands_are_said() 
     assert!(err.contains("git push origin issue-54"), "{}", err);
 }
 
+/// The session of a build that commits a new file and then runs `write`, which leaves something at the description's
+/// file; then `wb start build 54`, where the description is refused: the branch is pushed, no change is opened, and
+/// `wb` ends with 1, with a limit that names the description.
+fn assert_description_refused(write: &str) {
+    let (bench, origin) = pushing();
+    bench.session(&format!("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file' && {}\n", write));
+
+    let run = bench.start(&["start", "build", "54"]);
+
+    assert_eq!(code(&run), Some(1), "{}: {}", write, text_of(&run.stderr));
+    // The branch is pushed; the change is not opened.
+    assert_ne!(refs_of(&origin), "", "{}", write);
+    assert_eq!(called(&bench, "draft"), 0, "{}", write);
+    let err = text_of(&run.stderr);
+    assert!(labelled_line(&err, "wb start build", "limit").is_some_and(|line| line.contains("description")), "{}: {}", write, err);
+    assert!(!err.contains('\u{1b}'), "{:?}", err);
+    assert!(push_lines(&bench).contains("change: not opened: "), "{}: {}", write, push_lines(&bench));
+}
+
 #[test]
 fn test_WB_PUSH_17_a_description_that_cannot_be_taken_opens_no_change() {
     if !sandbox("test_WB_PUSH_17") {
         return;
     }
-    let link = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file' && ln -s /etc/hostname /run/watchbill/description\n";
-    let control = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file' && printf 'red \\033[31m here\\n' > /run/watchbill/description\n";
-    for body in [link, control] {
-        let (bench, origin) = pushing();
-        bench.session(body);
+    assert_description_refused("ln -s /etc/hostname /run/watchbill/description");
+    assert_description_refused("printf 'red \\033[31m here\\n' > /run/watchbill/description");
+}
 
-        let run = bench.start(&["start", "build", "54"]);
+#[test]
+fn test_WB_PUSH_17_a_description_over_64_kib_opens_no_change_and_one_of_64_kib_does() {
+    if !sandbox("test_WB_PUSH_17") {
+        return;
+    }
+    // One byte over the cap of 64 KiB, well below the 128 KiB that Linux holds one word of a command to.
+    assert_description_refused("head -c 65537 /dev/zero | tr '\\0' a > /run/watchbill/description");
+    let (bench, _origin) = pushing();
+    bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file' && head -c 65536 /dev/zero | tr '\\0' a > /run/watchbill/description\n");
+    let run = bench.start(&["start", "build", "54"]);
+    assert_eq!(code(&run), Some(0), "{}", text_of(&run.stderr));
+    assert_eq!(called(&bench, "draft"), 1);
+    assert_eq!(read(&bench.at("description")).len(), 65536);
+}
 
-        assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
-        // The branch is pushed; the change is not opened.
-        assert_ne!(refs_of(&origin), "");
-        assert_eq!(called(&bench, "draft"), 0);
-        let err = text_of(&run.stderr);
-        assert!(labelled_line(&err, "wb start build", "limit").is_some_and(|line| line.contains("description")), "{}", err);
-        assert!(!err.contains('\u{1b}'), "{:?}", err);
-        assert!(push_lines(&bench).contains("change: not opened: "), "{}", push_lines(&bench));
+#[test]
+fn test_WB_PUSH_17_a_description_of_a_dash_alone_opens_no_change() {
+    if !sandbox("test_WB_PUSH_17") {
+        return;
+    }
+    // `-` would have `glab` open an editor, as the person.
+    assert_description_refused("printf ' -\\n' > /run/watchbill/description");
+    assert_description_refused("printf -- '-' > /run/watchbill/description");
+}
+
+#[test]
+fn test_WB_PUSH_17_a_description_that_is_not_utf_8_opens_no_change() {
+    if !sandbox("test_WB_PUSH_17") {
+        return;
+    }
+    assert_description_refused("printf 'Issue 54 \\377\\376\\n' > /run/watchbill/description");
+}
+
+#[test]
+fn test_WB_PUSH_17_a_fifo_as_the_description_opens_no_change_and_is_not_waited_for() {
+    if !sandbox("test_WB_PUSH_17") {
+        return;
+    }
+    // The binary cannot run a session with the bench's runner (the organisation's file is fixed when `wb` is built), so
+    // `start_on` runs in a thread of its own, held to 60 seconds: a read that waits on the FIFO, which has no writer,
+    // fails the test and not the suite.
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        assert_description_refused("mkfifo /run/watchbill/description");
+        let _ = send.send(());
+    });
+    match receive.recv_timeout(std::time::Duration::from_secs(60)) {
+        Ok(()) => {}
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => panic!("the case of the FIFO failed"),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => panic!("wb start waited on a FIFO as the description for 60 seconds"),
     }
 }
 

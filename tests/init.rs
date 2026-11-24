@@ -1100,7 +1100,7 @@ fn test_WB_INIT_58_a_github_and_a_gitlab_origin_get_draft_change() {
     assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
     assert_eq!(
         pattern(&folder.path, "draft_change").as_deref(),
-        Some("glab mr create --repo https://gitlab.team.example/brakes/controller --source-branch {branch} --draft --fill --yes --description \"$(cat)\"")
+        Some("glab mr create --repo https://gitlab.team.example/brakes/controller --source-branch {branch} --draft --fill --push=false --yes --description \"$(cat)\"")
     );
     assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
     no_pattern(&["draft_change"]);
@@ -1116,6 +1116,8 @@ fn test_WB_PUSH_19_the_draft_change_of_wb_init_reads_the_description_from_standa
     assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
     let line = pattern(&folder.path, "draft_change").unwrap();
     assert!(line.ends_with(" --description \"$(cat)\"") && !line.contains("--fill-commit-body"), "{}", line);
+    // `--fill` alone would have `glab` push the branch itself: `wb`'s own push is the only push.
+    assert!(line.contains(" --push=false "), "{}", line);
 }
 
 

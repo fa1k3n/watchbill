@@ -436,6 +436,15 @@ fn test_WB_RULE_60_the_page_of_the_revision_says_the_two_limits_and_that_watchbi
 
 // ---- WB-BUILD-153 to 160: the wb that waits is the watchdog ----
 
+/// Whether this build reads `WB_TEST_MINUTE`: only one with debug assertions does. The RPM's `%check` runs the tests
+/// in the release profile, where a test that needs a minute of one second checks nothing and says so.
+fn minute_is_read() -> bool {
+    if !cfg!(debug_assertions) {
+        eprintln!("skipped: a build without debug assertions does not read WB_TEST_MINUTE (WB-BUILD-158)");
+    }
+    cfg!(debug_assertions)
+}
+
 /// A session that does nothing for `seconds`, after it says the outcome it found and its number.
 fn idle(seconds: &str) -> String {
     format!("cat {{state}}/watchbill/sessions/*/outcome > {{log}}/outcome-running\necho $$ > {{log}}/pid\nsleep {}\n", seconds)
@@ -443,6 +452,9 @@ fn idle(seconds: &str) -> String {
 
 #[test]
 fn test_WB_BUILD_153_past_quiet_minutes_one_line_is_said_and_written_and_the_session_goes_on() {
+    if !minute_is_read() {
+        return;
+    }
     let found = watched(&idle("3"), &limits(2, 30), &[], 60);
     assert_eq!(found.status, 0, "the session went on to its end: {}", found.said);
     assert_eq!(found.quiet_lines().len(), 1, "{}", found.said);
@@ -454,6 +466,9 @@ fn test_WB_BUILD_153_past_quiet_minutes_one_line_is_said_and_written_and_the_ses
 
 #[test]
 fn test_WB_BUILD_154_the_line_is_said_again_each_time_the_quiet_doubles() {
+    if !minute_is_read() {
+        return;
+    }
     let found = watched(&idle("5.5"), &limits(1, 30), &[], 60);
     assert_eq!(found.status, 0, "{}", found.said);
     assert_eq!(found.quiet, "quiet: 1\nquiet: 2\nquiet: 4\n", "{}", found.said);
@@ -465,6 +480,9 @@ const WAITS: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git c
 
 #[test]
 fn test_WB_BUILD_155_past_max_minutes_the_session_is_ended_its_commit_taken_back_and_wb_ends_with_1() {
+    if !minute_is_read() {
+        return;
+    }
     let found = watched(WAITS, &limits(1, 2), &[], 60);
     assert_eq!(found.status, 1, "{}", found.said);
     assert!(found.took < std::time::Duration::from_secs(20), "{:?}", found.took);
@@ -478,6 +496,9 @@ fn test_WB_BUILD_155_past_max_minutes_the_session_is_ended_its_commit_taken_back
 
 #[test]
 fn test_WB_BUILD_155_a_session_that_ignores_the_termination_is_killed_after_the_grace() {
+    if !minute_is_read() {
+        return;
+    }
     let session = format!("trap '' TERM\n{}", WAITS);
     let found = watched(&session, &limits(1, 2), &[("WB_TEST_GRACE", "1")], 60);
     assert_eq!(found.status, 1, "{}", found.said);
@@ -489,6 +510,9 @@ fn test_WB_BUILD_155_a_session_that_ignores_the_termination_is_killed_after_the_
 
 #[test]
 fn test_WB_BUILD_155_a_session_that_ends_with_0_at_the_termination_still_ends_wb_with_1() {
+    if !minute_is_read() {
+        return;
+    }
     let session = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\ntrap 'kill $!; exit 0' TERM\nsleep 30 &\necho $$ > {log}/pid\nwait\n";
     let found = watched(session, &limits(1, 2), &[], 60);
     assert_eq!(found.status, 1, "{}", found.said);
@@ -508,6 +532,9 @@ fn test_WB_BUILD_156_a_session_that_commits_now_and_then_is_not_called_quiet() {
 
 #[test]
 fn test_WB_BUILD_157_a_fifo_or_a_link_to_dev_zero_in_the_view_does_not_make_the_quiet_check_wait() {
+    if !minute_is_read() {
+        return;
+    }
     // The files of the view are looked at by their metadata alone: none is opened, and no link is followed. Its HEAD
     // is a FIFO too, which no read of `wb` opens.
     let session = "rm -f src/new.c && mkfifo src/new.c\nrm -f tests/test_brake.c && ln -s /dev/zero tests/test_brake.c\nmkdir -p src/deep && ln -s /dev/zero src/deep/zero\nrm -f .git/HEAD && mkfifo .git/HEAD\necho $$ > {log}/pid\nsleep 5\n";
@@ -534,6 +561,9 @@ fn test_WB_BUILD_157_a_tree_of_25000_entries_is_read_to_the_bound_and_every_list
 
 #[test]
 fn test_WB_BUILD_157_a_link_in_any_part_of_a_listed_path_is_not_followed() {
+    if !minute_is_read() {
+        return;
+    }
     // `src` is made a link to a folder outside the view whose `brake.c` changes: the look does not leave the view, so
     // nothing it sees changes, and the quiet is said.
     let session = "mkdir {log}/outside && cp src/brake.c {log}/outside/brake.c\nrm -rf src && ln -s {log}/outside src\ni=0\nwhile [ $i -lt 18 ]; do echo \"int step$i;\" > {log}/outside/brake.c; sleep 0.3; i=$((i+1)); done\necho $$ > {log}/pid\n";
@@ -558,6 +588,9 @@ fn test_WB_BUILD_158_a_build_without_debug_assertions_ignores_the_test_minute() 
 
 #[test]
 fn test_WB_BUILD_159_a_time_the_session_writes_on_a_file_or_a_commit_does_not_hold_it_busy() {
+    if !minute_is_read() {
+        return;
+    }
     // The quiet is counted by `wb`'s own clock from the last look that found the view changed: a file or a commit
     // dated an hour ahead is one change, not an hour of work.
     let session = "touch -d '+1 hour' src/brake.c\necho 'int fresh;' > src/new.c && git add src/new.c && GIT_COMMITTER_DATE=\"$(date -d '+1 hour' -R)\" git commit -q -m 'Ahead'\ntouch -d '+1 hour' src/new.c\necho $$ > {log}/pid\nsleep 6\n";

@@ -1137,7 +1137,8 @@ fn wait_watched(child: &mut std::process::Child, watch: &mut crate::watchdog::Wa
 /// 1970, the newer of the time of the commit its `HEAD` names, where that is not the commit it was made with, and the
 /// newest time of the entries under `paths`. The commit is read as `work_left` reads a view: through the checkout's
 /// own repository with the view's objects as alternates, each git run within its bound; the entries by their metadata
-/// alone. None where nothing was found.
+/// alone, as the watchdog looks at them (`watchdog::files_of`), within its deadline. None where nothing was found; an
+/// error where a time is after now.
 pub fn last_change(root: &str, view: &View, paths: &[String]) -> Result<Option<u64>, String> {
     let _bound = bounded(test_seconds("WB_TEST_RUN_BOUND").unwrap_or(std::time::Duration::from_secs(3)));
     let _deadline = deadline(test_seconds("WB_TEST_VIEW_DEADLINE").unwrap_or(VIEW_DEADLINE), "read of the view");
@@ -1157,9 +1158,14 @@ pub fn last_change(root: &str, view: &View, paths: &[String]) -> Result<Option<u
             .ok_or_else(|| format!("the commit {} names no time it was committed", short(&head)))?;
         newest = Some(committed);
     }
-    let (files, _) = crate::watchdog::files_of(&view.folder, paths);
+    let files = crate::watchdog::newest_within(&view.folder, paths)?;
     if let Some(seconds) = files.and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok()).map(|since| since.as_secs()) {
         newest = Some(newest.map_or(seconds, |before| before.max(seconds)));
+    }
+    // A time after now is one a session wrote, not when it worked: the quiet is not read from it.
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|since| since.as_secs()).unwrap_or(0);
+    if newest.is_some_and(|newest| newest > now) {
+        return Err("a time in the view is after now".to_string());
     }
     Ok(newest)
 }

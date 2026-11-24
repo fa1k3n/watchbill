@@ -23,7 +23,7 @@ const USAGE: &str = "usage:
             or <role> <issue> --take-back
   wb status [<issue>] [--stage <heading>]
   wb view <issue> (<role> [--in | --out] | <path>)
-            or --kept
+            or --kept [-v | --verbose]
   wb answer (<issue> | --change <n>) [--show | [--suggested] [<question> <answer>]...]
   wb revert (<issue> | --change <n>) <role> [--round <n>]
   wb clean [--dry-run | -n] [<view>]
@@ -202,11 +202,13 @@ const USAGE: &str = "usage:
             same for what the view leaves out. A folder is a path from the
             root, with or without a closing /. The level and the line view:
             are in wb prompt <role> <issue> --stamp.
-            wb view --kept takes no other word. It lists the views kept on
-            this machine for this repository whose session does not run: for
-            each its folder, role, round and issue, why it was kept, the
-            commits not taken back, the paths left uncommitted, and not read:
-            <why> where git could not read it. It writes nothing.
+            wb view --kept takes no other word but -v. It lists the views
+            kept on this machine for this repository whose session does not
+            run, one to a line: the folder, the role, round <n>, issue
+            <issue>, and <k> commits not taken <m> paths uncommitted, or not
+            read where git could not read the view. -v (--verbose) adds below
+            each line why it was kept, each commit not taken, each path left
+            uncommitted, and why a view was not read. It writes nothing.
             wb view <issue> <path> says for each role whether the path, from
             the root, is in its view: in, with the list and the line of the
             issue's file that hold it, or out, and why. A path named as a role
@@ -237,8 +239,8 @@ const USAGE: &str = "usage:
             --dry-run (-n) says Would remove and removes nothing. <view>, the
             name of the folder of a view or its whole path, as wb view --kept
             prints it, removes that view although work is left in it, and says
-            the work first. Naming a view is the one waiver of the work left in
-            it. A view that git could not read, or whose session runs, is
+            first each commit (20 at most) and each path (20 at most) it
+            loses. Naming a view is the one waiver of the work left in it. A view that git could not read, or whose session runs, is
             never removed, named or not. It never removes the checkout, a
             branch or the lines of a session.
             Ends with 0 when it is done or there is nothing to remove, 1 when

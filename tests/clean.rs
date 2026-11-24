@@ -209,9 +209,10 @@ fn git_out(folder: &Path, args: &[&str]) -> String {
     text(&run.stdout)
 }
 
-/// The lines of the listing of one view: the line that opens with its folder, and the indented lines below it.
+/// The lines of the long listing (`-v`) of one view: the line that opens with its folder and a space, and the
+/// indented lines below it.
 fn block<'a>(out: &'a str, folder: &Path) -> Vec<&'a str> {
-    let start = format!("{}: ", folder.display());
+    let start = format!("{} ", folder.display());
     let mut lines = out.lines().skip_while(|line| !line.starts_with(&start));
     let mut found: Vec<&str> = lines.next().into_iter().collect();
     found.extend(lines.take_while(|line| line.starts_with("  ")));
@@ -224,15 +225,56 @@ fn block<'a>(out: &'a str, folder: &Path) -> Vec<&'a str> {
 fn test_WB_VIEW_125_view_kept_lists_a_kept_view_with_its_role_round_issue_and_a_commit_not_taken() {
     let bench = bench();
     let (folder, _) = keep(&bench, &Keep { round: 2, commits: &["The tests of 54"], ..Keep::new("2026-11-22T100000Z-tester-54") });
-    let run = wb_in(&bench, &["view", "--kept"]);
+    let run = wb_in(&bench, &["view", "--kept", "-v"]);
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
     let out = out_of(&run);
     let lines = block(&out, &folder);
-    assert_eq!(lines.first().copied(), Some(format!("{}: tester round 2, issue 54", folder.display()).as_str()), "{}", out);
+    assert_eq!(lines.first().copied(), Some(format!("{} tester round 2 issue 54 1 commits not taken 0 paths uncommitted", folder.display()).as_str()), "{}", out);
     assert!(lines.iter().any(|line| line.starts_with("  why: ")), "{}", out);
     let commit = lines.iter().find(|line| line.starts_with("  commit ")).unwrap_or_else(|| panic!("{}", out));
     assert!(commit.ends_with(" The tests of 54"), "{}", out);
     assert_eq!(err_of(&run), "");
+}
+
+#[test]
+fn test_WB_VIEW_125_view_kept_prints_one_line_a_view_and_nothing_else() {
+    let bench = bench();
+    let (first, _) = keep(&bench, &Keep { round: 2, commits: &["One", "Two"], uncommitted: &["a.txt"], ..Keep::new("2026-11-22T100000Z-tester-54") });
+    let (second, _) = done(&bench, "2026-11-22T110000Z-build-55");
+    let (third, _) = keep(&bench, &Keep { commits: &["Tests"], ..Keep::new("2026-11-22T120000Z-tester-56") });
+    fifo_for_head(&third);
+    let run = wb_bounded(&bench, &["view", "--kept"], 15).expect("wb view --kept did not end in 15 seconds");
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    let expected = format!(
+        "{} tester round 2 issue 54 2 commits not taken 1 paths uncommitted\n{} build round 1 issue 55 0 commits not taken 0 paths uncommitted\n{} tester round 1 issue 56 not read\n",
+        first.display(),
+        second.display(),
+        third.display()
+    );
+    assert_eq!(out_of(&run), expected);
+    assert_eq!(err_of(&run), "");
+}
+
+#[test]
+fn test_WB_VIEW_125_verbose_and_v_add_the_lines_of_detail_below_each_view_and_nothing_else() {
+    let bench = bench();
+    let (folder, _) = keep(&bench, &Keep { commits: &["One"], uncommitted: &["a.txt"], ..Keep::new("2026-11-22T100000Z-tester-54") });
+    let short = out_of(&wb_in(&bench, &["view", "--kept"]));
+    let first = short.lines().next().unwrap().to_string();
+    for flag in ["-v", "--verbose"] {
+        let run = wb_in(&bench, &["view", "--kept", flag]);
+        assert_eq!(code(&run), Some(0), "{}: {}", flag, err_of(&run));
+        let out = out_of(&run);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines[0], first, "{}", flag);
+        assert!(lines.len() == 4 && lines[1].starts_with("  why: ") && lines[2].starts_with("  commit ") && lines[3] == "  uncommitted a.txt", "{}: {}", flag, out);
+    }
+    // The flag goes with --kept alone.
+    for args in [&["view", "-v"][..], &["view", "54", "tester", "--verbose"][..], &["view", "--kept", "-v", "-v"][..]] {
+        let run = wb_in(&bench, args);
+        assert_eq!(code(&run), Some(2), "{:?}: {}", args, err_of(&run));
+    }
+    assert!(folder.exists());
 }
 
 #[test]
@@ -242,13 +284,13 @@ fn test_WB_VIEW_125_the_why_comes_from_back_and_a_commit_that_was_refused_is_nam
         &bench,
         &Keep { commits: &["Refused one"], back: Some("refused: {commit0} Refused one: it changes a path that the issue does not name\nview: kept {view}\n"), ..Keep::new("2026-11-22T100000Z-build-54") },
     );
-    let out = out_of(&wb_in(&bench, &["view", "--kept"]));
+    let out = out_of(&wb_in(&bench, &["view", "--kept", "-v"]));
     let lines = block(&out, &folder);
     assert!(lines.iter().any(|line| line.starts_with("  why: ") && line.contains("refused") && line.contains("does not name")), "{}", out);
     assert!(lines.iter().any(|line| line.starts_with("  commit ") && line.contains(" Refused one")), "{}", out);
     // Without a `back` the session left none, and that is the reason.
     let (other, _) = keep(&bench, &Keep { commits: &["Alone"], ..Keep::new("2026-11-22T110000Z-tester-55") });
-    let out = out_of(&wb_in(&bench, &["view", "--kept"]));
+    let out = out_of(&wb_in(&bench, &["view", "--kept", "-v"]));
     assert!(block(&out, &other).iter().any(|line| line.starts_with("  why: ") && line.contains("no `back`")), "{}", out);
 }
 
@@ -265,7 +307,7 @@ fn test_WB_VIEW_125_with_nothing_kept_nothing_is_printed_and_it_ends_with_0() {
 fn test_WB_VIEW_126_paths_left_uncommitted_are_listed_one_to_a_line() {
     let bench = bench();
     let (folder, _) = keep(&bench, &Keep { uncommitted: &["left.txt", "other.txt"], ..Keep::new("2026-11-22T100000Z-build-54") });
-    let out = out_of(&wb_in(&bench, &["view", "--kept"]));
+    let out = out_of(&wb_in(&bench, &["view", "--kept", "-v"]));
     let lines = block(&out, &folder);
     assert!(lines.contains(&"  uncommitted left.txt") && lines.contains(&"  uncommitted other.txt"), "{}", out);
 }
@@ -274,7 +316,7 @@ fn test_WB_VIEW_126_paths_left_uncommitted_are_listed_one_to_a_line() {
 fn test_WB_VIEW_126_a_view_whose_commits_were_all_taken_is_listed_as_nothing_left() {
     let bench = bench();
     let (folder, _) = done(&bench, "2026-11-22T100000Z-build-54");
-    let out = out_of(&wb_in(&bench, &["view", "--kept"]));
+    let out = out_of(&wb_in(&bench, &["view", "--kept", "-v"]));
     let lines = block(&out, &folder);
     assert!(lines.first().is_some(), "{}", out);
     assert!(lines.iter().any(|line| line.starts_with("  why: ") && line.contains("nothing is left")), "{}", out);
@@ -295,7 +337,7 @@ fn test_WB_VIEW_126_a_view_of_another_repository_is_not_listed() {
     git(&other.path, &args);
     git(&other.path, &["branch", "-M", "main"]);
     let (theirs, _) = keep_in(&other.path, &bench.state.path, &Keep { commits: &["Theirs"], ..Keep::new("2026-11-22T120000Z-tester-77") });
-    let out = out_of(&wb_in(&bench, &["view", "--kept"]));
+    let out = out_of(&wb_in(&bench, &["view", "--kept", "-v"]));
     assert!(!block(&out, &mine).is_empty(), "{}", out);
     assert!(block(&out, &theirs).is_empty() && !out.contains("Theirs"), "{}", out);
     // And `wb clean` does not touch it.
@@ -308,7 +350,7 @@ fn test_WB_VIEW_126_a_view_that_cannot_be_read_is_listed_as_not_read_within_a_bo
     let bench = bench();
     let (folder, _) = keep(&bench, &Keep { commits: &["Tests"], ..Keep::new("2026-11-22T100000Z-tester-54") });
     fifo_for_head(&folder);
-    let run = wb_bounded(&bench, &["view", "--kept"], 15).expect("wb view --kept did not end in 15 seconds");
+    let run = wb_bounded(&bench, &["view", "--kept", "-v"], 15).expect("wb view --kept did not end in 15 seconds");
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
     let out = out_of(&run);
     assert!(block(&out, &folder).iter().any(|line| line.starts_with("  not read: ")), "{}", out);
@@ -569,13 +611,22 @@ fn test_WB_VIEW_132_a_view_that_cannot_be_read_is_not_removed_named_or_not_and_w
     assert!(err_of(&run).contains("not read"), "{}", err_of(&run));
 }
 
-/// A process that is a `wb` to `wb` (`wb`, by the name of its program) and waits: a copy of the shell in a loop.
+/// A process that is a `wb` to `wb` (`wb`, by the name of its program) and waits: a copy of the shell in a loop. The
+/// copy is written and closed first, and the spawn is tried again where another thread's fork still holds the file
+/// open for writing (`ETXTBSY`, "text file busy").
 fn running_wb() -> (Folder, Child) {
     let place = folder_named("running");
     let program = place.path.join("wb");
     fs::copy("/bin/sh", &program).unwrap();
-    let child = Command::new(&program).args(["-c", "while :; do sleep 1; done"]).stdin(Stdio::null()).spawn().unwrap();
-    (place, child)
+    fs::File::open(&program).unwrap().sync_all().unwrap();
+    for attempt in 0..100 {
+        match Command::new(&program).args(["-c", "while :; do sleep 1; done"]).stdin(Stdio::null()).spawn() {
+            Ok(child) => return (place, child),
+            Err(error) if error.raw_os_error() == Some(26) && attempt < 99 => std::thread::sleep(std::time::Duration::from_millis(50)),
+            Err(error) => panic!("the stand-in could not be started: {}", error),
+        }
+    }
+    unreachable!()
 }
 
 #[test]
@@ -611,6 +662,112 @@ fn test_WB_VIEW_132_a_view_whose_session_was_cut_off_is_kept_unless_it_is_named(
     let run = wb_in(&bench, &["clean", &name]);
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
     assert!(!folder.exists());
+}
+
+// ---- #176, after the review: what is read beside `back`, what a named removal says, what a lie of the lines cannot reach ----
+
+#[test]
+fn test_WB_VIEW_126_a_path_written_in_the_view_after_the_take_back_is_listed_beside_the_paths_back_names() {
+    let bench = bench();
+    let (folder, _) = keep(
+        &bench,
+        &Keep {
+            commits: &["Refused one"],
+            uncommitted: &["a.txt"],
+            back: Some("refused: {commit0} Refused one: a reason\nuncommitted: a.txt\nview: kept {view}\n"),
+            ..Keep::new("2026-11-22T100000Z-build-54")
+        },
+    );
+    put(&folder, "later.txt", "written after\n");
+    let out = out_of(&wb_in(&bench, &["view", "--kept", "-v"]));
+    let lines = block(&out, &folder);
+    assert!(lines[0].ends_with(" 1 commits not taken 2 paths uncommitted"), "{}", out);
+    assert!(lines.contains(&"  uncommitted a.txt") && lines.contains(&"  uncommitted later.txt"), "{}", out);
+    assert_eq!(lines.iter().filter(|line| line.starts_with("  uncommitted ")).count(), 2, "{}", out);
+    // A named removal says the later path too.
+    let name = folder.file_name().unwrap().to_string_lossy().to_string();
+    let run = wb_in(&bench, &["clean", "-n", &name]);
+    assert!(out_of(&run).contains("  uncommitted later.txt"), "{}", out_of(&run));
+}
+
+#[test]
+fn test_WB_VIEW_129_a_named_removal_says_each_commit_and_each_path_it_loses_before_it_removes() {
+    let bench = bench();
+    let (folder, _) = keep(&bench, &Keep { commits: &["Not taken"], uncommitted: &["left.txt"], ..Keep::new("2026-11-22T100000Z-tester-54") });
+    let head = head_of(&folder);
+    let name = folder.file_name().unwrap().to_string_lossy().to_string();
+    let run = wb_in(&bench, &["clean", &name]);
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    let lines: Vec<String> = out_of(&run).lines().map(str::to_string).collect();
+    assert_eq!(lines.len(), 3, "{:?}", lines);
+    assert_eq!(lines[0], format!("Removing {}: 1 commit not taken, 1 path uncommitted", folder.display()));
+    assert_eq!(lines[1], format!("  commit {} Not taken", &head[..12]));
+    assert_eq!(lines[2], "  uncommitted left.txt");
+    assert!(!folder.exists());
+}
+
+#[test]
+fn test_WB_VIEW_129_what_a_named_removal_says_of_the_work_is_bounded_with_and_k_more() {
+    let bench = bench();
+    let subjects: Vec<String> = (0..22).map(|n| format!("Commit {}", n)).collect();
+    let refs: Vec<&str> = subjects.iter().map(String::as_str).collect();
+    let paths: Vec<String> = (0..22).map(|n| format!("left-{:02}.txt", n)).collect();
+    let path_refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+    let (folder, _) = keep(&bench, &Keep { commits: &refs, uncommitted: &path_refs, ..Keep::new("2026-11-22T100000Z-tester-54") });
+    let name = folder.file_name().unwrap().to_string_lossy().to_string();
+    let run = wb_in(&bench, &["clean", "-n", &name]);
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    let out = out_of(&run);
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], format!("Would remove {}: 22 commits not taken, 22 paths uncommitted", folder.display()));
+    assert_eq!(lines.iter().filter(|line| line.starts_with("  commit ")).count(), 20, "{}", out);
+    assert_eq!(lines.iter().filter(|line| line.starts_with("  uncommitted ")).count(), 20, "{}", out);
+    assert!(lines.contains(&"  and 2 more commits") && lines.contains(&"  and 2 more paths"), "{}", out);
+    assert_eq!(lines.len(), 1 + 20 + 1 + 20 + 1, "{}", out);
+}
+
+#[test]
+fn test_WB_VIEW_131_a_session_whose_folder_names_a_folder_outside_the_views_is_neither_listed_nor_removed() {
+    let bench = bench();
+    let root = fs::canonicalize(&bench.repo.path).unwrap();
+    let views = bench.state.path.join("watchbill/views");
+    fs::create_dir_all(&views).unwrap();
+    let head = head_of(&root);
+    for (number, outside) in [root.clone(), views.clone(), views.join(".."), bench.state.path.clone()].iter().enumerate() {
+        let name = format!("2026-11-22T10000{}Z-tester-54", number);
+        let session = bench.state.path.join("watchbill/sessions").join(&name);
+        fs::create_dir_all(&session).unwrap();
+        fs::write(session.join("stamp"), "[stamp] tester round 1\n").unwrap();
+        fs::write(session.join("outcome"), RAN).unwrap();
+        fs::write(session.join("folder"), format!("folder: {}\nbase: {}\nhead: {}\nbranch: refs/heads/main\nissue: 54\n", outside.display(), head, head)).unwrap();
+        fs::write(session.join("back"), format!("view: kept {}\n", outside.display())).unwrap();
+    }
+    let before = tree(&bench.repo.path);
+    let listed = out_of(&wb_in(&bench, &["view", "--kept", "-v"]));
+    assert_eq!(listed, "");
+    assert_eq!(out_of(&wb_in(&bench, &["clean"])), "");
+    for name in [root.display().to_string(), root.file_name().unwrap().to_string_lossy().to_string(), views.display().to_string(), bench.state.path.display().to_string()] {
+        let run = wb_in(&bench, &["clean", &name]);
+        assert_eq!(code(&run), Some(1), "{:?}: {}", name, err_of(&run));
+    }
+    assert_eq!(tree(&bench.repo.path), before);
+    assert!(views.is_dir() && bench.state.path.join("watchbill/sessions").is_dir());
+}
+
+#[test]
+fn test_WB_VIEW_131_a_link_inside_a_view_to_a_folder_outside_it_is_not_followed_when_the_view_is_removed() {
+    let bench = bench();
+    let (folder, _) = keep(&bench, &Keep::new("2026-11-22T100000Z-tester-54"));
+    let target = folder_named("target");
+    put(&target.path, "precious.txt", "keep me\n");
+    symlink(&target.path, folder.join("link")).unwrap();
+    symlink(bench.repo.path.join("src/brake.c"), folder.join("file-link")).unwrap();
+    let name = folder.file_name().unwrap().to_string_lossy().to_string();
+    let run = wb_in(&bench, &["clean", &name]);
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    assert!(!folder.exists());
+    assert_eq!(read(&target.path.join("precious.txt")), "keep me\n");
+    assert_eq!(read(&bench.repo.path.join("src/brake.c")), "int brake(void) { return 1; }\n");
 }
 
 // ---- WB-VIEW-133: usage ----
@@ -679,7 +836,7 @@ fn test_WB_VIEW_134_clean_is_a_built_command_with_its_usage_and_help() {
     assert!(watchbill::layout::planned("clean").is_none());
     assert!(watchbill::ARMS.contains(&"clean"));
     assert!(watchbill::USAGE.contains("\n  wb clean [--dry-run | -n] [<view>]\n"), "{}", watchbill::USAGE);
-    assert!(watchbill::USAGE.contains("\n            or --kept\n"), "{}", watchbill::USAGE);
+    assert!(watchbill::USAGE.contains("\n            or --kept [-v | --verbose]\n"), "{}", watchbill::USAGE);
     let folder = folder();
     let run = wb(&folder.path, &["help", "clean"], "");
     assert_eq!(code(&run), Some(0));

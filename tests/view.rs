@@ -2813,6 +2813,28 @@ fn test_WB_MON_10_outcome_says_running_with_the_process_id_while_the_session_run
 }
 
 #[test]
+fn test_WB_VIEW_132_outcome_says_running_before_folder_is_written_and_before_the_stamp_is_posted() {
+    let bench = bench();
+    git(&bench.repo.path, &["checkout", "-q", "issue-99"]);
+    // The stand-in that posts the stamp looks at the folder of the lines when the post begins.
+    let (l, st) = (bench.log.path.to_str().unwrap().to_string(), bench.state.path.to_str().unwrap().to_string());
+    script(
+        &bench.at("post.sh"),
+        &format!("cat > {l}/posted-$1-$2\nfor d in {st}/watchbill/sessions/*; do ls $d > {l}/at-post; cat $d/outcome > {l}/outcome-at-post; done\nexit 0\n"),
+    );
+    bench.session("exit 0\n");
+    let run = bench.start_by(&pass_through(&bench), &["start", "build", "99"]);
+    ok(&run);
+    let at_post = bench.left("at-post");
+    let names: Vec<&str> = at_post.lines().collect();
+    assert!(names.contains(&"outcome") && names.contains(&"folder"), "{}", at_post);
+    let outcome = bench.left("outcome-at-post");
+    let mut lines = outcome.lines();
+    assert_eq!(lines.next(), Some("outcome: running"), "{}", outcome);
+    assert!(lines.next().is_some_and(|line| line.starts_with("pid: ")), "{}", outcome);
+}
+
+#[test]
 fn test_WB_MON_12_the_folder_of_a_session_in_a_view_holds_folder_before_the_session_starts() {
     if !sandbox("test_WB_MON_12") {
         return;

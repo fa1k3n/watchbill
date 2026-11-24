@@ -139,8 +139,8 @@ pub const USAGE: &str = "usage:
             a unified diff of each changed file. The installed revision is one;
             the other is that of the repository at --from, the root of a
             repository pinned to it. Ends with 0 when they are the same, 1 when
-            they differ, 2 when a revision is not found or it was used wrongly.
-            Writes nothing
+            they differ or the files of a revision are refused, 2 when a
+            revision is not found or it was used wrongly. Writes nothing
   accept    accept the issue's file .watchbill/issues/<issue>.yml: read it,
             hold it to its form, refuse it while it holds a question, say what
             will be written, and write .watchbill/issues/<issue>.accepted with

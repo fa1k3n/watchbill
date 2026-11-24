@@ -941,7 +941,7 @@ changed: revision/roles/build.md
 +A new last line.
 ```
 
-The output is fixed. Nothing when the revisions are the same; else one line for each file, sorted by path, `added:`, `removed:` or `changed:`, then an empty line and the unified diff of each changed file, `a` being the first revision. The diff is made by `git diff --no-index` with fixed options and none of the person's git configuration. It writes nothing and asks nothing of the network. The exit status: 0 the same, 1 they differ, 2 a revision is not found or its files are refused, or it was used wrongly.
+The output is fixed. Nothing when the revisions are the same; else one line for each file, sorted by path, `added:`, `removed:` or `changed:`, then an empty line and the unified diff of each changed file, `a` being the first revision. The diff is made by `git diff --no-index` with fixed options and none of the person's git configuration. It writes nothing and asks nothing of the network. The exit status: 0 the same, 1 they differ or the files of a revision are refused (written as `wb compare: limit: …` on standard error); 2 a revision is not found, a repository is not set up, or it was used wrongly.
 
 ## The name
 

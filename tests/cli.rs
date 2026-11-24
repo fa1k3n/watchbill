@@ -16,6 +16,7 @@ const USAGE: &str = "usage:
   wb upgrade [--dry-run]
   wb plan add [<name>] (-F <file> | -m <text>... | --from <adapter> <number>)
             [--source <address>] [--level <level>] [--hash-only]
+            -F is --file and -m is --message
   wb accept <issue> [--no-commit]
   wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [--ignore-kept]
             [--ignore-branch] [the options of prompt]
@@ -61,29 +62,33 @@ const USAGE: &str = "usage:
             wb plan add takes a job in. Its text is given in one of three
             ways: -F <file>, where -F - reads standard input, a pipe or a
             here-document; -m <text>, which may be given more than once and is
-            joined as git commit joins it, each a paragraph; or --from
-            <adapter> <number>, which runs the pattern issue_text of
+            joined and cleaned up of whitespace as git commit -m does it; or
+            --from <adapter> <number>, which runs the pattern issue_text of
             watchbill.yml where its tracker: is the adapter, and names the job
-            <adapter>/<number>. -F is --file and -m is --message, as in git.
-            The text is stored as a git blob under its hash, and the name of
-            the job is the ref refs/watchbill/<name>: a commit whose tree holds
-            job.yml and the text under sources/<hash>. job.yml holds the name
-            and, for each source, its hash, --source <address> or none, the
-            level, the git identity of the person and the time. With no name
-            the job is named by the first 12 hex digits of the hash. A name
-            may hold / (github/54); a name that git check-ref-format refuses,
-            such as one with :, is refused. Other text under a name that is
-            there adds a source, as a new commit after the one before; the
-            same text again changes nothing; text that is already a job under
-            another name gives that job this name too. --level <level> is a
-            level of the organisation's file no higher than the repository's,
-            which is taken when none is given. --hash-only keeps the hash and
-            the source and not the text, where the organisation's file allows
-            it with jobs: hash_only: allowed. It says what it will write first,
-            asks nothing of the network unless --from runs a pattern, and only
-            queues: it runs no prompt and starts no session. Ends with 0 when
-            the job is taken in or nothing changes, 1 when it is refused,
-            2 when it was used wrongly or the repository is not set up
+            <adapter>/<number>. -F is --file and -m is --message, as in git. A
+            file is read only where it is a plain file of 1 MiB or less, and a
+            text that is empty or not UTF-8 is refused. The text is stored as
+            a git blob under its hash, and the name of the job is the ref
+            refs/watchbill/<name>: a commit whose tree holds job.yml and the
+            text under sources/<hash>. job.yml holds the first name, every
+            name and, for each source, its hash, --source <address> or none,
+            the level, the git identity of the person and the time. With no
+            name the job is named by the first 12 hex digits of the hash. A
+            name may hold / (github/54); a name that git check-ref-format
+            refuses, such as one with :, is refused. Other text under a name
+            that is there adds a source, as a new commit after the one before;
+            the same text again changes nothing; text that is already a job
+            under another name gives that job this name too. Every name of the
+            job is moved to its new commit together, or none is. --level
+            <level> is a level of the organisation's file no higher than the
+            repository's, which is taken when none is given. --hash-only keeps
+            the hash and the source and not the text, where the organisation's
+            file allows it with jobs: hash_only: allowed. It says what it will
+            write first, asks nothing of the network unless --from runs a
+            pattern, and only queues: it runs no prompt and starts no session.
+            Ends with 0 when the job is taken in or nothing changes, 1 when it
+            is refused, 2 when it was used wrongly or the repository is not
+            set up
   prompt    print the prompt of a role on standard output and nothing else: the
             role's text of the pinned revision with each placeholder filled
             from the option of its name, such as --issue for {issue}, then the

@@ -10,7 +10,7 @@ _wb_stages=("Not broken down" "Broken down" Accepted Tested Built Reviewed Fixed
 
 _wb_flags_init="--yes"
 _wb_flags_upgrade="--dry-run"
-_wb_flags_plan="--from --source --level --hash-only"
+_wb_flags_plan="--file --message --from --source --level --hash-only"
 _wb_flags_accept="--no-commit"
 _wb_flags_start="--runner --prompt --ignore-local --ignore-kept --ignore-branch --take-back --issue --change --requirements --round --checkout --branch --issue_address --change_address --classed --classed_touched --parts --stamp"
 _wb_flags_status="--stage"
@@ -55,6 +55,21 @@ _wb() {
     *) return 0 ;;
     esac
 
+    # The values of wb plan add: a file after -F, and nothing for the others.
+    if [[ $command == plan ]]; then
+        case $prev in
+        -F | --file)
+            mapfile -t files < <(compgen -f -- "$cur")
+            COMPREPLY=("${files[@]}")
+            compopt -o filenames 2>/dev/null
+            return 0
+            ;;
+        -m | --message | --from | --source | --level)
+            return 0
+            ;;
+        esac
+    fi
+
     # The value of a flag that takes one: the headings of wb status, and nothing for the others.
     case $prev in
     --stage)
@@ -74,17 +89,6 @@ _wb() {
     --runner | --issue | --change | --requirements | --round | --checkout | --branch | --issue_address | --change_address)
         return 0
         ;;
-    -m | --message | --from | --source | --level)
-        [[ $command == plan ]] && return 0
-        ;;
-    -F | --file)
-        if [[ $command == plan ]]; then
-            mapfile -t files < <(compgen -f -- "$cur")
-            COMPREPLY=("${files[@]}")
-            compopt -o filenames 2>/dev/null
-            return 0
-        fi
-        ;;
     esac
 
     if [[ $cur == --* ]]; then
@@ -101,14 +105,15 @@ _wb() {
             changed=1
             ((i++))
             ;;
-        --stage | --from | --runner | --issue | --requirements | --round | --checkout | --branch | --issue_address | --change_address)
+        --stage | --runner | --issue | --requirements | --round | --checkout | --branch | --issue_address | --change_address)
             ((i++))
             ;;
         -F | -m | --file | --message | --source | --level)
             [[ $command == plan ]] && ((i++))
             ;;
         --from)
-            [[ $command == plan ]] && ((i += 2))
+            # --from of wb plan add takes an adapter and a number; that of wb compare a folder.
+            if [[ $command == plan ]]; then ((i += 2)); else ((i++)); fi
             ;;
         --*) ;;
         *) position=$((position + 1)) ;;

@@ -56,7 +56,10 @@ struct Source {
 
 /// A job as the newest commit of its ref holds it.
 struct Job {
+    /// The name it was first taken in under.
     name: String,
+    /// Every name of the job, the first first: each is a ref that points at its newest commit.
+    names: Vec<String>,
     sources: Vec<Source>,
 }
 
@@ -142,9 +145,13 @@ fn read_job(root: &str, commit: &str, label: &str) -> Result<Job, String> {
     let bytes = git(root, &["cat-file", "blob", &format!("{}:job.yml", commit)], None).map_err(|_| format!("{} holds no job.yml", label))?;
     let doc = yamlfile::load_bytes(format!("{}:job.yml", label), bytes).map_err(|why| why.to_string())?;
     let fail = |why: yamlfile::YamlError| why.to_string();
-    doc.only(&[], &["name", "sources"]).map_err(fail)?;
-    doc.need(&[], &["name", "sources"]).map_err(fail)?;
+    doc.only(&[], &["name", "names", "sources"]).map_err(fail)?;
+    doc.need(&[], &["name", "names", "sources"]).map_err(fail)?;
     let name = doc.text(&[Part::from("name")]).map_err(fail)?;
+    let names = doc.texts(&[Part::from("names")], false).map_err(fail)?;
+    if !names.contains(&name) {
+        return Err(doc.fail(&[Part::from("names")], &format!("the names do not hold the name `{}`", name), false).to_string());
+    }
     let mut sources = Vec::new();
     let mut index = 0;
     while doc.has(&[Part::from("sources"), Part::from(index)]) {
@@ -168,14 +175,18 @@ fn read_job(root: &str, commit: &str, label: &str) -> Result<Job, String> {
     if sources.is_empty() {
         doc.texts(&[Part::from("sources")], false).map_err(fail)?;
     }
-    Ok(Job { name, sources })
+    Ok(Job { name, names, sources })
 }
 
-/// `job.yml` of a job: the name and each source, in the order they were added.
-fn job_yml(name: &str, sources: &[Source]) -> String {
+/// `job.yml` of a job: its first name, all its names, and each source, in the order they were added.
+fn job_yml(job: &Job) -> String {
     let mut text = String::from("# A job of Watchbill, written by `wb plan add` (docs/revision.md, point 15).\n");
-    text.push_str(&format!("name: {}\nsources:\n", yaml_value(name)));
-    for source in sources {
+    text.push_str(&format!("name: {}\nnames:\n", yaml_value(&job.name)));
+    for name in &job.names {
+        text.push_str(&format!("  - {}\n", yaml_value(name)));
+    }
+    text.push_str("sources:\n");
+    for source in &job.sources {
         text.push_str(&format!("  - hash: {}\n", yaml_value(&source.hash)));
         text.push_str(&format!("    text: {}\n", yaml_value(if source.kept { "kept" } else { "hash only" })));
         text.push_str(&format!("    source: {}\n", yaml_value(&source.source)));
@@ -186,10 +197,41 @@ fn job_yml(name: &str, sources: &[Source]) -> String {
     text
 }
 
-/// The text of `-m`, as `git commit` joins it: each a paragraph, a blank line between, and one line break at the end.
+/// The text of `-m`, as `git commit -m` makes it: each on a line of its own after the one before, so that each is a
+/// paragraph, then cleaned up as git's `whitespace` clean-up does: the whitespace at the end of each line is taken
+/// off, runs of blank lines are one, and blank lines at the start and the end are taken out.
 pub fn joined(messages: &[String]) -> String {
-    let parts: Vec<&str> = messages.iter().map(|message| message.trim_end_matches('\n')).collect();
-    format!("{}\n", parts.join("\n\n"))
+    let mut built = String::new();
+    for message in messages {
+        if !built.is_empty() {
+            built.push('\n');
+        }
+        built.push_str(message);
+        if !built.ends_with('\n') {
+            built.push('\n');
+        }
+    }
+    stripspace(&built)
+}
+
+/// git's clean-up of whitespace, as `git stripspace` does it.
+fn stripspace(text: &str) -> String {
+    let mut out = String::new();
+    let mut blank = false;
+    for line in text.split('\n') {
+        let line = line.trim_end_matches([' ', '\t', '\r', '\x0b', '\x0c']);
+        if line.is_empty() {
+            blank = true;
+            continue;
+        }
+        if blank && !out.is_empty() {
+            out.push('\n');
+        }
+        blank = false;
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
 }
 
 /// What a source given to `wb plan add` may be: one line of text with no control character.
@@ -208,6 +250,18 @@ fn read_capped(reader: &mut dyn Read, cap: u64) -> std::io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
     reader.take(cap + 1).read_to_end(&mut bytes)?;
     Ok(bytes)
+}
+
+/// Why a text cannot be a job's, if it cannot: over the cap, not UTF-8, or nothing but whitespace.
+fn text_fault(bytes: &[u8], cap: u64) -> Option<&'static str> {
+    if bytes.len() as u64 > cap {
+        return Some("the text is over 1 MiB");
+    }
+    match std::str::from_utf8(bytes) {
+        Err(_) => Some("the text is not UTF-8 text"),
+        Ok(text) if crate::detect::strip(text).is_empty() => Some("the text is empty"),
+        Ok(_) => None,
+    }
 }
 
 /// The entries of a tree, each as `mktree` reads it, but those named in `leave`.
@@ -232,6 +286,72 @@ fn mktree(root: &str, entries: &[String]) -> Result<String, String> {
         input.push(0);
     }
     git_line(root, &["mktree", "-z"], Some(&input))
+}
+
+/// The commit of a job: `job.yml` of `job`, the texts of the commit before, `old`, and `text`, the hash of a text to add
+/// to them; the other entries of the tree before are kept as they are. Its message is `message`.
+fn write_commit(root: &str, job: &Job, old: Option<&str>, text: Option<&str>, message: &str) -> Result<String, String> {
+    let yml = job_yml(job);
+    let yml_hash = git_line(root, &["hash-object", "-t", "blob", "-w", "--stdin"], Some(yml.as_bytes()))?;
+    let mut texts = match old {
+        Some(commit) if git(root, &["rev-parse", "--verify", "-q", &format!("{}:sources", commit)], None).is_ok() => {
+            entries(root, &format!("{}:sources", commit), &[])?
+        }
+        _ => Vec::new(),
+    };
+    if let Some(hash) = text {
+        texts.push(format!("100644 blob {}\t{}", hash, hash));
+    }
+    let mut top = match old {
+        Some(commit) => entries(root, &format!("{}^{{tree}}", commit), &["job.yml", "sources"])?,
+        None => Vec::new(),
+    };
+    top.push(format!("100644 blob {}\tjob.yml", yml_hash));
+    if !texts.is_empty() {
+        top.push(format!("040000 tree {}\tsources", mktree(root, &texts)?));
+    }
+    let tree = mktree(root, &top)?;
+    let mut args = vec!["commit-tree", tree.as_str()];
+    if let Some(commit) = old {
+        args.push("-p");
+        args.push(commit);
+    }
+    git_line(root, &args, Some(message.as_bytes()))
+}
+
+/// Moves each ref of `moved` from `old` to `new`, and makes `made` at `new`, in one transaction of `update-ref`: either
+/// all of them or none, and none where a ref is no longer what it was read as.
+fn move_refs(root: &str, moved: &[String], made: Option<&str>, old: &str, new: &str) -> Result<(), String> {
+    let mut input = String::new();
+    for name in moved {
+        input.push_str(&format!("update {} {} {}\n", name, new, old));
+    }
+    if let Some(name) = made {
+        input.push_str(&format!("create {} {}\n", name, new));
+    }
+    git(root, &["update-ref", "--stdin"], Some(input.as_bytes())).map(|_| ())
+}
+
+/// Says what will be written: the blob of the text, or none, `job.yml`, the tree and the commit, and the refs it moves.
+fn say(out: &mut dyn Write, job: &Job, text: Option<&str>, kept: &[&str], old: Option<&str>, refs: &[String]) {
+    let _ = writeln!(out, "It writes:");
+    if let Some(line) = text {
+        let _ = writeln!(out, "  {}", line);
+    }
+    let _ = writeln!(out, "  job.yml:");
+    for line in job_yml(job).lines() {
+        let _ = writeln!(out, "    {}", line);
+    }
+    let tree: Vec<String> = std::iter::once("job.yml".to_string()).chain(kept.iter().map(|hash| format!("sources/{}", hash))).collect();
+    let _ = writeln!(out, "  a tree of {}", tree.join(", "));
+    match old {
+        Some(commit) => {
+            let _ = writeln!(out, "  a commit after {}, and the refs {} moved to it from that commit", commit, refs.join(", "));
+        }
+        None => {
+            let _ = writeln!(out, "  a commit, the first of the job, and the ref {} at it", refs.join(", "));
+        }
+    }
 }
 
 /// Runs `wb plan add` in the repository at `root`, with a relative `-F` read from `folder`, and the organisation's
@@ -273,6 +393,30 @@ pub fn add(root: &str, folder: &Path, organisation: &Path, add: &Add, input: &mu
             return limit(err, &why);
         }
     }
+
+    // The text of -F and -m, read before anything else is asked: a file is read only where it is a plain file, through
+    // the cap, so that a FIFO or a device never makes `wb` wait or fill the memory.
+    let cap = crate::bounded::TEXT_CAP;
+    let read = match &add.text {
+        Text::File(path) if path == "-" => match read_capped(input, cap) {
+            Ok(bytes) => Some(bytes),
+            Err(error) => return limit(err, &format!("standard input cannot be read: {}", error)),
+        },
+        Text::File(path) => match crate::bounded::read_following(&folder.join(path), cap) {
+            Ok(bytes) => Some(bytes),
+            Err(crate::bounded::Fault::TooBig(_)) => return limit(err, "the text is over 1 MiB"),
+            Err(crate::bounded::Fault::NotPlain) => {
+                return limit(err, &format!("{} is not a plain file, and only a plain file is read: a pipe is read with -F -", path))
+            }
+            Err(fault) => return limit(err, &format!("{} cannot be read: {}", path, fault)),
+        },
+        Text::Messages(messages) => Some(joined(messages).into_bytes()),
+        Text::From(..) => None,
+    };
+    if let Some(why) = read.as_deref().and_then(|bytes| text_fault(bytes, cap)) {
+        return limit(err, why);
+    }
+
     // The level: the organisation's, no higher than the repository's.
     let found = match crate::confidentiality::read(organisation) {
         Ok(found) => found,
@@ -303,22 +447,10 @@ pub fn add(root: &str, folder: &Path, organisation: &Path, add: &Add, input: &mu
         (Err(why), _) | (_, Err(why)) => return limit(err, &why),
     };
 
-    // The text.
-    let cap = crate::bounded::TEXT_CAP;
-    let (bytes, source) = match &add.text {
-        Text::File(path) if path == "-" => match read_capped(input, cap) {
-            Ok(bytes) => (bytes, add.source.clone()),
-            Err(error) => return limit(err, &format!("standard input cannot be read: {}", error)),
-        },
-        Text::File(path) => {
-            let file = folder.join(path);
-            match std::fs::File::open(&file).and_then(|mut opened| read_capped(&mut opened, cap)) {
-                Ok(bytes) => (bytes, add.source.clone()),
-                Err(error) => return limit(err, &format!("{} cannot be read: {}", path, crate::yamlfile::system_words(&error))),
-            }
-        }
-        Text::Messages(messages) => (joined(messages).into_bytes(), add.source.clone()),
-        Text::From(..) => {
+    // The text of --from, read by its pattern after the level is known.
+    let (bytes, source) = match read {
+        Some(bytes) => (bytes, add.source.clone()),
+        None => {
             let line = pattern.clone().unwrap_or_default();
             if let Some(why) = source_fault(&line) {
                 return limit(err, &format!("the pattern issue_text, filled, {}", why));
@@ -329,14 +461,8 @@ pub fn add(root: &str, folder: &Path, organisation: &Path, add: &Add, input: &mu
             }
         }
     };
-    if bytes.len() as u64 > cap {
-        return limit(err, "the text is over 1 MiB");
-    }
-    if std::str::from_utf8(&bytes).is_err() {
-        return limit(err, "the text is not UTF-8 text");
-    }
-    if crate::detect::strip(&String::from_utf8_lossy(&bytes)).is_empty() {
-        return limit(err, "the text is empty");
+    if let Some(why) = text_fault(&bytes, cap) {
+        return limit(err, why);
     }
     let source = source.unwrap_or_else(|| "none".to_string());
     let hash = match git_line(root, &["hash-object", "-t", "blob", "--stdin"], Some(&bytes)) {
@@ -346,155 +472,115 @@ pub fn add(root: &str, folder: &Path, organisation: &Path, add: &Add, input: &mu
     let name = given_name.unwrap_or_else(|| hash.chars().take(12).collect());
     let full = format!("{}{}", PREFIX, name);
 
-    // The jobs there are.
-    let listed = match git_line(root, &["for-each-ref", "--format=%(refname)", PREFIX], None) {
+    // The refs there are, each with what it points at.
+    let listed = match git_line(root, &["for-each-ref", "--format=%(objectname) %(refname)", PREFIX], None) {
         Ok(listed) => listed,
         Err(why) => return limit(err, &why),
     };
-    let refs: Vec<&str> = listed.lines().filter(|line| !line.is_empty()).collect();
-    if let Some(other) = refs.iter().find(|other| other.starts_with(&format!("{}/", full)) || full.starts_with(&format!("{}/", other))) {
+    let refs: Vec<(String, String)> = listed
+        .lines()
+        .filter_map(|line| line.split_once(' '))
+        .map(|(object, name)| (object.to_string(), name.to_string()))
+        .collect();
+    if let Some((_, other)) = refs.iter().find(|(_, other)| other.starts_with(&format!("{}/", full)) || full.starts_with(&format!("{}/", other))) {
         return limit(err, &format!("the name '{}' meets the job {} as a folder, and git cannot hold both refs", name, &other[PREFIX.len()..]));
     }
-    let old = if refs.contains(&full.as_str()) {
-        match git_line(root, &["rev-parse", "--verify", "-q", &format!("{}^{{commit}}", full)], None) {
-            Ok(commit) => Some(commit),
-            Err(_) => return limit(err, &format!("{} is not a commit", full)),
-        }
-    } else {
-        None
-    };
-    let job = match &old {
-        Some(commit) => match read_job(root, commit, &full) {
-            Ok(job) => Some(job),
-            Err(why) => return limit(err, &why),
-        },
-        None => None,
-    };
+    let commit_of = |object: &str| git_line(root, &["rev-parse", "--verify", "-q", &format!("{}^{{commit}}", object)], None);
+    let at = |commit: &str| -> Vec<String> { refs.iter().filter(|(object, _)| object == commit).map(|(_, name)| name.clone()).collect() };
     let _ = writeln!(out, "{}: the text is {} bytes, and its hash is {}.", NAME, bytes.len(), hash);
-    if let Some(job) = &job {
+
+    // The job the text goes to: the one of the name, or one that has the text already, or a new one.
+    let mut existing = None;
+    if let Some((object, _)) = refs.iter().find(|(_, other)| *other == full) {
+        let commit = match commit_of(object) {
+            Ok(commit) => commit,
+            Err(_) => return limit(err, &format!("{} is not a commit", full)),
+        };
+        let job = match read_job(root, &commit, &full) {
+            Ok(job) => job,
+            Err(why) => return limit(err, &why),
+        };
         if job.sources.iter().any(|source| source.hash == hash) {
             let _ = writeln!(out, "{}: the text is already a source of the job {}. Nothing to do. Nothing written.", NAME, name);
             return 0;
         }
+        existing = Some((commit, job, false));
     } else {
-        // Text that is already a job under another name gives that job this name too.
-        for other in &refs {
-            let commit = match git_line(root, &["rev-parse", "--verify", "-q", &format!("{}^{{commit}}", other)], None) {
-                Ok(commit) => commit,
-                Err(_) => return limit(err, &format!("{} is not a commit", other)),
-            };
-            let held = match read_job(root, &commit, other) {
-                Ok(held) => held,
-                Err(why) => return limit(err, &why),
-            };
-            if held.sources.iter().any(|source| source.hash == hash) {
-                let _ = writeln!(
-                    out,
-                    "{}: the text is already a source of the job {}. It writes the ref {} at its commit {}, and nothing else.",
-                    NAME,
-                    &other[PREFIX.len()..],
-                    full,
-                    commit
-                );
-                crate::interrupt::writing();
-                if let Err(why) = git(root, &["update-ref", &full, &commit, ""], None) {
-                    return crate::refusal::limit(err, NAME, format_args!("{}. The ref {} is not written.", why, full));
-                }
-                let _ = writeln!(out, "Wrote {}: commit {}, the job {} under a second name.", full, commit, &other[PREFIX.len()..]);
-                return 0;
+        // Text that is already a job under another name gives that job this name too. A ref that is not a job is passed
+        // over, and said once.
+        let mut passed = Vec::new();
+        let mut seen: Vec<String> = Vec::new();
+        for (object, other) in &refs {
+            if seen.contains(object) {
+                continue;
             }
+            seen.push(object.clone());
+            let held = commit_of(object).and_then(|commit| read_job(root, &commit, other).map(|job| (commit, job)));
+            match held {
+                Ok((commit, job)) if job.sources.iter().any(|source| source.hash == hash) => {
+                    existing = Some((commit, job, true));
+                    break;
+                }
+                Ok(_) => {}
+                Err(_) => passed.extend(refs.iter().filter(|(o, _)| o == object).map(|(_, name)| name.clone())),
+            }
+        }
+        if !passed.is_empty() {
+            let _ = writeln!(err, "{}: passed over, as not jobs: {}.", NAME, passed.join(", "));
         }
     }
 
     let seconds = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|time| time.as_secs()).unwrap_or(0);
-    let added = Source { hash: hash.clone(), kept: !add.hash_only, source: source.clone(), level, by, time: crate::prompt::utc(seconds) };
-    let mut sources = job.as_ref().map(|job| job.sources.clone()).unwrap_or_default();
-    let job_name = job.as_ref().map(|job| job.name.clone()).unwrap_or_else(|| name.clone());
-    if let Some(job) = &job {
-        let there: Vec<&str> = job.sources.iter().map(|source| source.hash.as_str()).collect();
-        let _ = writeln!(out, "{}: the job {} has the source {}. This adds the source {}.", NAME, name, there.join(", "), hash);
-    }
-    sources.push(added);
-    let yml = job_yml(&job_name, &sources);
-    let kept: Vec<&str> = sources.iter().filter(|source| source.kept).map(|source| source.hash.as_str()).collect();
-    let _ = writeln!(out, "It writes:");
-    if add.hash_only {
-        let _ = writeln!(out, "  no blob of the text: --hash-only keeps its hash {} and its source alone", hash);
-    } else {
-        let _ = writeln!(out, "  the blob {} of the text", hash);
-    }
-    let _ = writeln!(out, "  job.yml:");
-    for line in yml.lines() {
-        let _ = writeln!(out, "    {}", line);
-    }
-    let tree_said: Vec<String> = std::iter::once("job.yml".to_string()).chain(kept.iter().map(|hash| format!("sources/{}", hash))).collect();
-    let _ = writeln!(out, "  a tree of {}", tree_said.join(", "));
-    match &old {
-        Some(commit) => {
-            let _ = writeln!(out, "  a commit on {} after {}", full, commit);
+    let added = Source { hash: hash.clone(), kept: !add.hash_only, source, level, by, time: crate::prompt::utc(seconds) };
+    let (job, old, moved, made, text, message) = match existing {
+        // A name more for a job that has the text: job.yml lists it, and every name of the job moves to the new commit.
+        Some((commit, mut job, true)) => {
+            let _ = writeln!(out, "{}: the text is already a source of the job {}. This gives it the name {} too.", NAME, job.name, name);
+            job.names.push(name.clone());
+            let moved = at(&commit);
+            (job, Some(commit), moved, Some(full.clone()), None, format!("plan add {}\n\nname {} for the job {}\n", name, name, hash))
+        }
+        // A source more under a name that is there: every name of the job moves to the new commit.
+        Some((commit, mut job, false)) => {
+            let there: Vec<&str> = job.sources.iter().map(|source| source.hash.as_str()).collect();
+            let _ = writeln!(out, "{}: the job {} has the source {}. This adds the source {}.", NAME, name, there.join(", "), hash);
+            job.sources.push(added.clone());
+            let moved = at(&commit);
+            (job, Some(commit), moved, None, Some(hash.clone()), format!("plan add {}\n\nsource {}\n", name, hash))
         }
         None => {
-            let _ = writeln!(out, "  a commit on {}, the first on it", full);
+            let job = Job { name: name.clone(), names: vec![name.clone()], sources: vec![added.clone()] };
+            (job, None, Vec::new(), Some(full.clone()), Some(hash.clone()), format!("plan add {}\n\nsource {}\n", name, hash))
         }
-    }
+    };
+    let adds_source = text.is_some();
+    let text = text.filter(|_| !add.hash_only);
+    let kept: Vec<&str> = job.sources.iter().filter(|source| source.kept).map(|source| source.hash.as_str()).collect();
+    let blob_line = match &text {
+        Some(hash) => Some(format!("the blob {} of the text", hash)),
+        None if adds_source => Some(format!("no blob of the text: --hash-only keeps its hash {} and its source alone", hash)),
+        None => None,
+    };
+    let mut named: Vec<String> = moved.clone();
+    named.extend(made.iter().cloned());
+    say(out, &job, blob_line.as_deref(), &kept, old.as_deref(), &named);
 
     crate::interrupt::writing();
-    let failed = |err: &mut dyn Write, why: String| crate::refusal::limit(err, NAME, format_args!("{}. The ref {} is not written.", why, full));
-    if !add.hash_only {
+    let failed = |err: &mut dyn Write, why: String| crate::refusal::limit(err, NAME, format_args!("{}. No ref is written.", why));
+    if let Some(hash) = &text {
         match git_line(root, &["hash-object", "-t", "blob", "-w", "--stdin"], Some(&bytes)) {
-            Ok(written) if written == hash => {}
+            Ok(written) if written == *hash => {}
             Ok(written) => return failed(err, format!("git wrote the text as {}, not {}", written, hash)),
             Err(why) => return failed(err, why),
         }
     }
-    let yml_hash = match git_line(root, &["hash-object", "-t", "blob", "-w", "--stdin"], Some(yml.as_bytes())) {
-        Ok(written) => written,
-        Err(why) => return failed(err, why),
-    };
-    // The sources kept, those of the commit before and this one; the other entries of its tree are kept as they are.
-    let mut texts = match &old {
-        Some(commit) if git(root, &["rev-parse", "--verify", "-q", &format!("{}:sources", commit)], None).is_ok() => {
-            match entries(root, &format!("{}:sources", commit), &[]) {
-                Ok(texts) => texts,
-                Err(why) => return failed(err, why),
-            }
-        }
-        _ => Vec::new(),
-    };
-    if !add.hash_only {
-        texts.push(format!("100644 blob {}\t{}", hash, hash));
-    }
-    let mut top = match &old {
-        Some(commit) => match entries(root, &format!("{}^{{tree}}", commit), &["job.yml", "sources"]) {
-            Ok(top) => top,
-            Err(why) => return failed(err, why),
-        },
-        None => Vec::new(),
-    };
-    top.push(format!("100644 blob {}\tjob.yml", yml_hash));
-    if !texts.is_empty() {
-        match mktree(root, &texts) {
-            Ok(tree) => top.push(format!("040000 tree {}\tsources", tree)),
-            Err(why) => return failed(err, why),
-        }
-    }
-    let tree = match mktree(root, &top) {
-        Ok(tree) => tree,
-        Err(why) => return failed(err, why),
-    };
-    let message = format!("plan add {}\n\nsource {}\n", name, hash);
-    let mut args = vec!["commit-tree", tree.as_str()];
-    if let Some(commit) = &old {
-        args.push("-p");
-        args.push(commit.as_str());
-    }
-    let commit = match git_line(root, &args, Some(message.as_bytes())) {
+    let commit = match write_commit(root, &job, old.as_deref(), text.as_deref(), &message) {
         Ok(commit) => commit,
         Err(why) => return failed(err, why),
     };
-    if let Err(why) = git(root, &["update-ref", &full, &commit, old.as_deref().unwrap_or("")], None) {
+    if let Err(why) = move_refs(root, &moved, made.as_deref(), old.as_deref().unwrap_or(""), &commit) {
         return failed(err, why);
     }
-    let _ = writeln!(out, "Wrote {}: commit {}.", full, commit);
+    let _ = writeln!(out, "Wrote {}: commit {}.", named.join(", "), commit);
     0
 }

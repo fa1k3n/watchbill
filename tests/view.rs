@@ -3388,16 +3388,21 @@ fn test_WB_VIEW_49_a_branch_moved_on_with_changes_elsewhere_is_a_descendant_and_
 }
 
 #[test]
-fn test_WB_VIEW_50_a_checkout_on_another_branch_than_the_views_ends_with_1_naming_the_branch() {
+fn test_WB_VIEW_114_a_kept_view_is_taken_back_onto_its_stamp_s_branch_whichever_branch_is_checked_out() {
+    // Changed by #296 from the test of WB-VIEW-50, which it replaces.
     let bench = bench();
     let (folder, _) = kept_tester(&bench);
     commit_in(&folder, "src/brake.c", "int brake(void) { return 12; }\n", "Tests");
     git(&bench.repo.path, &["checkout", "-q", "-b", "other"]);
+    let other = bench.head();
     let run = take_back(&bench, &[]);
-    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
-    assert!(text_of(&run.stderr).contains("issue-54"), "{}", text_of(&run.stderr));
-    assert_eq!(subjects(&bench, 1), vec!["The issue's file of 54"]);
-    assert!(folder.exists());
+    assert_eq!(code(&run), Some(0), "{}", text_of(&run.stderr));
+    assert_eq!(bench.git_text(&["log", "-1", "--format=%s", "issue-54"]).trim(), "Tests");
+    assert_eq!(bench.git_text(&["rev-parse", "issue-54~1"]).trim(), other);
+    assert_eq!(bench.git_text(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/other");
+    assert_eq!(bench.head(), other);
+    assert_eq!(read(&bench.repo.path.join("src/brake.c")), "int brake(void) { return 1; }\n");
+    assert!(!folder.exists());
 }
 
 #[test]
@@ -4317,4 +4322,214 @@ fn test_WB_PROMPT_72_the_posted_stamp_of_a_role_with_no_issue_s_file_holds_the_l
     ok(&bench.start(&["start", "build", "99"]));
     let posted = bench.left("posted-issue-99");
     assert_eq!(line_of(&posted, "level").as_deref(), Some("public"), "{}", posted);
+}
+
+// ---- #296: a take-back goes onto the stamp's branch, never onto the branch checked out ----
+
+/// The bench with `main` checked out, where no branch of issue 7 is.
+fn on_main() -> Bench {
+    let bench = bench();
+    git(&bench.repo.path, &["checkout", "-q", "main"]);
+    bench
+}
+
+/// A breakdown of 7 that commits its issue's file in the view and notes the view's branch: in bubblewrap the
+/// session is in the view, and under the stand-in `pass_through` the view is `$VIEW`. `before` runs first, in the
+/// checkout under the stand-in.
+fn breakdown_7(bench: &Bench, before: &str) {
+    bench.session(&format!(
+        "{}cd \"${{VIEW:-.}}\" && git symbolic-ref HEAD > {{log}}/branch && printf 'issue: 7\\n' > .watchbill/issues/7.yml && git add .watchbill/issues/7.yml && git -c commit.gpgsign=false commit -q -m 'The issue file of 7'\n",
+        before
+    ));
+}
+
+/// What `git status` says of the checkout, ignored files too: the index and the working tree.
+fn tree_of(bench: &Bench) -> String {
+    bench.git_text(&["status", "--porcelain=v1", "--ignored", "--untracked-files=all"])
+}
+
+#[test]
+fn test_WB_VIEW_110_with_main_checked_out_the_breakdown_s_commit_makes_the_issue_s_branch_and_main_is_not_moved() {
+    let bench = on_main();
+    let main = bench.head();
+    let tree = tree_of(&bench);
+    breakdown_7(&bench, "");
+
+    let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "7"]);
+
+    ok(&run);
+    assert_eq!(bench.git_text(&["log", "-1", "--format=%s", "issue-7"]).trim(), "The issue file of 7");
+    assert_eq!(bench.git_text(&["rev-parse", "issue-7~1"]).trim(), main);
+    assert_eq!(bench.git_text(&["show", "issue-7:.watchbill/issues/7.yml"]), "issue: 7\n");
+    assert_eq!(bench.head(), main);
+    assert_eq!(bench.git_text(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/main");
+    assert_eq!(tree_of(&bench), tree);
+    assert!(text_of(&run.stderr).contains("git push origin issue-7"), "{}", text_of(&run.stderr));
+    let status = wb_state(&bench, &["status", "7"]);
+    let out = text_of(&status.stdout);
+    assert!(out.contains("Broken down") && !out.contains("Not broken down"), "{}{}", out, text_of(&status.stderr));
+}
+
+#[test]
+fn test_WB_VIEW_110_in_bubblewrap_the_breakdown_with_main_checked_out_makes_the_issue_s_branch() {
+    if !sandbox("test_WB_VIEW_110") {
+        return;
+    }
+    let bench = on_main();
+    let main = bench.head();
+    breakdown_7(&bench, "");
+
+    let run = bench.start(&["start", "breakdown", "7"]);
+
+    ok(&run);
+    assert_eq!(bench.git_text(&["log", "-1", "--format=%s", "issue-7"]).trim(), "The issue file of 7");
+    assert_eq!(bench.git_text(&["rev-parse", "issue-7~1"]).trim(), main);
+    assert_eq!(bench.head(), main);
+    assert_eq!(bench.left("branch"), "refs/heads/issue-7\n");
+}
+
+#[test]
+fn test_WB_VIEW_111_with_the_issue_s_branch_there_and_main_checked_out_the_commit_lands_on_it_and_the_checkout_is_untouched() {
+    let bench = on_main();
+    git(&bench.repo.path, &["checkout", "-q", "-b", "issue-7"]);
+    put(&bench.repo.path, "docs/note.txt", "a note\n");
+    git(&bench.repo.path, &["add", "--", "docs/note.txt"]);
+    git(&bench.repo.path, &["commit", "-q", "-m", "A note"]);
+    let note = bench.head();
+    git(&bench.repo.path, &["checkout", "-q", "main"]);
+    let main = bench.head();
+    put(&bench.repo.path, "build/out.o", "ignored\n");
+    fs::write(bench.repo.path.join(".git/info/exclude"), "build/out.o\n").unwrap();
+    let tree = tree_of(&bench);
+    breakdown_7(&bench, "");
+
+    let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "7"]);
+
+    ok(&run);
+    assert_eq!(bench.git_text(&["log", "-2", "--format=%s", "issue-7"]), "The issue file of 7\nA note\n");
+    assert_eq!(bench.git_text(&["rev-parse", "issue-7~1"]).trim(), note);
+    assert_eq!(bench.head(), main);
+    assert_eq!(bench.git_text(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/main");
+    assert_eq!(tree_of(&bench), tree);
+    assert!(!bench.repo.path.join(".watchbill/issues/7.yml").exists());
+    assert!(!bench.repo.path.join("docs/note.txt").exists());
+    let err = text_of(&run.stderr);
+    assert!(err.lines().any(|line| line.contains("issue-7") && line.contains("not checked out")), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_112_with_the_issue_s_branch_checked_out_the_commit_comes_by_a_fast_forward_of_the_checkout() {
+    let bench = on_main();
+    git(&bench.repo.path, &["checkout", "-q", "-b", "issue-7"]);
+    let before = bench.head();
+    breakdown_7(&bench, "");
+
+    let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "7"]);
+
+    ok(&run);
+    assert_eq!(subjects(&bench, 1), vec!["The issue file of 7"]);
+    assert_eq!(bench.git_text(&["rev-parse", "HEAD~1"]).trim(), before);
+    assert_eq!(bench.git_text(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/issue-7");
+    assert_eq!(read(&bench.repo.path.join(".watchbill/issues/7.yml")), "issue: 7\n");
+    assert_eq!(bench.git_text(&["rev-parse", "main"]).trim(), before);
+    assert!(!text_of(&run.stderr).contains("not checked out"), "{}", text_of(&run.stderr));
+}
+
+#[test]
+fn test_WB_VIEW_113_a_branch_made_or_moved_between_the_start_and_the_take_back_is_refused_and_nothing_is_moved() {
+    // Made while the session runs, where it was not there when the view was made.
+    let bench = on_main();
+    let main = bench.head();
+    breakdown_7(&bench, "git branch issue-7 HEAD~1 && ");
+    let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "7"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    assert!(labelled_line(&err, "wb start breakdown", "limit").is_some_and(|line| line.contains("issue-7")), "{}", err);
+    assert_eq!(bench.git_text(&["rev-parse", "issue-7"]), bench.git_text(&["rev-parse", "main~1"]));
+    assert_eq!(bench.head(), main);
+    assert_eq!(bench.below("views").len(), 1, "the view is kept");
+
+    // Moved while the session runs.
+    let bench = on_main();
+    let main = bench.head();
+    git(&bench.repo.path, &["branch", "issue-7"]);
+    breakdown_7(&bench, "git branch -f issue-7 HEAD~1 && ");
+    let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "7"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    assert!(labelled_line(&err, "wb start breakdown", "limit").is_some_and(|line| line.contains("issue-7")), "{}", err);
+    assert_eq!(bench.git_text(&["rev-parse", "issue-7"]), bench.git_text(&["rev-parse", "main~1"]));
+    assert_eq!(bench.head(), main);
+    assert_eq!(bench.below("views").len(), 1, "the view is kept");
+}
+
+#[test]
+fn test_WB_VIEW_115_the_view_s_branch_has_the_name_of_the_stamp_s_branch() {
+    let bench = on_main();
+    breakdown_7(&bench, "");
+    ok(&bench.start_by(&pass_through(&bench), &["start", "breakdown", "7"]));
+    assert_eq!(bench.left("branch"), "refs/heads/issue-7\n");
+    assert_eq!(line_of(&bench.left("posted-issue-7"), "branch").as_deref(), Some("issue-7"));
+}
+
+#[test]
+fn test_WB_VIEW_116_a_branch_checked_out_in_another_worktree_is_refused_and_not_moved() {
+    let bench = on_main();
+    let other = folder_named("worktree");
+    let tree = other.path.join("tree");
+    git(&bench.repo.path, &["worktree", "add", "-q", "-b", "issue-7", tree.to_str().unwrap()]);
+    let before = bench.git_text(&["rev-parse", "issue-7"]);
+    breakdown_7(&bench, "");
+
+    let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "7"]);
+
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    let shown = fs::canonicalize(&tree).unwrap();
+    assert!(labelled_line(&err, "wb start breakdown", "limit").is_some_and(|line| line.contains(shown.to_str().unwrap())), "{}", err);
+    assert_eq!(bench.git_text(&["rev-parse", "issue-7"]), before);
+    assert!(!tree.join(".watchbill/issues/7.yml").exists());
+    git(&bench.repo.path, &["worktree", "remove", "--force", tree.to_str().unwrap()]);
+}
+
+#[test]
+fn test_WB_BUILD_150_a_checkout_on_another_branch_is_refused_as_a_guard_naming_it_the_stamp_s_branch_and_ignore_branch() {
+    let bench = bench();
+    git(&bench.repo.path, &["checkout", "-q", "-b", "other"]);
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "build", "54"]));
+    let line = labelled_line(&err, "wb start build", "guard").unwrap_or_else(|| panic!("no guard: {}", err));
+    assert!(line.contains("other") && line.contains("issue-54") && line.contains("--ignore-branch"), "{}", err);
+    assert!(labelled_line(&err, "wb start build", "limit").is_none(), "{}", err);
+
+    // On the issue's branch, or on the default branch, there is no such guard.
+    for (branch, words) in [("issue-54", ["start", "build", "54"]), ("main", ["start", "breakdown", "7"])] {
+        let bench = self::bench();
+        git(&bench.repo.path, &["checkout", "-q", branch]);
+        let run = start_unsandboxed(&bench, &words);
+        let err = text_of(&run.stderr);
+        assert!(!err.contains("--ignore-branch") && !err.contains(": guard: "), "{}: {}", branch, err);
+    }
+}
+
+#[test]
+fn test_WB_BUILD_151_ignore_branch_passes_the_guard_alone_and_the_commit_still_goes_onto_the_stamp_s_branch() {
+    let bench = bench();
+    git(&bench.repo.path, &["checkout", "-q", "-b", "other"]);
+    // Past the guard, the start goes on to the view, where no bubblewrap is: a limit.
+    let run = start_unsandboxed(&bench, &["start", "build", "54", "--ignore-branch"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    assert!(labelled_line(&err, "wb start build", "guard").is_none(), "{}", err);
+    assert!(labelled_line(&err, "wb start build", "limit").is_some(), "{}", err);
+
+    let bench = self::bench();
+    git(&bench.repo.path, &["checkout", "-q", "-b", "other"]);
+    let other = bench.head();
+    bench.session("cd \"$VIEW\" && echo 'int brake(void) { return 3; }' > src/brake.c && git add src/brake.c && git -c commit.gpgsign=false commit -q -m 'The brake'\n");
+    let run = bench.start_by(&pass_through(&bench), &["start", "build", "54", "--ignore-branch"]);
+    ok(&run);
+    assert_eq!(bench.git_text(&["log", "-1", "--format=%s", "issue-54"]).trim(), "The brake");
+    assert_eq!(bench.git_text(&["rev-parse", "issue-54~1"]).trim(), other);
+    assert_eq!(bench.head(), other);
+    assert_eq!(bench.git_text(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/other");
 }

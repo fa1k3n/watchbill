@@ -82,6 +82,23 @@ pub struct Prompt {
     pub parts: Vec<Part>,
     /// The placeholders that the parts hold, each once, in the order of the list.
     pub used: Vec<&'static str>,
+    /// The text cut where a part starts, for `--show-origin` (#291): the texts of the segments, one after the other,
+    /// are `text`.
+    pub segments: Vec<Segment>,
+}
+
+/// A stretch of a prompt that comes from one place (#291).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Segment {
+    /// `revision` (the role's text of the pinned revision), `issue` (the issue's file), `project` (the project's own
+    /// text) or `wb` (the fixed line between the revision's text and the project's).
+    pub kind: &'static str,
+    /// The path and the hash of the part, as the stamp's `part:` line has them. The fixed line has none.
+    pub part: Option<Part>,
+    /// The text of the stretch: the part as it stands in the prompt, with the blank lines that follow it.
+    pub text: String,
+    /// The placeholders the part holds, in the order of the list. The issue's file is not read for placeholders.
+    pub used: Vec<&'static str>,
 }
 
 /// Why a prompt cannot be put together. The text says what and which file.
@@ -143,6 +160,11 @@ fn roles(root: &Path) -> Result<Vec<(String, String)>, PromptError> {
     }
     found.sort();
     Ok(found)
+}
+
+/// The names of the roles of the pinned revision, from its manifest, sorted (#291).
+pub fn role_names(root: &Path) -> Result<Vec<String>, PromptError> {
+    Ok(roles(root)?.into_iter().map(|(name, _)| name).collect())
 }
 
 /// The placeholders in a text: for each, where it starts, where it ends and its name. A placeholder
@@ -323,12 +345,15 @@ pub fn assemble_with(
     }
 
     let mut text = String::new();
+    // Where each stretch starts: its kind, the index of its part, and its offset in the text (#291).
+    let mut starts: Vec<(&'static str, Option<usize>, usize)> = Vec::new();
     for (n, part) in parts.iter().enumerate() {
         if n == 1 {
             if !text.ends_with('\n') {
                 text.push('\n');
             }
             text.push('\n');
+            starts.push(("wb", None, text.len()));
             text.push_str(FIXED_LINE);
             text.push('\n');
         }
@@ -339,6 +364,7 @@ pub fn assemble_with(
             }
             text.push('\n');
         }
+        starts.push((if n == 0 { "revision" } else { "project" }, Some(n), text.len()));
         text.push_str(&fill(&part.text, values));
         if let (0, Some(extra)) = (n, extra) {
             // The issue's part follows the role's text as it is, and is not read for placeholders.
@@ -346,6 +372,7 @@ pub fn assemble_with(
                 text.push('\n');
             }
             text.push('\n');
+            starts.push(("issue", None, text.len()));
             text.push_str(extra.text);
         }
     }
@@ -354,11 +381,28 @@ pub fn assemble_with(
         .copied()
         .filter(|name| parts.iter().any(|part| placeholders(&part.text).iter().any(|(_, _, found)| found == name)))
         .collect();
+    let mut segments = Vec::new();
+    for (at, (kind, index, start)) in starts.iter().enumerate() {
+        let end = starts.get(at + 1).map(|next| next.2).unwrap_or(text.len());
+        let (part, held) = match (*kind, index) {
+            ("issue", _) => {
+                let extra = extra.expect("a stretch of the issue's file is made only with one");
+                (Some(Part { path: extra.path.to_string(), hash: extra.hash.to_string() }), Vec::new())
+            }
+            (_, Some(n)) => {
+                let read = &parts[*n];
+                let held: Vec<&'static str> = PLACEHOLDERS.iter().copied().filter(|name| placeholder_names(&read.text).contains(name)).collect();
+                (Some(Part { path: read.path.clone(), hash: read.hash.clone() }), held)
+            }
+            _ => (None, Vec::new()),
+        };
+        segments.push(Segment { kind, part, text: text[*start..end].to_string(), used: held });
+    }
     let mut parts: Vec<Part> = parts.into_iter().map(|part| Part { path: part.path, hash: part.hash }).collect();
     if let Some(extra) = extra {
         parts.insert(1, Part { path: extra.path.to_string(), hash: extra.hash.to_string() });
     }
-    Ok(Prompt { text, parts, used })
+    Ok(Prompt { text, parts, used, segments })
 }
 
 /// The placeholders of a text that the revision does not know, each as the words that refuse it, with

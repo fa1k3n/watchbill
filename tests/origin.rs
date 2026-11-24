@@ -151,7 +151,7 @@ fn test_WB_CMD_50_the_man_pages_and_the_completion_name_the_flags() {
     let prompt = fs::read_to_string(root.join("packaging/man/wb-prompt.1")).unwrap();
     let completion = fs::read_to_string(root.join("packaging/wb.bash")).unwrap();
     for flag in ["\\-\\-list", "\\-\\-verbose"] {
-        assert!(start.contains(&format!(".B {}", flag)), "{}", flag);
+        assert!(start.lines().any(|line| line.starts_with(".B ") && line.contains(flag)), "{}", flag);
     }
     assert!(prompt.contains(".B \\-\\-show\\-origin"));
     for name in ["_wb_flags_start=", "_wb_flags_prompt="] {
@@ -292,7 +292,7 @@ fn test_WB_PROMPT_77_a_placeholder_is_marked_after_the_line_of_its_part_and_what
     let (_place, organisation) = cleared(&folder.path);
     put_committed(&folder.path, ".watchbill/project/build.md", "Branch is {branch}.\n");
 
-    let run = prompt_with(&folder.path, &organisation, &prompt_args("build", "54", &["--show-origin"]));
+    let run = prompt_with(&folder.path, &organisation, &prompt_args("build", "54", &["--show-origin"])[1..]);
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let out = text(&run.stdout);
@@ -318,15 +318,15 @@ fn test_WB_PROMPT_77_a_placeholder_is_marked_after_the_line_of_its_part_and_what
 fn test_WB_PROMPT_77_a_value_that_wb_works_out_is_marked_with_where_it_comes_from() {
     let folder = set_up();
 
-    let run = wb(&folder.path, &["prompt", "tester", "54"], "");
+    let run = wb(&folder.path, &["prompt", "tester", "54", "--branch", "issue-1"], "");
 
     // The pattern, the checkout and the classed lists are not given: their marks say where they come from.
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    let shown = wb(&folder.path, &["prompt", "tester", "54", "--show-origin"], "");
+    let shown = wb(&folder.path, &["prompt", "tester", "54", "--branch", "issue-1", "--show-origin"], "");
     assert_eq!(code(&shown), Some(0), "{}", text(&shown.stderr));
     let out = text(&shown.stdout);
     assert!(out.contains("# {checkout}  the root of the repository\n"), "{}", out);
-    assert!(out.contains("# {issue_address}  the pattern issue_address of watchbill.yml (HEAD)\n"), "{}", out);
+    assert!(out.contains("# {requirements}  the issue's file .watchbill/issues/54.yml\n"), "{}", out);
 }
 
 #[test]
@@ -393,8 +393,8 @@ fn test_WB_PROMPT_79_the_planner_is_shown_for_a_cleared_runner_and_start_prompt_
     assert_eq!(joined, text(&plain.stdout));
 
     // `wb start <role> --show-origin` does what `wb prompt --show-origin` does, and starts nothing.
-    let started = start_with(&folder.path, &organisation, false, &["start", "tester", "54", "--show-origin"]);
-    let direct = prompt_with(&folder.path, &organisation, &["tester", "54", "--show-origin"]);
+    let started = start_with(&folder.path, &organisation, false, &["start", "tester", "54", "--checkout", "/w", "--branch", "b", "--issue_address", "a", "--show-origin"]);
+    let direct = prompt_with(&folder.path, &organisation, &["tester", "54", "--checkout", "/w", "--branch", "b", "--issue_address", "a", "--show-origin"]);
     assert_eq!(code(&started), Some(0), "{}", text(&started.stderr));
     assert_eq!(text(&started.stdout), text(&direct.stdout));
 }

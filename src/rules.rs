@@ -9,12 +9,12 @@ use std::path::Path;
 use crate::word::is_word;
 use crate::yamlfile::{self, Document, Part, YamlError};
 
-/// The roles of the revision. The officer has rows and no prompt yet. The breakdown has a prompt
+/// The roles of the revision. The officer has rows and no prompt yet. The planner has a prompt
 /// from 0.0.5 (#75).
-pub const ROLES: [&str; 6] = ["breakdown", "tester", "build", "review", "fix", "officer"];
+pub const ROLES: [&str; 6] = ["planner", "tester", "build", "review", "fix", "officer"];
 /// The roles with a prompt and no row for a vendor's runner in the model table: they run on a local
 /// runner, or where a person has cleared another for them (docs/revision.md, point 5).
-pub const LOCAL_ONLY: [&str; 1] = ["breakdown"];
+pub const LOCAL_ONLY: [&str; 1] = ["planner"];
 pub const ROLE_FIELDS: [&str; 6] = ["step", "produces", "reads", "may", "may_not_also_hold", "prompt"];
 pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 

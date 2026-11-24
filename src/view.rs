@@ -9,8 +9,8 @@
 //! - **What comes back**: each commit of the view, in order, put on the checkout's branch when it keeps to
 //!   `changes`, and refused, with every commit after it, when it does not. `wb` pushes nothing: `wb start <role>` says
 //!   the command that pushes, and a person runs it (#145).
-//! - **Every other session** (#202): the breakdown, and a role with no issue's file, run in a view of every file
-//!   of `HEAD`, made the same way. The breakdown's is writable but for `.watchbill/` other than `.watchbill/issues/`
+//! - **Every other session** (#202): the planner, and a role with no issue's file, run in a view of every file
+//!   of `HEAD`, made the same way. The planner's is writable but for `.watchbill/` other than `.watchbill/issues/`
 //!   (#295), and only its issue's file comes back; that of a role with no issue's file is writable but for
 //!   `.watchbill/`, and what comes back keeps out of `.watchbill/` and `build_files`.
 //!
@@ -82,7 +82,7 @@ pub fn local_changes(root: &str, issue: &crate::issue::Issue, role: &str) -> Res
 }
 
 /// The local changes a view of the whole tree would miss (#202), sorted: as `local_changes`, over every path of the
-/// checkout, with every untracked file that git does not ignore. `file`, the breakdown's issue's file, stands as
+/// checkout, with every untracked file that git does not ignore. `file`, the planner's issue's file, stands as
 /// `changes`: it is named also where it is untracked and ignored, and no flag passes it. With none, for a role with
 /// no issue's file, `--ignore-local` passes every one.
 pub fn local_changes_whole(root: &str, file: Option<&str>) -> Result<Vec<Local>, String> {
@@ -544,7 +544,7 @@ pub fn on_branch(root: &str, stamped: &str) -> OnBranch {
     if name == stamped {
         return OnBranch::Fine;
     }
-    // The default branch is where a breakdown starts, before the stamp's branch is there.
+    // The default branch is where a planner starts, before the stamp's branch is there.
     let default = crate::status::default_branch(root).map(|full| {
         let short = full.strip_prefix("refs/remotes/origin/").or_else(|| full.strip_prefix("refs/heads/")).unwrap_or(&full);
         short.to_string()
@@ -591,7 +591,7 @@ pub struct Size {
 }
 
 /// Makes the view of every file of `HEAD` of the checkout at `root` (#202), as `make` makes a view of paths, for the
-/// breakdown and for a role with no issue's file. The files are copied by git's own checkout from the view's index,
+/// planner and for a role with no issue's file. The files are copied by git's own checkout from the view's index,
 /// never one `git show` for each. `.watchbill/` and `.watchbill/issues/` are folders of the view, made where they
 /// are not there, as the sandbox binds over them; one of them that is anything else, a link above all, is the error.
 pub fn make_whole(root: &str, below: &Path, base: &str) -> Result<(View, Size), String> {
@@ -775,9 +775,9 @@ fn fill(root: &Path, paths: Option<&[String]>, folder: &Path, branch: &str, head
 pub enum Layout {
     /// A view of the paths of an issue's file: all of it writable.
     Listed,
-    /// The breakdown's view of the whole tree: writable, so that a build and the tests can run, but for
+    /// The planner's view of the whole tree: writable, so that a build and the tests can run, but for
     /// `.watchbill/` other than `.watchbill/issues/`, where it writes its issue's file (#295).
-    Breakdown,
+    Planner,
     /// The view of the whole tree of a role with no issue's file: writable, but for `.watchbill/`.
     Whole,
 }
@@ -867,7 +867,7 @@ pub fn arguments_in(plan: &Plan, layout: Layout) -> Vec<OsString> {
     add(&["--bind".as_ref(), plan.view.as_os_str(), plan.checkout.as_os_str()]);
     let inside: &[(&str, &str)] = match layout {
         Layout::Listed => &[],
-        Layout::Breakdown => &[("--ro-bind", ".watchbill"), ("--bind", ".watchbill/issues")],
+        Layout::Planner => &[("--ro-bind", ".watchbill"), ("--bind", ".watchbill/issues")],
         Layout::Whole => &[("--ro-bind", ".watchbill")],
     };
     for (how, path) in inside {
@@ -1401,8 +1401,8 @@ fn not_standard(store: &Path, parent: &str, commit: &str) -> Result<Option<Strin
     Ok(None)
 }
 
-/// What may come back from a view: the paths of `changes` of an issue's file; for the breakdown, its issue's file
-/// alone; for a role with no issue's file, any path (#202). Never a path under `.watchbill/` but the breakdown's
+/// What may come back from a view: the paths of `changes` of an issue's file; for the planner, its issue's file
+/// alone; for a role with no issue's file, any path (#202). Never a path under `.watchbill/` but the planner's
 /// issue's file, never one under `build_files`, never one git does not take.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Allowed {
@@ -1419,17 +1419,17 @@ enum Rule {
     Whole,
 }
 
-/// Why a path that a commit changes is not taken, if it is not: for the breakdown, any path but its issue's file,
+/// Why a path that a commit changes is not taken, if it is not: for the planner, any path but its issue's file,
 /// and that file as anything but a plain file; otherwise under `.watchbill/`, a file of the build, a path git does
 /// not take, or outside `changes`.
 fn not_allowed(path: &str, mode: &str, rule: &Rule, build_files: &[String]) -> Option<String> {
     let found = parts(path);
     if let Rule::IssueFile(file) = rule {
         if found != parts(file) {
-            return Some(format!("{} is not {}, the one file the breakdown's work comes back as", crate::issue::shown(path), file));
+            return Some(format!("{} is not {}, the one file the planner's work comes back as", crate::issue::shown(path), file));
         }
         if mode == "000000" {
-            return Some(format!("{} is deleted, and the breakdown's work comes back only as that file, written", crate::issue::shown(path)));
+            return Some(format!("{} is deleted, and the planner's work comes back only as that file, written", crate::issue::shown(path)));
         }
         if mode != "100644" {
             return Some(format!("{} comes back only as a plain file", crate::issue::shown(path)));
@@ -1564,7 +1564,7 @@ fn take_back_in(name: &str, root: &str, view: &View, allowed: &Allowed, build_fi
         back.failed = Some(why);
     }
     match uncommitted(root, &store.path, &view.folder, &view.head, &mut back.notes) {
-        // What the breakdown leaves beside its issue's file can never come back: it stays in the view, and goes with
+        // What the planner leaves beside its issue's file can never come back: it stays in the view, and goes with
         // it (#295).
         Ok(found) => match allowed {
             Allowed::IssueFile(file) => back.uncommitted = found.into_iter().filter(|path| parts(path) == parts(file)).collect(),

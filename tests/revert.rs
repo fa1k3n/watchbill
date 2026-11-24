@@ -192,13 +192,13 @@ fn test_WB_REVERT_3_the_branch_the_files_and_the_commits_stay_and_git_is_named()
     assert!(text(&run.stderr).contains("commits"), "{}", text(&run.stderr));
 }
 
-// ---- WB-REVERT-4: the breakdown is git's ----
+// ---- WB-REVERT-4: the planner is git's ----
 
 #[test]
-fn test_WB_REVERT_4_the_breakdown_is_refused_with_the_words_about_git() {
+fn test_WB_REVERT_4_the_planner_is_refused_with_the_words_about_git() {
     let folder = set_up();
-    comments(&folder.path, "174", &["[stamp] breakdown round 1"]);
-    let run = wb(&folder.path, &["revert", "174", "breakdown"], "");
+    comments(&folder.path, "174", &["[stamp] planner round 1"]);
+    let run = wb(&folder.path, &["revert", "174", "planner"], "");
     assert_eq!(code(&run), Some(1));
     let said = text(&run.stderr);
     assert!(said.contains("git") && said.contains("acceptance"), "{}", said);
@@ -284,23 +284,23 @@ fn test_WB_REVERT_8_it_says_what_it_will_post_and_by_which_pattern_before_postin
     assert!(said.contains("will post") && said.contains("[revert] review round 2") && said.contains("`issue_comment`"), "{}", said);
 }
 
-// ---- WB-REVERT-10: a later breakdown took the issue back ----
+// ---- WB-REVERT-10: a later planner took the issue back ----
 
 #[test]
-fn test_WB_REVERT_10_a_stamp_before_a_later_breakdown_is_refused_and_nothing_is_posted() {
+fn test_WB_REVERT_10_a_stamp_before_a_later_planner_is_refused_and_nothing_is_posted() {
     let folder = set_up();
-    comments(&folder.path, "174", &["[stamp] breakdown round 1", "[stamp] tester round 1", "[stamp] build round 1", "[stamp] review round 1", "[stamp] breakdown round 2"]);
+    comments(&folder.path, "174", &["[stamp] planner round 1", "[stamp] tester round 1", "[stamp] build round 1", "[stamp] review round 1", "[stamp] planner round 2"]);
     let run = revert_review(&folder.path);
     assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
     let said = text(&run.stderr);
-    assert!(said.contains("later breakdown") && said.contains("took the issue back"), "{}", said);
+    assert!(said.contains("later planner") && said.contains("took the issue back"), "{}", said);
     assert_eq!(tracker(&folder.path, "174.bodies"), "");
 }
 
 #[test]
-fn test_WB_REVERT_10_a_stamp_after_the_last_breakdown_is_taken_back() {
+fn test_WB_REVERT_10_a_stamp_after_the_last_planner_is_taken_back() {
     let folder = set_up();
-    comments(&folder.path, "174", &["[stamp] breakdown round 1", "[stamp] review round 1", "[stamp] breakdown round 2", "[stamp] tester round 1", "[stamp] review round 2"]);
+    comments(&folder.path, "174", &["[stamp] planner round 1", "[stamp] review round 1", "[stamp] planner round 2", "[stamp] tester round 1", "[stamp] review round 2"]);
     let run = wb(&folder.path, &["revert", "174", "review", "--round", "2"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
 }
@@ -315,12 +315,12 @@ fn test_WB_REVERT_11_a_change_that_is_not_a_plain_name_ends_with_2() {
     assert!(text(&run.stderr).contains("not a change"), "{}", text(&run.stderr));
 }
 
-// ---- WB-REVERT-12: a marker of the breakdown counts for nothing ----
+// ---- WB-REVERT-12: a marker of the planner counts for nothing ----
 
 #[test]
-fn test_WB_REVERT_12_a_marker_of_the_breakdown_posted_by_hand_counts_for_nothing() {
+fn test_WB_REVERT_12_a_marker_of_the_planner_posted_by_hand_counts_for_nothing() {
     let folder = set_up();
-    comments(&folder.path, "174", &["[stamp] breakdown round 1", "[stamp] review round 1", "[revert] breakdown round 1"]);
+    comments(&folder.path, "174", &["[stamp] planner round 1", "[stamp] review round 1", "[revert] planner round 1"]);
     assert_eq!(round_of_review(&folder.path), "2");
 }
 

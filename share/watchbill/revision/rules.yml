@@ -69,7 +69,7 @@ roles:
 
   build:
     step: Make the tester's tests pass.
-    produces: The smallest change that meets the requirements, committed on the branch of the issue with the project's checks passing. A person pushes it and opens the change for review.
+    produces: The smallest change that meets the requirements, committed on the branch of the issue with the project's checks passing, and the description of the change. The program pushes it after the session and opens the change as a draft with that description.
     reads:
       - The issue with its comments, the answers of a person among them, and the rows of its requirements.
       - The tester's tests and their helpers.

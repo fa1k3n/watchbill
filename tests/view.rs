@@ -5125,7 +5125,7 @@ fn pushing() -> (Bench, Folder) {
 /// A build's session: a new file committed, and `description` written to the description's file, where given.
 fn build_session(bench: &Bench, description: Option<&str>) {
     let write = match description {
-        Some(text) => format!(" && printf '%s' '{}' > /run/watchbill/description.md", text),
+        Some(text) => format!(" && printf '%s' '{}' > /run/watchbill/description", text),
         None => String::new(),
     };
     bench.session(&format!("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'{}\n", write));
@@ -5359,13 +5359,13 @@ fn test_WB_PUSH_8_the_description_s_file_is_named_in_the_prompt_lies_outside_the
     }
     let (bench, _origin) = pushing();
     bench.session(
-        "printf '%s' \"$3\" > {log}/prompt\necho 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\nprintf 'Described.\\n' > /run/watchbill/description.md && git status --porcelain --untracked-files=all > {log}/status\n",
+        "printf '%s' \"$3\" > {log}/prompt\necho 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\nprintf 'Described.\\n' > /run/watchbill/description && git status --porcelain --untracked-files=all > {log}/status\n",
     );
 
     let run = bench.start(&["start", "build", "54"]);
 
     ok(&run);
-    assert!(bench.left("prompt").contains("/run/watchbill/description.md"), "{}", bench.left("prompt"));
+    assert!(bench.left("prompt").contains("/run/watchbill/description"), "{}", bench.left("prompt"));
     // Not in the view's tree: git sees nothing to commit after it is written.
     assert_eq!(bench.left("status"), "");
     assert_eq!(bench.left("description"), "Described.\n");
@@ -5513,8 +5513,8 @@ fn test_WB_PUSH_17_a_description_that_cannot_be_taken_opens_no_change() {
     if !sandbox("test_WB_PUSH_17") {
         return;
     }
-    let link = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file' && ln -s /etc/hostname /run/watchbill/description.md\n";
-    let control = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file' && printf 'red \\033[31m here\\n' > /run/watchbill/description.md\n";
+    let link = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file' && ln -s /etc/hostname /run/watchbill/description\n";
+    let control = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file' && printf 'red \\033[31m here\\n' > /run/watchbill/description\n";
     for body in [link, control] {
         let (bench, origin) = pushing();
         bench.session(body);

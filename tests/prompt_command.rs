@@ -38,6 +38,8 @@ fn filled(role: &str, values: &[(&str, &str)]) -> String {
     }
     // A repository of `wb init --yes` has `classed: []`: the two placeholders of classed code are `none` (#227).
     text = text.replace("{classed}", "none").replace("{classed_touched}", "none");
+    // `{description}` is the file of the change's description in the sandbox, where no option gives it (#151).
+    text = text.replace("{description}", "/run/watchbill/description");
     // The four roles after the breakdown get the part of the issue's file after their text (#97).
     if ["tester", "build", "review", "fix"].contains(&role) {
         text = format!("{}\n{}", text, BARE_PART);

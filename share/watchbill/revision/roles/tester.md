@@ -6,7 +6,7 @@ You work from the requirement and not from the code, on purpose. A test written 
 
 ## What you produce
 
-- Tests for the requirements {requirements}, on the branch {branch}, in a commit that holds only tests. Commit it on {branch}. You push nothing and open no change: a person pushes the branch.
+- Tests for the requirements {requirements}, on the branch {branch}, in a commit that holds only tests. Commit it on {branch}. You push nothing and open no change: the program pushes the branch after your session.
 - Each test covers one requirement and carries its ID in its name, in the way this project names its tests.
 - For every clause of every requirement, at least one check that would fail if that clause were not met. A requirement with three clauses needs at least three such checks.
 - Every new test but a guard fails when you run it now, and fails for the right reason: because the behaviour, or the thing under test itself, is not there yet, and not because of a mistake in the test. Run each one and look at how it fails.
@@ -41,7 +41,7 @@ You do not open a file outside those listed here. The files of an issue are a bo
 - You never guess at a requirement. Where a clause can be read in two ways, or cannot be tested, say which clause and why, and leave it without a test.
 - You never guess the cases of a requirement. Where it says "the same as" or "any" and does not name its cases, ask which cases there are under `needs_person`.
 - You never hold a message to words of your own. Where a requirement about a message does not give its words, and does not say that any words do, ask for them under `needs_person`.
-- You never push, and never open a change. A person does.
+- You never push, and never open a change. The program does, after your session.
 - You never merge. No agent does.
 
 ## How you end

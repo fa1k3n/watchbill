@@ -843,9 +843,50 @@ pub fn arguments(plan: &Plan) -> Vec<OsString> {
     arguments_in(plan, Layout::Listed)
 }
 
+/// Where the folder that `wb` makes for what a session writes for it stands in the sandbox (#151): outside the view's
+/// tree, so that nothing in it is ever a commit.
+pub const OUT_FOLDER: &str = "/run/watchbill";
+
+/// The file the build writes the change's description to, `{description}` of the prompt (#151).
+pub const DESCRIPTION: &str = "/run/watchbill/description";
+
+/// The variables that hold or lead to a login of the code host (#151): `gh`'s, `glab`'s and ssh's. None is handed
+/// into the sandbox, as no `GIT_*` is.
+pub const LOGINS: [&str; 12] = [
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "GH_ENTERPRISE_TOKEN",
+    "GITHUB_ENTERPRISE_TOKEN",
+    "GH_CONFIG_DIR",
+    "GITLAB_TOKEN",
+    "GLAB_TOKEN",
+    "GITLAB_ACCESS_TOKEN",
+    "GLAB_CONFIG_DIR",
+    "CI_JOB_TOKEN",
+    "SSH_AUTH_SOCK",
+    "SSH_ASKPASS",
+];
+
+/// Takes the variables of a login of the code host, and every `GIT_*`, out of what `command` is handed.
+pub fn without_logins(command: &mut Command) {
+    for (name, _) in std::env::vars_os() {
+        if name.to_string_lossy().starts_with("GIT_") {
+            command.env_remove(name);
+        }
+    }
+    for name in LOGINS {
+        command.env_remove(name);
+    }
+}
+
 /// The words bubblewrap is given for a session in a view laid out as `layout`. The binds inside the view come after
 /// the view itself, so that they stand over it; their sources are folders of the view (`make_whole`).
 pub fn arguments_in(plan: &Plan, layout: Layout) -> Vec<OsString> {
+    arguments_out(plan, layout, None)
+}
+
+/// The same, with `out`, a folder of `wb`'s own, bound writable at `OUT_FOLDER` after the view (#151).
+pub fn arguments_out(plan: &Plan, layout: Layout, out: Option<&Path>) -> Vec<OsString> {
     let mut words: Vec<OsString> = UNSHARE.iter().map(OsString::from).collect();
     if plan.new_session {
         words.push("--new-session".into());
@@ -863,6 +904,10 @@ pub fn arguments_in(plan: &Plan, layout: Layout) -> Vec<OsString> {
     let fixed = Path::new(crate::confidentiality::ORGANISATION_FILE).parent().filter(|folder| folder.is_dir());
     for folder in [fixed, plan.organisation.filter(|folder| Some(*folder) != fixed)].into_iter().flatten() {
         add(&["--tmpfs".as_ref(), folder.as_os_str()]);
+    }
+    // What the session writes for `wb` (#151), in `/run` of the sandbox's own, before the view and away from it.
+    if let Some(out) = out {
+        add(&["--bind".as_ref(), out.as_os_str(), OUT_FOLDER.as_ref()]);
     }
     add(&["--bind".as_ref(), plan.view.as_os_str(), plan.checkout.as_os_str()]);
     let inside: &[(&str, &str)] = match layout {
@@ -931,6 +976,11 @@ pub fn run_saying(bwrap: &Path, plan: &Plan, name: &str, err: &mut dyn Write) ->
 
 /// The same, in a view laid out as `layout` (#202).
 pub fn run_in(bwrap: &Path, plan: &Plan, layout: Layout, name: &str, err: &mut dyn Write) -> Result<ExitStatus, String> {
+    run_out(bwrap, plan, layout, None, name, err)
+}
+
+/// The same, with `out` bound at `OUT_FOLDER` (#151).
+pub fn run_out(bwrap: &Path, plan: &Plan, layout: Layout, out: Option<&Path>, name: &str, err: &mut dyn Write) -> Result<ExitStatus, String> {
     use std::os::fd::AsRawFd;
     use std::os::unix::process::{CommandExt, ExitStatusExt};
     let held = crate::interrupt::hold();
@@ -942,7 +992,7 @@ pub fn run_in(bwrap: &Path, plan: &Plan, layout: Layout, name: &str, err: &mut d
         .filter(|(number, _)| !crate::interrupt::was_ignored(*number))
         .map(|(_, name)| name)
         .collect();
-    let mut words = arguments_in(plan, layout);
+    let mut words = arguments_out(plan, layout, out);
     // Without `env` the signals cannot be given back to the session, and bubblewrap ignores none, as before #257.
     let ignore = back.is_empty() || Path::new(ENV).is_file();
     if ignore && !back.is_empty() {
@@ -952,11 +1002,7 @@ pub fn run_in(bwrap: &Path, plan: &Plan, layout: Layout, name: &str, err: &mut d
     words.splice(0..0, [OsString::from("--info-fd"), OsString::from(info.to_string())]);
     let mut command = Command::new(bwrap);
     command.args(words).current_dir(plan.checkout);
-    for (name, _) in std::env::vars_os() {
-        if name.to_string_lossy().starts_with("GIT_") {
-            command.env_remove(name);
-        }
-    }
+    without_logins(&mut command);
     command.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
     // Only `signal(2)` and `fcntl(2)` run between fork and exec.
     unsafe {
@@ -2450,7 +2496,7 @@ mod tests {
 
     #[test]
     #[allow(non_snake_case)]
-    fn test_WB_PUSH_8_the_folder_of_the_description_is_bound_at_run_watchbill_after_the_view() {
+    fn test_WB_PUSH_8_the_folder_of_the_description_is_bound_at_run_watchbill_in_the_sandbox_s_own_run() {
         let words = ["runner".to_string()];
         let plan = Plan {
             view: Path::new("/var/views/1"),
@@ -2464,10 +2510,12 @@ mod tests {
         let words: Vec<String> =
             arguments_out(&plan, Layout::Listed, Some(Path::new("/state/watchbill/out/1"))).iter().map(|word| word.to_string_lossy().to_string()).collect();
         let find = |pair: [&str; 3]| words.windows(3).position(|three| three == pair);
-        let view = find(["--bind", "/var/views/1", "/work/brakes"]).expect("the view is not bound");
+        find(["--bind", "/var/views/1", "/work/brakes"]).expect("the view is not bound");
         let out = find(["--bind", "/state/watchbill/out/1", OUT_FOLDER]).expect("the folder of the description is not bound");
-        assert!(view < out, "{:?}", words);
-        assert_eq!(DESCRIPTION, "/run/watchbill/description.md");
+        // In the sandbox's own `/run`, made empty before it.
+        let run = words.windows(2).position(|two| two == ["--tmpfs", "/run"]).expect("/run is not the sandbox's own");
+        assert!(run < out, "{:?}", words);
+        assert_eq!(DESCRIPTION, "/run/watchbill/description");
         assert!(DESCRIPTION.starts_with(&format!("{}/", OUT_FOLDER)));
         // Without it, the words are those of `arguments_in`.
         let none: Vec<String> = arguments_out(&plan, Layout::Listed, None).iter().map(|word| word.to_string_lossy().to_string()).collect();

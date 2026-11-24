@@ -180,7 +180,7 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
             ("change_comment_bodies", whole("change")),
             // The command that opens the change as a draft, which `wb start build` says and a person runs (#145). The
             // description is filled from the commits: the build writes it in the message of its last commit.
-            ("draft_change", format!("gh pr create --repo {} --head {{branch}} --draft --fill-verbose", repository)),
+            ("draft_change", format!("gh pr create --repo {} --head {{branch}} --draft --fill --body-file -", repository)),
         ];
         for (key, line) in patterns {
             text.push_str(&format!("{}: {}\n", key, yaml_value(&line)));
@@ -244,7 +244,7 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
             ("issue_comment_bodies", whole("issues", "issue")),
             ("change_comment_bodies", whole("merge_requests", "change")),
             // The command that opens the change as a draft, which `wb start build` says and a person runs (#145).
-            ("draft_change", format!("glab mr create --repo {} --source-branch {{branch}} --draft --fill --fill-commit-body --yes", url)),
+            ("draft_change", format!("glab mr create --repo {} --source-branch {{branch}} --draft --fill --yes --description \"$(cat)\"", url)),
         ];
         for (key, line) in patterns {
             text.push_str(&format!("{}: {}\n", key, yaml_value(&line)));

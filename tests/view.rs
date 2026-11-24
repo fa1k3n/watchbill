@@ -5219,7 +5219,7 @@ fn test_WB_VIEW_121_a_kept_view_that_cannot_be_read_is_not_said_to_hold_only_unc
     let out = text_of(&run.stdout);
     let line = out.lines().find(|line| line.starts_with("kept: build round 1, not read: ")).unwrap_or_else(|| panic!("{}", out));
     assert!(!line.contains("left uncommitted"), "{}", line);
-    let run = wb_state_bounded(&bench, &["start", "build", "54"], 30).expect("wb start did not end in 30 seconds");
+    let run = bench.start(&["start", "build", "54"]);
     let err = text_of(&run.stderr);
     assert!(err.contains("not read: ") && err.contains("uncommitted: left.txt") && !err.contains("work left uncommitted"), "{}", err);
 }

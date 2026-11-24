@@ -63,7 +63,7 @@ fn job(folder: &Path, stamps: &[&str]) {
     put(folder, ".watchbill/issues/54.yml", &BARE_ISSUE.replace("{issue}", "54"));
     git(folder, &["add", "--", ".watchbill/issues/54.yml"]);
     git(folder, &["commit", "-q", "-m", "The issue's file (54)"]);
-    let run = wb(folder, &["accept", "54"], "");
+    let run = wb(folder, &["plan", "accept", "54"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     put(folder, "src/work.c", "int work;\n");
     git(folder, &["add", "--", "src/work.c"]);
@@ -280,16 +280,20 @@ fn test_WB_TASK_52_a_commit_after_the_record_voids_it() {
 }
 
 #[test]
-fn test_WB_TASK_53_a_plan_not_accepted_still_ends_with_2_and_a_file_not_accepted_with_no_plan_is_accepted_as_before() {
+fn test_WB_TASK_53_wb_accept_of_a_file_not_accepted_ends_with_2_naming_wb_plan_accept_which_accepts_a_file_with_no_plan() {
     let folder = set_up();
     git(&folder.path, &["checkout", "-q", "-b", "issue-54-work"]);
     put(&folder.path, ".watchbill/issues/54.yml", &BARE_ISSUE.replace("{issue}", "54"));
     git(&folder.path, &["add", "--", ".watchbill/issues/54.yml"]);
     git(&folder.path, &["commit", "-q", "-m", "The issue's file (54)"]);
     let run = wb(&folder.path, &["accept", "54"], "");
+    assert_eq!(code(&run), Some(2), "{}", out_of(&run));
+    assert!(err_of(&run).contains("wb plan accept 54"), "{}", err_of(&run));
+    assert!(!folder.path.join(".watchbill/issues/54.accepted").exists());
+    let run = wb(&folder.path, &["plan", "accept", "54"], "");
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
     assert!(out_of(&run).contains("will write .watchbill/issues/54.accepted"), "{}", out_of(&run));
-    assert!(!out_of(&run).contains("accepting the work"), "{}", out_of(&run));
+    assert!(folder.path.join(".watchbill/issues/54.accepted").is_file());
     assert!(!folder.path.join(RECORD).exists());
 }
 

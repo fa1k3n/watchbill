@@ -1997,26 +1997,6 @@ pub fn plan(args: &[OsString], folder: &Path, organisation: &Path, input: &mut d
 /// The subcommands of `wb plan` (#290), in the order the usage gives them.
 const PLAN_SUBCOMMANDS: &str = "add, list, show, edit, accept, remove";
 
-/// The root of the repository of `folder`, or of the folder `wb` runs in, for the command `name`; `Err` the status 2,
-/// said.
-fn root_for(folder: Option<&Path>, name: &str, err: &mut dyn Write) -> Result<String, i32> {
-    let root = match folder {
-        Some(folder) => init::repository_root_of(folder),
-        None => init::repository_root(None),
-    };
-    match root {
-        Err(why) => {
-            let _ = writeln!(err, "{}: {}.", name, why);
-            Err(2)
-        }
-        Ok(None) => {
-            let _ = writeln!(err, "{}: this folder is not in a git repository. Watchbill is set up in one.", name);
-            Err(2)
-        }
-        Ok(Some(root)) => Ok(root),
-    }
-}
-
 /// `wb plan list`, `show`, `edit`, `accept` and `remove` (#290): the words after the subcommand, a name for all but
 /// `list`, and `--no-commit` for `accept`.
 fn run_plan_of(sub: &str, parser: &mut Parser, folder: Option<&Path>, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
@@ -2038,7 +2018,7 @@ fn run_plan_of(sub: &str, parser: &mut Parser, folder: Option<&Path>, out: &mut 
     if sub != "list" && given.is_none() {
         return used(err, &name, "the name of a plan is needed: wb plan list lists them");
     }
-    let root = match root_for(folder, &name, err) {
+    let root = match root_for(&name, folder, err) {
         Ok(root) => root,
         Err(code) => return code,
     };

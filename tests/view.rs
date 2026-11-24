@@ -202,6 +202,15 @@ impl Bench {
     }
 
     fn start_by(&self, sandbox: &Path, args: &[&str]) -> Output {
+        let mut err = Vec::new();
+        let mut run = self.start_saying(sandbox, args, &mut err);
+        run.stderr = err;
+        run
+    }
+
+    /// The same, with standard error written to `err` as it is said, where a session can wait for it (#288); the
+    /// `stderr` of the output is empty.
+    fn start_saying(&self, sandbox: &Path, args: &[&str], err: &mut dyn std::io::Write) -> Output {
         use std::os::unix::process::ExitStatusExt;
         let args: Vec<std::ffi::OsString> = args.iter().map(std::ffi::OsString::from).collect();
         let organisation = self.organisation();
@@ -212,9 +221,9 @@ impl Bench {
             sandbox,
             home: Some(&self.home.path),
         };
-        let (mut out, mut err) = (Vec::new(), Vec::new());
-        let status = watchbill::start_on(&args, &self.repo.path, &machine, &mut out, &mut err);
-        Output { status: std::process::ExitStatus::from_raw(status << 8), stdout: out, stderr: err }
+        let mut out = Vec::new();
+        let status = watchbill::start_on(&args, &self.repo.path, &machine, &mut out, err);
+        Output { status: std::process::ExitStatus::from_raw(status << 8), stdout: out, stderr: Vec::new() }
     }
 
     fn start(&self, args: &[&str]) -> Output {
@@ -1885,15 +1894,16 @@ fn stand_in_bwrap(bench: &Bench) -> PathBuf {
 }
 
 /// A `bwrap` that makes no sandbox but names the session on `--info-fd` as bubblewrap does: its own child, a
-/// reaper, has the session as its one child. It writes the info only once the test has signalled `wb` (`sent` in
-/// `log`), or after a second and a half, so that the signal comes before the session is found (#271).
+/// reaper, has the session as its one child. It writes the info only once `wb` has taken the test's signal (`sent`
+/// in `log`), so that the signal comes before the session is found (#271), or, at the latest, a second and a half
+/// after it started, by the clock, within the 2 seconds `wb` looks for the session (#288).
 fn slow_info_bwrap(bench: &Bench) -> PathBuf {
     let path = bench.at("bwrap-slow-info");
     let log = bench.log.path.to_str().unwrap();
     script(
         &path,
         &format!(
-            "view=\nfd=\nwhile [ $# -gt 0 ]; do\n  case \"$1\" in\n    --info-fd) fd=$2; shift 2;;\n    --bind) view=$2; shift 3;;\n    --) shift; break;;\n    *) shift;;\n  esac\ndone\n[ \"$1\" = /usr/bin/true ] && exit 0\ncd \"$view\" || exit 1\n( \"$@\" & wait $! ) &\nreaper=$!\nn=0\nwhile [ ! -e {log}/sent ] && [ $n -lt 150 ]; do sleep 0.01; n=$((n+1)); done\necho \"{{\\\"child-pid\\\": $reaper}}\" >&\"$fd\"\nwait $reaper\nexit $?\n"
+            "view=\nfd=\nwhile [ $# -gt 0 ]; do\n  case \"$1\" in\n    --info-fd) fd=$2; shift 2;;\n    --bind) view=$2; shift 3;;\n    --) shift; break;;\n    *) shift;;\n  esac\ndone\n[ \"$1\" = /usr/bin/true ] && exit 0\ncd \"$view\" || exit 1\n( \"$@\" & wait $! ) &\nreaper=$!\n(sleep 1.5; : > {log}/late) &\nwhile [ ! -e {log}/sent ] && [ ! -e {log}/late ]; do sleep 0.01; done\necho \"{{\\\"child-pid\\\": $reaper}}\" >&\"$fd\"\nwait $reaper\nexit $?\n"
         ),
     );
     path
@@ -1927,7 +1937,7 @@ const CLEANLY_TERM: &str = "echo 'int fresh;' > src/new.c && git add src/new.c &
 const CLEANLY_HUP: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\ntrap 'sleep 1; echo got > {log}/got; kill $!; trap - HUP; kill -HUP $$' HUP\nsleep 30 &\necho $$ > {log}/pid\nwait\n";
 
 /// A session with no repository, run by `view::run`: at a hangup it takes a second, writes `got` and ends.
-const HANGS_UP_ALONE: &str = "trap 'sleep 1; echo got > {log}/got; kill $!; exit 0' HUP\nsleep 10 &\necho $$ > {log}/pid\nwait\n";
+const HANGS_UP_ALONE: &str = "trap 'sleep 1; echo got > {log}/got; kill $!; exit 0' HUP\nsleep 30 &\necho $$ > {log}/pid\nwait\n";
 
 /// A session that commits and ends by a termination it sends itself, with no one signalling `wb`.
 const ENDS_ITSELF: &str = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\necho $$ > {log}/pid\nsleep 0.5\nkill -TERM $$\n";
@@ -1947,17 +1957,20 @@ const CLEANLY_INT: &str = "echo 'int fresh;' > src/new.c && git add src/new.c &&
 const CLEANLY_QUIT: &str = "ulimit -c 0\necho 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\ntrap 'sleep 1; echo got > {log}/got; kill $!; trap - QUIT; kill -QUIT $$' QUIT\nsleep 30 &\necho $$ > {log}/pid\nwait\n";
 
 /// A session with no repository, run by `view::run`: at an interrupt it takes a second, writes `got` and ends by it.
-const INT_ALONE: &str = "trap 'sleep 1; echo got > {log}/got; kill $!; trap - INT; kill -INT $$' INT\nsleep 10 &\necho $$ > {log}/pid\nwait\n";
+const INT_ALONE: &str = "trap 'sleep 1; echo got > {log}/got; kill $!; trap - INT; kill -INT $$' INT\nsleep 30 &\necho $$ > {log}/pid\nwait\n";
 
 /// The same at a quit.
-const QUIT_ALONE: &str = "ulimit -c 0\ntrap 'sleep 1; echo got > {log}/got; kill $!; trap - QUIT; kill -QUIT $$' QUIT\nsleep 10 &\necho $$ > {log}/pid\nwait\n";
+const QUIT_ALONE: &str = "ulimit -c 0\ntrap 'sleep 1; echo got > {log}/got; kill $!; trap - QUIT; kill -QUIT $$' QUIT\nsleep 30 &\necho $$ > {log}/pid\nwait\n";
 
-/// A session with no repository that writes a line `int` for each interrupt it gets, and ends by itself after
-/// two seconds, writing `got`.
-const COUNTS_INTS: &str = "trap 'echo int >> {log}/ints' INT\nsleep 2 &\necho $$ > {log}/pid\nwhile ! wait $!; do :; done\necho got > {log}/got\n";
+/// A session with no repository that writes a line `int` for each interrupt it gets, and ends by itself, writing
+/// `got`, once `wb` has taken the test's signal (`sent`), so that one that `wb` sent on came before (#288). An
+/// interrupt to the group kills the `sleep` of the moment, not the session. A minute is the ceiling.
+const COUNTS_INTS: &str = "trap 'echo int >> {log}/ints' INT\necho $$ > {log}/pid\nn=0\nwhile [ ! -e {log}/sent ] && [ $n -lt 1200 ]; do sleep 0.05; n=$((n+1)); done\necho got > {log}/got\n";
 
-/// A session with no repository that ends by itself after four seconds, writing `got`.
-const ENDS_LATER: &str = "echo $$ > {log}/pid\nsleep 4\necho got > {log}/got\n";
+/// A session with no repository that ends by itself, writing `got`, once `wb` has taken the test's signal (`sent`)
+/// and has said that the session was not found (`said`), so that a kill of bubblewrap would have come before (#288).
+/// A minute is the ceiling.
+const ENDS_LATER: &str = "echo $$ > {log}/pid\nn=0\nwhile { [ ! -e {log}/sent ] || ! grep -q 'not found in bubblewrap' {log}/said 2>/dev/null; } && [ $n -lt 1200 ]; do sleep 0.05; n=$((n+1)); done\necho got > {log}/got\n";
 
 /// Not a test of a row: it does nothing unless a signal test started it. It is the part that runs `wb` in the process the signal tests start: it writes the folders it made, writes the
 /// status when `wb` ends, and waits for the parent to be done with the folders.
@@ -2006,7 +2019,9 @@ fn a_helper_that_runs_wb_for_the_signal_tests_and_checks_nothing() {
             new_session: !how.ends_with("in-group"),
             words: &words,
         };
-        match watchbill::view::run(&sandbox, &plan) {
+        // What `wb` says goes to `said` in the log folder, where a session can wait for it (#288).
+        let mut said = fs::File::create(bench.log.path.join("said")).unwrap();
+        match watchbill::view::run_saying(&sandbox, &plan, "wb start", &mut said) {
             Ok(status) => {
                 use std::os::unix::process::ExitStatusExt;
                 // The signal that ended the session, as `wb start` names it in `outcome` (#271).
@@ -2057,11 +2072,9 @@ struct Signalled {
     ints: String,
     /// The signal that ended the session, by its number, where `view::run` ran it.
     signal: String,
-    /// From the start of the helper to the end of `wb`.
-    took: std::time::Duration,
 }
 
-/// Starts `wb start build 54`, sends `to_wb` to it when the session waits, then, after a moment, `to_session` to
+/// Starts `wb start build 54`, sends `to_wb` to it when the session waits, then, once `wb` has taken it, `to_session` to
 /// the session when there is one, and gathers what was left. Nothing waits longer than a minute.
 fn signalled(session_is: &str, to_wb: Option<i32>, to_session: Option<i32>) -> Signalled {
     signalled_how(How { session_is, sandbox: "stand-in", to_wb, to_group: false, to_session, hangup_ignored: false })
@@ -2123,7 +2136,6 @@ fn signalled_ignoring(how: How, ignored: &[i32]) -> Signalled {
             Ok(())
         });
     }
-    let began = std::time::Instant::now();
     let mut child = command.spawn().expect("the test binary could not be started");
     let found = (|| {
         if !wait_for(60, || folder.join("paths").exists()) {
@@ -2141,10 +2153,13 @@ fn signalled_ignoring(how: How, ignored: &[i32]) -> Signalled {
             if unsafe { kill(to, signal) } != 0 {
                 return Err("the signal could not be sent to wb".to_string());
             }
-            // For a stand-in that names the session only after the signal (`slow_info_bwrap`).
+            // `wb` has taken it once its handler has run: then, and not after a time, the session is signalled, and
+            // a session or a stand-in that waits for `sent` goes on (#288).
+            if !wait_for(60, || taken(child.id() as i32, signal)) {
+                return Err("wb did not take the signal within a minute".to_string());
+            }
             fs::write(log.join("sent"), "").unwrap();
         }
-        std::thread::sleep(std::time::Duration::from_millis(300));
         if let Some(signal) = to_session {
             if unsafe { kill(session, signal) } != 0 {
                 return Err("the signal could not be sent to the session".to_string());
@@ -2166,7 +2181,6 @@ fn signalled_ignoring(how: How, ignored: &[i32]) -> Signalled {
             ignored: read_if(&log.join("ignored")),
             ints: read_if(&log.join("ints")),
             signal: read_if(&folder.join("signal")),
-            took: began.elapsed(),
         })
     })();
     // The session of a run that went wrong is ended too, by its number.
@@ -2176,6 +2190,14 @@ fn signalled_ignoring(how: How, ignored: &[i32]) -> Signalled {
         let _ = child.wait();
     }
     found.unwrap_or_else(|why| panic!("{}", why))
+}
+
+/// Whether process `pid` has no `signal` waiting for it, as `ShdPnd` of `/proc/<pid>/status` says: one sent to the
+/// process is taken there until a thread of it takes it and runs its handler. A process that has ended has none.
+fn taken(pid: i32, signal: i32) -> bool {
+    let status = read_if(Path::new(&format!("/proc/{}/status", pid)));
+    let Some(mask) = status.lines().find_map(|line| line.strip_prefix("ShdPnd:")) else { return true };
+    u64::from_str_radix(mask.trim(), 16).map(|mask| mask & (1 << (signal - 1)) == 0).unwrap_or(false)
 }
 
 fn read_if(path: &Path) -> String {
@@ -2271,13 +2293,13 @@ fn test_WB_VIEW_57_with_no_controlling_terminal_a_hangup_to_the_group_ends_neith
 
 #[test]
 fn test_WB_BUILD_87_where_bubblewrap_names_no_session_wb_says_a_termination_will_not_reach_it() {
-    // The stand-in writes nothing on the info fd, and the session runs on past the 2 seconds `wb` waits, and past
-    // the moment `wb` gives an ended session to be waited for (#273), by a wide margin on a loaded machine.
+    // The stand-in writes nothing on the info fd, and the session runs until `wb` has said the line (#288).
     let slow = bench();
-    slow.session("sleep 10\nexit 0\n");
+    slow.session(UNTIL_SAID);
     let sandbox = stand_in_bwrap(&slow);
-    let run = slow.start_by(&sandbox, &["start", "build", "54"]);
-    let err = text_of(&run.stderr);
+    let said = slow.log.path.join("said");
+    slow.start_saying(&sandbox, &["start", "build", "54"], &mut fs::File::create(&said).unwrap());
+    let err = read(&said);
     let said: Vec<&str> = err.lines().filter(|line| line.contains("a termination of wb goes to bubblewrap")).collect();
     assert_eq!(said.len(), 1, "{}", err);
     assert!(said[0].starts_with("wb start build: the session was not found in bubblewrap"), "{}", err);
@@ -2405,7 +2427,6 @@ fn test_WB_BUILD_109_where_bubblewrap_names_no_session_an_interrupt_to_wb_ends_b
     let how = How { session_is: "waits", sandbox: "run-stand-in", to_wb: Some(SIGINT), to_group: false, to_session: None, hangup_ignored: false };
     let found = signalled_how(how);
     assert_ne!(found.status, -2, "wb had not ended after a minute");
-    assert!(found.took < std::time::Duration::from_secs(20), "bubblewrap was not ended: {:?}", found.took);
     assert_eq!(found.signal, "9\n", "bubblewrap was not killed (status {})", found.status);
 }
 
@@ -2414,7 +2435,6 @@ fn test_WB_BUILD_109_where_bubblewrap_names_no_session_a_quit_to_wb_ends_bubblew
     let how = How { session_is: "waits", sandbox: "run-stand-in", to_wb: Some(SIGQUIT), to_group: false, to_session: None, hangup_ignored: false };
     let found = signalled_how(how);
     assert_ne!(found.status, -2, "wb had not ended after a minute");
-    assert!(found.took < std::time::Duration::from_secs(20), "bubblewrap was not ended: {:?}", found.took);
     assert_eq!(found.signal, "9\n", "bubblewrap was not killed (status {})", found.status);
 }
 
@@ -2428,11 +2448,15 @@ fn test_WB_BUILD_109_with_a_controlling_terminal_an_interrupt_to_wb_does_not_kil
     assert_eq!(found.status, 0);
 }
 
-/// What `view::run_saying` says, with the stand-in that writes nothing on the info fd and a session of three
-/// seconds, with `--new-session` or without it.
+/// A session that runs until `wb` has said, in `said` of the log folder, that it was not found, and then ends with
+/// 0: it does not race the time `wb` looks for it (#288). A minute is the ceiling.
+const UNTIL_SAID: &str = "n=0\nwhile ! grep -q 'not found in bubblewrap' {log}/said 2>/dev/null && [ $n -lt 1200 ]; do sleep 0.05; n=$((n+1)); done\nexit 0\n";
+
+/// What `view::run_saying` says, with the stand-in that writes nothing on the info fd and a session that runs until
+/// it is said (`UNTIL_SAID`), with `--new-session` or without it.
 fn said_for_lost(new_session: bool) -> String {
     let slow = bench();
-    slow.session("sleep 3\nexit 0\n");
+    slow.session(UNTIL_SAID);
     let sandbox = stand_in_bwrap(&slow);
     let view = folder_named("view");
     let words = [slow.at("session.sh").to_str().unwrap().to_string()];
@@ -2445,9 +2469,10 @@ fn said_for_lost(new_session: bool) -> String {
         new_session,
         words: &words,
     };
-    let mut err = Vec::new();
-    watchbill::view::run_saying(&sandbox, &plan, "wb start build", &mut err).unwrap();
-    text_of(&err)
+    let said = slow.log.path.join("said");
+    let status = watchbill::view::run_saying(&sandbox, &plan, "wb start build", &mut fs::File::create(&said).unwrap()).unwrap();
+    assert!(status.success(), "{:?}: {}", status, read(&said));
+    read(&said)
 }
 
 #[test]

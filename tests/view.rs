@@ -4500,7 +4500,8 @@ fn test_WB_ROLE_104_the_breakdown_s_prompt_as_handed_out_names_the_issue_s_file_
     ok(&run);
     let prompt = text_of(&run.stdout);
     assert!(prompt.contains(".watchbill/issue/54.md"), "{}", prompt);
-    assert!(!prompt.contains("address.sh") && !prompt.contains("gh "), "{}", prompt);
+    let words: Vec<&str> = prompt.split(|c: char| !c.is_ascii_alphanumeric()).collect();
+    assert!(!prompt.contains("address.sh") && !words.contains(&"gh"), "{}", prompt);
 }
 
 #[test]
@@ -4525,7 +4526,7 @@ fn test_WB_BUILD_136_the_questions_and_answers_come_in_whole_and_no_stamp_or_oth
     }
     fs::write(bench.at("address-54"), address).unwrap();
     fs::write(bench.at("bodies-54"), bodies).unwrap();
-    bench.session("cat .watchbill/issue/54.md > {log}/text\ncat .watchbill/issue/54.questions.md > {log}/questions\n");
+    bench.session("cat .watchbill/issue/54.md > {log}/text\ncat .watchbill/issue/54.questions > {log}/questions\n");
 
     ok(&bench.start(&["start", "breakdown", "54"]));
 

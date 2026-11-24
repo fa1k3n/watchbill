@@ -8,6 +8,7 @@ use std::path::Path;
 
 pub mod answer;
 pub mod bounded;
+pub mod brought;
 pub mod check;
 pub mod confidentiality;
 pub mod detect;
@@ -1416,6 +1417,23 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         let why = format!("{}. Bind it in `binds` of the runner '{}' in the organisation's file {}", why, runner, organisation.display());
         return refused(&mut lines, err, "start", &why);
     }
+    // The breakdown has no login (#295): its issue, and the questions and answers under it, are read here, as the
+    // person and outside the sandbox, and brought into its view before anything is posted. The stamp holds the hash.
+    let brought = match (role, value_of(&handed.values, "issue")) {
+        ("breakdown", Some(issue)) => match brought::bring_in(root, issue, &prepared.view.folder) {
+            Ok(found) => Some(found),
+            Err(why) => {
+                discard(&prepared);
+                return refused(&mut lines, err, "issue", &why);
+            }
+        },
+        _ => None,
+    };
+    let stamp: Result<String, String> = match (&stamp, &brought) {
+        (Ok(text), Some(found)) => Ok(prompt::with_issue_text(text, &found.hash)),
+        (Ok(text), None) => Ok(text.clone()),
+        (Err(why), _) => Err(why.clone()),
+    };
     // The pattern that posts the stamp. From here, a fault leaves the stamp not posted, and no view.
     let not_posted = |lines: &mut sessions::Lines, err: &mut dyn Write, why: &str| {
         discard(&prepared);
@@ -1534,6 +1552,14 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
             let _ = writeln!(err, "{}: to see what the commit changes, run:\n  git show --stat {}", name, commit);
         }
         say_push(name, role, root, prepared.view.branch_name(), err);
+        // The breakdown posts nothing (#295): its new questions, written in full in the issue's file, are posted here.
+        if let (true, Some(issue)) = (role == "breakdown", value_of(&handed.values, "issue")) {
+            if let Err(why) = brought::post_questions(name, root, issue, err) {
+                refusal::limit(err, name, format_args!("the questions of the issue's file are not posted: {}", why));
+                // not a refusal: the limit is said just above, after the session; the code says it too.
+                code = 1;
+            }
+        }
     }
     lines.close(None, sessions::Outcome::Ended { status, seconds }, err);
     code
@@ -1967,7 +1993,7 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
     };
     let refused = |err: &mut dyn Write, why: &str| refusal::limit(err, name, why);
     if role == Some("breakdown") {
-        return refused(err, "the breakdown runs in a view of every file of HEAD, where only .watchbill/issues/ is writable: it reads the whole code by its role, and has no list of paths");
+        return refused(err, "the breakdown runs in a view of every file of HEAD, writable, with .watchbill/ read-only but for .watchbill/issues/: it reads the whole code by its role, and has no list of paths");
     }
     let settings = match starter::settings(&root) {
         Ok(settings) => settings,

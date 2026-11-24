@@ -10,9 +10,9 @@
 //!   `changes`, and refused, with every commit after it, when it does not. `wb` pushes nothing: `wb start <role>` says
 //!   the command that pushes, and a person runs it (#145).
 //! - **Every other session** (#202): the breakdown, and a role with no issue's file, run in a view of every file
-//!   of `HEAD`, made the same way. The breakdown's is read-only but for `.watchbill/issues/` and its own `.git`, and
-//!   only its issue's file comes back; that of a role with no issue's file is writable but for `.watchbill/`, and
-//!   what comes back keeps out of `.watchbill/` and `build_files`.
+//!   of `HEAD`, made the same way. The breakdown's is writable but for `.watchbill/` other than `.watchbill/issues/`
+//!   (#295), and only its issue's file comes back; that of a role with no issue's file is writable but for
+//!   `.watchbill/`, and what comes back keeps out of `.watchbill/` and `build_files`.
 //!
 //! Once the session has run, what is in the view is the session's. `wb` never runs git with the view's own
 //! settings, which would run a command the session wrote there outside the sandbox: it reads the view's objects
@@ -645,8 +645,8 @@ fn fill(root: &Path, paths: Option<&[String]>, folder: &Path, branch: &str, head
 pub enum Layout {
     /// A view of the paths of an issue's file: all of it writable.
     Listed,
-    /// The breakdown's view of the whole tree: read-only, but for `.watchbill/issues/` and the view's own `.git`,
-    /// which it commits in.
+    /// The breakdown's view of the whole tree: writable, so that a build and the tests can run, but for
+    /// `.watchbill/` other than `.watchbill/issues/`, where it writes its issue's file (#295).
     Breakdown,
     /// The view of the whole tree of a role with no issue's file: writable, but for `.watchbill/`.
     Whole,
@@ -734,11 +734,10 @@ pub fn arguments_in(plan: &Plan, layout: Layout) -> Vec<OsString> {
     for folder in [fixed, plan.organisation.filter(|folder| Some(*folder) != fixed)].into_iter().flatten() {
         add(&["--tmpfs".as_ref(), folder.as_os_str()]);
     }
-    let tree = if layout == Layout::Breakdown { "--ro-bind" } else { "--bind" };
-    add(&[tree.as_ref(), plan.view.as_os_str(), plan.checkout.as_os_str()]);
+    add(&["--bind".as_ref(), plan.view.as_os_str(), plan.checkout.as_os_str()]);
     let inside: &[(&str, &str)] = match layout {
         Layout::Listed => &[],
-        Layout::Breakdown => &[("--bind", ".git"), ("--bind", ".watchbill/issues")],
+        Layout::Breakdown => &[("--ro-bind", ".watchbill"), ("--bind", ".watchbill/issues")],
         Layout::Whole => &[("--ro-bind", ".watchbill")],
     };
     for (how, path) in inside {
@@ -1415,7 +1414,12 @@ fn take_back_in(name: &str, root: &str, view: &View, allowed: &Allowed, build_fi
         back.failed = Some(why);
     }
     match uncommitted(root, &store.path, &view.folder, &view.head, &mut back.notes) {
-        Ok(found) => back.uncommitted = found,
+        // What the breakdown leaves beside its issue's file can never come back: it stays in the view, and goes with
+        // it (#295).
+        Ok(found) => match allowed {
+            Allowed::IssueFile(file) => back.uncommitted = found.into_iter().filter(|path| parts(path) == parts(file)).collect(),
+            _ => back.uncommitted = found,
+        },
         Err(why) => {
             if back.failed.is_none() {
                 back.failed = Some(format!("what is left uncommitted in the view could not be read: {}", why));

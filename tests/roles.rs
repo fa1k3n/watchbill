@@ -816,7 +816,7 @@ fn test_WB_ROLE_68_the_fix_reads_a_finding_by_its_number_and_its_level() {
 fn test_WB_ROLE_62_a_second_fresh_session_folds_the_answers_into_the_file_and_commits_it_alone() {
     let point = breakdown_point("## What you produce", "- A second session, a fresh one, folds the answers in.");
     for what in [
-        "you read the questions and answers in `.watchbill/issue/{issue}.questions.md`",
+        "you read the questions and answers in `.watchbill/issue/{issue}.questions`",
         "take each answer of a person as part of the issue",
         "in the requirements, `changes`, `reads` or `existing_tests_changed`",
         "remove the question answered",
@@ -1365,8 +1365,9 @@ fn test_WB_ROLE_97_no_other_role_speaks_of_classed_code() {
 fn test_WB_ROLE_104_the_breakdown_s_prompt_holds_no_issue_address_and_names_no_program_of_a_tracker() {
     let text = prompt("breakdown");
     assert!(!text.contains("{issue_address}"), "{}", text);
-    for program in ["gh ", "glab ", "`gh`", "`glab`"] {
-        assert!(!text.contains(program), "{}", program);
+    let words: Vec<&str> = text.split(|c: char| !c.is_ascii_alphanumeric()).collect();
+    for program in ["gh", "glab"] {
+        assert!(!words.contains(&program), "{}", program);
     }
 }
 

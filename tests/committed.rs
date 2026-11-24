@@ -302,7 +302,7 @@ fn test_WB_TASK_17_with_no_file_requirements_is_the_numbered_requirements_of_the
 }
 
 #[test]
-fn test_WB_ROLE_47_wb_start_breakdown_is_not_a_role_and_ends_with_2() {
+fn test_WB_BUILD_38_wb_start_breakdown_is_not_a_role_and_ends_with_2() {
     // The role was called breakdown until revision 0.12.0 (#290); there is no deprecation, so the old name is
     // an unknown role, as any other.
     let folder = set_up();

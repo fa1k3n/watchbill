@@ -6,11 +6,11 @@
 
 _wb_commands="init check upgrade plan accept start status view answer revert prompt revision compare"
 _wb_roles="build fix planner review tester"
-_wb_stages=("Not broken down" "Broken down" Accepted Tested Built Reviewed Fixed "Questions open" "Not read")
+_wb_stages=("Not planned" Planned Accepted Tested Built Reviewed Fixed "Questions open" "Not read")
 
 _wb_flags_init="--yes"
 _wb_flags_upgrade="--dry-run"
-_wb_flags_plan="--file --message --from --source --level --hash-only"
+_wb_flags_plan="--file --message --from --source --level --hash-only --no-commit"
 _wb_flags_accept="--no-commit"
 _wb_flags_start="--runner --prompt --ignore-local --ignore-kept --ignore-branch --no-push --take-back --issue --change --requirements --round --checkout --branch --issue_address --change_address --classed --classed_touched --description --parts --stamp"
 _wb_flags_status="--stage"
@@ -127,7 +127,15 @@ _wb() {
 
     case $command in
     plan)
-        ((position == 0)) && COMPREPLY=($(compgen -W "add" -- "$cur"))
+        # The subcommands, then the issues for those that take the name of a plan (#290).
+        case $position in
+        0) COMPREPLY=($(compgen -W "add list show edit accept remove" -- "$cur")) ;;
+        1)
+            case ${COMP_WORDS[2]} in
+            show | edit | accept | remove) _wb_add_issues ;;
+            esac
+            ;;
+        esac
         ;;
     prompt | start)
         case $position in

@@ -4,15 +4,15 @@ What `wb` reads of an issue's file and how a person accepts it. What the file is
 
 | ID | Requirement | Ver | Status |
 |---|---|---|---|
-| WB-TASK-1 | `wb accept <issue>` shall read `.watchbill/issues/<issue>.yml` through the one loader. Issue: #74. | T | Implemented |
-| WB-TASK-2 | `wb accept` shall name a key of the issue's file that is missing, out of order or not known, and end with 1. Issue: #74. | T | Implemented |
-| WB-TASK-3 | `wb accept` shall name a requirement ID that stands twice in the issue's file, and end with 1. Issue: #74. | T | Implemented |
-| WB-TASK-4 | `wb accept` shall name a path of the issue's file that is absolute, holds `..` or lies under `.watchbill/`, and end with 1. Issue: #74. | T | Implemented |
-| WB-TASK-5 | `wb accept` shall refuse an issue's file that holds a question, name the questions, and end with 1. Issue: #74. | T | Implemented |
-| WB-TASK-6 | `wb accept` shall say what it will write before it writes `.watchbill/issues/<issue>.accepted`. Issue: #74. | T | Implemented |
+| WB-TASK-1 | `wb accept <issue>` shall read `.watchbill/issues/<issue>.yml` through the one loader. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #74. | T | Deprecated |
+| WB-TASK-2 | `wb accept` shall name a key of the issue's file that is missing, out of order or not known, and end with 1. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #74. | T | Deprecated |
+| WB-TASK-3 | `wb accept` shall name a requirement ID that stands twice in the issue's file, and end with 1. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #74. | T | Deprecated |
+| WB-TASK-4 | `wb accept` shall name a path of the issue's file that is absolute, holds `..` or lies under `.watchbill/`, and end with 1. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #74. | T | Deprecated |
+| WB-TASK-5 | `wb accept` shall refuse an issue's file that holds a question, name the questions, and end with 1. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #74. | T | Deprecated |
+| WB-TASK-6 | `wb accept` shall say what it will write before it writes `.watchbill/issues/<issue>.accepted`. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #74. | T | Deprecated |
 | WB-TASK-7 | The acceptance shall hold the SHA-256 of the issue's file, the git `user.name` and `user.email`, and the time in UTC. Issue: #74. | T | Implemented |
-| WB-TASK-8 | `wb accept` shall never write over an acceptance that is there, and shall end with 1. Issue: #74. | T | Implemented |
-| WB-TASK-9 | `wb accept` shall refuse when git gives no `user.name` or `user.email`, and end with 1. Issue: #74. | T | Implemented |
+| WB-TASK-8 | `wb accept` shall never write over an acceptance that is there, and shall end with 1. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #74. | T | Deprecated |
+| WB-TASK-9 | `wb accept` shall refuse when git gives no `user.name` or `user.email`, and end with 1. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #74. | T | Deprecated |
 | WB-TASK-10 | An issue's file shall count as accepted only while the SHA-256 in its acceptance is that of the file as it is. Issue: #74. | T | Implemented |
 | WB-TASK-11 | `wb check` shall not fail on the files under `.watchbill/issues/`. Issue: #74. | T | Implemented |
 | WB-TASK-12 | `wb accept` shall write nothing but the acceptance, and ask nothing of the network. Replaced by WB-TASK-30. Issue: #74. | T | Deprecated |
@@ -22,18 +22,18 @@ What `wb` reads of an issue's file and how a person accepts it. What the file is
 | WB-TASK-16 | `wb accept` shall end by saying that the acceptance is to be committed alone, with the command. Replaced by WB-TASK-23 and WB-TASK-29. Issue: #97. | T | Deprecated |
 | WB-TASK-17 | When an issue has no file, `wb prompt` shall hand out the tester's, the build's, the review's and the fix's prompts, and fill `requirements` with "the numbered requirements of issue {issue}" unless `--requirements` is given. Replaces WB-TASK-14 and WB-PROMPT-50. Issue: #116. | T | Implemented |
 | WB-TASK-18 | `wb check` and `wb prompt` shall refuse a `watchbill.yml` that has the key `breakdown`, name the line, say to remove it, and end with 1. Replaces WB-TASK-15. Issue: #116. | T | Implemented |
-| WB-TASK-19 | Where `watchbill.yml` has `needs`, `wb accept` shall run it for each path of `changes` and of the tester's and the build's `reads`, and refuse with 1 a path it prints that is in neither that role's `reads` nor `changes`, naming the role, the file and the path. Issue: #125. | T | Implemented |
-| WB-TASK-20 | `wb accept` shall refuse with 1, naming the file, when the command of `needs` ends with anything but 0. Issue: #125. | T | Implemented |
-| WB-TASK-21 | Where `watchbill.yml` has no `needs`, `wb accept` shall say that the lists were not checked. Issue: #125. | T | Implemented |
-| WB-TASK-22 | `wb accept` shall refuse with 1 an issue's file whose `changes` holds a path under `build_files` of `watchbill.yml`, naming the path. Issue: #125. | T | Implemented |
-| WB-TASK-23 | After it writes the acceptance, `wb accept` shall commit `.watchbill/issues/<issue>.accepted` alone, with the message `Accept the issue's file (<issue>)`, as the `user.name` and `user.email` of git. Issue: #157. | T | Implemented |
-| WB-TASK-24 | `wb accept` shall leave staged what was staged before it, and keep it out of its commit. Issue: #157. | T | Implemented |
-| WB-TASK-25 | `wb accept` shall say what it will commit before it commits. Issue: #157. | T | Implemented |
-| WB-TASK-26 | `wb accept` shall refuse with 1, writing nothing and naming both branches, when the checkout is not on the issue's branch. Issue: #157. | T | Implemented |
-| WB-TASK-27 | `wb accept` shall refuse with 1, writing nothing, when the issue's file is not committed in `HEAD` or differs from it. Issue: #157. | T | Implemented |
-| WB-TASK-28 | When its commit fails, `wb accept` shall leave the acceptance written, say so, and end with 1. Issue: #157. | T | Implemented |
-| WB-TASK-29 | `wb accept --no-commit` shall write the acceptance, commit nothing, and print the command that commits it alone. Issue: #157. | T | Implemented |
-| WB-TASK-30 | `wb accept` shall write nothing but the acceptance, commit nothing but that file, and ask nothing of the network. Replaces WB-TASK-12. Issue: #157. | T | Implemented |
+| WB-TASK-19 | Where `watchbill.yml` has `needs`, `wb accept` shall run it for each path of `changes` and of the tester's and the build's `reads`, and refuse with 1 a path it prints that is in neither that role's `reads` nor `changes`, naming the role, the file and the path. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #125. | T | Deprecated |
+| WB-TASK-20 | `wb accept` shall refuse with 1, naming the file, when the command of `needs` ends with anything but 0. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #125. | T | Deprecated |
+| WB-TASK-21 | Where `watchbill.yml` has no `needs`, `wb accept` shall say that the lists were not checked. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #125. | T | Deprecated |
+| WB-TASK-22 | `wb accept` shall refuse with 1 an issue's file whose `changes` holds a path under `build_files` of `watchbill.yml`, naming the path. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #125. | T | Deprecated |
+| WB-TASK-23 | After it writes the acceptance, `wb accept` shall commit `.watchbill/issues/<issue>.accepted` alone, with the message `Accept the issue's file (<issue>)`, as the `user.name` and `user.email` of git. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #157. | T | Deprecated |
+| WB-TASK-24 | `wb accept` shall leave staged what was staged before it, and keep it out of its commit. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #157. | T | Deprecated |
+| WB-TASK-25 | `wb accept` shall say what it will commit before it commits. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #157. | T | Deprecated |
+| WB-TASK-26 | `wb accept` shall refuse with 1, writing nothing and naming both branches, when the checkout is not on the issue's branch. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #157. | T | Deprecated |
+| WB-TASK-27 | `wb accept` shall refuse with 1, writing nothing, when the issue's file is not committed in `HEAD` or differs from it. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #157. | T | Deprecated |
+| WB-TASK-28 | When its commit fails, `wb accept` shall leave the acceptance written, say so, and end with 1. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #157. | T | Deprecated |
+| WB-TASK-29 | `wb accept --no-commit` shall write the acceptance, commit nothing, and print the command that commits it alone. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #157. | T | Deprecated |
+| WB-TASK-30 | `wb accept` shall write nothing but the acceptance, commit nothing but that file, and ask nothing of the network. Replaces WB-TASK-12. Replaced by WB-JOB-36: `wb plan accept` (#290); until #282, `wb accept` still does it for a name that has no plan. Issue: #157. | T | Deprecated |
 | WB-TASK-31 | `wb accept` shall also make a signed tag `refs/tags/watchbill/accept/<name>/<12 hex digits>` on the blob of the issue's file, whose message holds the SHA-256 of the issue's file, the job's hash, the identity and the time. Issue: #235. | T | Draft |
 | WB-TASK-32 | `wb accept` shall refuse with 1, write nothing and name the setting when git has no signing key set. Issue: #235. | T | Draft |
 | WB-TASK-33 | Where `.watchbill/signers` is there, an acceptance whose tag is signed by a key in the list with the role `accept` shall be an acceptance. Issue: #235. | T | Draft |

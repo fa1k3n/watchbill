@@ -247,9 +247,42 @@ wb plan add --from github 54
 - **`--from <adapter> <number>`** runs the pattern `issue_text` of `watchbill.yml` for the number, as the person, takes what it prints as `-F -` takes it, names the job `<adapter>/<number>`, and keeps the command as the source. Until adapters are built, the adapter is set up where `tracker:` of `watchbill.yml` is its name and the file has `issue_text`; otherwise it ends with 2 and says to pipe the text in.
 - **The level** of the job is `--level <level>`, or the repository's ([Confidentiality](#confidentiality)). The text is in every clone and cannot be deleted from them, so a level above the repository's is refused with 1, and so is a run on a machine with no organisation's file. `--hash-only` keeps the hash and the source, not the text, where the organisation's file has `jobs: hash_only: allowed`; otherwise it is refused with 1.
 - **It only queues.** It runs no prompt and starts no session. With `-F` and `-m` it asks nothing of the network and runs no pattern. It pushes nothing: the refs are pushed with git, and the fetch line that `wb init` and `wb upgrade` add brings them to each clone.
-- **What it does not do yet:** `list`, `show`, `edit`, `accept` and `remove` of `wb plan`, and the planner reading the sources, are #290. `wb plan` with no subcommand, or another, ends with 2 and names `add`.
+- `wb plan` with no subcommand, or one that is not known, ends with 2 and names `add, list, show, edit, accept, remove`.
 
 The exit status: 0 the job is taken in or nothing changes; 1 it was refused, and nothing is written; 2 it was used wrongly, no adapter is set up for `--from`, or the repository is not set up.
+
+## Managing a plan
+
+A plan is a job that `wb plan add` took in, with the issue's file the planner writes for it, `.watchbill/issues/<name>.yml` (#290). `wb plan` manages it as git manages a remote or a note:
+
+```sh
+wb plan add 54 -F spec.md     # bring the document in
+wb start planner 54           # the planner reads every source and writes the issue's file
+wb plan show 54               # read it
+wb plan edit 54               # change it, if need be
+wb plan accept 54             # agree to it
+wb start tester 54            # the work
+```
+
+- **`wb plan list`** prints each plan once, by its first name, one to a line, and nothing else, for a script to read. A plan removed is not listed. A ref under `refs/watchbill/` that is not a job is passed over and said once on standard error.
+- **`wb plan show <name>`** prints the plan's names, each source with its hash, where it came from, whether its text is kept, its level, who added it and when; then the issue's file of the working tree and its state, and the file itself:
+
+  ```
+  plan 54
+  names: 54
+  source 1: 3b18e512dba79e4c8300dd08aeb37f8e728b8dad  from none  kept  level internal  by Ada Lovelace <ada@example.org>  2026-11-24T09:12:40Z
+  issue's file: .watchbill/issues/54.yml
+  state: accepted by Ada Lovelace <ada@example.org> at 2026-11-24T10:02:11Z
+  ```
+
+  The state is `not planned` (no issue's file yet), `not accepted`, `not accepted (edited after the acceptance)`, `not accepted (a source added after the acceptance)`, `not accepted (planned again after the acceptance)`, or `accepted by <who> at <time>`. A plan whose name holds `/` (`github/54`) has no issue's file until point 15 of [docs/revision.md](docs/revision.md), and is `not planned`.
+- **After the acceptance** is decided by time, to the second, against `time:` of `.accepted`. A source added later voids it, as an edit does: `wb plan show` and `wb status` say so, and no prompt of a role is handed out. A planner round voids it too, even where the file comes out the same, as a new round is a person asking for the plan to be looked at again: a `[stamp] planner` whose `time:` is the same as the acceptance's or later, read whole by `issue_comment_bodies`. `wb plan show` and `wb status` say so; a role's prompt reads no tracker, so it holds a planner round only once the stamps are on the job's ref (point 15). To accept again, remove `.accepted` and run `wb plan accept`: an acceptance is never written over.
+- **`wb plan edit <name>`** opens the issue's file in the editor git would use (`GIT_EDITOR`, `core.editor`, `VISUAL`, `EDITOR`), and commits the edit alone, as the person, with the message `Edit the issue's file (<name>)`. As `wb plan accept`, it needs the checkout on the issue's branch and the file as `HEAD` has it, and says so before it opens anything. Where nothing changed, it commits nothing. Where the editor fails, or the file no longer holds its form, it commits nothing and leaves the edit in the working tree. An acceptance of the file before holds no longer.
+- **`wb plan accept <name> [--no-commit]`** is the acceptance of the issue's file ([The issue's file and its acceptance](#the-issues-file-and-its-acceptance)), with its checks, its `.accepted` and its commit, said as `wb plan accept`. `wb accept <name>` of a plan not accepted ends with 2 and names `wb plan accept <name>`: `wb accept` is to be the acceptance of the work (#282). For a name with no plan, `wb accept` accepts the issue's file as before, until then.
+- **`wb plan remove <name>`** takes a plan out by a marker: a commit after the plan's whose tree adds `removed`, with the person's git identity and the time, and every name of the plan moved to it in one transaction. Nothing is rewritten, and the name stays taken: `wb plan add` under it is refused, and its text is not taken as that plan's again. It is refused while a role's work on the plan is not done: a branch of the name, by the pattern `branch`, holds a commit the default branch does not, or this machine keeps a view of it with work not taken back.
+- **The planner reads every source.** `wb start planner <name>` of a plan brings its sources into `.watchbill/issue/<name>.md` of the view, in the order they were added, and runs no `issue_text`. One source is its text as it is; with more, each is under a line `--- source <n>: <hash>, from <source> ---`, and a source kept as its hash alone says so.
+
+The exit status: 0 it is done, or nothing changes; 1 it was refused (a name that is no plan, or a plan removed, among others), and nothing is written; 2 it was used wrongly or the repository is not set up.
 
 ## The prompt of an assignment
 
@@ -639,7 +672,7 @@ With `classed` written, and the patterns of `watchbill.yml` in place:
 
 ```sh
 wb start planner 54     # writes .watchbill/issues/54.yml on the branch issue-54
-wb accept 54        # the person accepts it, and wb commits the acceptance
+wb accept 54        # the person accepts it, and wb commits the acceptance (wb plan accept 54 for a plan)
 wb start tester 54        # the tests, red
 wb answer 54        # the person answers what a session asked, any time it asked
 wb start build 54         # the code, committed; wb pushes it and opens the change as a draft
@@ -668,10 +701,10 @@ Each command posts its stamp and starts its session. After the tester, the build
 `wb status` lists the issues in the flow under headings, as `git status` lists files under theirs: each issue under the last step it has done, with its branch. It only reads, writing nothing but the temporary repository in `$TMPDIR` that reading a kept view needs (#222), removed after, and it says what is, never what to do. It runs anywhere inside the repository.
 
 ```
-Not broken down:
+Not planned:
   178  issue-178
 
-Broken down:
+Planned:
   176  issue-176  #181  2 not pushed
 
 Accepted:
@@ -690,9 +723,9 @@ Questions open:
   - `Built`: there is a `[stamp] build`;
   - `Tested`: there is a `[stamp] tester`;
   - `Accepted`: the issue's file and its acceptance are on the issue's branch, and the acceptance holds for the file;
-  - `Broken down`: the issue's file is on the issue's branch;
-  - `Not broken down`: none of these.
-  A new planner takes the issue back: only the stamps after the last `[stamp] planner` count, and with none after it the issue is under `Accepted` or `Broken down` by its file.
+  - `Planned`: the issue's file is on the issue's branch, and not accepted: also where its acceptance is void by a source of its plan or a planner round after it ([Managing a plan](#managing-a-plan));
+  - `Not planned`: none of these.
+  A new planner takes the issue back: only the stamps after the last `[stamp] planner` count, and with none after it the issue is under `Accepted` or `Planned` by its file.
   A stamp of the tester, the build or the fix moves the issue to its heading only where a commit of that round came back, as the starts on this machine record it (#300); a round with no such record counts by its stamp.
   A heading with no issue is not printed. In the list, no round, no command and no word for a step going on is printed; `wb status <issue>` names a round that brought nothing back. Bring a kept view back with `--take-back`: work taken by hand leaves no `taken:` line, and its round still counts as bringing nothing.
 - **The questions, last.** `Questions open` lists each issue that has a question no one has answered, with the names of those questions. The issue stays under its step too. A question is asked by a comment whose first line is `[questions] <issue>.<role> q1 q2` (`[questions] <issue> q1` for the planner), which names `<issue>.<role>.q1` and `<issue>.<role>.q2`, and closed by `[answers] <issue>.<role> q1 …`, which names the questions it answers ([Answering the questions](#answering-the-questions)). The forms of revision 0.0.8 are still read: a question `[question] <name>`, closed by an `[answer] <name> …` line, and `[answer] <issue> suggested`, which closes every question asked before it. Other words after `[answers] <issue>.<role>` close nothing.
@@ -700,9 +733,9 @@ Questions open:
 - **Without `issue_comments`** in `watchbill.yml` no stamp, question or answer is read, so each issue is at `Accepted` or below; `wb status` says so once on standard error.
 - **Which issues:** those in the flow: an issue whose branch, by the pattern `branch` (local, or at `origin`), holds a commit that the default branch of `origin` does not. Git alone says which, from the refs as they are: it writes nothing and fetches nothing. The default branch is `refs/remotes/origin/HEAD`, else `main`, else `master`; where none is there, or git cannot list the branches, `wb status` says so and ends with 2. The tracker's own program lists the rest. A title, which `wb status <issue>` prints, is printed escaped: control characters, line and paragraph separators, bidi controls and the backslash are written as escapes (#167).
 - **An issue that is done** is not listed, also when its file is on the default branch. Its branch is done when it is merged into the default branch; or when its whole change is one commit on it, found by `git patch-id --stable` of the diff from the merge base to the branch against each commit since the merge base (a squash merge, as a pull request is merged); or when it is a local branch whose upstream at `origin` is gone, as after `git fetch --prune`. The limits: a squash whose diff differs from the branch's (a branch not brought up to date with the default branch, or a squash edited at the server) is not found, and the issue stays listed; an issue merged since the last fetch stays listed until a fetch, and a branch that is only on the server shows once it is fetched.
-- **The line of an issue:** its number, its branch and, once there is one, its open change from `change_of_branch` as `#<n>`; where the local branch holds commits that the branch at `origin` does not (or `origin` has none of that name), how many: `129  issue-129  #178  1 not pushed`. It says what is, never what to run. No title is printed in the list. A branch with no issue's file on it yet is under `Not broken down`.
+- **The line of an issue:** its number, its branch and, once there is one, its open change from `change_of_branch` as `#<n>`; where the local branch holds commits that the branch at `origin` does not (or `origin` has none of that name), how many: `129  issue-129  #178  1 not pushed`. It says what is, never what to run. No title is printed in the list. A branch with no issue's file on it yet is under `Not planned`.
 - **`wb status <issue>`** prints that issue whatever its state, with its title (the first line of `issue_address`, escaped) last on its line, then, where an `[answers]` first line names a role (#226), `waits for: <role> (<question>)`, for the newest such answer, as `waits for: tester (54.build.q3)`, unless that role has a stamp on the issue newer than the answer (it has acted since; `person` has no stamp), and `waits for: person (…)` where a person is to act. It is a fact about the issue, not a command, and it is read from the comments `wb status` reads already: nothing more of the tracker. An answer of 0.10.0, `[answers] 54.build q3`, closes its question and names no role. Under it `Worked out from:` and the lines it was worked out from: its stamps, questions and answers, and the branch and files it found. An issue that is not in the flow has the line `not in the flow: ...` first.
-- **`wb status --stage <heading>`** prints only that heading, for example `wb status --stage "not broken down"`. The names are matched without regard to case; `Questions open` and `Not read` too. A name that is not known is used wrongly.
+- **`wb status --stage <heading>`** prints only that heading, for example `wb status --stage "not planned"`. The names are matched without regard to case; `Questions open` and `Not read` too. A name that is not known is used wrongly.
 - **What it reads:** the branches with git, the issue's file and its acceptance from the branch with `git show`, never by switching branches, and the comments through `issue_comments` and the change through `change_of_branch`, each once for each issue listed (`issue_address` for one issue). It writes nothing, and asks the network only through those patterns.
 - **The exit status:** 0 when every issue could be read; 1 when a pattern failed for an issue (it is listed last, under `Not read`, with why; the others are printed); 2 when it was used wrongly, Watchbill is not set up, or no default branch is found.
 - **It is not a dashboard** ([Not goals](#not-goals)): a list in the terminal, of now, for one repository. The sessions that run on this machine are for #140 (planned for 0.12.0).

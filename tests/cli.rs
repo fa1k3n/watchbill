@@ -17,6 +17,11 @@ const USAGE: &str = "usage:
   wb plan add [<name>] (-F <file> | -m <text>... | --from <adapter> <number>)
             [--source <address>] [--level <level>] [--hash-only]
             -F is --file and -m is --message
+            or list
+            or show <name>
+            or edit <name>
+            or accept <name> [--no-commit]
+            or remove <name>
   wb accept <issue> [--no-commit]
   wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [--ignore-kept]
             [--ignore-branch] [--no-push] [the options of prompt]
@@ -87,9 +92,37 @@ const USAGE: &str = "usage:
             file allows it with jobs: hash_only: allowed. It says what it will
             write first, asks nothing of the network unless --from runs a
             pattern, and only queues: it runs no prompt and starts no session.
-            Ends with 0 when the job is taken in or nothing changes, 1 when it
-            is refused, 2 when it was used wrongly or the repository is not
-            set up
+            wb plan add ends with 0 when the job is taken in or nothing
+            changes, 1 when it is refused, 2 when it was used wrongly or the
+            repository is not set up. wb plan list prints each plan once, by
+            its first name, one to a line, and nothing else; a plan removed is
+            not listed, and a ref under refs/watchbill/ that is not a job is
+            passed over and said on standard error. wb plan show <name> prints
+            the plan's names, each source with its hash, where it came from,
+            whether its text is kept, its level, who added it and when, then
+            the issue's file .watchbill/issues/<name>.yml and its state: not
+            planned, not accepted, not accepted (edited after the acceptance),
+            not accepted (a source added after the acceptance), not accepted
+            (planned again after the acceptance), or accepted by whom and
+            when; the planner's stamps are read whole by issue_comment_bodies.
+            A source later than the acceptance, or a [stamp] planner of the
+            same second or later, voids it. wb plan edit <name> opens the
+            issue's file in the editor git would use (GIT_EDITOR, core.editor,
+            VISUAL, EDITOR), on the issue's branch, from the file as HEAD has
+            it, and commits it alone with the message Edit the issue's file
+            (<name>); where nothing changed it commits nothing, and where the
+            editor fails or the file no longer holds its form it commits
+            nothing and leaves the edit. wb plan accept <name> [--no-commit]
+            accepts the issue's file as wb accept does. wb plan remove <name>
+            adds a commit with the marker removed after the plan's, moves
+            every name of it there, and rewrites nothing; the name stays
+            taken. It is refused while a branch of the name holds work the
+            default branch does not, or this machine keeps a view of it with
+            work not taken back. A name with / has no issue's file until point
+            15, and show, edit, accept and remove of a name that is no plan
+            are refused. Ends with 0 when it is done or nothing changes, 1
+            when it is refused, 2 when it was used wrongly or the repository
+            is not set up
   prompt    print the prompt of a role on standard output and nothing else: the
             role's text of the pinned revision with each placeholder filled
             from the option of its name, such as --issue for {issue}, then the
@@ -162,17 +195,18 @@ const USAGE: &str = "usage:
             will be written, and write .watchbill/issues/<issue>.accepted with
             the SHA-256 of the file, the git user.name and user.email, and the
             time in UTC. An acceptance that is there is never written over.
-            Then commit it alone, on the issue's branch, with nothing else:
-            it refuses first when the checkout is not on that branch or the
-            issue's file is not committed as it is. --no-commit only writes
-            it and says the commit. Ends with 0 when it is accepted, 1 when it
-            is refused, 2 when it was used wrongly or the repository is not
-            set up
+            Then commit it alone, on the issue's branch, with nothing else: it
+            refuses first when the checkout is not on that branch or the
+            issue's file is not committed as it is. --no-commit only writes it
+            and says the commit. Where a plan of the name is there (wb plan)
+            and is not accepted, it ends with 2 and names wb plan accept
+            <name>. Ends with 0 when it is accepted, 1 when it is refused, 2
+            when it was used wrongly or the repository is not set up
   status    list the issues in the flow under headings, as git status lists
-            files: each issue under the last step it has done (Not broken
-            down, Broken down, Accepted, Tested, Built, Reviewed, Fixed), and
-            last the issues that have a question no [answers] or [answer] line
-            has closed. An issue is in the flow when its branch, local or at
+            files: each issue under the last step it has done (Not planned,
+            Planned, Accepted, Tested, Built, Reviewed, Fixed), and last the
+            issues that have a question no [answers] or [answer] line has
+            closed. An issue is in the flow when its branch, local or at
             origin, holds a commit that the default branch of origin does not:
             git alone says which, and fetches nothing. Its line shows the
             branch, the open change as #<n> (change_of_branch) and how many
@@ -184,13 +218,13 @@ const USAGE: &str = "usage:
             <folder> for each view kept with work not taken back, and cut off:
             <role> round <n>, <folder> for each session whose wb ended before
             it did. With no issue it says on standard error how many such
-            views are kept on this machine. A view of over 200 commits is
-            said as the first 200 and 'and <k> more', and each view is
-            read within 20 seconds. Ends with 0 when
-            every issue could be read, 1 when a pattern failed for one (it is
-            listed under Not read), 2 when it was used wrongly or the
-            repository is not set up. Writes nothing but a temporary repository
-            in $TMPDIR, removed after, where it reads a kept view
+            views are kept on this machine. A view of over 200 commits is said
+            as the first 200 and 'and <k> more', and each view is read within
+            20 seconds. Ends with 0 when every issue could be read, 1 when a
+            pattern failed for one (it is listed under Not read), 2 when it
+            was used wrongly or the repository is not set up. Writes nothing
+            but a temporary repository in $TMPDIR, removed after, where it
+            reads a kept view
   view      show what a session of a role will see, before it starts. wb view
             <issue> <role> prints the paths of its view, one to a line, the
             list the start makes the view from, and nothing else. --in

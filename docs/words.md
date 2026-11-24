@@ -12,6 +12,7 @@ The words `wb` and its documents use, one line each, and how they are like git. 
 - **Level:** how confidential code is. The organisation's to set.
 - **Classed code:** paths that need a person as verifier.
 - **Job:** the text of what is to be built, stored in git under the hash of its content; its name is a ref under `refs/watchbill/`. An issue is the tracker's thing a job may come from. `wb plan add` takes one in (#234); the rest of point 15 is built in 0.12.0 ([revision.md](revision.md)). Until then the other commands take an issue.
+- **Plan:** a job of `wb plan add`, with the issue's file the planner writes for it. `wb plan` lists, shows, edits, accepts and removes it (#290). Its state is `planned` until a person accepts it with `wb plan accept`.
 - **Source:** one text of a job, each under its own hash. A job may have several.
 - **Issue's file:** `.watchbill/issues/<issue>.yml`: the requirements, the interface, `changes` and each role's `reads`.
 - **Acceptance:** a person's word that the issue's file is right.
@@ -44,6 +45,11 @@ The words `wb` and its documents use, one line each, and how they are like git. 
 | `revision` | `git rev-parse HEAD` | |
 | `prompt` | `git cat-file -p` | fills the placeholders |
 | `plan add` | `git hash-object -w`, `git update-ref` | the text is a blob, the name a ref under `refs/watchbill/` |
+| `plan list` | `git worktree list`, `git stash list` | one plan to a line, by its first name |
+| `plan show` | `git notes show`, `git stash show` | the sources, the issue's file and its state |
+| `plan edit` | `git notes edit` | commits the edit alone; an acceptance before is void |
+| `plan accept` | `git tag -s` | the acceptance of the issue's file, committed (#235 signs it) |
+| `plan remove` | `git remote remove`, `git worktree remove` | a marker added, nothing rewritten |
 | `accept` | `git tag -s` | a person's word, committed |
 | `start` | `git worktree add`, then run | makes a view, no history |
 | `run` (planned for 0.12.0, #183) | `git rebase` | stops at gates, no `--continue` |

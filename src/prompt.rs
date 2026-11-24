@@ -894,6 +894,16 @@ pub struct Stamp<'a> {
     pub requirements_given: bool,
 }
 
+/// `stamp` with the line `issue_text: <hash>` before its parts (#295): the SHA-256 of the issue's text that
+/// `wb start breakdown` brought into the view.
+pub fn with_issue_text(stamp: &str, hash: &str) -> String {
+    let line = format!("issue_text: {}\n", hash);
+    match stamp.find("\npart: ") {
+        Some(at) => format!("{}{}{}", &stamp[..at + 1], line, &stamp[at + 1..]),
+        None => format!("{}{}", stamp, line),
+    }
+}
+
 /// The stamp of an assignment (`docs/revision.md`, point 12): lines of `name: value` in a fixed order,
 /// then one line `part: <sha256>  <path>` for each part, as `--parts` gives it. A value that is empty, or (but for the
 /// round, #136) that the prompt does not hold, is written as the name and the colon alone. `runner` is empty when no runner is given (#93).

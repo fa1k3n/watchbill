@@ -598,3 +598,20 @@ fn test_WB_BUILD_105_a_revision_folder_over_64_mib_in_all_is_refused_by_upgrade_
     assert!(text(&run.stderr).contains("64 MiB"), "{}", text(&run.stderr));
     assert_eq!(snapshot(&folder.path), before);
 }
+
+#[test]
+fn test_WB_UPGRADE_13_issue_text_is_added_where_it_is_missing_and_said_first() {
+    for origin in [GITHUB, GITLAB] {
+        let folder = set_up(origin);
+        let fresh = make_older(&folder.path, &[("issue_text", None)]);
+        assert!(line_of(&read(&config(&folder.path)), "issue_text").is_none());
+
+        let run = upgrade(&folder.path, &[]);
+
+        assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
+        assert!(format!("{}{}", text(&run.stdout), text(&run.stderr)).contains("issue_text"), "{}", text(&run.stdout));
+        let yml = read(&config(&folder.path));
+        assert!(line_of(&fresh, "issue_text").is_some(), "{}", fresh);
+        assert_eq!(line_of(&yml, "issue_text"), line_of(&fresh, "issue_text"), "{}", yml);
+    }
+}

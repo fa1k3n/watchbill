@@ -63,3 +63,4 @@ What `wb init` does today: it sets Watchbill up in a git repository. What it wri
 | WB-INIT-57 | The pattern `open_issues` that `wb init` writes shall print a line break in a title as a space, so that one issue is one line. `wb init` no longer writes `open_issues` (#155), WB-INIT-59. Issue: #139, #155. | T | Deprecated |
 | WB-INIT-58 | `wb init` shall write the pattern `draft_change` for a GitHub and a GitLab `origin`, and none for a server other than those. Issue: #145. | T | Implemented |
 | WB-INIT-59 | `wb init` shall write no pattern `open_issues`. Issue: #155. | T | Implemented |
+| WB-INIT-60 | `wb init` shall write the pattern `issue_text`, which prints the issue's text alone, for a GitHub `origin` (`gh issue view {issue} --repo <repository> --json body --jq .body`) and a GitLab `origin` (`glab issue view {issue} --repo <address> -F json \| jq -r .description`), and none for another server. Issue: #295. | T | Implemented |

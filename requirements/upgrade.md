@@ -16,3 +16,4 @@ What `wb upgrade` writes to pin a repository to the installed revision.
 | WB-UPGRADE-10 | `wb upgrade` shall run the check of `wb check` after it writes, and say its result. Issue: #174. | T | Implemented |
 | WB-UPGRADE-11 | `wb upgrade` shall commit nothing, and say the command that commits its change. Issue: #174. | T | Implemented |
 | WB-UPGRADE-12 | `wb upgrade` in a repository with no `watchbill.yml` shall end with 2, naming `wb init`. Issue: #174. | T | Implemented |
+| WB-UPGRADE-13 | `wb upgrade` shall add the pattern `issue_text` where `watchbill.yml` has none, as `wb init` writes it, and say so before it writes. Issue: #295. | T | Implemented |

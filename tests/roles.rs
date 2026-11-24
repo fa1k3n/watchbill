@@ -362,7 +362,9 @@ fn test_WB_ROLE_18_every_prompt_names_its_checkout_its_branch_and_where_its_issu
         // Said before the first part, where the role is named.
         let opening = split_parts(&prompt(role)).remove(0);
         assert!(opening.contains("You work in the checkout {checkout}, on the branch {branch}."), "{}", role);
-        assert!(part(role, "## What you read").contains("The issue {issue}, at {issue_address},"), "{}", role);
+        // The breakdown reads the issue as the program brought it in (#295), the other roles at its address.
+        let read = if role == "breakdown" { "The issue {issue}, as a person wrote it, in `.watchbill/issue/{issue}.md`," } else { "The issue {issue}, at {issue_address}," };
+        assert!(part(role, "## What you read").contains(read), "{}", role);
     }
 }
 
@@ -660,11 +662,14 @@ fn test_WB_ROLE_37_the_stamp_on_the_issue_says_what_the_session_was_handed_out_a
 
 #[test]
 fn test_WB_ROLE_38_the_session_reads_its_stamp_and_says_where_its_own_word_differs() {
-    for role in ROLES {
+    for role in ASKERS {
         let text = after_fields(role);
         assert!(text.contains("Read the stamp of your own session on the issue, where it is given"), "{}: {}", role, text);
         assert!(text.contains("Where your own word differs from it, say so under `model` and `effort`."), "{}: {}", role, text);
     }
+    // The breakdown's stamp is not in its view (#295): a person holds its word against the stamp.
+    let text = after_fields("breakdown");
+    assert!(text.contains("A person holds them against the stamp."), "{}", text);
 }
 
 // The breakdown: it reads the issue and the code, and writes the issue's file (#75).
@@ -677,9 +682,9 @@ fn breakdown_point(heading: &str, start: &str) -> String {
 }
 
 #[test]
-fn test_WB_ROLE_48_the_breakdown_reads_the_issue_at_its_address_and_the_code_in_the_checkout() {
-    let issue = breakdown_point("## What you read", "- The issue {issue}, at {issue_address},");
-    assert!(issue.contains("as a person wrote it"), "{}", issue);
+fn test_WB_ROLE_48_the_breakdown_reads_the_issue_in_the_file_the_program_brought_in_and_the_code_in_the_checkout() {
+    let issue = breakdown_point("## What you read", "- The issue {issue}, as a person wrote it, in `.watchbill/issue/{issue}.md`,");
+    assert!(issue.contains("The program read both from the tracker before your session"), "{}", issue);
     let code = breakdown_point("## What you read", "- The code in {checkout}:");
     for what in ["the source", "the tests and the helpers those tests use", "the settings of the project's checks"] {
         assert!(code.contains(what), "{}: {}", what, code);
@@ -814,7 +819,7 @@ fn test_WB_ROLE_68_the_fix_reads_a_finding_by_its_number_and_its_level() {
 fn test_WB_ROLE_62_a_second_fresh_session_folds_the_answers_into_the_file_and_commits_it_alone() {
     let point = breakdown_point("## What you produce", "- A second session, a fresh one, folds the answers in.");
     for what in [
-        "you read the issue with its comments",
+        "you read the questions and answers in `.watchbill/issue/{issue}.questions`",
         "take each answer of a person as part of the issue",
         "in the requirements, `changes`, `reads` or `existing_tests_changed`",
         "remove the question answered",
@@ -830,8 +835,9 @@ fn test_WB_ROLE_63_the_last_message_of_the_breakdown_names_the_comments_it_poste
     let found = fields(&part("breakdown", "## How you end"));
     let at = found.iter().position(|name| name == "asked").expect("no field asked");
     assert_eq!(found[at - 1], "questions", "{:?}", found);
+    // The program posts the breakdown's questions (#295): the field names the new ones.
     let asked = field_line("breakdown", "asked");
-    assert!(asked.contains("the comments you posted"), "{}", asked);
+    assert!(asked.contains("the new questions of the file") && asked.contains("which the program posts"), "{}", asked);
     let questions = field_line("breakdown", "questions");
     assert!(questions.contains("open"), "{}", questions);
 }
@@ -1079,8 +1085,9 @@ fn test_WB_ANSWER_43_the_four_post_their_questions_in_one_comment_whose_first_li
 }
 
 #[test]
-fn test_WB_ANSWER_43_the_breakdown_posts_its_questions_in_one_comment_whose_first_line_names_them() {
-    let point = breakdown_point("## What you produce", "- The new questions are also posted on the issue, in one comment for the session,");
+fn test_WB_ANSWER_43_the_program_posts_the_breakdown_s_questions_in_one_comment_whose_first_line_names_them() {
+    let point = breakdown_point("## What you produce", "- You post nothing on the issue.");
+    assert!(point.contains("After your session the program posts the new questions on the issue, in one comment."), "{}", point);
     assert!(point.contains("Its first line is `[questions] {issue}` and the name of each question it holds, as `[questions] {issue} q1 q2`."), "{}", point);
     assert!(point.contains("a question named `{issue}.q<n>` under `questions` is `q<n>` in the comment"), "{}", point);
 }
@@ -1148,10 +1155,12 @@ fn test_WB_ANSWER_10_the_number_of_a_question_counts_on_within_the_role_from_the
 
 #[test]
 fn test_WB_ROLE_83_a_question_is_never_posted_twice() {
-    for role in ROLES {
+    for role in ASKERS {
         let text = prompt(role);
         assert!(text.contains("You post no question twice: a question that stands on the issue already is not posted again."), "{}", role);
     }
+    // The breakdown posts nothing; the program posts its questions (#295).
+    assert!(prompt("breakdown").contains("The program posts no question twice: a question that stands on the issue already is not posted again."));
 }
 
 #[test]
@@ -1298,7 +1307,14 @@ fn test_WB_ROLE_76_every_role_gives_its_model_and_effort_from_its_stamp() {
         let text = after_fields(role);
         let stamp = format!("Your model and effort are in your stamp on the issue: the latest comment whose first line starts with `[stamp] {}`.", role);
         assert!(text.contains(&stamp), "{}: {}", role, text);
-        assert!(text.contains("give `model` and `effort` in your last message from there"), "{}: {}", role, text);
+        if role == "breakdown" {
+            // The breakdown's stamp is not brought into its view (#295): it gives its own word.
+            assert!(text.contains("That stamp is not in your view"), "{}", text);
+            assert!(text.contains("give `model` and `effort` in your last message as your session says of itself"), "{}", text);
+            assert!(!text.contains("Read the stamp of your own session on the issue"), "{}", text);
+        } else {
+            assert!(text.contains("give `model` and `effort` in your last message from there"), "{}: {}", role, text);
+        }
     }
 }
 
@@ -1351,4 +1367,66 @@ fn test_WB_ROLE_97_no_other_role_speaks_of_classed_code() {
     for role in ["breakdown", "tester", "build", "fix"] {
         assert!(!prompt(role).to_lowercase().contains("classed"), "{} speaks of classed code", role);
     }
+}
+
+// The breakdown reads its issue without a login, its view is writable, and the program posts its questions (#295).
+
+#[test]
+fn test_WB_ROLE_104_the_breakdown_s_prompt_holds_no_issue_address_and_names_no_program_of_a_tracker() {
+    let text = prompt("breakdown");
+    assert!(!text.contains("{issue_address}"), "{}", text);
+    let words: Vec<&str> = text.split(|c: char| !c.is_ascii_alphanumeric()).collect();
+    for program in ["gh", "glab"] {
+        assert!(!words.contains(&program), "{}", program);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_105_the_breakdown_has_no_login_needs_none_and_posts_nothing() {
+    let point = breakdown_point("## What you read", "- The issue {issue}, as a person wrote it,");
+    assert!(point.contains("You have no login to the tracker and need none: you run no program of the tracker, and you post nothing on it."), "{}", point);
+    let produce = breakdown_point("## What you produce", "- You post nothing on the issue.");
+    assert!(produce.contains("Each question goes in full into the issue's file, under `questions`"), "{}", produce);
+}
+
+#[test]
+fn test_WB_ROLE_106_each_question_goes_in_full_into_the_issue_s_file_in_the_form_shown() {
+    let body = part("breakdown", "## What you produce");
+    let form = body.split_once("```yaml\n").expect("the form").1.split_once("```").expect("the end of the form").0;
+    let lines: Vec<&str> = form.split('\n').collect();
+    let at = lines.iter().position(|line| *line == "questions:").unwrap_or_else(|| panic!("{}", form));
+    let question: Vec<&str> = lines[at + 1..].iter().map(|line| line.trim_end()).collect();
+    for line in [
+        "  - |",
+        "    {issue}.q1: <what is unclear>",
+        "    Why it matters: <one or two sentences>",
+        "    1. (<role>) <the first choice>",
+        "    2. (<role>) <the second choice>",
+        "    Suggested: 1, because <the reason>",
+    ] {
+        assert!(question.contains(&line), "{}: {}", line, form);
+    }
+    let point = breakdown_point("## What you produce", "- You post nothing on the issue.");
+    assert!(point.contains("After your session the program posts the new questions on the issue"), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_107_the_breakdown_s_view_is_writable_but_for_watchbill_and_only_its_file_comes_back() {
+    let point = breakdown_point("## What you read", "- Your view of the checkout is writable,");
+    assert!(point.contains("but for `.watchbill/` other than `.watchbill/issues/`"), "{}", point);
+    assert!(point.contains("only your issue's file comes back"), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_108_the_program_puts_the_commit_on_the_branch_and_makes_it_where_it_is_not_there() {
+    let point = breakdown_point("## What you produce", "- Commit the file alone, on the branch {branch},");
+    assert!(point.contains("the program puts your commit on {branch}, and makes that branch where it is not there"), "{}", point);
+}
+
+#[test]
+fn test_WB_ROLE_109_from_is_the_sha256_of_the_issue_s_text_the_program_brought_in() {
+    let body = part("breakdown", "## What you produce");
+    let form = body.split_once("```yaml\n").expect("the form").1;
+    let from = form.split('\n').find(|line| line.starts_with("from:")).unwrap_or_else(|| panic!("{}", form));
+    assert!(from.contains("the SHA-256 of .watchbill/issue/{issue}.md"), "{}", from);
 }

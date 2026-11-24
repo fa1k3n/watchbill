@@ -162,6 +162,27 @@ pub fn waits_for(issue: &str, lines: &[String]) -> Option<(String, String)> {
     (!stamped).then_some((role, name))
 }
 
+/// The names of every question asked on `issue`, open or answered, from the first lines of its comments, as
+/// `open_names` reads them: `[questions] <prefix> q1 …` and `[question] <name>` (#295).
+pub fn asked_names(issue: &str, lines: &[String]) -> Vec<String> {
+    let mut asked: Vec<String> = Vec::new();
+    for line in lines {
+        let found = if line.starts_with("[questions] ") {
+            names_after(issue, "[questions] ", line)
+        } else if let Some(rest) = line.strip_prefix("[question] ") {
+            rest.split_whitespace().next().filter(|name| split_name(issue, name).is_some()).map(str::to_string).into_iter().collect()
+        } else {
+            Vec::new()
+        };
+        for name in found {
+            if !asked.contains(&name) {
+                asked.push(name);
+            }
+        }
+    }
+    asked
+}
+
 /// The names of the open questions of `issue`, in the order they were asked, from the first lines of its comments
 /// that still count, one to a line (`starter::counted`). A question is asked by `[questions] <prefix> q1 …` or
 /// `[question] <name>`. It is closed by `[answers] <prefix> q1 …`, by `[answer] <name> …`, and by an

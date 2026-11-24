@@ -191,6 +191,8 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
             format!("{}; {} --comments", show, show)
         };
         text.push_str(&format!("issue_address: {}\n", yaml_value(&address("issue", "issue"))));
+        // The issue's text alone, which `wb start breakdown` brings into its view (#295): nothing is cut from it.
+        text.push_str(&format!("issue_text: {}\n", yaml_value(&format!("gh issue view {{issue}} --repo {} --json body --jq .body", setup.repository))));
         text.push_str(&format!("change_address: {}\n", yaml_value(&address("pr", "change"))));
     }
     if setup.git_server == "gitlab" && plain && !host.is_empty() {
@@ -234,6 +236,8 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
                 ),
             ),
             ("issue_address", format!("glab issue view {{issue}} --repo {} --comments", url)),
+            // The issue's text alone, for the breakdown (#295): the description of the issue, as `glab` gives it in JSON.
+            ("issue_text", format!("glab issue view {{issue}} --repo {} -F json | jq -r .description", url)),
             ("change_address", format!("glab mr view {{change}} --repo {} --comments", url)),
             // The whole comments, for `wb answer` (#145): each body of a note that is no system note, and a NUL
             // byte, oldest first. The query is quoted: it holds `&`.

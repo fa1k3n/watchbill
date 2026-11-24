@@ -226,6 +226,35 @@ pub fn run(root: &str, key: &str, line: &str, input: Option<&[u8]>) -> Result<Ve
     }
 }
 
+/// Runs one pattern as `run` does, with nothing on standard input, and reads what it prints through `cap` (#295):
+/// a pattern that prints more is ended, and refused with its key named.
+pub fn run_capped(root: &str, key: &str, line: &str, cap: u64) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    held(root)?;
+    let mut command = Command::new("/bin/sh");
+    command.arg("-c").arg(line).current_dir(root).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::inherit());
+    let mut child = command.spawn().map_err(|error| format!("`{}` of watchbill.yml could not be run: {}", key, error))?;
+    let mut printed = Vec::new();
+    let read = match child.stdout.take() {
+        Some(out) => out.take(cap + 1).read_to_end(&mut printed).map(|_| ()),
+        None => Ok(()),
+    };
+    if printed.len() as u64 > cap {
+        // The pipe is closed with `take`: what the command starts after this gets no more room to print.
+        let _ = child.kill();
+        let _ = child.wait();
+        let most = if cap % (1024 * 1024) == 0 { format!("{} MiB", cap / (1024 * 1024)) } else { format!("{} bytes", cap) };
+        return Err(format!("`{}` of watchbill.yml printed more than {}, and no more of it is read", key, most));
+    }
+    let status = child.wait().map_err(|error| format!("`{}` of watchbill.yml could not be waited for: {}", key, error))?;
+    read.map_err(|error| format!("what `{}` of watchbill.yml printed could not be read: {}", key, error))?;
+    match status.code() {
+        Some(0) => Ok(printed),
+        Some(code) => Err(format!("`{}` of watchbill.yml ended with {}", key, code)),
+        None => Err(format!("`{}` of watchbill.yml was ended by a signal", key)),
+    }
+}
+
 /// The stamps on an issue or a change: each `[stamp] <role> round <n>` line that a pattern printed.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Stamps {

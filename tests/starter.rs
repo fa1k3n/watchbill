@@ -148,6 +148,9 @@ fn bench() -> Bench {
         ),
     );
     script(&log.path.join("ssh.sh"), &format!("echo ssh >> {l}/network\nexit 1\n"));
+    // The issue's text and its whole comments, which `wb start breakdown` brings into the view (#295).
+    script(&log.path.join("address.sh"), &format!("echo \"address $1\" >> {l}/calls\necho \"The text of issue $1.\"\nexit 0\n"));
+    script(&log.path.join("bodies.sh"), &format!("echo \"bodies $1\" >> {l}/calls\nexit 0\n"));
     git(&repo.path, &["config", "user.name", "Ada Lovelace"]);
     git(&repo.path, &["config", "user.email", "ada@example.org"]);
     git(&repo.path, &["config", "commit.gpgsign", "false"]);
@@ -161,7 +164,9 @@ fn bench() -> Bench {
         format!("change_comment: '{} change {{change}}'", at("post.sh")),
         format!("change_comments: '{} change {{change}}'", at("comments.sh")),
         format!("change_of_branch: '{} {{branch}}'", at("changes.sh")),
-        "issue_address: 'tracker {issue}'".to_string(),
+        format!("issue_address: '{} {{issue}}'", at("address.sh")),
+        format!("issue_comment_bodies: '{} {{issue}}'", at("bodies.sh")),
+        format!("issue_text: '{} {{issue}}'", at("address.sh")),
         "change_address: 'server {change}'".to_string(),
         "confidentiality: public".to_string(),
     ] {

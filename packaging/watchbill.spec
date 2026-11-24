@@ -30,7 +30,7 @@ BuildRequires:  crate(sha2) >= 0.10.9
 # The command line is read with lexopt.
 BuildRequires:  crate(lexopt) >= 0.3
 # `wb init` asks git for the root of the repository and the address of origin.
-Requires:       git-core
+Requires:       git-core >= 2.36
 # `wb start <role>` runs a session of an issue with an accepted file in a view, in bubblewrap (#126). The
 # build needs none: a test that needs a sandbox checks first that bubblewrap can make one, and a
 # build root often cannot.

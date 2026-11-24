@@ -39,7 +39,7 @@ The words `wb` and its documents use, one line each, and how they are like git. 
 | `check` | `git fsck` | also checks the installed `wb` |
 | `status` | `git status` | reads the tracker by patterns |
 | `log <issue>` (planned for 0.12.0, #177) | `git log` | stores nothing itself |
-| `compare a b` (planned for 0.12.0, #179) | `git diff a b` | revisions only |
+| `compare a b` | `git diff a b` | revisions only |
 | `revision` | `git rev-parse HEAD` | |
 | `prompt` | `git cat-file -p` | fills the placeholders |
 | `accept` | `git tag -s` | a person's word, committed |

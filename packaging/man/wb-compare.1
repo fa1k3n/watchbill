@@ -1,0 +1,32 @@
+.TH WB\-COMPARE 1 "" "watchbill"
+.SH NAME
+wb\-compare \- say what changed between two revisions
+.SH SYNOPSIS
+.nf
+\fBwb\fR compare [\-\-from <path>] <revision> <revision>
+.fi
+.SH DESCRIPTION
+.PP
+Say what changed between two revisions, each named by its version or its hash: one line for each file added, removed or changed, then a unified diff of each changed file. The installed revision is one; the other is that of the repository at \-\-from, the root of a repository pinned to it. Its files under .watchbill/revision/ are read, and a link is never followed.
+.PP
+When the revisions are the same, nothing is printed. Otherwise there is one line for each file, sorted by path: added:, removed: or changed: and the path. Then, when a file changed, an empty line and the unified diff of each changed file, headed with a/ and b/ and the path, a being the first revision. The diff is made by git diff \-\-no\-index with fixed options and no configuration, so that it is the same for everyone.
+.PP
+Ends with 0 when they are the same, 1 when they differ or the files of a revision are refused, 2 when a revision is not found or it was used wrongly. Writes nothing. It asks nothing of the network.
+.SH OPTIONS
+.TP
+.B \-\-from <path>
+The root of a repository pinned to the other revision. Its version is the line watchbill: of .watchbill/watchbill.yml, and its files must give the hash of the line revision:.
+.SH EXIT STATUS
+.TP
+.B 0
+The two revisions are the same.
+.TP
+.B 1
+They differ, or the files of a revision are refused: a refusal is written on standard error as wb compare: limit: and the reason.
+.TP
+.B 2
+A revision is not found (a name that is not held or names two revisions, or a repository that is not set up), or the command was used wrongly.
+.SH SEE ALSO
+.BR wb (1) ,
+.BR wb\-revision (1) ,
+.BR wb\-upgrade (1)

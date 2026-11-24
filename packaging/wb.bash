@@ -4,7 +4,7 @@
 # writes nothing: it reads file names and asks git for the root of the checkout. The lists below are
 # held to the commands, the usage and the roles of wb by tests/completion.rs.
 
-_wb_commands="init check upgrade accept start status view answer revert prompt revision"
+_wb_commands="init check upgrade accept start status view answer revert prompt revision compare"
 _wb_roles="build fix planner review tester"
 _wb_stages=("Not broken down" "Broken down" Accepted Tested Built Reviewed Fixed "Questions open" "Not read")
 
@@ -16,6 +16,7 @@ _wb_flags_status="--stage"
 _wb_flags_view="--in --out"
 _wb_flags_answer="--change --show --suggested"
 _wb_flags_revert="--change --round"
+_wb_flags_compare="--from"
 _wb_flags_prompt="--issue --change --requirements --round --checkout --branch --issue_address --change_address --runner --classed --classed_touched --description --parts --stamp"
 
 # Adds to COMPREPLY the issues that start with $cur: the names of the files .watchbill/issues/<name>.yml of the
@@ -62,6 +63,13 @@ _wb() {
         done
         return 0
         ;;
+    --from)
+        # The root of a repository: a folder.
+        mapfile -t files < <(compgen -d -- "$cur")
+        COMPREPLY=("${files[@]}")
+        compopt -o filenames 2>/dev/null
+        return 0
+        ;;
     --runner | --issue | --change | --requirements | --round | --checkout | --branch | --issue_address | --change_address)
         return 0
         ;;
@@ -81,7 +89,7 @@ _wb() {
             changed=1
             ((i++))
             ;;
-        --stage | --runner | --issue | --requirements | --round | --checkout | --branch | --issue_address | --change_address)
+        --stage | --from | --runner | --issue | --requirements | --round | --checkout | --branch | --issue_address | --change_address)
             ((i++))
             ;;
         --*) ;;

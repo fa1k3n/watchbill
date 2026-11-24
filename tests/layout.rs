@@ -20,11 +20,10 @@ const GROUPS: [(&str, &[&str]); 5] = [
 /// The commands not built yet: the command, the release and the issue. The releases have the names the owner
 /// gave them after 0.0.9: 0.10.0, 0.11.0, 0.12.0. `view` (#173) and `upgrade` (#174) are built. The four of
 /// 0.11.0 moved to 0.12.0 with the plan of 2026-11-22 (#230).
-const PLANNED: [(&str, &str, &str); 5] = [
+const PLANNED: [(&str, &str, &str); 4] = [
     ("doctor", "0.12.0", "#178"),
     ("log", "0.12.0", "#177"),
     ("clean", "0.12.0", "#176"),
-    ("compare", "0.12.0", "#179"),
     ("run", "0.12.0", "#183"),
 ];
 

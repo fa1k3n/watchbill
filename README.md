@@ -92,7 +92,7 @@ At 0.12.0. An issue that changes a verdict changes its row.
 | work | `accept`, `start`, `run` (planned for 0.12.0, #183) |
 | see | `status`, `view` ([Seeing a view first](#seeing-a-view-first)), `log` (planned for 0.12.0, #177), `answer` |
 | take back | `revert`, `clean` (planned for 0.12.0, #176) |
-| plumbing | `prompt`, `revision`, `compare` (planned for 0.12.0, #179) |
+| plumbing | `prompt`, `revision`, `compare` |
 
 After 0.0.9 the releases are 0.10.0, 0.11.0, 0.12.0 and 1.0.0. A man page for each command is planned for 0.11.0.
 
@@ -103,7 +103,7 @@ The owner set these on 2026-11-20 (#180). They hold in every command.
 - **Every refusal is a limit or a guard, and says which.** A refusal ends the command with 1, and is written on standard error as `<command>: limit: <why>` or `<command>: guard: <why>`; a message of several lines has the label on its first. A limit is never passed: the view, classed code, the acceptance, the rule table, a file that is not as `HEAD` has it (#186, #211, #254), a file over its bound (#261), the sandbox (#202) and the checks of what comes back from a view; a fault `wb` cannot go past, such as a pattern that failed, is a limit too. A guard protects a person's time and names the flag that passes it.
 - **No general `--force`.** Each flag that passes a guard is named for what it passes, and passes that alone: `--ignore-local` a local change under `reads` (`wb start`), `--ignore-kept` a view kept with work not taken back (`wb start`), `--ignore-branch` a checkout on a branch that is neither the stamp's nor the default branch (`wb start`), `--no-commit` the checks of the commit of `wb accept`, which then writes the acceptance and commits nothing. A fault that stops the commit at all, such as no pattern `branch`, is a limit, which `--no-commit` skips with the commit. After `--no-commit` the limit of #97 still holds: no prompt is handed out and no session started until the issue's file and its acceptance are committed.
 - **Not every 1 is a refusal.** An answer that does not hold ends with 1 too, with no label: `wb check` finds a difference, a path is in no view, an issue is listed under Not read, a session did not end with 0. So does a person's own no, or input that ended. An end with 2 is used wrongly or not set up, and has no label.
-- **The plumbing keeps fixed output.** The plumbing is `prompt`, `revision`, `compare` (planned) and the output of `check`. They print on standard output as before, and a refusal of `prompt` or `revision` prints nothing there: the label is on standard error alone. The rest is porcelain, and its words may change.
+- **The plumbing keeps fixed output.** The plumbing is `prompt`, `revision`, `compare` and the output of `check`. They print on standard output as before, and a refusal of `prompt` or `revision` prints nothing there: the label is on standard error alone. The rest is porcelain, and its words may change.
 - **A command that posts refuses everything when any part is wrong.** `wb start` checks everything before it posts its stamp, `wb revert` before its marker, and `wb answer` takes every answer before it posts the first comment.
 - **No `wb config`.** The files are edited by hand.
 - **No auto-accept flag.** If one is ever added, the organisation's file allows it, at the lowest level only, never for classed code, and the stamp says so.
@@ -932,6 +932,23 @@ cd /usr/share/watchbill && sha256sum -c revision.sha256
 ```
 
 Every line ends in `OK` when the files are the revision. `revisions.txt` beside it lists each released version with the hash of its revision. What is in a revision: [docs/revision.md](docs/revision.md).
+
+## Comparing two revisions
+
+`wb compare` says what changed in what the agents are told between two revisions: in the role files, the rule table and the model table. A revision is named by its version or by its whole hash. `wb` holds two: the installed one, and with `--from <path>` the one the repository at `<path>` is pinned to, read from its `.watchbill/revision/` (a link is never followed, and the files must give the hash of the line `revision:` of `watchbill.yml`). Reading an older revision from the history of a checkout of Watchbill is not built.
+
+```
+$ wb compare --from ../brake-controller 0.10.0 0.11.1
+changed: revision/roles/build.md
+
+--- a/revision/roles/build.md
++++ b/revision/roles/build.md
+@@ -95,3 +95,4 @@
+ ...
++A new last line.
+```
+
+The output is fixed. Nothing when the revisions are the same; else one line for each file, sorted by path, `added:`, `removed:` or `changed:`, then an empty line and the unified diff of each changed file, `a` being the first revision. The diff is made by `git diff --no-index` with fixed options and none of the person's git configuration. It writes nothing and asks nothing of the network. The exit status: 0 the same, 1 they differ or the files of a revision are refused (written as `wb compare: limit: …` on standard error); 2 a revision is not found, a repository is not set up, or it was used wrongly.
 
 ## The name
 

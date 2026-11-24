@@ -17,6 +17,7 @@ pub mod init;
 pub mod interrupt;
 pub mod kept;
 pub mod manifest;
+pub mod plan;
 pub mod prompt;
 pub mod refusal;
 pub mod revert;
@@ -39,6 +40,8 @@ pub const USAGE: &str = "usage:
   wb init [--yes]
   wb check
   wb upgrade [--dry-run]
+  wb plan add [<name>] (-F <file> | -m <text>... | --from <adapter> <number>)
+            [--source <address>] [--level <level>] [--hash-only]
   wb accept <issue> [--no-commit]
   wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [--ignore-kept]
             [--ignore-branch] [the options of prompt]
@@ -80,6 +83,33 @@ pub const USAGE: &str = "usage:
             refused (a change under .watchbill/ that is not committed, an
             installed version older than the pinned one) or the check does not
             hold; 2 when it was used wrongly or the repository is not set up
+  plan      the plans of the jobs, kept in git (docs/revision.md, point 15).
+            wb plan add takes a job in. Its text is given in one of three
+            ways: -F <file>, where -F - reads standard input, a pipe or a
+            here-document; -m <text>, which may be given more than once and is
+            joined as git commit joins it, each a paragraph; or --from
+            <adapter> <number>, which runs the pattern issue_text of
+            watchbill.yml where its tracker: is the adapter, and names the job
+            <adapter>/<number>. -F is --file and -m is --message, as in git.
+            The text is stored as a git blob under its hash, and the name of
+            the job is the ref refs/watchbill/<name>: a commit whose tree holds
+            job.yml and the text under sources/<hash>. job.yml holds the name
+            and, for each source, its hash, --source <address> or none, the
+            level, the git identity of the person and the time. With no name
+            the job is named by the first 12 hex digits of the hash. A name
+            may hold / (github/54); a name that git check-ref-format refuses,
+            such as one with :, is refused. Other text under a name that is
+            there adds a source, as a new commit after the one before; the
+            same text again changes nothing; text that is already a job under
+            another name gives that job this name too. --level <level> is a
+            level of the organisation's file no higher than the repository's,
+            which is taken when none is given. --hash-only keeps the hash and
+            the source and not the text, where the organisation's file allows
+            it with jobs: hash_only: allowed. It says what it will write first,
+            asks nothing of the network unless --from runs a pattern, and only
+            queues: it runs no prompt and starts no session. Ends with 0 when
+            the job is taken in or nothing changes, 1 when it is refused,
+            2 when it was used wrongly or the repository is not set up
   prompt    print the prompt of a role on standard output and nothing else: the
             role's text of the pinned revision with each placeholder filled
             from the option of its name, such as --issue for {issue}, then the
@@ -365,6 +395,7 @@ fn run_command(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, 
         "check" => run_check(&mut parser, out, err),
         "upgrade" => run_upgrade(&mut parser, out, err),
         "prompt" => run_prompt(&mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), out, err),
+        "plan" => run_plan(&mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), input, out, err),
         "accept" => run_accept(&mut parser, out, err),
         "status" => run_status(&mut parser, out, err),
         "view" => run_view(&mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), out, err),
@@ -398,8 +429,8 @@ fn run_command(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, 
 
 /// The commands of the layout that are built, each with an arm in `run`. A test holds that it is the
 /// layout without `layout::PLANNED`, so a piece that builds a command adds it here with its arm.
-pub const ARMS: [&str; 12] =
-    ["init", "check", "upgrade", "accept", "start", "status", "view", "answer", "revert", "prompt", "revision", "compare"];
+pub const ARMS: [&str; 13] =
+    ["init", "check", "upgrade", "plan", "accept", "start", "status", "view", "answer", "revert", "prompt", "revision", "compare"];
 
 /// `wb help`, and `wb help <command>`. `--help` and `-h` are this command too, and read the words after them.
 /// A word after the command is refused with 2.
@@ -1826,6 +1857,117 @@ fn prepare_view(
         None => view::make_whole_onto(root, &below, &base, onto).map(|(made, size, at)| (made, Some(size), at))?,
     };
     Ok(Prepared { view: made, binds: resolved, build_files, size, at })
+}
+
+/// `wb plan`, with the words after `plan`, in the repository of `folder`, with the organisation's file at `organisation`
+/// and `input` as standard input. `run` gives the folder it runs in and the path fixed in `wb`; this is so that a test
+/// can give its own, as `prompt` does. A relative `-F` is read from `folder`.
+pub fn plan(args: &[OsString], folder: &Path, organisation: &Path, input: &mut dyn BufRead, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    refusal::begin();
+    let code = run_plan(&mut Parser::from_args(args.iter().cloned()), Some(folder), organisation, input, out, err);
+    refusal::ended(code, err)
+}
+
+/// `wb plan <subcommand>` (#290): the subcommand is the word after `plan`. Only `add` is built (#234).
+fn run_plan(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, input: &mut dyn BufRead, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    match next(parser) {
+        Ok(Some(Word::Value(value))) if value == "add" => {}
+        Ok(None) => return used(err, "wb plan", "a subcommand is needed: add"),
+        Ok(Some(found)) => {
+            let given = named(found, parser);
+            return used(err, "wb plan", &format!("'{}' is not a subcommand of plan: add", given.escape_debug()));
+        }
+        Err(given) => return used(err, "wb plan", &format!("'{}' is not a subcommand of plan: add", given.escape_debug())),
+    }
+    let name = "wb plan add";
+    let ways = "the text is given by exactly one of -F <file>, -m <text> and --from <adapter> <number>";
+    let mut given: Option<String> = None;
+    let mut files: Vec<String> = Vec::new();
+    let mut messages: Vec<String> = Vec::new();
+    let mut froms: Vec<(String, String)> = Vec::new();
+    let mut source: Option<String> = None;
+    let mut level: Option<String> = None;
+    let mut hash_only = false;
+    let wanted = |parser: &mut Parser, flag: &str| -> Result<String, String> {
+        parser.value().map(|value| word(value.as_bytes())).map_err(|_| format!("{} needs a value", flag))
+    };
+    loop {
+        let found = match next(parser) {
+            Ok(None) => break,
+            Ok(Some(found)) => found,
+            Err(refused) => return used(err, name, &format!("'{}' is not known", refused)),
+        };
+        let taken: Result<(), String> = match found {
+            Word::Short('F') => wanted(parser, "-F").map(|value| files.push(value)),
+            Word::Long(option) if option == "file" => wanted(parser, "--file").map(|value| files.push(value)),
+            Word::Short('m') => wanted(parser, "-m").map(|value| messages.push(value)),
+            Word::Long(option) if option == "message" => wanted(parser, "--message").map(|value| messages.push(value)),
+            Word::Long(option) if option == "from" => match (wanted(parser, "--from"), wanted(parser, "--from")) {
+                (Ok(adapter), Ok(number)) => {
+                    froms.push((adapter, number));
+                    Ok(())
+                }
+                _ => Err("--from needs an adapter and a number: --from <adapter> <number>".to_string()),
+            },
+            Word::Long(option) if option == "source" && source.is_none() => wanted(parser, "--source").map(|value| source = Some(value)),
+            Word::Long(option) if option == "level" && level.is_none() => wanted(parser, "--level").map(|value| level = Some(value)),
+            Word::Long(option) if option == "hash-only" && !hash_only => {
+                hash_only = true;
+                Ok(())
+            }
+            Word::Value(value) if given.is_none() => {
+                given = Some(word(value.as_bytes()));
+                Ok(())
+            }
+            found => Err(format!("'{}' is not known", named(found, parser).escape_debug())),
+        };
+        if let Err(why) = taken {
+            return used(err, name, &why);
+        }
+    }
+    let text = match (files.len(), messages.is_empty(), froms.len()) {
+        (1, true, 0) => plan::Text::File(files.remove(0)),
+        (0, false, 0) => plan::Text::Messages(messages),
+        (0, true, 1) => {
+            let (adapter, number) = froms.remove(0);
+            if adapter.is_empty() || !adapter.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+                return used(err, name, &format!("'{}' is not an adapter: an adapter is letters, digits, '-' and '_'", adapter.escape_debug()));
+            }
+            if number.is_empty() || number.len() > 20 || !number.chars().all(|c| c.is_ascii_digit()) {
+                return used(err, name, &format!("'{}' is not a number of the tracker: a number is digits", number.escape_debug()));
+            }
+            if given.is_some() {
+                return used(err, name, "--from names the job <adapter>/<number>, and takes no name");
+            }
+            if source.is_some() {
+                return used(err, name, "--from gives the source, and takes no --source");
+            }
+            plan::Text::From(adapter, number)
+        }
+        _ => return used(err, name, ways),
+    };
+    if let Some(value) = &source {
+        if let Some(why) = plan::source_fault(value) {
+            return used(err, name, &format!("the --source {}", why));
+        }
+    }
+    let (root, base) = match folder {
+        Some(folder) => (init::repository_root_of(folder), folder.to_path_buf()),
+        None => (init::repository_root(None), std::env::current_dir().unwrap_or_default()),
+    };
+    let root = match root {
+        Err(why) => {
+            let _ = writeln!(err, "{}: {}.", name, why);
+            return 2;
+        }
+        Ok(None) => {
+            let _ = writeln!(err, "{}: this folder is not in a git repository. Watchbill is set up in one.", name);
+            return 2;
+        }
+        Ok(Some(root)) => root,
+    };
+    let add = plan::Add { name: given, text, source, level, hash_only };
+    plan::add(&root, &base, organisation, &add, input, out, err)
 }
 
 /// `wb accept <issue>`: accepts the issue's file (`issue::accept`).

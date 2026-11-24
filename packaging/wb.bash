@@ -4,12 +4,13 @@
 # writes nothing: it reads file names and asks git for the root of the checkout. The lists below are
 # held to the commands, the usage and the roles of wb by tests/completion.rs.
 
-_wb_commands="init check upgrade accept start status view answer revert prompt revision compare"
+_wb_commands="init check upgrade plan accept start status view answer revert prompt revision compare"
 _wb_roles="build fix planner review tester"
 _wb_stages=("Not broken down" "Broken down" Accepted Tested Built Reviewed Fixed "Questions open" "Not read")
 
 _wb_flags_init="--yes"
 _wb_flags_upgrade="--dry-run"
+_wb_flags_plan="--from --source --level --hash-only"
 _wb_flags_accept="--no-commit"
 _wb_flags_start="--runner --prompt --ignore-local --ignore-kept --ignore-branch --take-back --issue --change --requirements --round --checkout --branch --issue_address --change_address --classed --classed_touched --parts --stamp"
 _wb_flags_status="--stage"
@@ -73,6 +74,17 @@ _wb() {
     --runner | --issue | --change | --requirements | --round | --checkout | --branch | --issue_address | --change_address)
         return 0
         ;;
+    -m | --message | --from | --source | --level)
+        [[ $command == plan ]] && return 0
+        ;;
+    -F | --file)
+        if [[ $command == plan ]]; then
+            mapfile -t files < <(compgen -f -- "$cur")
+            COMPREPLY=("${files[@]}")
+            compopt -o filenames 2>/dev/null
+            return 0
+        fi
+        ;;
     esac
 
     if [[ $cur == --* ]]; then
@@ -92,6 +104,12 @@ _wb() {
         --stage | --from | --runner | --issue | --requirements | --round | --checkout | --branch | --issue_address | --change_address)
             ((i++))
             ;;
+        -F | -m | --file | --message | --source | --level)
+            [[ $command == plan ]] && ((i++))
+            ;;
+        --from)
+            [[ $command == plan ]] && ((i += 2))
+            ;;
         --*) ;;
         *) position=$((position + 1)) ;;
         esac
@@ -103,6 +121,9 @@ _wb() {
     esac
 
     case $command in
+    plan)
+        ((position == 0)) && COMPREPLY=($(compgen -W "add" -- "$cur"))
+        ;;
     prompt | start)
         case $position in
         0) COMPREPLY=($(compgen -W "$_wb_roles" -- "$cur")) ;;

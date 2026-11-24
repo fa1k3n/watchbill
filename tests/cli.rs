@@ -82,8 +82,8 @@ const USAGE: &str = "usage:
             it with jobs: hash_only: allowed. It says what it will write first,
             asks nothing of the network unless --from runs a pattern, and only
             queues: it runs no prompt and starts no session. Ends with 0 when
-            the job is taken in or nothing changes, 1 when it is refused, 2
-            when it was used wrongly or the repository is not set up
+            the job is taken in or nothing changes, 1 when it is refused,
+            2 when it was used wrongly or the repository is not set up
   prompt    print the prompt of a role on standard output and nothing else: the
             role's text of the pinned revision with each placeholder filled
             from the option of its name, such as --issue for {issue}, then the

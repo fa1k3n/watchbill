@@ -4,7 +4,7 @@ Which commands `wb` has, how they are grouped, and what a planned one says.
 
 | ID | Requirement | Ver | Status |
 |---|---|---|---|
-| WB-CMD-1 | `wb` shall have the commands `init`, `check`, `doctor`, `upgrade`, `accept`, `start`, `run`, `status`, `view`, `log`, `answer`, `revert`, `clean`, `prompt`, `revision` and `compare`. Issue: #171. | T | Implemented |
+| WB-CMD-1 | `wb` shall have the commands `init`, `check`, `doctor`, `upgrade`, `plan`, `accept`, `start`, `run`, `status`, `view`, `log`, `answer`, `revert`, `clean`, `prompt`, `revision` and `compare`. Issue: #171, #234. | T | Implemented |
 | WB-CMD-2 | A command that is not built yet shall end with 2, write nothing, and ask nothing of the network. Issue: #171. | T | Implemented |
 | WB-CMD-3 | A command that is not built yet shall say on standard error the release it is planned for and the issue that builds it. Issue: #171. | T | Implemented |
 | WB-CMD-4 | `wb help` shall print the groups set up, work, see, take back and plumbing, in that order, each with its commands. Issue: #171. | T | Implemented |

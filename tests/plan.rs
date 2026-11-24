@@ -56,10 +56,6 @@ impl Bench {
         Ran { code, out: text(&out), err: text(&err) }
     }
 
-    fn organisation(&self, text: &str) {
-        fs::write(&self.org, text).unwrap();
-    }
-
     /// Replaces a line of `watchbill.yml` that starts with `key:`, or takes it out when `line` is empty, and commits it.
     fn set(&self, key: &str, line: &str) {
         let yml = read(&config(&self.repo.path));
@@ -511,7 +507,7 @@ fn test_WB_JOB_14_it_says_the_blob_the_job_yml_and_the_ref_before_it_writes_them
     ok(&ran);
     let hash = bench.hash_of(TEXT);
     let said = ran.out.find(&hash).unwrap_or_else(|| panic!("{}", ran.out));
-    let yml = ran.out.find("name: 97").unwrap_or_else(|| panic!("{}", ran.out));
+    let yml = ran.out.find("job.yml:").unwrap_or_else(|| panic!("{}", ran.out));
     let wrote = ran.out.find("Wrote refs/watchbill/97").unwrap_or_else(|| panic!("{}", ran.out));
     assert!(said < wrote && yml < wrote, "{}", ran.out);
     assert!(ran.out.contains(&bench.commit_of("97")), "{}", ran.out);
@@ -736,9 +732,9 @@ fn test_WB_JOB_25_the_key_jobs_of_the_organisations_file_is_held_to_its_form() {
     }
     let path = folder_named("org");
     let file = path.path.join("organisation.yml");
-    fs::write(&file, format!("{}jobs:\n  hash_only: allowed\n", ORG)).unwrap();
+    fs::write(&file, format!("{}jobs:\n  hash_only: allowed\n", ORG.replace("{log}", "/nowhere"))).unwrap();
     assert!(watchbill::confidentiality::read(&file).unwrap().hash_only);
-    fs::write(&file, ORG).unwrap();
+    fs::write(&file, ORG.replace("{log}", "/nowhere")).unwrap();
     assert!(!watchbill::confidentiality::read(&file).unwrap().hash_only);
 }
 

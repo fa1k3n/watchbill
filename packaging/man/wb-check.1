@@ -7,7 +7,7 @@ wb\-check \- say whether the repository is at its revision
 .fi
 .SH DESCRIPTION
 .PP
-Say whether the repository still is at the revision it is pinned to: each file under .watchbill/revision/ against the manifest, the manifest against the revision line of watchbill.yml, and that revision against the installed wb, and the project text for a placeholder the revision does not know. Ends with 0 when all of it holds, 1 when something differs. Writes nothing.
+Say whether the repository still is at the revision it is pinned to: each file under .watchbill/revision/ against the manifest, the manifest against the revision line of watchbill.yml, and that revision against the installed wb, and the project text for a placeholder the revision does not know. Ends with 0 when all of it holds, 1 when something differs. Writes nothing. A limit of session_limits in watchbill.yml higher than the rule table's, one that is not a whole number of at least 1, or a role or a key it does not know, is a difference too.
 .PP
 \-q (\-\-quiet) leaves out the line that says all holds, and no difference.
 .SH OPTIONS

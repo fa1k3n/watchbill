@@ -16,6 +16,13 @@ pub const ROLES: [&str; 6] = ["planner", "tester", "build", "review", "fix", "of
 /// runner, or where a person has cleared another for them (docs/revision.md, point 5).
 pub const LOCAL_ONLY: [&str; 1] = ["planner"];
 pub const ROLE_FIELDS: [&str; 6] = ["step", "produces", "reads", "may", "may_not_also_hold", "prompt"];
+/// The limits of a session of a role (#267), each a whole number of minutes: a row may leave them out, and then has
+/// `DEFAULT_QUIET_MINUTES` and `DEFAULT_MAX_MINUTES`.
+pub const LIMIT_FIELDS: [&str; 2] = ["quiet_minutes", "max_minutes"];
+/// The quiet of a row that names none: past it with nothing changed in the view, `wb start` says so (#267).
+pub const DEFAULT_QUIET_MINUTES: i64 = 30;
+/// The most a session of a row that names none runs: past it `wb start` ends the session (#267).
+pub const DEFAULT_MAX_MINUTES: i64 = 240;
 pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
 /// The folder of the revision, fixed when `wb` is built (`build.rs`): `revision/` in the folder
@@ -34,6 +41,10 @@ pub struct Role {
     pub may_not_also_hold: Vec<String>,
     /// A file below the revision folder, or `none`.
     pub prompt: String,
+    /// Past this many minutes with nothing changed in its view, a session is said to be quiet (#267).
+    pub quiet_minutes: i64,
+    /// Past this many minutes a session is ended (#267).
+    pub max_minutes: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -84,7 +95,8 @@ fn says_merge(entry: &str) -> bool {
 
 fn role(doc: &Document, name: &str) -> Result<Role, YamlError> {
     let place = at(&["roles", name]);
-    doc.only(&place, &ROLE_FIELDS)?;
+    let known: Vec<&str> = ROLE_FIELDS.iter().chain(LIMIT_FIELDS.iter()).copied().collect();
+    doc.only(&place, &known)?;
     doc.need(&place, &ROLE_FIELDS)?;
     let prompt = doc.text(&with(&place, "prompt"))?;
     if prompt != "none" && (!prompt.ends_with(".md") || prompt.starts_with('/') || prompt.split('/').any(|part| part == "..")) {
@@ -102,7 +114,16 @@ fn role(doc: &Document, name: &str) -> Result<Role, YamlError> {
         may: doc.texts(&with(&place, "may"), false)?,
         may_not_also_hold: doc.texts(&with(&place, "may_not_also_hold"), false)?,
         prompt,
+        quiet_minutes: limit_of(doc, &place, "quiet_minutes", DEFAULT_QUIET_MINUTES)?,
+        max_minutes: limit_of(doc, &place, "max_minutes", DEFAULT_MAX_MINUTES)?,
     };
+    if row.quiet_minutes > row.max_minutes {
+        return Err(doc.fail(
+            &with(&place, "quiet_minutes"),
+            &format!("the quiet of {} minutes is longer than the {} minutes of `max_minutes`, which end the session first", row.quiet_minutes, row.max_minutes),
+            false,
+        ));
+    }
     for (index, entry) in row.may.iter().enumerate() {
         if says_merge(entry) {
             return Err(doc.fail(
@@ -129,6 +150,15 @@ fn role(doc: &Document, name: &str) -> Result<Role, YamlError> {
         }
     }
     Ok(row)
+}
+
+/// A limit of a row (#267): a whole number of minutes of at least 1, or `default` where the row names none.
+fn limit_of(doc: &Document, place: &[Part], field: &str, default: i64) -> Result<i64, YamlError> {
+    let here = with(place, field);
+    if !doc.has(&here) {
+        return Ok(default);
+    }
+    doc.whole(&here, Some(1))
 }
 
 fn read_rules(path: &Path) -> Result<Rules, YamlError> {

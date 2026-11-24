@@ -140,6 +140,23 @@ fn send(signal: c_int) {
     }
 }
 
+/// The watchdog ends the session past `max_minutes` (#267) as a termination of `wb` does (#221): the termination is
+/// sent on to the session, by its pidfd or its number, or to bubblewrap where the session was not found, which
+/// ignores it. Nothing is sent where no session is registered.
+pub fn terminate_session() {
+    if registered() {
+        send(SIGTERM);
+    }
+}
+
+/// After the grace (#267): the session is killed, or bubblewrap where the session was not found, and the session
+/// with it (`--die-with-parent`).
+pub fn kill_session() {
+    if registered() {
+        send(SIGKILL);
+    }
+}
+
 /// A termination (#221), a hangup, an interrupt or a quit: `wb` goes on waiting. The session is sent the
 /// termination, as a person's `kill` of `wb` meant it, and the hangup, the interrupt and the quit where the
 /// terminal cannot reach it (#257, #271). Only `kill(2)`, the call of the kernel and atomics are used, as a

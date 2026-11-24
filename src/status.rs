@@ -499,6 +499,8 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
                 let named = |view: &crate::kept::Kept| read.first().is_some_and(|found| found.empty.iter().any(|(role, round)| view.role == *role && view.round == round.to_string()));
                 lines.extend(kept.iter().filter(|view| !named(view)).map(|kept| kept.line()));
                 lines.extend(crate::kept::cut_off(state, number).iter().map(|cut| cut.line()));
+                // A session that runs, with how long it has run and been quiet (#267).
+                lines.extend(crate::kept::running(root, state, number).iter().map(|running| running.line()));
                 if !lines.is_empty() {
                     sections.push(lines.iter().map(|line| format!("{}\n", line)).collect());
                 }

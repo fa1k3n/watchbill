@@ -30,6 +30,7 @@ pub mod starter;
 pub mod status;
 pub mod upgrade;
 pub mod view;
+pub mod watchdog;
 mod word;
 pub mod yamlfile;
 
@@ -1747,6 +1748,11 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
             return refused(&mut lines, err, "rule", &starter::no_review(&stamps.on, &stamps.key));
         }
     }
+    // The limits of the session (#267): the rule table's, or lower ones of `watchbill.yml`, never higher.
+    let limits = match watchdog::limits_for(root, role) {
+        Ok(limits) => limits,
+        Err(why) => return refused(&mut lines, err, "rule", &why),
+    };
     // 3. The class: no classed code is worked on here before #65. The planner changes only the issue's file.
     if role != "planner" {
         let changes = handed.file.as_ref().map(|file| file.issue.changes.as_slice());
@@ -1988,7 +1994,9 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
         new_session: view::new_session(),
         words: &filled,
     };
-    let status = match view::run_out(machine.sandbox, &plan, layout, Some(&prepared.out), name, err) {
+    // The `wb` that waits is the watchdog (#267): what the view holds now is where its quiet starts from.
+    let mut watch = watchdog::Watchdog::new(limits, &prepared.view.folder, paths.as_deref().unwrap_or(&[]), lines.folder());
+    let status = match view::run_watched(machine.sandbox, &plan, layout, Some(&prepared.out), Some(&mut watch), name, err) {
         Ok(status) => status,
         Err(why) => {
             push::remove_out(&prepared.out);
@@ -2010,6 +2018,14 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
     if code != 0 {
         let _ = writeln!(err, "{}: the session did not end with 0", name);
     }
+    // A session ended at `max_minutes` (#267) ends `wb` with 1 however it ended: the limit was said when it was met. It
+    // did not end well, so nothing that waits on a good end follows from it.
+    let limit = watch.ended().then_some("max_minutes");
+    if limit.is_some() {
+        // not a refusal: the limit is said by `view::run_watched` as a limit, when it is met.
+        code = 1;
+    }
+    let ended_well = status.success() && limit.is_none();
     // What the session committed in its view comes back onto the branch, as far as it keeps to what may come back.
     let allowed = allowed_of(role, handed.file.as_ref(), words.get("issue"));
     let list = lines.file("back");
@@ -2036,7 +2052,7 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
         issue: value_of(&handed.values, "issue"),
         branch: prepared.view.branch_name(),
         back: &back,
-        ended_well: status.success(),
+        ended_well,
         no_push: words.no_push,
         description,
     };
@@ -2067,7 +2083,7 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
             root,
             session: session_of(),
             round: value_of(&handed.values, "round"),
-            ended_well: status.success(),
+            ended_well,
             held: fix_held_back(&back, value_of(&handed.values, "issue"), pushed.lines.as_deref()),
         },
         written,
@@ -2077,7 +2093,7 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
         // not a refusal: what could not be posted is said by `brought::post_written` as a limit.
         code = 1;
     }
-    lines.close(None, sessions::Outcome::Ended { status, seconds }, err);
+    lines.close(None, sessions::Outcome::Ended { status, seconds, limit }, err);
     code
 }
 

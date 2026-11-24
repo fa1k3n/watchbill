@@ -1010,6 +1010,12 @@ pub fn run_in(bwrap: &Path, plan: &Plan, layout: Layout, name: &str, err: &mut d
 
 /// The same, with `out` bound at `OUT_FOLDER` (#151).
 pub fn run_out(bwrap: &Path, plan: &Plan, layout: Layout, out: Option<&Path>, name: &str, err: &mut dyn Write) -> Result<ExitStatus, String> {
+    run_watched(bwrap, plan, layout, out, None, name, err)
+}
+
+/// The same, with the session watched by `watch` while `wb` waits for it (#267): a quiet is said on `err`, and past
+/// `max_minutes` the session is sent the termination, and killed after the grace.
+pub fn run_watched(bwrap: &Path, plan: &Plan, layout: Layout, out: Option<&Path>, watch: Option<&mut crate::watchdog::Watchdog>, name: &str, err: &mut dyn Write) -> Result<ExitStatus, String> {
     use std::os::fd::AsRawFd;
     use std::os::unix::process::{CommandExt, ExitStatusExt};
     let held = crate::interrupt::hold();
@@ -1067,7 +1073,10 @@ pub fn run_out(bwrap: &Path, plan: &Plan, layout: Layout, out: Option<&Path>, na
             }
         }
     }
-    let status = child.wait();
+    let status = match watch {
+        Some(watch) => wait_watched(&mut child, watch, name, err),
+        None => child.wait(),
+    };
     held.ended();
     drop(session);
     let status = status.map_err(|error| format!("the session could not be waited for: {}", error))?;
@@ -1076,6 +1085,89 @@ pub fn run_out(bwrap: &Path, plan: &Plan, layout: Layout, out: Option<&Path>, na
         Some(code) if (129..=192).contains(&code) => ExitStatus::from_raw(code - 128),
         _ => status,
     })
+}
+
+/// Waits for bubblewrap as the watchdog (#267): it looks at the view now and then, says a quiet on `err`, and past
+/// `max_minutes` says the limit, sends the termination on to the session as a termination of `wb` is (#221), and after
+/// the grace kills the session and bubblewrap.
+fn wait_watched(child: &mut std::process::Child, watch: &mut crate::watchdog::Watchdog, name: &str, err: &mut dyn Write) -> std::io::Result<ExitStatus> {
+    use crate::watchdog::Event;
+    let mut kill_at: Option<std::time::Instant> = None;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        match watch.look() {
+            Some(Event::Quiet(minutes)) => {
+                let _ = writeln!(
+                    err,
+                    "{}: quiet: nothing has changed in the view for {} {}. The session goes on; it is ended at {} minutes (max_minutes).",
+                    name,
+                    minutes,
+                    if minutes == 1 { "minute" } else { "minutes" },
+                    watch.limits().max_minutes
+                );
+            }
+            Some(Event::Max) => {
+                crate::refusal::limit(
+                    err,
+                    name,
+                    format_args!(
+                        "the session has run for {} minutes, the `max_minutes` of its role, and is ended as a termination of wb ends it: it is sent the termination, and killed if it has not ended {} seconds after. Its commits are taken back.",
+                        watch.limits().max_minutes,
+                        crate::watchdog::grace().as_secs()
+                    ),
+                );
+                crate::interrupt::terminate_session();
+                kill_at = Some(std::time::Instant::now() + crate::watchdog::grace());
+            }
+            None => {}
+        }
+        if kill_at.is_some_and(|at| std::time::Instant::now() >= at) {
+            kill_at = None;
+            crate::interrupt::kill_session();
+            // bubblewrap itself, and with it what it runs (`--die-with-parent`).
+            let _ = child.kill();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+/// The time of the newest change in a view that a session runs in (#267), as `wb status` reads it: in seconds since
+/// 1970, the newer of the time of the commit its `HEAD` names, where that is not the commit it was made with, and the
+/// newest time of the entries under `paths`. The commit is read as `work_left` reads a view: through the checkout's
+/// own repository with the view's objects as alternates, each git run within its bound; the entries by their metadata
+/// alone, as the watchdog looks at them (`watchdog::files_of`), within its deadline. None where nothing was found; an
+/// error where a time is after now.
+pub fn last_change(root: &str, view: &View, paths: &[String]) -> Result<Option<u64>, String> {
+    let _bound = bounded(test_seconds("WB_TEST_RUN_BOUND").unwrap_or(std::time::Duration::from_secs(3)));
+    let _deadline = deadline(test_seconds("WB_TEST_VIEW_DEADLINE").unwrap_or(VIEW_DEADLINE), "read of the view");
+    let head = head_of(&view.folder.join(".git"))?;
+    let mut newest: Option<u64> = None;
+    if head != view.base {
+        let size: u64 = line(&on_view(root, view, &["cat-file", "-s", &head], None)?).parse().map_err(|_| format!("the size of the commit {} is not a number", short(&head)))?;
+        if size > 64 * 1024 {
+            return Err(format!("the commit {} is of {} bytes, and is not read", short(&head), size));
+        }
+        let bytes = on_view(root, view, &["cat-file", "commit", &head], None)?;
+        let header = &bytes[..bytes.windows(2).position(|two| two == b"\n\n").unwrap_or(bytes.len())];
+        let committed = String::from_utf8_lossy(header)
+            .lines()
+            .find_map(|line| line.strip_prefix("committer "))
+            .and_then(|rest| rest.rsplit(' ').nth(1).and_then(|seconds| seconds.parse::<u64>().ok()))
+            .ok_or_else(|| format!("the commit {} names no time it was committed", short(&head)))?;
+        newest = Some(committed);
+    }
+    let files = crate::watchdog::newest_within(&view.folder, paths)?;
+    if let Some(seconds) = files.and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok()).map(|since| since.as_secs()) {
+        newest = Some(newest.map_or(seconds, |before| before.max(seconds)));
+    }
+    // A time after now is one a session wrote, not when it worked: the quiet is not read from it.
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|since| since.as_secs()).unwrap_or(0);
+    if newest.is_some_and(|newest| newest > now) {
+        return Err("a time in the view is after now".to_string());
+    }
+    Ok(newest)
 }
 
 /// `env` of the system, which the sandbox has read-only under `/usr`.
@@ -1259,7 +1351,7 @@ pub(crate) fn small_file(path: &Path) -> Option<String> {
 
 /// The commit the view's `HEAD` names, read from the files of its `.git`, without git: a branch, loose or packed,
 /// or a commit named in `HEAD` itself.
-fn head_of(git_dir: &Path) -> Result<String, String> {
+pub(crate) fn head_of(git_dir: &Path) -> Result<String, String> {
     let none = || "the view's HEAD names no commit".to_string();
     let head = small_file(&git_dir.join("HEAD")).ok_or_else(none)?;
     let head = head.trim_end();

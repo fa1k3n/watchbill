@@ -28,6 +28,7 @@ const USAGE: &str = "usage:
             [--change_address <text>] [--classed <text>]
             [--classed_touched <text>] [--runner <name>] [--parts] [--stamp]
   wb revision
+  wb compare [--from <path>] <revision> <revision>
   wb --version
 
   init      set Watchbill up in the git repository of this folder: propose what
@@ -108,6 +109,13 @@ const USAGE: &str = "usage:
             2 when it was used wrongly or the repository is not set up
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes nothing
+  compare   say what changed between two revisions, each named by its version
+            or its hash: one line for each file added, removed or changed, then
+            a unified diff of each changed file. The installed revision is one;
+            the other is that of the repository at --from, the root of a
+            repository pinned to it. Ends with 0 when they are the same, 1 when
+            they differ, 2 when a revision is not found or it was used wrongly.
+            Writes nothing
   accept    accept the issue's file .watchbill/issues/<issue>.yml: read it,
             hold it to its form, refuse it while it holds a question, say what
             will be written, and write .watchbill/issues/<issue>.accepted with

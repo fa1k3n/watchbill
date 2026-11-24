@@ -6,12 +6,14 @@ wb\-start \- start a session of one role
 \fBwb\fR start <role> [<issue>] [\-\-runner <name>] [\-\-prompt] [\-\-ignore\-local] [\-\-ignore\-kept] [\-\-ignore\-branch] [\-\-no\-push] [the options of prompt]
 .br
 or <role> <issue> \-\-take\-back
+.br
+or \-\-list [\-v | \-\-verbose]
 .fi
 .SH DESCRIPTION
 .PP
 Start a session of one role, planner, tester, build, review or fix: the role is the word after start. The issue is needed by all but the review and the fix, which may be given \-\-change and no issue. It checks what prompt checks, that a fix follows a review, that no classed code is in its way (classed: of watchbill.yml), that the runner has start in the organisation's file, and that standard input and output are a terminal; then say and post the stamp by issue_comment of watchbill.yml (by change_comment for a review or a fix of a change with no issue), and run the runner's start in the root of the checkout.
 .PP
-The runner is \-\-runner, or the organisation's default. The round and the change are worked out from issue_comments, change_comments and change_of_branch; \-\-round and \-\-change win. \-\-prompt, \-\-stamp and \-\-parts print as prompt does, and post and start nothing. A view of the issue kept with work not taken back, from any role, stops the start with 1 before anything is posted; \-\-ignore\-kept goes on without it, and the stamp says so. The commits of the session come back onto the branch of the stamp, made where it is not there. Where it is there and HEAD is not its commit, the start ends with 1 before anything is posted. A checkout on another branch, but the default branch before the branch of the stamp is there, stops the start with 1 before anything is posted, and \-\-ignore\-branch goes on. After the tester, the build or the fix of an issue whose commits all came back, and whose session ended with 0, it pushes the branch to origin with git, never with force, and after a build with no change open it opens one as a draft by draft_change, with the description the session wrote; without change_of_branch and draft_change, or with \-\-no\-push, it says the commands and runs neither. \-\-take\-back, given with the role and the issue alone, starts and posts nothing: it says what it will take, then takes back the commits of the newest view of that role and issue that was kept, through the checks of the end of a session; 0 when all of it is taken and the view removed, 1 when anything is refused or left.
+The runner is \-\-runner, or the organisation's default. The round and the change are worked out from issue_comments, change_comments and change_of_branch; \-\-round and \-\-change win. \-\-prompt, \-\-stamp and \-\-parts print as prompt does, and post and start nothing. A view of the issue kept with work not taken back, from any role, stops the start with 1 before anything is posted; \-\-ignore\-kept goes on without it, and the stamp says so. The commits of the session come back onto the branch of the stamp, made where it is not there. Where it is there and HEAD is not its commit, the start ends with 1 before anything is posted. A checkout on another branch, but the default branch before the branch of the stamp is there, stops the start with 1 before anything is posted, and \-\-ignore\-branch goes on. After the tester, the build or the fix of an issue whose commits all came back, and whose session ended with 0, it pushes the branch to origin with git, never with force, and after a build with no change open it opens one as a draft by draft_change, with the description the session wrote; without change_of_branch and draft_change, or with \-\-no\-push, it says the commands and runs neither. \-\-take\-back, given with the role and the issue alone, starts and posts nothing: it says what it will take, then takes back the commits of the newest view of that role and issue that was kept, through the checks of the end of a session; 0 when all of it is taken and the view removed, 1 when anything is refused or left. \-\-list, given alone, prints the roles of the pinned revision that start starts, one to a line and nothing else. With \-v (\-\-verbose) each line adds whether the role runs in a view or in the whole tree, and whether the organisation's file clears a runner for it, for the planner a runner with start and planner up to the level of the repository. \-\-show\-origin prints as prompt does.
 .PP
 While the session runs, wb is its watchdog. Past quiet_minutes of the role with nothing changed in the view, it says quiet: on standard error and in the file quiet of the lines, and again each time the quiet doubles; the session goes on. Past max_minutes it ends the session as a termination of wb does, kills it after 10 seconds, takes its commits back, writes limit: max_minutes in outcome, and ends with 1. The limits are the rule table's, 30 and 240 minutes, or lower ones that session_limits of watchbill.yml sets; a higher one stops the start with 1 before anything is posted.
 .PP
@@ -74,6 +76,15 @@ The file of the change's description, for {description}. Only with \-\-prompt, \
 .TP
 .B \-\-brought <text>, \-\-questions <text>, \-\-change_comment <text>, \-\-needs_person <text>
 The folder of what wb brings in, and the files a session writes for wb to post, for {brought}, {questions}, {change_comment} and {needs_person}. Only with \-\-prompt, \-\-stamp or \-\-parts: wb names them, /run/watchbill/in, /run/watchbill/questions, /run/watchbill/change_comment and /run/watchbill/needs_person in the sandbox.
+.TP
+.B \-\-list
+Print the roles of the pinned revision that wb start starts, one to a line and nothing else. It is given alone, with \-v or \-\-verbose, and writes nothing.
+.TP
+.B \-v, \-\-verbose
+With \-\-list, add to each line whether the role runs in a view or in the whole tree, and whether the organisation's file clears a runner for it (cleared or not\-cleared).
+.TP
+.B \-\-show\-origin
+Print the whole prompt with a line before each part that says where it comes from, as wb prompt does, and post and start nothing.
 .TP
 .B \-\-parts
 Print the path and the SHA\-256 of each part, in the form sha256sum prints, in place of the text.

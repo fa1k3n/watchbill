@@ -26,6 +26,7 @@ const USAGE: &str = "usage:
   wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [--ignore-kept]
             [--ignore-branch] [--no-push] [the options of prompt]
             or <role> <issue> --take-back
+            or --list [-v | --verbose]
   wb status [<issue>] [--stage <heading>]
   wb view <issue> (<role> [--in | --out] | <path>)
             or --kept [-v | --verbose]
@@ -39,7 +40,7 @@ const USAGE: &str = "usage:
             [--classed_touched <text>] [--description <text>]
             [--brought <text>] [--questions <text>]
             [--change_comment <text>] [--needs_person <text>]
-            [--runner <name>] [--parts] [--stamp]
+            [--runner <name>] [--parts] [--stamp] [--show-origin]
   wb revision
   wb compare [--from <path>] <revision> <revision>
   wb --version
@@ -145,6 +146,12 @@ const USAGE: &str = "usage:
             role, its model and effort, the runner, the version and revision,
             the issue, the change, the round, the branch, the checkout, the
             time, and each part as --parts gives it. Not with --parts.
+            --show-origin prints the whole prompt as it is, and before each
+            part a line that says its kind (revision, issue, project), its
+            path, where it was read from and its hash, the hash of its part
+            line of the stamp. Below that line stands one line for each
+            placeholder the part holds, and where its value came from. Not
+            with --parts or --stamp.
             --runner names the runner the prompt is handed to. The planner
             needs it, and is handed out only to a runner that
             /etc/watchbill/organisation.yml clears for the planner up to the
@@ -186,9 +193,15 @@ const USAGE: &str = "usage:
             take, then takes back the commits of the newest view of that role
             and issue that was kept, through the checks of the end of a
             session; 0 when all of it is taken and the view removed, 1 when
-            anything is refused or left. Ends with
-            the session: 0 when it ended with 0, else 1; 1 when it is refused,
-            2 when it was used wrongly or the repository is not set up
+            anything is refused or left. --list, given alone, prints the
+            roles of the pinned revision that start starts, one to a line and
+            nothing else. With -v (--verbose) each line adds whether the role
+            runs in a view or in the whole tree, and whether the
+            organisation's file clears a runner for it, for the planner a
+            runner with start and planner up to the level of the repository.
+            --show-origin prints as prompt does. Ends with the session: 0 when
+            it ended with 0, else 1; 1 when it is refused, 2 when it was used
+            wrongly or the repository is not set up
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes nothing
   compare   say what changed between two revisions, each named by its version

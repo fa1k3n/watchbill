@@ -285,12 +285,40 @@ fn test_WB_JOB_30_show_before_the_planner_after_it_and_after_the_acceptance() {
 
     bench.planned();
     let shown = bench.show("54");
-    assert!(shown.contains("\nissue's file: .watchbill/issues/54.yml\nstate: not accepted\n\n"), "{}", shown);
+    assert!(shown.contains("\nissue's file: .watchbill/issues/54.yml, read from refs/heads/issue-54\nstate: not accepted\n\n"), "{}", shown);
     assert!(shown.ends_with(&format!("\n\n{}", BARE_ISSUE.replace("{issue}", "54"))), "{}", shown);
 
     bench.accept();
     let state = bench.state("54");
     assert!(state.starts_with("state: accepted by Ada Lovelace <ada@example.org> at 20"), "{}", state);
+}
+
+#[test]
+fn test_WB_JOB_30_show_reads_the_issue_s_file_where_wb_status_does_on_the_issue_s_branch_and_says_which_it_read() {
+    let bench = bench();
+    bench.comments(&[]);
+    bench.added(&["add", "54", "-m", "The brakes hold."]);
+    bench.planned();
+    bench.accept();
+    git(&bench.repo.path, &["checkout", "-q", "main"]);
+    assert!(!bench.repo.path.join(YML).exists());
+
+    let shown = bench.show("54");
+
+    assert!(shown.contains("\nissue's file: .watchbill/issues/54.yml, read from refs/heads/issue-54\n"), "{}", shown);
+    assert!(bench.state("54").starts_with("state: accepted by "), "{}", shown);
+    assert!(text(&bench.wb(&["status"]).stdout).starts_with("Accepted:\n  54  issue-54"));
+}
+
+#[test]
+fn test_WB_JOB_30_show_with_no_branch_of_the_plan_reads_the_working_tree_and_says_so() {
+    let bench = bench();
+    bench.added(&["add", "54", "-m", "The brakes hold."]);
+    put(&bench.repo.path, YML, &BARE_ISSUE.replace("{issue}", "54"));
+
+    let shown = bench.show("54");
+
+    assert!(shown.contains("\nissue's file: .watchbill/issues/54.yml, read from the working tree\nstate: not accepted\n"), "{}", shown);
 }
 
 // ---- WB-JOB-31: a name that is no plan ----
@@ -418,6 +446,23 @@ fn test_WB_JOB_34_an_editor_that_fails_or_a_file_that_no_longer_holds_its_form_c
     assert!(read(&bench.repo.path.join(YML)).ends_with("nonsense: [\n"));
 }
 
+#[test]
+fn test_WB_JOB_34_an_edit_whose_issue_no_longer_names_the_plan_commits_nothing_and_ends_with_1() {
+    let bench = bench();
+    bench.added(&["add", "54", "-m", "The brakes hold."]);
+    bench.planned();
+    let before = bench.count();
+    let renaming = bench.at("renaming.sh");
+    script(&renaming, "sed -i \"s/^issue: '54'$/issue: '55'/\" \"$1\"\n");
+
+    let run = wb_editing(&bench.repo.path, &["plan", "edit", "54"], &[("EDITOR", renaming.to_str().unwrap())]);
+
+    assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
+    assert!(text(&run.stderr).contains("not 54"), "{}", text(&run.stderr));
+    assert_eq!(bench.count(), before);
+    assert!(read(&bench.repo.path.join(YML)).starts_with("issue: '55'\n"));
+}
+
 // ---- WB-JOB-35: an edit voids the acceptance ----
 
 #[test]
@@ -432,6 +477,20 @@ fn test_WB_JOB_35_an_edit_after_the_acceptance_voids_it() {
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert_eq!(bench.state("54"), "state: not accepted (edited after the acceptance)");
+    assert!(text(&run.stdout).contains("An acceptance of the file before holds no longer."), "{}", text(&run.stdout));
+}
+
+#[test]
+fn test_WB_JOB_35_an_edit_of_a_file_not_accepted_says_nothing_of_an_acceptance() {
+    let bench = bench();
+    bench.added(&["add", "54", "-m", "The brakes hold."]);
+    bench.planned();
+    let a = editor(&bench, "a");
+
+    let run = wb_editing(&bench.repo.path, &["plan", "edit", "54"], &[("EDITOR", &a)]);
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(!text(&run.stdout).contains("acceptance"), "{}", text(&run.stdout));
 }
 
 // ---- WB-JOB-36: wb plan accept is the acceptance of the issue's file ----
@@ -562,6 +621,24 @@ fn test_WB_JOB_39_remove_is_refused_while_a_branch_of_the_plan_holds_work_not_on
     assert_eq!(bench.commit_of("54"), before);
 }
 
+#[test]
+fn test_WB_JOB_39_remove_is_refused_while_a_branch_of_another_name_of_the_plan_holds_work() {
+    let bench = bench();
+    bench.added(&["add", "54", "-m", "The brakes hold."]);
+    bench.added(&["add", "other", "-m", "The brakes hold."]);
+    git(&bench.repo.path, &["checkout", "-q", "-b", "issue-other", "main"]);
+    git(&bench.repo.path, &["commit", "-q", "--allow-empty", "-m", "Work"]);
+    git(&bench.repo.path, &["checkout", "-q", "main"]);
+    let before = bench.commit_of("54");
+
+    let run = bench.wb(&["plan", "remove", "54"]);
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    assert!(text(&run.stderr).contains("refs/heads/issue-other"), "{}", text(&run.stderr));
+    assert_eq!(bench.commit_of("54"), before);
+    assert_eq!(bench.commit_of("other"), before);
+}
+
 // ---- WB-JOB-40: a removed plan's name stays taken ----
 
 #[test]
@@ -607,6 +684,22 @@ fn test_WB_JOB_41_a_source_added_after_the_acceptance_voids_it_in_show_status_an
     assert!(text(&run.stderr).contains("wb plan accept 54"), "{}", text(&run.stderr));
 }
 
+#[test]
+fn test_WB_JOB_41_a_source_added_in_the_same_second_as_the_acceptance_voids_it() {
+    let bench = bench();
+    bench.comments(&[]);
+    bench.added(&["add", "54", "-m", "The brakes hold."]);
+    bench.planned();
+    bench.accept();
+
+    // No wait: the source is of the acceptance's own second, or of the next.
+    bench.added(&["add", "54", "-m", "On a slope too."]);
+
+    assert_eq!(bench.state("54"), "state: not accepted (a source added after the acceptance)");
+    let run = bench.wb(&["status"]);
+    assert!(text(&run.stdout).starts_with("Planned:\n  54  issue-54"), "{}", text(&run.stdout));
+}
+
 // ---- WB-JOB-42: a planner round after the acceptance voids it, even where the plan comes out the same ----
 
 #[test]
@@ -640,6 +733,26 @@ fn test_WB_JOB_42_a_planner_stamp_after_the_acceptance_voids_it_and_accepting_ag
     assert!(text(&bench.wb(&["status"]).stdout).starts_with("Accepted:\n  54  issue-54"));
 }
 
+#[test]
+fn test_WB_JOB_42_a_planner_stamp_taken_back_by_a_revert_voids_nothing_in_show_or_status() {
+    let bench = bench();
+    bench.added(&["add", "54", "-m", "The brakes hold."]);
+    bench.planned();
+    bench.comments(&[]);
+    bench.accept();
+
+    // A build round, a planner round after the acceptance, then the build round taken back with all after it.
+    bench.comments(&[
+        "[stamp] build round 1\nrole: build\ntime: 2000-01-01T00:00:00Z\n",
+        &format!("[stamp] planner round 2\nrole: planner\ntime: {}\n", now()),
+        "[revert] build round 1\n",
+    ]);
+
+    assert!(bench.state("54").starts_with("state: accepted by "), "{}", bench.show("54"));
+    let run = bench.wb(&["status"]);
+    assert!(text(&run.stdout).starts_with("Accepted:\n  54  issue-54"), "{}", text(&run.stdout));
+}
+
 // ---- WB-JOB-43: wb accept of a plan not accepted names wb plan accept ----
 
 #[test]
@@ -664,4 +777,19 @@ fn test_WB_JOB_43_wb_accept_of_a_name_with_no_plan_accepts_the_issue_s_file_as_b
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(bench.repo.path.join(ACCEPTED).exists());
+}
+
+#[test]
+fn test_WB_JOB_43_wb_accept_of_a_plan_whose_acceptance_a_planner_round_voided_ends_with_2_naming_wb_plan_accept() {
+    let bench = bench();
+    bench.added(&["add", "54", "-m", "The brakes hold."]);
+    bench.planned();
+    bench.comments(&[]);
+    bench.accept();
+    bench.comments(&[&format!("[stamp] planner round 1\nrole: planner\ntime: {}\n", now())]);
+
+    let run = bench.wb(&["accept", "54"]);
+
+    assert_eq!(code(&run), Some(2), "{}", text(&run.stderr));
+    assert!(text(&run.stderr).contains("wb plan accept 54"), "{}", text(&run.stderr));
 }

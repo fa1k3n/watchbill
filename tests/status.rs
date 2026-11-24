@@ -787,6 +787,37 @@ change_address: \"mkdir -p .calls && echo x >> .calls/change_address\"
 }
 
 #[test]
+fn test_WB_STATUS_38_it_runs_issue_comment_bodies_once_for_an_accepted_issue_with_a_planner_stamp_and_for_no_other() {
+    let folder = set_up();
+    let file = config(&folder.path);
+    let kept: String = read(&file).lines().filter(|line| !line.starts_with("issue_comments:")).map(|line| format!("{}\n", line)).collect();
+    fs::write(&file, kept).unwrap();
+    commit_config(&folder.path);
+    add_patterns(
+        &folder.path,
+        "issue_comments: \"mkdir -p .calls && echo {issue} >> .calls/issue_comments && cat .tracker/{issue}.comments\"
+issue_comment_bodies: \"mkdir -p .calls && echo {issue} >> .calls/issue_comment_bodies && cat .tracker/{issue}.bodies\"
+change_of_branch: \"mkdir -p .calls && echo {branch} >> .calls/change_of_branch\"
+",
+    );
+    // 1 is not accepted, 2 is accepted with a planner's stamp before the acceptance, 3 is accepted with none.
+    open(&folder.path, &["1"]);
+    branch(&folder.path, "2", true);
+    branch(&folder.path, "3", true);
+    comments(&folder.path, "1", &["[stamp] planner round 1"]);
+    comments(&folder.path, "2", &["[stamp] planner round 1"]);
+    comments(&folder.path, "3", &[]);
+    put(&folder.path, ".tracker/2.bodies", "[stamp] planner round 1\nrole: planner\ntime: 2000-01-01T00:00:00Z\n\0");
+
+    let run = wb(&folder.path, &["status"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("Accepted:\n  2  "), "{}", text(&run.stdout));
+    assert_eq!(calls(&folder.path, "issue_comments"), ["1", "2", "3"]);
+    assert_eq!(calls(&folder.path, "issue_comment_bodies"), ["2"]);
+}
+
+#[test]
 fn test_WB_STATUS_39_the_default_branch_is_that_of_origin_else_main_else_master_and_none_ends_with_2() {
     let folder = set_up();
     comments(&folder.path, "1", &[]);

@@ -4522,6 +4522,83 @@ fn test_WB_JOB_44_the_planner_of_a_plan_reads_every_source_of_it_and_no_issue_te
     assert!(!bench.calls().iter().any(|call| call == "text 54"), "{:?}", bench.calls());
 }
 
+/// Waits until the clock has passed into the next second, so that what is written after is later to the second.
+fn next_second() {
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+}
+
+/// The acceptance of 54 taken out and committed, then `wb plan accept 54`: the person's word again.
+fn plan_accept_again(bench: &Bench) {
+    git(&bench.repo.path, &["rm", "-q", "--", ".watchbill/issues/54.accepted"]);
+    git(&bench.repo.path, &["commit", "-q", "-m", "The acceptance taken out"]);
+    let run = wb(&bench.repo.path, &["plan", "accept", "54"], "");
+    assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
+}
+
+#[test]
+fn test_WB_JOB_42_a_planner_round_after_the_acceptance_voids_it_at_the_gate_and_accepting_again_lets_the_build_start() {
+    if !sandbox("test_WB_JOB_42") {
+        return;
+    }
+    let bench = bench();
+    plan_add(&bench, &["add", "54", "-m", "Brakes: the front one."]);
+    next_second();
+    plan_accept_again(&bench);
+
+    // A planner round whose session leaves the issue's file as it was; the tracker then holds its stamp.
+    bench.session("true\n");
+    ok(&bench.start(&["start", "planner", "54"]));
+    let stamp = bench.posted();
+    assert!(stamp.starts_with("[stamp] planner round 1\n") && stamp.contains("\ntime: "), "{}", stamp);
+    fs::write(bench.at("comments-issue-54"), format!("{}\n", stamp.lines().next().unwrap())).unwrap();
+    fs::write(bench.at("bodies-54"), format!("{}\0\n", stamp)).unwrap();
+    assert_eq!(read(&bench.repo.path.join(".watchbill/issues/54.yml")), ISSUE_54);
+    let starts = bench.calls().iter().filter(|call| *call == "start").count();
+
+    let run = bench.start(&["start", "build", "54"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("wb plan accept 54"), "{}", text_of(&run.stderr));
+    assert_eq!(bench.calls().iter().filter(|call| *call == "start").count(), starts);
+
+    let run = prompt_with(&bench.repo.path, &bench.organisation(), &["build", "54", "--round", "1"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert_eq!(text_of(&run.stdout), "");
+    assert!(text_of(&run.stderr).contains("wb plan accept 54"), "{}", text_of(&run.stderr));
+
+    // The person's word again.
+    next_second();
+    plan_accept_again(&bench);
+    ok(&prompt_with(&bench.repo.path, &bench.organisation(), &["build", "54", "--round", "1"]));
+    ok(&bench.start(&["start", "build", "54"]));
+    assert_eq!(bench.calls().iter().filter(|call| *call == "start").count(), starts + 1);
+}
+
+#[test]
+fn test_WB_JOB_39_remove_is_refused_while_this_machine_keeps_a_view_of_the_plan_with_work_not_taken_back() {
+    let bench = bench();
+    plan_add(&bench, &["add", "54", "-m", "Brakes: the front one."]);
+    kept_with_a_commit(&bench);
+    // The branch of 54 is on the default branch: only the kept view holds work.
+    git(&bench.repo.path, &["update-ref", "refs/heads/main", "refs/heads/issue-54"]);
+    git(&bench.repo.path, &["update-ref", "refs/remotes/origin/main", "refs/heads/issue-54"]);
+    let before = bench.git_text(&["rev-parse", "refs/watchbill/54"]);
+
+    let run = Command::new(env!("CARGO_BIN_EXE_wb"))
+        .args(["plan", "remove", "54"])
+        .current_dir(&bench.repo.path)
+        .env_clear()
+        .envs(env())
+        .env("XDG_STATE_HOME", &bench.state.path)
+        .output()
+        .unwrap();
+
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    assert!(err.contains("keeps 1 view of it with work not taken back"), "{}", err);
+    assert!(!err.contains("the branch"), "{}", err);
+    assert_eq!(bench.git_text(&["rev-parse", "refs/watchbill/54"]), before);
+}
+
 #[test]
 fn test_WB_PROMPT_73_the_planner_s_posted_stamp_holds_the_sha256_of_the_issue_s_text_before_the_parts() {
     if !sandbox("test_WB_PROMPT_73") {

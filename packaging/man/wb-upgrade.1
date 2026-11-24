@@ -11,14 +11,14 @@ Pin the repository to the installed revision: copy its files over .watchbill/rev
 .PP
 Ends with 0 when it is done and the check holds, or there is nothing to do; 1 when it is refused (a change under .watchbill/ that is not committed, an installed version older than the pinned one) or the check does not hold; 2 when it was used wrongly or the repository is not set up.
 .PP
-\-q (\-\-quiet) leaves out the lines that follow the writes and the line that says there is nothing to do, and not what it says before it writes, a refusal or a difference of the check.
+\-q (\-\-quiet) leaves out the lines that confirm the writes and the line that says there is nothing to do, and not what it says before it writes, a refusal, a difference of the check, or that nothing is committed.
 .SH OPTIONS
 .TP
 .B \-\-dry\-run, \-n
 Say the same and write nothing.
 .TP
 .B \-q, \-\-quiet
-Leave out the lines that only inform, and no refusal and nothing said before a write.
+Leave out the lines that only confirm what was done or say there was nothing to do; never a refusal, a warning, what is said before a write, or a command the person has to run.
 .SH EXIT STATUS
 .TP
 .B 0

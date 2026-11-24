@@ -1034,6 +1034,10 @@ pub fn edit(root: &str, name: &str, out: &mut dyn Write, err: &mut dyn Write) ->
         return limit(err, format!("the commit {} is not alone: a hook of git added files to it. Nothing more is done: undo or amend it as you decide.", short));
     }
     if held_before {
+        if crate::refusal::quiet() {
+            // Said with `-q` too: the acceptance no longer holds, and the person has to accept again.
+            let _ = writeln!(out, "{}: an acceptance of {} before holds no longer.", COMMAND, file);
+        }
         crate::refusal::inform(out, format_args!("{}: committed {} alone ({}). An acceptance of the file before holds no longer.", COMMAND, file, short));
     } else {
         crate::refusal::inform(out, format_args!("{}: committed {} alone ({}).", COMMAND, file, short));

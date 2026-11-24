@@ -11,7 +11,7 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 const USAGE: &str = "usage:
-  wb init [--yes] [-q | --quiet]
+  wb init [--yes | -y] [-q | --quiet]
   wb check [-q | --quiet]
   wb upgrade [--dry-run | -n] [-q | --quiet]
   wb plan add [<name>] (-F <file> | -m <text>... | --from <adapter> <number>)
@@ -53,8 +53,8 @@ const USAGE: &str = "usage:
             answer, show the file and write .watchbill/watchbill.yml at the
             root of the repository. --yes (-y) takes what it found and asks
             nothing. A file that is already there is never changed. -q
-            (--quiet) leaves out the lines after the files are written, and
-            nothing it says before
+            (--quiet) leaves out the lines that confirm what was written, and
+            not what it says before it writes or the advice after
   check     say whether the repository still is at the revision it is pinned to:
             each file under .watchbill/revision/ against the manifest, the
             manifest against the revision line of watchbill.yml, and that
@@ -74,9 +74,10 @@ const USAGE: &str = "usage:
             refused (a change under .watchbill/ that is not committed, an
             installed version older than the pinned one) or the check does not
             hold; 2 when it was used wrongly or the repository is not set up.
-            -q (--quiet) leaves out the lines that follow the writes and the
+            -q (--quiet) leaves out the lines that confirm the writes and the
             line that says there is nothing to do, and not what it says before
-            it writes, a refusal or a difference of the check
+            it writes, a refusal, a difference of the check, or that nothing
+            is committed
   plan      the plans of the jobs, kept in git (docs/revision.md, point 15).
             wb plan add takes a job in. Its text is given in one of three
             ways: -F <file>, where -F - reads standard input, a pipe or a
@@ -139,9 +140,10 @@ const USAGE: &str = "usage:
             show, edit, accept and remove of a name that is no plan are
             refused. Ends with 0 when it is done or nothing changes, 1 when it
             is refused, 2 when it was used wrongly or the repository is not
-            set up. -q (--quiet) leaves out what a subcommand says after it
-            has written or where it has nothing to do, and not what it says
-            before it writes, a refusal, or what list and show print
+            set up. -q (--quiet) leaves out the lines that confirm what a
+            subcommand wrote and the lines that say there is nothing to do,
+            and not what it says before it writes, a refusal, that an
+            acceptance holds no longer, or what list and show print
   prompt    print the prompt of a role on standard output and nothing else: the
             role's text of the pinned revision with each placeholder filled
             from the option of its name, such as --issue for {issue}, then the
@@ -214,11 +216,10 @@ const USAGE: &str = "usage:
             --show-origin prints as prompt does. Ends with the session: 0 when
             it ended with 0, else 1; 1 when it is refused, 2 when it was used
             wrongly or the repository is not set up. -q (--quiet) leaves out
-            the lines that only inform, as how to see what a commit changes,
-            the size of a view of the whole tree and that --take-back pushes
-            nothing, and not a refusal, what it says before it posts or
-            writes, or what --prompt, --stamp, --parts, --show-origin and
-            --list print
+            the size of a view of the whole tree and how to see what a commit
+            changes, and not a refusal, what it says before it posts or
+            writes, what is not pushed and the commands to push, or what
+            --prompt, --stamp, --parts, --show-origin and --list print
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes
             nothing. -q (--quiet) is taken and changes nothing: what it prints
@@ -244,8 +245,9 @@ const USAGE: &str = "usage:
             and is not accepted, it ends with 2 and names wb plan accept
             <name>. Ends with 0 when it is accepted, 1 when it is refused, 2
             when it was used wrongly or the repository is not set up. -q
-            (--quiet) leaves out the check of the lists and the lines after
-            the write, and not what it will write or commit, or a refusal
+            (--quiet) leaves out the check of the lists and the lines that
+            confirm the write and the commit, and not what it will write or
+            commit, the command to commit or push, or a refusal
   status    list the issues in the flow under headings, as git status lists
             files: each issue under the last step it has done (Not planned,
             Planned, Accepted, Tested, Built, Reviewed, Fixed), and last the
@@ -310,8 +312,9 @@ const USAGE: &str = "usage:
             not touched: taking commits back is git's. The planner is taken
             back with git, not by a marker. Ends with 0 when the marker is
             posted, 1 when it was refused or the posting failed, 2 when it was
-            used wrongly or the repository is not set up. -q (--quiet) leaves
-            out the line that says what stays as it was, and not a refusal
+            used wrongly or the repository is not set up. -q (--quiet) is
+            taken and changes nothing: what it says, that the commits stay, is
+            what a person must know
   clean     remove the views kept on this machine for this repository that
             have nothing left in them: those whose session ended and that hold
             no commit not taken back (a commit a take-back took is taken) and
@@ -354,8 +357,9 @@ const USAGE: &str = "usage:
             the answers are posted or no question is open, 1 when it was
             refused, the input ended or a pattern failed, 2 when it was used
             wrongly or the repository is not set up. -q (--quiet) leaves out
-            the line that says the answers are posted, and not what it will
-            post, a question or a refusal
+            the line that says the answers are posted and the line that says
+            no question is open, and not what it will post, a question or a
+            refusal
 ";
 
 fn root() -> &'static Path {

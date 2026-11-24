@@ -38,7 +38,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// What `wb --help` prints. The words are those of the Python `wb`.
 pub const USAGE: &str = "usage:
-  wb init [--yes] [-q | --quiet]
+  wb init [--yes | -y] [-q | --quiet]
   wb check [-q | --quiet]
   wb upgrade [--dry-run | -n] [-q | --quiet]
   wb plan add [<name>] (-F <file> | -m <text>... | --from <adapter> <number>)
@@ -80,8 +80,8 @@ pub const USAGE: &str = "usage:
             answer, show the file and write .watchbill/watchbill.yml at the
             root of the repository. --yes (-y) takes what it found and asks
             nothing. A file that is already there is never changed. -q
-            (--quiet) leaves out the lines after the files are written, and
-            nothing it says before
+            (--quiet) leaves out the lines that confirm what was written, and
+            not what it says before it writes or the advice after
   check     say whether the repository still is at the revision it is pinned to:
             each file under .watchbill/revision/ against the manifest, the
             manifest against the revision line of watchbill.yml, and that
@@ -101,9 +101,10 @@ pub const USAGE: &str = "usage:
             refused (a change under .watchbill/ that is not committed, an
             installed version older than the pinned one) or the check does not
             hold; 2 when it was used wrongly or the repository is not set up.
-            -q (--quiet) leaves out the lines that follow the writes and the
+            -q (--quiet) leaves out the lines that confirm the writes and the
             line that says there is nothing to do, and not what it says before
-            it writes, a refusal or a difference of the check
+            it writes, a refusal, a difference of the check, or that nothing
+            is committed
   plan      the plans of the jobs, kept in git (docs/revision.md, point 15).
             wb plan add takes a job in. Its text is given in one of three
             ways: -F <file>, where -F - reads standard input, a pipe or a
@@ -166,9 +167,10 @@ pub const USAGE: &str = "usage:
             show, edit, accept and remove of a name that is no plan are
             refused. Ends with 0 when it is done or nothing changes, 1 when it
             is refused, 2 when it was used wrongly or the repository is not
-            set up. -q (--quiet) leaves out what a subcommand says after it
-            has written or where it has nothing to do, and not what it says
-            before it writes, a refusal, or what list and show print
+            set up. -q (--quiet) leaves out the lines that confirm what a
+            subcommand wrote and the lines that say there is nothing to do,
+            and not what it says before it writes, a refusal, that an
+            acceptance holds no longer, or what list and show print
   prompt    print the prompt of a role on standard output and nothing else: the
             role's text of the pinned revision with each placeholder filled
             from the option of its name, such as --issue for {issue}, then the
@@ -241,11 +243,10 @@ pub const USAGE: &str = "usage:
             --show-origin prints as prompt does. Ends with the session: 0 when
             it ended with 0, else 1; 1 when it is refused, 2 when it was used
             wrongly or the repository is not set up. -q (--quiet) leaves out
-            the lines that only inform, as how to see what a commit changes,
-            the size of a view of the whole tree and that --take-back pushes
-            nothing, and not a refusal, what it says before it posts or
-            writes, or what --prompt, --stamp, --parts, --show-origin and
-            --list print
+            the size of a view of the whole tree and how to see what a commit
+            changes, and not a refusal, what it says before it posts or
+            writes, what is not pushed and the commands to push, or what
+            --prompt, --stamp, --parts, --show-origin and --list print
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes
             nothing. -q (--quiet) is taken and changes nothing: what it prints
@@ -271,8 +272,9 @@ pub const USAGE: &str = "usage:
             and is not accepted, it ends with 2 and names wb plan accept
             <name>. Ends with 0 when it is accepted, 1 when it is refused, 2
             when it was used wrongly or the repository is not set up. -q
-            (--quiet) leaves out the check of the lists and the lines after
-            the write, and not what it will write or commit, or a refusal
+            (--quiet) leaves out the check of the lists and the lines that
+            confirm the write and the commit, and not what it will write or
+            commit, the command to commit or push, or a refusal
   status    list the issues in the flow under headings, as git status lists
             files: each issue under the last step it has done (Not planned,
             Planned, Accepted, Tested, Built, Reviewed, Fixed), and last the
@@ -337,8 +339,9 @@ pub const USAGE: &str = "usage:
             not touched: taking commits back is git's. The planner is taken
             back with git, not by a marker. Ends with 0 when the marker is
             posted, 1 when it was refused or the posting failed, 2 when it was
-            used wrongly or the repository is not set up. -q (--quiet) leaves
-            out the line that says what stays as it was, and not a refusal
+            used wrongly or the repository is not set up. -q (--quiet) is
+            taken and changes nothing: what it says, that the commits stay, is
+            what a person must know
   clean     remove the views kept on this machine for this repository that
             have nothing left in them: those whose session ended and that hold
             no commit not taken back (a commit a take-back took is taken) and
@@ -381,8 +384,9 @@ pub const USAGE: &str = "usage:
             the answers are posted or no question is open, 1 when it was
             refused, the input ended or a pattern failed, 2 when it was used
             wrongly or the repository is not set up. -q (--quiet) leaves out
-            the line that says the answers are posted, and not what it will
-            post, a question or a refusal
+            the line that says the answers are posted and the line that says
+            no question is open, and not what it will post, a question or a
+            refusal
 ";
 
 /// Runs a command so that a fault in `wb` itself is not shown as a panic: the hook prints nothing,
@@ -470,31 +474,29 @@ enum Quiet {
     Not,
     /// The word is `-q` or `--quiet`, the first of it: the command is quiet.
     Taken,
-    /// The word is `-q` or `--quiet` again.
-    Twice,
+    /// The word is `-q` or `--quiet` again: what to say of it, which names the form that was typed.
+    Twice(String),
 }
 
-/// What a command says of `-q` given twice: the same in every command.
-const QUIET_TWICE: &str = "'--quiet' is given twice";
-
 /// `-q` and `--quiet` (#285), read once for every command: the one place that says which words they are. The first
-/// makes the command quiet (`refusal::quiet`): it leaves out the lines that only inform, through `refusal::inform`,
-/// and never a refusal, what it says before it writes, or the output a script reads. `given` is whether it was given.
-fn quiet_of(found: &Word, given: &mut bool) -> Quiet {
-    let quiet = match found {
-        Word::Short('q') => true,
-        Word::Long(option) if option == "quiet" => true,
-        _ => false,
+/// makes the command quiet (`refusal::quiet`): it leaves out the lines that only confirm what was done or say there
+/// was nothing to do, through `refusal::inform`, and never a refusal, a warning, what it says before it writes, a
+/// command a person has to run, or the output a script reads. `given` is the form that was given first, if any.
+fn quiet_of(found: &Word, given: &mut Option<&'static str>) -> Quiet {
+    let form = match found {
+        Word::Short('q') => "-q",
+        Word::Long(option) if option == "quiet" => "--quiet",
+        _ => return Quiet::Not,
     };
-    if !quiet {
-        return Quiet::Not;
+    match *given {
+        Some(first) if first == form => Quiet::Twice(format!("'{}' is given twice", form)),
+        Some(_) => Quiet::Twice("'-q' and '--quiet' are both given".to_string()),
+        None => {
+            *given = Some(form);
+            refusal::set_quiet();
+            Quiet::Taken
+        }
     }
-    if *given {
-        return Quiet::Twice;
-    }
-    *given = true;
-    refusal::set_quiet();
-    Quiet::Taken
 }
 
 /// Runs `wb` with the words after its name and returns the exit status:
@@ -629,13 +631,13 @@ fn run_help(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i3
 /// `wb init [--yes]`
 fn run_init(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let mut yes = false;
-    let mut quiet = false;
+    let mut quiet: Option<&'static str> = None;
     loop {
         let refused = match next(parser) {
             Ok(None) => break,
             Ok(Some(found)) => match quiet_of(&found, &mut quiet) {
                 Quiet::Taken => continue,
-                Quiet::Twice => return used(err, "wb init", QUIET_TWICE),
+                Quiet::Twice(why) => return used(err, "wb init", &why),
                 Quiet::Not => match found {
                     Word::Short('y') => {
                         yes = true;
@@ -668,13 +670,13 @@ fn run_init(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write, e
 
 /// `wb check`: the repository against its pinned revision and the installed `wb`. It writes nothing.
 fn run_check(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    let mut quiet = false;
+    let mut quiet: Option<&'static str> = None;
     loop {
         let refused = match next(parser) {
             Ok(None) => break,
             Ok(Some(found)) => match quiet_of(&found, &mut quiet) {
                 Quiet::Taken => continue,
-                Quiet::Twice => return used(err, "wb check", QUIET_TWICE),
+                Quiet::Twice(why) => return used(err, "wb check", &why),
                 Quiet::Not => named(found, parser),
             },
             Err(refused) => refused,
@@ -698,13 +700,13 @@ fn run_check(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i
 /// `wb upgrade [--dry-run]`: pins the repository to the installed revision, saying each write first (#174).
 fn run_upgrade(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let mut dry_run = false;
-    let mut quiet = false;
+    let mut quiet: Option<&'static str> = None;
     loop {
         let refused = match next(parser) {
             Ok(None) => break,
             Ok(Some(found)) => match quiet_of(&found, &mut quiet) {
                 Quiet::Taken => continue,
-                Quiet::Twice => return used(err, "wb upgrade", QUIET_TWICE),
+                Quiet::Twice(why) => return used(err, "wb upgrade", &why),
                 Quiet::Not => match found {
                     Word::Short('n') => {
                         if dry_run {
@@ -815,13 +817,25 @@ fn start_words(args: &[OsString], folder: &Path, machine: &Machine, out: &mut dy
 /// `wb start <role> …`: the word after `start` is the role, or the start is refused with 2, naming the roles.
 fn run_start_word(parser: &mut Parser, folder: Option<&Path>, machine: &Machine, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let roles = STARTED.join(", ");
-    match next(parser) {
-        Ok(Some(Word::Long(option))) if option == "list" => run_list((true, false), parser, folder, machine, out, err),
-        Ok(Some(Word::Long(option))) if option == "verbose" => run_list((false, true), parser, folder, machine, out, err),
-        Ok(Some(Word::Short('v'))) => run_list((false, true), parser, folder, machine, out, err),
+    // `-q` is taken before the role too, as git takes an option before its arguments.
+    let mut quiet: Option<&'static str> = None;
+    let first = loop {
+        match next(parser) {
+            Ok(Some(found)) => match quiet_of(&found, &mut quiet) {
+                Quiet::Taken => continue,
+                Quiet::Twice(why) => return used(err, "wb start", &why),
+                Quiet::Not => break Ok(Some(found)),
+            },
+            other => break other,
+        }
+    };
+    match first {
+        Ok(Some(Word::Long(option))) if option == "list" => run_list((true, false), quiet, parser, folder, machine, out, err),
+        Ok(Some(Word::Long(option))) if option == "verbose" => run_list((false, true), quiet, parser, folder, machine, out, err),
+        Ok(Some(Word::Short('v'))) => run_list((false, true), quiet, parser, folder, machine, out, err),
         Ok(Some(Word::Value(value))) if value.to_str().is_some_and(|role| STARTED.contains(&role)) => {
             let role = word(value.as_bytes());
-            run_start(&role, parser, folder, machine, out, err)
+            run_start(&role, quiet, parser, folder, machine, out, err)
         }
         Ok(None) => used(err, "wb start", &format!("a role is needed: {}", roles)),
         Ok(Some(found)) => {
@@ -838,10 +852,9 @@ fn run_start_word(parser: &mut Parser, folder: Option<&Path>, machine: &Machine,
 /// clears a runner for it (`cleared`, else `not-cleared`): for the planner one runner with both `start` and `planner`
 /// up to the level of the repository, as `wb start planner` needs, for the others a runner with `start`. It reads the manifest and the organisation's file, writes
 /// nothing and asks nothing of the network. `given` is what the first word was: (`--list`, `--verbose`).
-fn run_list(given: (bool, bool), parser: &mut Parser, folder: Option<&Path>, machine: &Machine, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+fn run_list(given: (bool, bool), mut quiet: Option<&'static str>, parser: &mut Parser, folder: Option<&Path>, machine: &Machine, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let name = "wb start";
     let (mut list, mut verbose) = given;
-    let mut quiet = false;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
@@ -851,7 +864,7 @@ fn run_list(given: (bool, bool), parser: &mut Parser, folder: Option<&Path>, mac
         // `-q` is taken with `--list` and changes nothing: the roles are what a script reads.
         match quiet_of(&found, &mut quiet) {
             Quiet::Taken => continue,
-            Quiet::Twice => return used(err, name, QUIET_TWICE),
+            Quiet::Twice(why) => return used(err, name, &why),
             Quiet::Not => {}
         }
         match found {
@@ -1004,7 +1017,7 @@ impl Words {
 /// Reads the words of `wb prompt`, where the first word is the role, or of `wb start <role>`, where `role` is given
 /// and `--prompt` is taken too. What `wb prompt` refuses as used wrongly is refused here, in its order, with
 /// its words after `name`. The status of a refusal is the error.
-fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn Write) -> Result<Words, i32> {
+fn read_words(parser: &mut Parser, mut quiet: Option<&'static str>, name: &str, role: Option<&str>, err: &mut dyn Write) -> Result<Words, i32> {
     let starter = role.is_some();
     let mut role: Option<String> = role.map(str::to_string);
     let mut issue_word: Option<String> = None;
@@ -1012,7 +1025,6 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
     let (mut parts, mut stamp, mut print, mut ignore_local, mut ignore_kept, mut take_back) = (false, false, false, false, false, false);
     let (mut ignore_branch, mut no_push, mut show_origin) = (false, false, false);
     let mut runner: Option<String> = None;
-    let mut quiet = false;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
@@ -1021,7 +1033,7 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
         };
         match quiet_of(&found, &mut quiet) {
             Quiet::Taken => continue,
-            Quiet::Twice => return Err(used(err, name, QUIET_TWICE)),
+            Quiet::Twice(why) => return Err(used(err, name, &why)),
             Quiet::Not => {}
         }
         match found {
@@ -1523,7 +1535,7 @@ fn show_origin(words: &Words, handed: &Handed) -> String {
 /// writes nothing.
 fn run_prompt(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let name = "wb prompt";
-    let words = match read_words(parser, name, None, err) {
+    let words = match read_words(parser, None, name, None, err) {
         Ok(words) => words,
         Err(status) => return status,
     };
@@ -1576,11 +1588,11 @@ fn refusal_in(name: &str, said: &[u8]) -> String {
 ///
 /// From the checks on, each start leaves its lines in a new folder below `state` (#124): the stamp, posted
 /// or as it would have been, the outcome (`sessions`), and for a view `view` and `back`.
-fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &Machine, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folder: Option<&Path>, machine: &Machine, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let (organisation, terminal, state) = (machine.organisation, machine.terminal, machine.state);
     let name = format!("wb start {}", role);
     let name = name.as_str();
-    let mut words = match read_words(parser, name, Some(role), err) {
+    let mut words = match read_words(parser, quiet, name, Some(role), err) {
         Ok(words) => words,
         Err(status) => return status,
     };
@@ -2196,7 +2208,7 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
     }
     if !back.taken.is_empty() {
         // A take-back is not the end of a session (#151): the person, who is there, pushes.
-        refusal::inform(err, format_args!("{}: nothing is pushed: wb pushes at the end of a session, and --take-back is not one.", name));
+        let _ = writeln!(err, "{}: nothing is pushed: wb pushes at the end of a session, and --take-back is not one.", name);
         push::say_commands(name, role, &root, kept.view.branch_name(), err);
     }
     if back.all_taken() && written.is_ok() {
@@ -2322,11 +2334,10 @@ const PLAN_SUBCOMMANDS: &str = "add, list, show, edit, accept, remove";
 
 /// `wb plan list`, `show`, `edit`, `accept` and `remove` (#290): the words after the subcommand, a name for all but
 /// `list`, and `--no-commit` for `accept`.
-fn run_plan_of(sub: &str, parser: &mut Parser, folder: Option<&Path>, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+fn run_plan_of(sub: &str, mut quiet: Option<&'static str>, parser: &mut Parser, folder: Option<&Path>, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let name = format!("wb plan {}", sub);
     let mut given: Option<String> = None;
     let mut commit = true;
-    let mut quiet = false;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
@@ -2335,7 +2346,7 @@ fn run_plan_of(sub: &str, parser: &mut Parser, folder: Option<&Path>, out: &mut 
         };
         match quiet_of(&found, &mut quiet) {
             Quiet::Taken => continue,
-            Quiet::Twice => return used(err, &name, QUIET_TWICE),
+            Quiet::Twice(why) => return used(err, &name, &why),
             Quiet::Not => {}
         }
         match found {
@@ -2368,11 +2379,23 @@ fn run_plan_of(sub: &str, parser: &mut Parser, folder: Option<&Path>, out: &mut 
 
 /// `wb plan <subcommand>` (#290): the subcommand is the word after `plan`.
 fn run_plan(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, input: &mut dyn BufRead, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    match next(parser) {
+    // `-q` is taken before the subcommand too, as git takes an option before its arguments.
+    let mut quiet: Option<&'static str> = None;
+    let first = loop {
+        match next(parser) {
+            Ok(Some(found)) => match quiet_of(&found, &mut quiet) {
+                Quiet::Taken => continue,
+                Quiet::Twice(why) => return used(err, "wb plan", &why),
+                Quiet::Not => break Ok(Some(found)),
+            },
+            other => break other,
+        }
+    };
+    match first {
         Ok(Some(Word::Value(value))) if value == "add" => {}
         Ok(Some(Word::Value(value))) if ["list", "show", "edit", "accept", "remove"].contains(&value.to_string_lossy().as_ref()) => {
             let sub = value.to_string_lossy().to_string();
-            return run_plan_of(&sub, parser, folder, out, err);
+            return run_plan_of(&sub, quiet, parser, folder, out, err);
         }
         Ok(None) => return used(err, "wb plan", &format!("a subcommand is needed: {}", PLAN_SUBCOMMANDS)),
         Ok(Some(found)) => {
@@ -2393,7 +2416,6 @@ fn run_plan(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, inp
     let wanted = |parser: &mut Parser, flag: &str| -> Result<String, String> {
         parser.value().map(|value| word(value.as_bytes())).map_err(|_| format!("{} needs a value", flag))
     };
-    let mut quiet = false;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
@@ -2402,7 +2424,7 @@ fn run_plan(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, inp
         };
         match quiet_of(&found, &mut quiet) {
             Quiet::Taken => continue,
-            Quiet::Twice => return used(err, name, QUIET_TWICE),
+            Quiet::Twice(why) => return used(err, name, &why),
             Quiet::Not => {}
         }
         let taken: Result<(), String> = match found {
@@ -2486,7 +2508,7 @@ fn run_accept(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     };
     let mut issue: Option<String> = None;
     let mut commit = true;
-    let mut quiet = false;
+    let mut quiet: Option<&'static str> = None;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
@@ -2495,12 +2517,22 @@ fn run_accept(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
         };
         match quiet_of(&found, &mut quiet) {
             Quiet::Taken => continue,
-            Quiet::Twice => return used(err, QUIET_TWICE.to_string()),
+            Quiet::Twice(why) => return used(err, why),
             Quiet::Not => {}
         }
         match found {
-            Word::Long(option) if option == "no-commit" => commit = false,
-            Word::Short('n') => commit = false,
+            Word::Long(option) if option == "no-commit" => {
+                if !commit {
+                    return used(err, "'--no-commit' is given twice".to_string());
+                }
+                commit = false;
+            }
+            Word::Short('n') => {
+                if !commit {
+                    return used(err, "'--no-commit' is given twice".to_string());
+                }
+                commit = false;
+            }
             Word::Value(value) if issue.is_none() => issue = Some(word(value.as_bytes())),
             found => {
                 let refused = named(found, parser);
@@ -2539,7 +2571,7 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     };
     let mut issue: Option<String> = None;
     let mut stage: Option<&'static str> = None;
-    let mut quiet = false;
+    let mut quiet: Option<&'static str> = None;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
@@ -2548,7 +2580,7 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
         };
         match quiet_of(&found, &mut quiet) {
             Quiet::Taken => continue,
-            Quiet::Twice => return used(err, QUIET_TWICE.to_string()),
+            Quiet::Twice(why) => return used(err, why),
             Quiet::Not => {}
         }
         match found {
@@ -2634,7 +2666,7 @@ fn run_clean(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i
     let name = "wb clean";
     let mut dry = false;
     let mut view: Option<String> = None;
-    let mut quiet = false;
+    let mut quiet: Option<&'static str> = None;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
@@ -2643,7 +2675,7 @@ fn run_clean(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i
         };
         match quiet_of(&found, &mut quiet) {
             Quiet::Taken => continue,
-            Quiet::Twice => return used(err, name, QUIET_TWICE),
+            Quiet::Twice(why) => return used(err, name, &why),
             Quiet::Not => {}
         }
         match found {
@@ -2736,7 +2768,7 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
     let name = "wb view";
     let mut words: Vec<String> = Vec::new();
     let (mut inside, mut outside, mut kept, mut verbose) = (false, false, false, false);
-    let mut quiet = false;
+    let mut quiet: Option<&'static str> = None;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
@@ -2745,7 +2777,7 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
         };
         match quiet_of(&found, &mut quiet) {
             Quiet::Taken => continue,
-            Quiet::Twice => return used(err, name, QUIET_TWICE),
+            Quiet::Twice(why) => return used(err, name, &why),
             Quiet::Not => {}
         }
         match found {
@@ -3000,7 +3032,7 @@ fn run_answer(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write,
     let mut change: Option<String> = None;
     let mut suggested = false;
     let mut show = false;
-    let mut quiet = false;
+    let mut quiet: Option<&'static str> = None;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
@@ -3009,7 +3041,7 @@ fn run_answer(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write,
         };
         match quiet_of(&found, &mut quiet) {
             Quiet::Taken => continue,
-            Quiet::Twice => return used(err, QUIET_TWICE.to_string()),
+            Quiet::Twice(why) => return used(err, why),
             Quiet::Not => {}
         }
         match found {
@@ -3098,7 +3130,7 @@ fn run_revert(parser: &mut Parser, err: &mut dyn Write) -> i32 {
     let mut values: Vec<String> = Vec::new();
     let mut change: Option<String> = None;
     let mut round: Option<u64> = None;
-    let mut quiet = false;
+    let mut quiet: Option<&'static str> = None;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
@@ -3107,7 +3139,7 @@ fn run_revert(parser: &mut Parser, err: &mut dyn Write) -> i32 {
         };
         match quiet_of(&found, &mut quiet) {
             Quiet::Taken => continue,
-            Quiet::Twice => return used(err, QUIET_TWICE.to_string()),
+            Quiet::Twice(why) => return used(err, why),
             Quiet::Not => {}
         }
         match found {
@@ -3207,13 +3239,13 @@ pub fn revision(args: &[OsString], base: &Path, out: &mut dyn Write, err: &mut d
 }
 
 fn run_revision(parser: &mut Parser, base: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    let mut quiet = false;
+    let mut quiet: Option<&'static str> = None;
     loop {
         let refused = match next(parser) {
             Ok(None) => break,
             Ok(Some(found)) => match quiet_of(&found, &mut quiet) {
                 Quiet::Taken => continue,
-                Quiet::Twice => return used(err, "wb revision", QUIET_TWICE),
+                Quiet::Twice(why) => return used(err, "wb revision", &why),
                 Quiet::Not => named(found, parser),
             },
             Err(refused) => refused,
@@ -3237,7 +3269,7 @@ fn run_revision(parser: &mut Parser, base: &Path, out: &mut dyn Write, err: &mut
 fn run_compare(parser: &mut Parser, package: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let mut from: Option<std::path::PathBuf> = None;
     let mut names: Vec<String> = Vec::new();
-    let mut quiet = false;
+    let mut quiet: Option<&'static str> = None;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
@@ -3246,7 +3278,7 @@ fn run_compare(parser: &mut Parser, package: &Path, out: &mut dyn Write, err: &m
         };
         match quiet_of(&found, &mut quiet) {
             Quiet::Taken => continue,
-            Quiet::Twice => return used(err, "wb compare", QUIET_TWICE),
+            Quiet::Twice(why) => return used(err, "wb compare", &why),
             Quiet::Not => {}
         }
         match found {

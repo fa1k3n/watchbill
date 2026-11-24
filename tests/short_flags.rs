@@ -397,7 +397,8 @@ fn test_WB_CMD_40_accept_q_says_what_it_will_write_and_leaves_out_the_rest() {
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
     let out = out_of(&run);
     assert!(out.contains("will write .watchbill/issues/54.accepted") && out.contains("will commit"), "{}", out);
-    assert!(!out.contains("is accepted.") && !out.contains("committed .watchbill") && !out.contains("wb pushes nothing"), "{}", out);
+    assert!(!out.contains("is accepted.") && !out.contains("committed .watchbill"), "{}", out);
+    assert!(out.contains("wb pushes nothing. Push the branch"), "{}", out);
     assert!(folder.path.join(ACCEPTED).exists());
     assert_eq!(say(&folder.path, &["log", "-1", "--format=%s"]), "Accept the issue's file (54)\n");
 }

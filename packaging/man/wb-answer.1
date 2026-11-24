@@ -15,7 +15,7 @@ One comment per role is posted, or none when a pair is wrong (a question not ope
 .PP
 Ends with 0 when the answers are posted or no question is open, 1 when it was refused, the input ended or a pattern failed, 2 when it was used wrongly or the repository is not set up.
 .PP
-\-q (\-\-quiet) leaves out the line that says the answers are posted, and not what it will post, a question or a refusal.
+\-q (\-\-quiet) leaves out the line that says the answers are posted and the line that says no question is open, and not what it will post, a question or a refusal.
 .SH OPTIONS
 .TP
 .B \-\-suggested
@@ -28,7 +28,7 @@ Print every open question in full, as it is laid out when asked, to standard out
 Answer on a change with no issue, by change_comment_bodies and change_comment.
 .TP
 .B \-q, \-\-quiet
-Leave out the lines that only inform, and no refusal and nothing said before a write.
+Leave out the lines that only confirm what was done or say there was nothing to do; never a refusal, a warning, what is said before a write, or a command the person has to run.
 .SH EXIT STATUS
 .TP
 .B 0

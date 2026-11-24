@@ -539,7 +539,7 @@ pub fn init(
     for path in &targets {
         talk.inform(&format!("Wrote {}.", path));
     }
-    talk.inform("Keep them under version control with the code.");
+    talk.say("Keep them under version control with the code.");
     if fetch {
         if let Err(why) = crate::plan::add_fetch(root) {
             return crate::refusal::limit(err, "wb init", format_args!("the fetch line {} could not be added to .git/config: {}. The files are written.", crate::plan::FETCH, why));

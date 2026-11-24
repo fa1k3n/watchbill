@@ -776,10 +776,8 @@ pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: 
     }
     crate::refusal::inform(out, format_args!("{}: {} is accepted.", name, shown));
     if !commit {
-        crate::refusal::inform(
-            out,
-            format_args!("{}: commit the acceptance alone, so the history holds it before any work it allows:\n  {}", name, commit_command(issue)),
-        );
+        // Said with `-q` too: the commit is a limit (#97), and the person has to make it.
+        let _ = writeln!(out, "{}: commit the acceptance alone, so the history holds it before any work it allows:\n  {}", name, commit_command(issue));
         return 0;
     }
     let _ = writeln!(out, "{}: will commit {} alone, with the message \"{}\", as {} <{}>.", name, shown_accepted, commit_message(issue), user, email);
@@ -803,7 +801,7 @@ pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: 
                 );
             }
             crate::refusal::inform(out, format_args!("{}: committed {} alone ({}). What was staged before stays staged.", name, shown_accepted, short));
-            crate::refusal::inform(out, format_args!("{}: wb pushes nothing. Push the branch {} so that the history elsewhere holds the acceptance.", name, branch));
+            let _ = writeln!(out, "{}: wb pushes nothing. Push the branch {} so that the history elsewhere holds the acceptance.", name, branch);
             0
         }
         Err(why) => {

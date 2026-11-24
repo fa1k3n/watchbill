@@ -513,7 +513,7 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
     };
     let questions = open_questions(value, &split_bodies(&printed));
     if questions.is_empty() {
-        let _ = writeln!(err, "wb answer: there is no open question on {} {} (from `{}` of watchbill.yml). Nothing is posted.", word, value, read);
+        crate::refusal::inform(err, format_args!("wb answer: there is no open question on {} {} (from `{}` of watchbill.yml). Nothing is posted.", word, value, read));
         return 0;
     }
     if *asked == Asked::Show {

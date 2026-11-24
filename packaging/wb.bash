@@ -24,7 +24,7 @@ _wb_flags_prompt="--issue --change --requirements --round --checkout --branch --
 _wb_flags_revision="--quiet"
 
 # The short forms of the flags, as the usage names them (#285): offered after a single - (the long ones after --).
-_wb_short_init="-q"
+_wb_short_init="-q -y"
 _wb_short_check="-q"
 _wb_short_upgrade="-n -q"
 _wb_short_plan="-F -m -n -q"

@@ -552,12 +552,12 @@ pub fn upgrade(root: &str, version: &str, package: &Path, dry_run: bool, out: &m
     crate::refusal::inform(out, format_args!("\nWritten.\n\nThe check of wb check:"));
     // not a refusal: the check after the upgrade is an answer, which `check` marks; it ends with 1 where it does not hold.
     let checked = crate::check::check(root, version, package, out, err);
-    crate::refusal::inform(
+    // Said with `-q` too: until the change is committed `wb` runs none of its patterns, and the person has to commit it.
+    let _ = writeln!(
         out,
-        format_args!(
-            "\nNothing is committed. Commit the change alone, with nothing else in the commit; until {} is committed, wb runs none of its patterns (#186):\n  git add --all -- ':/{1}' && git commit -m 'Watchbill {2}' -- ':/{1}'",
-            place, CONFIG_FOLDER, version
-        ),
+        "\nNothing is committed. Commit the change alone, with nothing else in the commit; until {} is committed, wb runs none of its patterns (#186):",
+        place
     );
+    let _ = writeln!(out, "  git add --all -- ':/{0}' && git commit -m 'Watchbill {1}' -- ':/{0}'", CONFIG_FOLDER, version);
     checked
 }

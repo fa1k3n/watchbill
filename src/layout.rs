@@ -18,7 +18,7 @@ pub const COMMANDS: [Command; 17] = [
     Command { name: "check", group: "set up", summary: "say whether the repository is at its revision" },
     Command { name: "doctor", group: "set up", summary: "say what on this machine Watchbill needs" },
     Command { name: "upgrade", group: "set up", summary: "pin the repository to the installed revision" },
-    Command { name: "plan", group: "work", summary: "take a job in, as the text of its plan" },
+    Command { name: "plan", group: "work", summary: "take a plan in, and list, show, edit, accept or remove it" },
     Command { name: "accept", group: "work", summary: "accept the file of an issue" },
     Command { name: "start", group: "work", summary: "start a session of one role" },
     Command { name: "run", group: "work", summary: "run the whole flow of an issue" },

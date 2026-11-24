@@ -723,6 +723,32 @@ fn test_WB_JOB_20_help_plan_says_what_add_takes_how_it_names_a_job_its_options_a
     }
 }
 
+// ---- WB-JOB-45: wb help plan says each subcommand ----
+
+#[test]
+fn test_WB_JOB_45_help_plan_says_each_subcommand_and_its_statuses() {
+    let folder = folder();
+
+    let run = wb(&folder.path, &["help", "plan"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    // The words are read across the line breaks of the usage.
+    let help = text(&run.stdout).split_whitespace().collect::<Vec<_>>().join(" ");
+    for word in [
+        "wb plan list",
+        "wb plan show <name>",
+        "wb plan edit <name>",
+        "wb plan accept <name> [--no-commit]",
+        "wb plan remove <name>",
+        "GIT_EDITOR",
+        "planned again after the acceptance",
+        "a source added after the acceptance",
+        "removed",
+    ] {
+        assert!(help.contains(word), "{}: {}", word, help);
+    }
+}
+
 // ---- WB-JOB-21: -m is repeated as git repeats it ----
 
 #[test]
@@ -895,15 +921,15 @@ fn test_WB_JOB_25_the_key_jobs_of_the_organisations_file_is_held_to_its_form() {
 // ---- WB-JOB-26: wb plan with no subcommand ----
 
 #[test]
-fn test_WB_JOB_26_plan_with_no_subcommand_or_one_not_known_ends_with_2_naming_add() {
+fn test_WB_JOB_26_plan_with_no_subcommand_or_one_not_known_ends_with_2_naming_each() {
     let folder = folder();
 
-    for args in [&["plan"][..], &["plan", "list"][..], &["plan", "--from"][..]] {
+    for args in [&["plan"][..], &["plan", "frob"][..], &["plan", "--from"][..]] {
         let run = wb(&folder.path, args, "");
 
         assert_eq!(code(&run), Some(2), "{:?}", args);
         assert_eq!(text(&run.stdout), "", "{:?}", args);
-        assert!(text(&run.stderr).contains("add"), "{:?}: {}", args, text(&run.stderr));
+        assert!(text(&run.stderr).contains("add, list, show, edit, accept, remove"), "{:?}: {}", args, text(&run.stderr));
     }
 }
 

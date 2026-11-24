@@ -97,9 +97,14 @@ pub fn bring_in(root: &str, issue: &str, view: &Path) -> Result<Brought, String>
             ))
         }
     }
-    let address = pattern(root, "issue_text")?;
+    // A plan of the name brings every source of it, and `issue_text` is not run (#290, decision 1).
+    let planned = crate::plan::planner_text(root, issue)?;
+    let address = if planned.is_none() { Some(pattern(root, "issue_text")?) } else { None };
     let comments = pattern(root, "issue_comment_bodies")?;
-    let text = starter::run_capped(root, "issue_text", &address.replace("{issue}", issue), bounded::TEXT_CAP)?;
+    let text = match planned {
+        Some(text) => text,
+        None => starter::run_capped(root, "issue_text", &address.unwrap_or_default().replace("{issue}", issue), bounded::TEXT_CAP)?,
+    };
     let printed = starter::run_capped(root, "issue_comment_bodies", &comments.replace("{issue}", issue), bounded::TEXT_CAP)?;
     let bodies = answer::split_bodies(&printed);
     let kept: Vec<&str> = bodies

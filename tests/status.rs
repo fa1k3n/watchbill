@@ -128,10 +128,10 @@ fn test_WB_STATUS_2_each_issue_is_under_the_last_step_it_has_done() {
     let folder = at_every_step();
     let (out, status) = stdout(&folder.path, &["status"]);
     assert_eq!(status, Some(0));
-    let expected = "Not broken down:
+    let expected = "Not planned:
   1  issue-1-work
 
-Broken down:
+Planned:
   2  issue-2-work
 
 Accepted:
@@ -161,8 +161,8 @@ fn test_WB_STATUS_11_a_heading_with_no_issue_is_not_printed() {
     open(&folder.path, &["1"]);
     comments(&folder.path, "1", &[]);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Not broken down:\n  1  issue-1-work\n");
-    for heading in ["Broken down", "Accepted", "Tested", "Built", "Reviewed", "Fixed", "Questions open", "Not read"] {
+    assert_eq!(out, "Not planned:\n  1  issue-1-work\n");
+    for heading in ["Planned", "Accepted", "Tested", "Built", "Reviewed", "Fixed", "Questions open", "Not read"] {
         assert!(!out.contains(heading), "{} in {}", heading, out);
     }
 }
@@ -180,7 +180,7 @@ fn test_WB_STATUS_12_no_line_says_a_round_a_command_or_a_step_going_on() {
 fn test_WB_STATUS_13_the_steps_are_printed_in_the_order_of_the_flow() {
     let folder = at_every_step();
     let (out, _) = stdout(&folder.path, &["status"]);
-    let at: Vec<usize> = ["Not broken down:", "Broken down:", "Accepted:", "Tested:", "Built:", "Reviewed:", "Fixed:"]
+    let at: Vec<usize> = ["Not planned:", "Planned:", "Accepted:", "Tested:", "Built:", "Reviewed:", "Fixed:"]
         .iter()
         .map(|heading| out.find(&format!("\n{}", heading)).or_else(|| out.starts_with(heading).then_some(0)).expect(heading))
         .collect();
@@ -190,7 +190,7 @@ fn test_WB_STATUS_13_the_steps_are_printed_in_the_order_of_the_flow() {
 }
 
 #[test]
-fn test_WB_STATUS_2_an_issue_file_that_is_not_accepted_as_it_stands_is_broken_down_only() {
+fn test_WB_STATUS_2_an_issue_file_that_is_not_accepted_as_it_stands_is_planned_only() {
     let folder = set_up();
     open(&folder.path, &["3"]);
     comments(&folder.path, "3", &[]);
@@ -202,7 +202,7 @@ fn test_WB_STATUS_2_an_issue_file_that_is_not_accepted_as_it_stands_is_broken_do
     git(&folder.path, &["checkout", "-q", "-"]);
     at_origin(&folder.path, "issue-3-work");
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Broken down:\n  3  issue-3-work\n");
+    assert_eq!(out, "Planned:\n  3  issue-3-work\n");
 }
 
 #[test]
@@ -226,11 +226,11 @@ fn test_WB_STATUS_18_the_files_are_read_from_the_origin_branch_when_there_is_no_
     git(&folder.path, &["update-ref", "refs/remotes/origin/issue-9-work", tip.trim()]);
     git(&folder.path, &["branch", "-q", "-D", "issue-9-work"]);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Broken down:\n  9  issue-9-work\n");
+    assert_eq!(out, "Planned:\n  9  issue-9-work\n");
 }
 
 #[test]
-fn test_WB_STATUS_18_an_acceptance_that_is_written_and_not_committed_gives_broken_down() {
+fn test_WB_STATUS_18_an_acceptance_that_is_written_and_not_committed_gives_planned() {
     let folder = set_up();
     open(&folder.path, &["2"]);
     comments(&folder.path, "2", &[]);
@@ -241,7 +241,7 @@ fn test_WB_STATUS_18_an_acceptance_that_is_written_and_not_committed_gives_broke
     assert!(folder.path.join(".watchbill/issues/2.accepted").exists());
     git(&folder.path, &["checkout", "-q", "-"]);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Broken down:\n  2  issue-2-work\n");
+    assert_eq!(out, "Planned:\n  2  issue-2-work\n");
 }
 
 #[test]
@@ -259,7 +259,7 @@ fn test_WB_STATUS_9_questions_open_is_printed_after_the_steps() {
     assert_eq!(status, Some(0));
     assert_eq!(
         out,
-        "Not broken down:\n  177  issue-177-work\n\nBuilt:\n  176  issue-176-work\n\nQuestions open:\n  176  176.build.q2\n"
+        "Not planned:\n  177  issue-177-work\n\nBuilt:\n  176  issue-176-work\n\nQuestions open:\n  176  176.build.q2\n"
     );
 }
 
@@ -281,7 +281,7 @@ fn test_WB_STATUS_9_the_open_questions_of_an_issue_are_named_in_the_order_they_w
     open(&folder.path, &["176"]);
     comments(&folder.path, "176", &["[question] 176.q1", "[question] 176.q2"]);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Not broken down:\n  176  issue-176-work\n\nQuestions open:\n  176  176.q1, 176.q2\n");
+    assert_eq!(out, "Not planned:\n  176  issue-176-work\n\nQuestions open:\n  176  176.q1, 176.q2\n");
 }
 
 #[test]
@@ -304,7 +304,7 @@ fn test_WB_STATUS_3_an_answer_in_words_closes_its_question() {
     open(&folder.path, &["1"]);
     comments(&folder.path, "1", &["[question] 1.q1", "[answer] 1.q1 only for the first command"]);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Not broken down:\n  1  issue-1-work\n");
+    assert_eq!(out, "Not planned:\n  1  issue-1-work\n");
 }
 
 #[test]
@@ -323,7 +323,7 @@ fn test_WB_STATUS_15_every_answer_line_counts_as_a_persons_until_wb_reads_who_wr
     open(&folder.path, &["1"]);
     comments(&folder.path, "1", &["[question] 1.q1", "[answer] 1.q1 2"]);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Not broken down:\n  1  issue-1-work\n");
+    assert_eq!(out, "Not planned:\n  1  issue-1-work\n");
 }
 
 #[test]
@@ -333,7 +333,7 @@ fn test_WB_STATUS_30_an_answer_closes_its_question_whatever_follows_the_name() {
     open(&folder.path, &["5"]);
     comments(&folder.path, "5", &["[question] 5.q1", "[answer] 5.q1 7"]);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Not broken down:\n  5  issue-5-work\n");
+    assert_eq!(out, "Not planned:\n  5  issue-5-work\n");
 }
 
 #[test]
@@ -353,7 +353,7 @@ fn test_WB_STATUS_4_a_branch_of_another_issue_whose_number_starts_the_same_is_no
     comments(&folder.path, "12", &[]);
     branch(&folder.path, "12", true);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Not broken down:\n  1  issue-1-work\n\nAccepted:\n  12  issue-12-work\n");
+    assert_eq!(out, "Not planned:\n  1  issue-1-work\n\nAccepted:\n  12  issue-12-work\n");
 }
 
 #[test]
@@ -394,11 +394,11 @@ fn test_WB_STATUS_24_one_issue_prints_the_heading_worked_out_from_and_its_lines_
 #[test]
 fn test_WB_STATUS_6_stage_prints_only_that_heading_matched_without_regard_to_case() {
     let folder = at_every_step();
-    let (out, status) = stdout(&folder.path, &["status", "--stage", "not BROKEN down"]);
+    let (out, status) = stdout(&folder.path, &["status", "--stage", "not PLANNED"]);
     assert_eq!(status, Some(0));
-    assert_eq!(out, "Not broken down:\n  1  issue-1-work\n");
-    let (out, _) = stdout(&folder.path, &["status", "--stage", "broken down"]);
-    assert_eq!(out, "Broken down:\n  2  issue-2-work\n");
+    assert_eq!(out, "Not planned:\n  1  issue-1-work\n");
+    let (out, _) = stdout(&folder.path, &["status", "--stage", "planned"]);
+    assert_eq!(out, "Planned:\n  2  issue-2-work\n");
 }
 
 #[test]
@@ -439,7 +439,7 @@ fn test_WB_STATUS_7_a_pattern_that_fails_for_one_issue_lists_it_under_not_read_a
     let run = wb(&folder.path, &["status"], "");
     assert_eq!(code(&run), Some(1));
     let out = text(&run.stdout);
-    assert!(out.starts_with("Not broken down:\n  1  issue-1-work\n"), "{}", out);
+    assert!(out.starts_with("Not planned:\n  1  issue-1-work\n"), "{}", out);
     assert!(out.contains("\nNot read:\n  2  `issue_comments` of watchbill.yml ended with 1\n"), "{}", out);
 }
 
@@ -518,7 +518,7 @@ fn test_WB_STATUS_28_it_runs_from_a_folder_below_the_root() {
     fs::create_dir_all(folder.path.join("src/deep")).unwrap();
     let (out, status) = stdout(&folder.path.join("src/deep"), &["status"]);
     assert_eq!(status, Some(0));
-    assert_eq!(out, "Not broken down:\n  1  issue-1-work\n");
+    assert_eq!(out, "Not planned:\n  1  issue-1-work\n");
 }
 
 #[test]
@@ -531,7 +531,7 @@ fn test_WB_STATUS_26_without_issue_comments_it_says_so_once_on_standard_error() 
     open(&folder.path, &["1", "2", "3"]);
     let run = wb(&folder.path, &["status"], "");
     assert_eq!(code(&run), Some(0));
-    assert_eq!(text(&run.stdout), "Not broken down:\n  1  issue-1-work\n  2  issue-2-work\n  3  issue-3-work\n");
+    assert_eq!(text(&run.stdout), "Not planned:\n  1  issue-1-work\n  2  issue-2-work\n  3  issue-3-work\n");
     let said = text(&run.stderr);
     assert_eq!(said.lines().count(), 1, "{}", said);
     assert!(said.starts_with("wb status:") && said.contains("issue_comments"), "{}", said);
@@ -553,7 +553,7 @@ fn test_WB_STATUS_31_stamps_before_the_last_planner_stamp_no_longer_decide_the_s
     branch(&folder.path, "2", false);
     branch(&folder.path, "3", true);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Broken down:\n  2  issue-2-work\n\nAccepted:\n  1  issue-1-work\n\nBuilt:\n  3  issue-3-work\n");
+    assert_eq!(out, "Planned:\n  2  issue-2-work\n\nAccepted:\n  1  issue-1-work\n\nBuilt:\n  3  issue-3-work\n");
 }
 
 // ---- The questions folded into one comment per session, and the answers in one (#145) ----
@@ -678,16 +678,16 @@ fn test_WB_STATUS_33_the_issues_are_found_with_git_alone_and_no_pattern() {
     open(&folder.path, &["7"]);
     let (out, status) = stdout(&folder.path, &["status"]);
     assert_eq!(status, Some(0));
-    assert_eq!(out, "Not broken down:\n  7  issue-7-work\n");
+    assert_eq!(out, "Not planned:\n  7  issue-7-work\n");
 }
 
 #[test]
-fn test_WB_STATUS_34_an_issue_whose_branch_holds_no_issue_file_is_under_not_broken_down() {
+fn test_WB_STATUS_34_an_issue_whose_branch_holds_no_issue_file_is_under_not_planned() {
     let folder = set_up();
     comments(&folder.path, "5", &[]);
     open(&folder.path, &["5"]);
-    let (out, _) = stdout(&folder.path, &["status", "--stage", "not broken down"]);
-    assert_eq!(out, "Not broken down:\n  5  issue-5-work\n");
+    let (out, _) = stdout(&folder.path, &["status", "--stage", "not planned"]);
+    assert_eq!(out, "Not planned:\n  5  issue-5-work\n");
 }
 
 #[test]
@@ -726,7 +726,7 @@ fn test_WB_STATUS_37_one_issue_prints_the_first_line_of_issue_address_as_its_tit
     open(&folder.path, &["5"]);
     let (out, status) = stdout(&folder.path, &["status", "5"]);
     assert_eq!(status, Some(0));
-    assert!(out.starts_with("Not broken down:\n  5  issue-5-work  Bell \\u{7} and \\u{1b}[31mred\n"), "{}", out);
+    assert!(out.starts_with("Not planned:\n  5  issue-5-work  Bell \\u{7} and \\u{1b}[31mred\n"), "{}", out);
     assert!(!out.contains("The rest"), "{}", out);
 }
 
@@ -787,13 +787,44 @@ change_address: \"mkdir -p .calls && echo x >> .calls/change_address\"
 }
 
 #[test]
+fn test_WB_STATUS_38_it_runs_issue_comment_bodies_once_for_an_accepted_issue_with_a_planner_stamp_and_for_no_other() {
+    let folder = set_up();
+    let file = config(&folder.path);
+    let kept: String = read(&file).lines().filter(|line| !line.starts_with("issue_comments:")).map(|line| format!("{}\n", line)).collect();
+    fs::write(&file, kept).unwrap();
+    commit_config(&folder.path);
+    add_patterns(
+        &folder.path,
+        "issue_comments: \"mkdir -p .calls && echo {issue} >> .calls/issue_comments && cat .tracker/{issue}.comments\"
+issue_comment_bodies: \"mkdir -p .calls && echo {issue} >> .calls/issue_comment_bodies && cat .tracker/{issue}.bodies\"
+change_of_branch: \"mkdir -p .calls && echo {branch} >> .calls/change_of_branch\"
+",
+    );
+    // 1 is not accepted, 2 is accepted with a planner's stamp before the acceptance, 3 is accepted with none.
+    open(&folder.path, &["1"]);
+    branch(&folder.path, "2", true);
+    branch(&folder.path, "3", true);
+    comments(&folder.path, "1", &["[stamp] planner round 1"]);
+    comments(&folder.path, "2", &["[stamp] planner round 1"]);
+    comments(&folder.path, "3", &[]);
+    put(&folder.path, ".tracker/2.bodies", "[stamp] planner round 1\nrole: planner\ntime: 2000-01-01T00:00:00Z\n\0");
+
+    let run = wb(&folder.path, &["status"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(text(&run.stdout).contains("Accepted:\n  2  "), "{}", text(&run.stdout));
+    assert_eq!(calls(&folder.path, "issue_comments"), ["1", "2", "3"]);
+    assert_eq!(calls(&folder.path, "issue_comment_bodies"), ["2"]);
+}
+
+#[test]
 fn test_WB_STATUS_39_the_default_branch_is_that_of_origin_else_main_else_master_and_none_ends_with_2() {
     let folder = set_up();
     comments(&folder.path, "1", &[]);
     open(&folder.path, &["1"]);
     let own = default_branch(&folder.path);
     // `main` or `master`, whichever there is, is found with no `origin/HEAD`.
-    assert_eq!(stdout(&folder.path, &["status"]), ("Not broken down:\n  1  issue-1-work\n".to_string(), Some(0)));
+    assert_eq!(stdout(&folder.path, &["status"]), ("Not planned:\n  1  issue-1-work\n".to_string(), Some(0)));
     // `origin/HEAD` wins: here it names a branch that holds the issue's commit, so the issue is done.
     git(&folder.path, &["update-ref", "refs/remotes/origin/trunk", "issue-1-work"]);
     git(&folder.path, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk"]);
@@ -824,7 +855,7 @@ fn test_WB_STATUS_40_a_local_branch_ahead_of_origin_shows_how_many_commits_are_n
     git(&folder.path, &["update-ref", "-d", "refs/remotes/origin/issue-4-work"]);
     let (out, status) = stdout(&folder.path, &["status"]);
     assert_eq!(status, Some(0));
-    assert_eq!(out, "Not broken down:\n  4  issue-4-work  1 not pushed\n\nAccepted:\n  1  issue-1-work  2 not pushed\n  2  issue-2-work\n  3  issue-3-work\n");
+    assert_eq!(out, "Not planned:\n  4  issue-4-work  1 not pushed\n\nAccepted:\n  1  issue-1-work  2 not pushed\n  2  issue-2-work\n  3  issue-3-work\n");
 }
 
 #[test]
@@ -949,7 +980,7 @@ fn test_WB_STATUS_37_a_malformed_issue_address_does_not_fail_the_list_that_never
     open(&folder.path, &["1"]);
     let (out, status) = stdout(&folder.path, &["status"]);
     assert_eq!(status, Some(0));
-    assert_eq!(out, "Not broken down:\n  1  issue-1-work\n");
+    assert_eq!(out, "Not planned:\n  1  issue-1-work\n");
 }
 
 // ---- WB-STATUS-53 to 55: who the newest answer waits for (#226) ----

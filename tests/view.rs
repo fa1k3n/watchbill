@@ -4491,6 +4491,37 @@ fn test_WB_BUILD_135_the_issue_s_text_is_brought_into_the_view_as_issue_text_pri
     assert!(!bench.repo.path.join(".watchbill/issue").exists());
 }
 
+/// `wb plan add` with the words after `plan`, in the test process, with the organisation's file of the bench.
+fn plan_add(bench: &Bench, args: &[&str]) {
+    let words: Vec<std::ffi::OsString> = args.iter().map(std::ffi::OsString::from).collect();
+    let mut input = std::io::Cursor::new(Vec::new());
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let code = watchbill::plan(&words, &bench.repo.path, &bench.organisation(), &mut input, &mut out, &mut err);
+    assert_eq!(code, 0, "{}{}", text(&out), text(&err));
+}
+
+#[test]
+fn test_WB_JOB_44_the_planner_of_a_plan_reads_every_source_of_it_and_no_issue_text() {
+    if !sandbox("test_WB_JOB_44") {
+        return;
+    }
+    let bench = bench();
+    plan_add(&bench, &["add", "54", "-m", "Brakes: the front one."]);
+    plan_add(&bench, &["add", "54", "-m", "And the rear one.", "--source", "https://example.invalid/54#2"]);
+    bench.session("cat .watchbill/issue/54.md > {log}/seen\n");
+
+    let run = bench.start(&["start", "planner", "54"]);
+
+    ok(&run);
+    let seen = bench.left("seen");
+    let first = seen.find("Brakes: the front one.\n").expect(&seen);
+    let second = seen.find("And the rear one.\n").expect(&seen);
+    assert!(first < second, "{}", seen);
+    assert!(seen.starts_with("--- source 1: "), "{}", seen);
+    assert!(seen.contains(", from https://example.invalid/54#2 ---\n"), "{}", seen);
+    assert!(!bench.calls().iter().any(|call| call == "text 54"), "{:?}", bench.calls());
+}
+
 #[test]
 fn test_WB_PROMPT_73_the_planner_s_posted_stamp_holds_the_sha256_of_the_issue_s_text_before_the_parts() {
     if !sandbox("test_WB_PROMPT_73") {
@@ -4864,7 +4895,7 @@ fn test_WB_VIEW_110_with_main_checked_out_the_planner_s_commit_makes_the_issue_s
     assert!(text_of(&run.stderr).contains("git push origin issue-7"), "{}", text_of(&run.stderr));
     let status = wb_state(&bench, &["status", "7"]);
     let out = text_of(&status.stdout);
-    assert!(out.contains("Broken down") && !out.contains("Not broken down"), "{}{}", out, text_of(&status.stderr));
+    assert!(out.contains("Planned") && !out.contains("Not planned"), "{}{}", out, text_of(&status.stderr));
 }
 
 #[test]

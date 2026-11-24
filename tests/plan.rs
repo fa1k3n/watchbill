@@ -780,6 +780,13 @@ fn test_WB_JOB_22_the_same_text_under_a_second_name_is_one_job_with_two_names() 
     ok(&ran);
     assert_eq!(bench.commit_of("gitlab/54"), bench.commit_of("github/54"));
     assert!(ran.out.contains("github/54"), "{}", ran.out);
+    // The ref that is there is moved, and the new one is made: each is said as what it is, first and when written.
+    let commit = bench.commit_of("github/54");
+    assert!(ran.out.contains("  the ref refs/watchbill/github/54 moved to it from that commit\n"), "{}", ran.out);
+    assert!(ran.out.contains("  the ref refs/watchbill/gitlab/54 made at it\n"), "{}", ran.out);
+    assert!(ran.out.contains(&format!("Wrote refs/watchbill/github/54: moved to commit {}.\n", commit)), "{}", ran.out);
+    assert!(ran.out.contains(&format!("Wrote refs/watchbill/gitlab/54: made at commit {}.\n", commit)), "{}", ran.out);
+    assert!(!ran.out.contains("gitlab/54 moved"), "{}", ran.out);
     // job.yml keeps the first name and lists both.
     let yml = bench.job_yml("gitlab/54");
     assert!(yml.contains("name: github/54\nnames:\n  - github/54\n  - gitlab/54\n"), "{}", yml);

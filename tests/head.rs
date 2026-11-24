@@ -127,9 +127,16 @@ fn commands() -> Vec<(&'static str, Command)> {
         ("wb start", |b| start_with(&b.repo.path, &b.org, true, &["start", "review", "54", "--change", "9"])),
         ("wb answer", |b| wb(&b.repo.path, &["answer", "54", "--suggested"], "")),
         ("wb revert", |b| wb(&b.repo.path, &["revert", "54", "review"], "")),
-        ("wb accept", |b| {
+        ("wb plan accept", |b| {
             put(&b.repo.path, ".watchbill/issues/54.yml", ISSUE);
             wb(&b.repo.path, &["plan", "accept", "--no-commit", "54"], "")
+        }),
+        // The acceptance of the work, for a file that is accepted (written by hand here, as `wb plan accept` writes it).
+        ("wb accept", |b| {
+            put(&b.repo.path, ".watchbill/issues/54.yml", ISSUE);
+            let hash = watchbill::manifest::hash_bytes(ISSUE.as_bytes());
+            put(&b.repo.path, ".watchbill/issues/54.accepted", &format!("sha256: {}\nby: Ada <ada@example.org>\ntime: 2026-11-24T10:00:00Z\n", hash));
+            wb(&b.repo.path, &["accept", "--no-commit", "54"], "")
         }),
     ]
 }
@@ -187,8 +194,11 @@ fn test_WB_BUILD_39_the_same_file_committed_is_run_as_before() {
         bench.commit();
         let run = command(&bench);
         assert!(!text(&run.stderr).contains("a person reads the change"), "{}: {}", name, text(&run.stderr));
-        if name == "wb accept" {
+        if name == "wb plan accept" {
             assert_eq!(code(&run), Some(0), "{}: {}", name, text(&run.stderr));
+        } else if name == "wb accept" {
+            // The work is not accepted here: no `issue_comments` says which roles ran. It is not the file's drift.
+            assert_eq!(code(&run), Some(1), "{}: {}", name, text(&run.stderr));
         } else {
             assert_ne!(bench.ran(), "", "{} ran no pattern: {}", name, text(&run.stderr));
         }
@@ -202,7 +212,7 @@ fn test_WB_BUILD_40_no_option_that_a_command_takes_lifts_the_refusal() {
     put(&bench.repo.path, ".watchbill/issues/54.yml", ISSUE);
     let by_start = |words: &[&str]| start_with(&bench.repo.path, &bench.org, true, words);
     let runs: Vec<(&str, Output)> = vec![
-        ("wb accept 54 --no-commit", wb(&bench.repo.path, &["plan", "accept", "54", "--no-commit"], "")),
+        ("wb plan accept 54 --no-commit", wb(&bench.repo.path, &["plan", "accept", "54", "--no-commit"], "")),
         ("wb answer 54 --suggested", wb(&bench.repo.path, &["answer", "54", "--suggested"], "")),
         ("wb revert 54 review --round 1", wb(&bench.repo.path, &["revert", "54", "review", "--round", "1"], "")),
         ("wb start review 54 --change 9 --runner stand-in", by_start(&["start", "review", "54", "--change", "9", "--runner", "stand-in"])),

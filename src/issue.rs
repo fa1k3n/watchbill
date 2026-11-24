@@ -598,17 +598,11 @@ fn check_needs(root: &str, pattern: &str, issue: &Issue) -> Result<Needs, String
     Ok(Needs { run: files.len(), missing })
 }
 
-/// `wb accept <issue>` in the repository at `root`: 0 it is accepted, 1 it is refused, 2 Watchbill is
-/// not set up here. It says what it will write before it writes, and never writes over an acceptance.
-/// With `commit` it also commits the acceptance alone, on the issue's branch (#157), and refuses before it
-/// writes when the checkout is not on that branch or the issue's file is not as `HEAD` has it. Without
-/// `commit` (`--no-commit`) it keeps the form of 0.0.9: it writes the acceptance and says the commit.
-pub fn accept(root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    accept_as("wb accept", root, issue, commit, out, err)
-}
-
-/// The acceptance of the issue's file, as `accept` makes it, with every line said under the command `name`: `wb accept`,
-/// or `wb plan accept` (#290).
+/// `wb plan accept <issue>` in the repository at `root`, with every line said under the command `name`: 0 it is accepted,
+/// 1 it is refused, 2 Watchbill is not set up here. It says what it will write before it writes, and never writes over
+/// an acceptance. With `commit` it also commits the acceptance alone, on the issue's branch (#157), and refuses before
+/// it writes when the checkout is not on that branch or the issue's file is not as `HEAD` has it. Without `commit`
+/// (`--no-commit`) it writes the acceptance and says the commit.
 pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let base = Path::new(root);
     if let Some(why) = way_fault(base) {

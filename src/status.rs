@@ -327,8 +327,9 @@ fn closing(root: &str, number: &str, pattern: &str, all: &[Branch], flow: &[Stri
     if let Some((branch, record)) = mine().find_map(|branch| crate::finished::holding(root, number, &branch.full).map(|record| (branch, record))) {
         return Some(work(&record, &branch.name));
     }
-    // The record reached the default branch with the merge of the branch: no branch is needed then (#282).
-    if default_holds(root, default, number) {
+    // The record reached the default branch with the merge of the branch: no branch is needed then, but a branch of the
+    // issue in the flow, with a commit after it, puts the job back (#282).
+    if !mine().any(|branch| flow.contains(&branch.full)) && default_holds(root, default, number) {
         let record = git(root, &["show", &format!("{}:{}", default, crate::finished::path_of(number))]).and_then(|text| crate::finished::parse(&String::from_utf8_lossy(&text)));
         if let Some(record) = record {
             return Some(work(&record, short_ref(default)));

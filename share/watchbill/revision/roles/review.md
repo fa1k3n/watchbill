@@ -23,7 +23,7 @@ In round 1:
   {classed_touched}
 
   Say first whether the change touches classed code. Report what the program says, and add what the paths alone do not show: code moved into a classed path by a call, say. Such a change needs a person as its verifier, and your review never stands in for that person's. Never say that the classed code cannot be told where the program gave the paths. Where the second list says that it cannot be told, say so, and judge from the diff.
-- **The process's own files.** The issue's file `.watchbill/issues/{issue}.yml` and its acceptance `.watchbill/issues/{issue}.accepted` are on the branch of every issue that has a file, written by the breakdown and by a person through `wb accept`. They are not part of what the issue asks and are not a finding. A change to the issue's file after the acceptance is a finding: the hash would no longer hold. Where the issue is none, there are no such files.
+- **The process's own files.** The issue's file `.watchbill/issues/{issue}.yml` and its acceptance `.watchbill/issues/{issue}.accepted` are on the branch of every issue that has a file, written by the planner and by a person through `wb accept`. They are not part of what the issue asks and are not a finding. A change to the issue's file after the acceptance is a finding: the hash would no longer hold. Where the issue is none, there are no such files.
 
 In round 2, when the `must` findings of round 1 have been answered:
 
@@ -73,7 +73,7 @@ Ask what only a person can settle on the issue, where the person sees it:
 - A question is written so that a person can answer it without opening the code. In plain words, it holds what is unclear, why it matters, the choices, each with the role that acts on it, a suggested answer, and nothing else:
   - What is unclear: one sentence, in the issue's own words where it has them.
   - Why it matters: what the change does differently by the answer, in one or two sentences, without the code's names unless the person needs them to answer.
-  - The choices, numbered from 1, where there are any. Each starts with the role that acts on it, in brackets: `1. (tester) Narrow the requirement.` The words are the roles of the revision (`breakdown`, `tester`, `build`, `review`, `fix`) and `person` for a person's own step, changing the issue's file and accepting it again, or anything else no role may do. A choice that changes the issue's file is `(person)`.
+  - The choices, numbered from 1, where there are any. Each starts with the role that acts on it, in brackets: `1. (tester) Narrow the requirement.` The words are the roles of the revision (`planner`, `tester`, `build`, `review`, `fix`) and `person` for a person's own step, changing the issue's file and accepting it again, or anything else no role may do. A choice that changes the issue's file is `(person)`.
   - A suggested answer, marked as a suggestion, with its reason in one sentence: `Suggested: 1, because …`. It names its choice by number. You never act on it before a person answers.
   - Nothing else: no recap of the issue, and no list of what you read.
 - Each question is one line, its name and what is unclear. The rest is folded under `<details>`, which the tracker shows closed. The comment is in this form:

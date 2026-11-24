@@ -6,7 +6,7 @@ The words `wb` and its documents use, one line each, and how they are like git. 
 
 - **Revision:** the version of the package and the hash of its files (role prompts, rule table, model table). What a repository is pinned to ([revision.md](revision.md)).
 - **Manifest:** `.watchbill/revision.sha256`, the hash of each file of the revision.
-- **Role:** breakdown, tester, build, review, fix. A fixed prompt and a row of limits in the rule table.
+- **Role:** planner, tester, build, review, fix. A fixed prompt and a row of limits in the rule table.
 - **Session:** one run of an agent in one role.
 - **Runner:** the tool and model a session runs with, named and cleared in the organisation's file. Its `start` is the command.
 - **Level:** how confidential code is. The organisation's to set.

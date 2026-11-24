@@ -5,7 +5,7 @@
 # held to the commands, the usage and the roles of wb by tests/completion.rs.
 
 _wb_commands="init check upgrade accept start status view answer revert prompt revision"
-_wb_roles="breakdown build fix review tester"
+_wb_roles="planner build fix review tester"
 _wb_stages=("Not broken down" "Broken down" Accepted Tested Built Reviewed Fixed "Questions open" "Not read")
 
 _wb_flags_init="--yes"

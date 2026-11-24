@@ -852,22 +852,22 @@ fn commit_alone(root: &str, issue: &str, name: &str, email: &str) -> Result<Vec<
     Ok(held.lines().map(|line| line.to_string()).collect())
 }
 
-/// Refuses the key `breakdown` of `watchbill.yml` by name (#116). Until revision 0.0.8, `breakdown: none`
+/// Refuses the key `planner` of `watchbill.yml` by name (#116). Until revision 0.0.8, `planner: none`
 /// let a project hand out roles with no issue's file (#97). Since then a role is handed out without one,
 /// and nothing reads the key. The line is named, with the words to remove it. `wb check` and `wb prompt`
 /// both judge `watchbill.yml` with this and no other.
-pub fn no_breakdown(document: &Document) -> Result<(), String> {
-    let place = [Part::from("breakdown")];
+pub fn no_planner(document: &Document) -> Result<(), String> {
+    let place = [Part::from("planner")];
     if !document.has(&place) {
         return Ok(());
     }
     // The line as it is written, where it is one plain text, so that the person finds it.
     let line = match document.text(&place) {
-        Ok(value) if !value.is_empty() && !value.chars().any(|c| c.is_control() || c == '`') => format!(" `breakdown: {}`", value),
+        Ok(value) if !value.is_empty() && !value.chars().any(|c| c.is_control() || c == '`') => format!(" `planner: {}`", value),
         _ => String::new(),
     };
     let why = format!(
-        "the key `breakdown` is no longer read: since revision 0.0.8 a role is handed out with no issue's file, and a file that is there must be accepted and committed. Remove the line{}.",
+        "the key `planner` is no longer read: since revision 0.0.8 a role is handed out with no issue's file, and a file that is there must be accepted and committed. Remove the line{}.",
         line
     );
     Err(document.fail(&place, &why, true).to_string())

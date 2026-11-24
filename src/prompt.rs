@@ -429,7 +429,7 @@ pub fn require_role(root: &Path, role: &str) -> Result<(), PromptError> {
     refuse(format!("the revision has no role '{}'. Its roles are: {}", role, names.join(", ")))
 }
 
-/// The text `requirements` has until the breakdown of an issue gives the IDs (#64).
+/// The text `requirements` has until the planner of an issue gives the IDs (#64).
 fn default_requirements(issue: &str) -> String {
     format!("the numbered requirements of issue {}", issue)
 }
@@ -504,7 +504,7 @@ const PATTERNS: [&str; 3] = ["issue_address", "change_address", "branch"];
 /// Refuses a `watchbill.yml` that still holds the words from before revision 0.0.6, when the issue was
 /// called the task (#78): the key `task_address`, and `{task}` in a pattern. Each is named, with what to
 /// write in its place. A pattern that is not a text is left to the loader, where it is used. The key
-/// `breakdown`, from before revision 0.0.8, is refused by name too (#116).
+/// `planner`, from before revision 0.0.8, is refused by name too (#116).
 fn old_words(document: &crate::yamlfile::Document) -> Result<(), PromptError> {
     let old = [crate::yamlfile::Part::from("task_address")];
     if document.has(&old) {
@@ -518,8 +518,8 @@ fn old_words(document: &crate::yamlfile::Document) -> Result<(), PromptError> {
             return refuse(document.fail(&place, why, false).to_string());
         }
     }
-    // `breakdown:` is from before revision 0.0.8, when a role needed the issue's file (#116).
-    crate::issue::no_breakdown(document).map_err(PromptError)
+    // `planner:` is from before revision 0.0.8, when a role needed the issue's file (#116).
+    crate::issue::no_planner(document).map_err(PromptError)
 }
 
 /// Why a derivation is refused. `Used` is a value the caller gave that is not plain, named by its
@@ -539,7 +539,7 @@ impl From<PromptError> for Derive {
 /// The values a prompt gets without being given them (#72), added to those given after them: a value
 /// given is never replaced. From the repository root come `checkout` and, with the patterns of
 /// `watchbill.yml` (read through the loader), the addresses and the branch. `requirements` has its
-/// default text. The breakdown takes the branch from the pattern, as it makes the branch; any other
+/// default text. The planner takes the branch from the pattern, as it makes the branch; any other
 /// role takes the one local branch that starts with it and a `-`, or is the pattern. None, or more
 /// than one, is refused with the names found. A review or a fix of a change with no issue (#116) takes
 /// the branch checked out, when it can be the change's, and is used wrongly otherwise.
@@ -658,7 +658,7 @@ pub fn derive_with(
         if let Some(found) = pattern("branch")? {
             plain("issue", issue)?;
             let start = found.replace("{issue}", issue);
-            if role == "breakdown" {
+            if role == "planner" {
                 values.push(("branch", start));
             } else {
                 let names: Vec<String> = local_branches(root)?
@@ -895,7 +895,7 @@ pub struct Stamp<'a> {
 }
 
 /// `stamp` with the line `issue_text: <hash>` before its parts (#295): the SHA-256 of the issue's text that
-/// `wb start breakdown` brought into the view.
+/// `wb start planner` brought into the view.
 pub fn with_issue_text(stamp: &str, hash: &str) -> String {
     let line = format!("issue_text: {}\n", hash);
     match stamp.find("\npart: ") {

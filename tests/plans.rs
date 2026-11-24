@@ -176,7 +176,7 @@ impl Bench {
 }
 
 /// `wb` as the program, with the editor's variables of the test only: `VISUAL` and `EDITOR` of the person who runs the
-/// tests are taken out, and `GIT_*` with them (`env`).
+/// tests are taken out, and `GIT_*` with them (`env`); git reads no global file of theirs, so no `core.editor` of it.
 fn wb_editing(folder: &Path, args: &[&str], vars: &[(&str, &str)]) -> Output {
     let base: Vec<(String, String)> = env().into_iter().filter(|(name, _)| name != "VISUAL" && name != "EDITOR").collect();
     Command::new(env!("CARGO_BIN_EXE_wb"))
@@ -184,6 +184,7 @@ fn wb_editing(folder: &Path, args: &[&str], vars: &[(&str, &str)]) -> Output {
         .current_dir(folder)
         .env_clear()
         .envs(base)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .envs(vars.iter().map(|(name, value)| (name.to_string(), value.to_string())))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -318,8 +319,8 @@ fn test_WB_JOB_32_edit_opens_the_editor_git_would_use_and_commits_the_edit_alone
     let (a, b, c) = (editor(&bench, "a"), editor(&bench, "b"), editor(&bench, "c"));
     let before = bench.count();
 
-    // VISUAL before EDITOR, as git has it.
-    let run = wb_editing(&bench.repo.path, &["plan", "edit", "54"], &[("EDITOR", &a), ("VISUAL", &b)]);
+    // VISUAL before EDITOR, as git has it: on a terminal that is not `dumb`, as git reads VISUAL only there.
+    let run = wb_editing(&bench.repo.path, &["plan", "edit", "54"], &[("TERM", "xterm"), ("EDITOR", &a), ("VISUAL", &b)]);
 
     assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
     assert_eq!(read(&bench.at("editors")), "b\n");
@@ -331,7 +332,7 @@ fn test_WB_JOB_32_edit_opens_the_editor_git_would_use_and_commits_the_edit_alone
     // GIT_EDITOR before them both.
     git(&bench.repo.path, &["checkout", "-q", "HEAD~1", "--", YML]);
     git(&bench.repo.path, &["commit", "-q", "-m", "Back"]);
-    let run = wb_editing(&bench.repo.path, &["plan", "edit", "54"], &[("EDITOR", &a), ("VISUAL", &b), ("GIT_EDITOR", &c)]);
+    let run = wb_editing(&bench.repo.path, &["plan", "edit", "54"], &[("TERM", "xterm"), ("EDITOR", &a), ("VISUAL", &b), ("GIT_EDITOR", &c)]);
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert_eq!(read(&bench.at("editors")), "b\nc\n");
 }

@@ -13,6 +13,7 @@ pub mod check;
 pub mod compare;
 pub mod confidentiality;
 pub mod detect;
+pub mod hooks;
 pub mod init;
 pub mod interrupt;
 pub mod kept;
@@ -1851,6 +1852,22 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
                 name
             );
         }
+    }
+    // A runner's hooks (#160): each that will fail in the view is named before the session, which starts all the same.
+    let path = std::env::var_os("PATH");
+    let sandbox = hooks::Sandbox { checkout: Path::new(root), view: &prepared.view.folder, home: machine.home, binds: &prepared.binds, path: path.as_deref() };
+    let named = hooks::said(filled.first().map(String::as_str).unwrap_or_default(), root, &sandbox);
+    for line in &named {
+        let _ = writeln!(err, "{}: {}", name, line);
+    }
+    if !named.is_empty() {
+        let _ = writeln!(
+            err,
+            "{}: the session starts all the same. A hook's program and what it reads go in `binds` of the runner '{}' in the organisation's file {}, read-only (see the README, A runner's hooks)",
+            name,
+            runner,
+            organisation.display()
+        );
     }
     let _ = writeln!(
         err,

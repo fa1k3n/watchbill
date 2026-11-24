@@ -196,7 +196,7 @@ fn settings(command: &str, events: &[&str]) -> String {
     format!("{{\n  \"model\": \"opus\",\n  \"hooks\": {{\n{}\n  }}\n}}\n", each.join(",\n"))
 }
 
-const FAILS: &str = "will fail in the view";
+const FAILS: &str = "will fail in the view: ";
 const ALL_THE_SAME: &str = "the session starts all the same";
 
 // ---- WB-VIEW-135: a hook whose program the sandbox does not hold is named before the session, which starts ----

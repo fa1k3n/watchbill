@@ -495,6 +495,28 @@ wb clean <view>           # removes that view with its work
 - **A session that is starting:** `wb start` writes `outcome: running`, with its process ID and start time, before it writes the file `folder` and before it posts the stamp, so a view is never without the mark of a `wb` that is alive, and a view named to `wb clean` while its session starts is not removed.
 - **The exit status:** 0 it is done or there is nothing to remove; 1 a named view is not removed (not a view of this repository, not read, its session runs, or it could not be removed), written as `wb clean: limit: …`; 2 it was used wrongly or this folder is not in a git repository.
 
+### A runner's hooks
+
+A runner may run programs of its own on its events: Claude Code's hooks, which a team may use to keep a recorder of what each session does. In a view, a hook runs inside the sandbox (#160). It finds only what the sandbox holds: the system's folders, the view, and the runner's `binds`.
+
+- **Its program, and what it reads**, go in the runner's `binds`, read-only: the program, the interpreter it runs if that is not under `/usr`, and the files it reads.
+- **What it writes** (a recorder's inbox) goes in `binds` as `{writable: <path>}`. The session can write there too, as it runs as the same person: what is there is the session's claim, not evidence. A recorder that must be trusted reads what it is handed as such.
+- **A program in the checkout cannot be bound**, since a bind that holds or lies in the checkout is refused. A hook whose program is a file of the repository runs only where the view holds that file. Otherwise, its program is installed outside the checkout and bound there.
+- **A bind for a hook is a bind of the runner**, and passes every check a bind passes: not in or over the checkout, the folder of the organisation's file or the state folder, and no login of the code host (#151).
+- **A hook does not reach out over the network** to a service on the machine: an open port would be a way out of the sandbox for the session.
+
+Before a session in a view starts on a runner whose program is `claude`, `wb start <role>` reads Claude Code's settings: the person's `~/.claude/settings.json`, and the project's `.claude/settings.json` and `.claude/settings.local.json` as `HEAD` has them. Each is read only as a plain file of 1 MiB or less, never through a link, by the one loader of `wb`. After the stamp is posted, and before it says that the session starts, it says on standard error, for each hook command whose program the sandbox does not hold, the file, the events, the command and why:
+
+```
+wb start build: the hook `recorder hook` of ~/.claude/settings.json (PreToolUse, Stop) will fail in the view: /home/ada/.local/bin/recorder lies outside what the sandbox holds
+wb start build: the session starts all the same. A hook's program and what it reads go in `binds` of the runner 'claude-code' in the organisation's file /etc/watchbill/organisation.yml, read-only (see the README, A runner's hooks)
+```
+
+- **The program** is the first word of the command, as the shell takes it, and nothing after it: a program after a pipe, or a script handed to an interpreter, is not looked at. It is held where it is a builtin of the shell that runs no program; where it has no `/` and the first folder of `PATH` that the sandbox holds it in holds it as an executable file; or where it is a path (absolute, `~/…`, `$CLAUDE_PROJECT_DIR/…`, or from the checkout) that lies, as written and as resolved, under `/usr`, `/bin`, `/sbin`, `/lib*`, `/etc` or a bind and is an executable file there, or lies in the checkout and the view holds it. A first word that `wb` cannot tell (another variable, a substitution, an assignment, a glob, `exec`, `eval`, a group) is named as such.
+- **A file it does not read** (a link, a FIFO, over 1 MiB, or refused by the loader: a key twice, a tab) is named, and its hooks are not looked at. A file the runner does not read in the view (`~/.claude/settings.json` that no bind holds, a project's file that the view does not hold) is named with the count of its hooks, none of which runs. A file that is not there says nothing.
+- **It is said, not refused**: the session starts all the same, and the exit status is the session's. Each command is said once for each file, with its events in the order of the file, 20 commands at most and then a count. Nothing is written.
+- **Only Claude Code's settings** are read, and only those files. Another runner's settings, `CLAUDE_CONFIG_DIR`, managed settings and a plugin's hooks are not looked at.
+
 ### What still leaks
 
 A view keeps the rest of the code and the history away from a session. It does not keep everything:

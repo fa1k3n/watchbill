@@ -569,12 +569,12 @@ fn test_WB_VIEW_132_a_view_that_cannot_be_read_is_not_removed_named_or_not_and_w
     assert!(err_of(&run).contains("not read"), "{}", err_of(&run));
 }
 
-/// A process that is a `wb` to `wb` (`wb`, by the name of its program) and waits: a copy of `sleep`.
+/// A process that is a `wb` to `wb` (`wb`, by the name of its program) and waits: a copy of the shell in a loop.
 fn running_wb() -> (Folder, Child) {
     let place = folder_named("running");
     let program = place.path.join("wb");
-    fs::copy("/usr/bin/sleep", &program).or_else(|_| fs::copy("/bin/sleep", &program)).unwrap();
-    let child = Command::new(&program).arg("60").spawn().unwrap();
+    fs::copy("/bin/sh", &program).unwrap();
+    let child = Command::new(&program).args(["-c", "while :; do sleep 1; done"]).stdin(Stdio::null()).spawn().unwrap();
     (place, child)
 }
 

@@ -187,6 +187,13 @@ fn section(back: &str) -> String {
     back[start..].to_string()
 }
 
+/// The commits of the view that the take-backs of a start put on the branch (#277): the first word of each line `took:`
+/// of its file `back`, where it is the name of an object.
+pub fn taken_of(folder: &Path) -> Vec<String> {
+    let Some(back) = small(&folder.join("back")) else { return Vec::new() };
+    back.lines().filter_map(|line| line.strip_prefix("took: ")?.split(' ').next()).filter(|commit| view::is_object(commit)).map(str::to_string).collect()
+}
+
 /// The view that `session` kept, where it kept one with work in it.
 ///
 /// A session that runs, with its `wb` alive, is skipped: its view is the session's own, and is not read. With `look`
@@ -224,7 +231,7 @@ fn kept_of(root: &str, state: &Path, session: &Session, look: bool) -> Option<Ke
     let Some(place) = &session.place else {
         return folder_of_back.map(|folder| made(folder, Vec::new(), Vec::new(), Some("it was not read: its session left no file `folder`".to_string())));
     };
-    match view::work_left(root, &place.view) {
+    match view::work_left(root, &place.view, &taken_of(&session.folder)) {
         Ok(left) => {
             let commits: Vec<(String, String)> = left.commits.into_iter().map(|(commit, subject)| (view::short(&commit).to_string(), subject)).collect();
             let uncommitted: Vec<String> = left.uncommitted.iter().map(|path| crate::issue::shown(path)).collect();
@@ -322,6 +329,7 @@ impl Kept {
         let mut parts = vec![format!("kept: {} round {}", self.role, self.round)];
         match (self.count(), &self.unread) {
             (_, Some(why)) => parts.push(format!("not read: {}", why)),
+            (0, None) if !self.uncommitted.is_empty() => parts.push("work left uncommitted".to_string()),
             (1, None) => parts.push("1 commit not taken".to_string()),
             (n, None) if self.more > 0 => parts.push(format!("{} commits not taken and {} more", n, self.more)),
             (n, None) => parts.push(format!("{} commits not taken", n)),
@@ -355,6 +363,9 @@ pub fn refusal(issue: &str, found: &[Kept]) -> String {
         }
         if one.more > 0 {
             text.push_str(&format!("\n    and {} more", one.more));
+        }
+        if one.commits.is_empty() && !one.uncommitted.is_empty() && one.unread.is_none() {
+            text.push_str("\n    work left uncommitted:");
         }
         for path in &one.uncommitted {
             text.push_str(&format!("\n    uncommitted: {}", path));

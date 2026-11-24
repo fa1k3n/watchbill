@@ -252,6 +252,12 @@ fn ended_after(before: fn(&mut Vec<u8>), code: i32) -> (bool, String) {
 
 #[test]
 fn test_WB_CMD_34_a_1_with_no_refusal_said_and_no_answer_marked_fails_in_a_test_build() {
+    // The check of `refusal::ended` is made only in a build with debug assertions, so that no abort reaches an
+    // installed `wb`; the RPM's `%check` runs the tests in the release profile, where there is nothing to check.
+    if !cfg!(debug_assertions) {
+        eprintln!("nothing checked: this build has no debug assertions, and refusal::ended checks only in one");
+        return;
+    }
     let (panicked, err) = ended_after(|_| {}, 1);
     assert!(panicked, "{}", err);
     assert!(err.contains("a fault in wb") && err.contains("limit:"), "{}", err);

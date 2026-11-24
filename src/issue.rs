@@ -282,7 +282,7 @@ pub const MAX_BYTES: u64 = 1024 * 1024;
 /// A character that a value in a prompt never holds: a control character (a line break and a tab
 /// are let through where `block` is true, as in the interface), a line or paragraph separator, or a
 /// bidirectional control (U+202A to U+202E, U+2066 to U+2069, among them the right-to-left override).
-fn is_unsafe(c: char, block: bool) -> bool {
+pub(crate) fn is_unsafe(c: char, block: bool) -> bool {
     if block && (c == '\n' || c == '\t') {
         return false;
     }

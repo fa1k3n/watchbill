@@ -129,6 +129,6 @@ Stop when the issue's file is committed alone on {branch}, with its questions wr
 - `asked`: the names of the new questions of the file, which the program posts after your session, or `none`. You post nothing yourself.
 - `needs_person`: what only a person can settle, or `none`.
 
-The stamp on the issue says what you were handed out as, and it is what counts. Your model and effort are in your stamp on the issue: the latest comment whose first line starts with `[stamp] breakdown`. Read the stamp of your own session on the issue, where it is given, and give `model` and `effort` in your last message from there. Where your own word differs from it, say so under `model` and `effort`.
+The stamp on the issue says what you were handed out as, and it is what counts. Your model and effort are in your stamp on the issue: the latest comment whose first line starts with `[stamp] breakdown`. That stamp is not in your view, and you read nothing of the tracker: give `model` and `effort` in your last message as your session says of itself. A person holds them against the stamp.
 
 A last message without these fields is refused, and you are asked for it again.

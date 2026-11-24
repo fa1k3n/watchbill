@@ -4713,3 +4713,80 @@ fn test_WB_VIEW_77_a_commit_of_cargo_lock_by_the_breakdown_is_refused_at_the_tak
     assert!(text_of(&run.stderr).contains("Cargo.lock"), "{}", text_of(&run.stderr));
     assert_eq!(bench.head(), before);
 }
+
+// ---- The review of #297: only the comments at the end are cut, and nothing raw leaves the sandbox ----
+
+/// The breakdown of 99 started with the stand-in for bubblewrap, its session copying the issue's text it was given.
+fn text_brought(bench: &Bench, address: &str, bodies: &str) -> (Output, String) {
+    fs::write(bench.at("address-99"), address).unwrap();
+    fs::write(bench.at("bodies-99"), bodies).unwrap();
+    bench.session("cat \"$VIEW/.watchbill/issue/99.md\" > {log}/text\n");
+    let run = bench.start_by(&pass_through(bench), &["start", "breakdown", "99"]);
+    let text = bench.left("text");
+    (run, text)
+}
+
+#[test]
+fn test_WB_BUILD_144_a_comment_found_only_in_the_issue_s_own_text_cuts_nothing_and_is_said() {
+    // The pattern prints the text alone; a comment of one word is in it.
+    let bench = on_99();
+    let (run, text) = text_brought(&bench, "Do not delete the log.\n", "not\0");
+    assert!(bench.started(), "{}", text_of(&run.stderr));
+    assert_eq!(text, "Do not delete the log.\n");
+    assert!(text_of(&run.stderr).contains("no comment is taken out of the issue's text"), "{}", text_of(&run.stderr));
+}
+
+#[test]
+fn test_WB_BUILD_144_the_comments_at_the_end_are_cut_and_the_text_is_left_whole() {
+    let bench = on_99();
+    let address = "The front brake: do not let it lock.\nauthor:\tada\n--\nnot\n--\nauthor:\tbob\nedited:\tfalse\n--\n[stamp] breakdown round 1\nrole: breakdown\n--\n";
+    let (run, text) = text_brought(&bench, address, "not\0[stamp] breakdown round 1\nrole: breakdown\0\n");
+    assert!(bench.started(), "{}", text_of(&run.stderr));
+    assert_eq!(text, "The front brake: do not let it lock.\n");
+    assert!(!text_of(&run.stderr).contains("no comment is taken out"), "{}", text_of(&run.stderr));
+
+    // A comment that is not at the end stops the cut: what is before it stays.
+    let bench = on_99();
+    let (_, text) = text_brought(&bench, "The text.\n--\nnot\n--\nThe last comment.\n--\n", "not, as rendered\0The last comment.\0");
+    assert_eq!(text, "The text.\n--\nnot\n");
+}
+
+/// The issue's file of 54 with one question whose line holds `odd`, as YAML writes it in double quotes.
+fn odd_question(odd: &str) -> String {
+    TWO_QUESTIONS.split_once("questions:\n").unwrap().0.to_string() + &format!("questions:\n  - \"54.q1: Which {} brake?\"\n", odd)
+}
+
+#[test]
+fn test_WB_BUILD_145_a_question_with_an_escape_or_a_bidi_control_is_not_posted_and_is_said_escaped() {
+    if !sandbox("test_WB_BUILD_145") {
+        return;
+    }
+    for (odd, raw, escaped) in [("\\e]0;pwned\\a", '\u{1b}', "\\u{1b}"), ("\\u202E", '\u{202e}', "\\u{202e}")] {
+        let bench = bench();
+        breakdown_writes(&bench, &odd_question(odd));
+        let run = bench.start(&["start", "breakdown", "54"]);
+        assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+        let err = text_of(&run.stderr);
+        assert!(err.contains("limit:") && err.contains("not posted") && err.contains(escaped), "{}", err);
+        assert!(!err.contains(raw), "{:?}", err);
+        assert_eq!(posts_on_54(&bench), 1, "{:?}", bench.calls());
+        assert!(!bench.posted().contains(raw), "{:?}", bench.posted());
+    }
+}
+
+#[test]
+fn test_WB_BUILD_146_the_questions_are_read_from_the_commit_taken_back_not_the_working_tree() {
+    let bench = bench();
+    put(&bench.repo.path, ".watchbill/issues/54.yml", TWO_QUESTIONS);
+    git(&bench.repo.path, &["commit", "-q", "-a", "-m", "The issue file of 54"]);
+    let commit = bench.head();
+    // The checkout's working tree holds the older file, with no question.
+    git(&bench.repo.path, &["reset", "-q", "--hard", "HEAD~1"]);
+    let mut err = Vec::new();
+
+    let posted = watchbill::brought::post_questions("wb start breakdown", &bench.root(), "54", &commit, &mut err);
+
+    assert_eq!(posted, Ok(()), "{}", text_of(&err));
+    assert_eq!(posts_on_54(&bench), 1, "{:?}", bench.calls());
+    assert_eq!(bench.posted(), TWO_POSTED);
+}

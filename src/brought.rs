@@ -2,8 +2,9 @@
 //! (#202), so `wb` reads the issue for it, as the person and outside the sandbox, and brings it into the view; after
 //! the session `wb` posts the breakdown's questions from the issue's file that came back.
 //!
-//! - **The issue's text** is what `issue_address` prints, with each comment that `issue_comment_bodies` prints taken
-//!   out where it is found, from the last back: `.watchbill/issue/<issue>.md`. Its SHA-256 goes in the stamp, as
+//! - **The issue's text** is what `issue_address` prints, with the comments at its end taken out: from the last
+//!   comment that `issue_comment_bodies` prints back, each only where it ends the text left, and none where the last
+//!   does not (`without_comments`). The issue's own text is never searched: `.watchbill/issue/<issue>.md`. Its SHA-256 goes in the stamp, as
 //!   `issue_text:`, and the breakdown writes it under `from`.
 //! - **Its questions and answers** are the comments whose first line is `[questions] <issue>` or `[answers] <issue>`,
 //!   or a form of revision 0.0.8, whole and in order: `.watchbill/issue/<issue>.questions`. A stamp and any other
@@ -11,7 +12,9 @@
 //! - Both are read through the cap of a text file (#261), and are read-only in the sandbox: they lie under
 //!   `.watchbill/`. They are never taken back.
 //! - **The questions** of the issue's file, each written in full, are posted after the session in one comment
-//!   `[questions] <issue> q1 q2 …`, by `issue_comment`, but for those the issue holds already.
+//!   `[questions] <issue> q1 q2 …`, by `issue_comment`, but for those the issue holds already. The file is read from
+//!   the last commit taken back. A question that holds a character a prompt never holds (`issue::is_unsafe`) is
+//!   refused, and nothing is posted: what the session wrote never reaches the terminal or the tracker raw.
 
 use std::fs;
 use std::io::Write;
@@ -25,10 +28,12 @@ use crate::{answer, bounded, prompt, starter};
 /// Where `wb` brings the issue into the breakdown's view, from its root.
 pub const FOLDER: &str = ".watchbill/issue";
 
-/// What was brought in: the SHA-256 of the issue's text, for the stamp.
+/// What was brought in: the SHA-256 of the issue's text, for the stamp, and what `wb` says of it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Brought {
     pub hash: String,
+    /// Said on standard error before the session, one to a line.
+    pub notes: Vec<String>,
 }
 
 /// The line of the pattern `key`, or why there is none.
@@ -57,29 +62,54 @@ fn asked_or_answered(issue: &str, first: &str) -> bool {
     }
 }
 
-/// `text` with each of `bodies` taken out where it is found, from the last back: the comments come after the
-/// issue's text, in the order they were written. A body that is not found is passed over.
-fn without_comments(text: &str, bodies: &[String]) -> String {
+/// Whether a line is one a tracker prints around a comment, and no word of the issue: blank, with no letter or digit
+/// (`--`), or a field `<field>:<tab><value>` (`author:\tada`), as `gh` prints them.
+fn around(line: &str) -> bool {
+    let line = line.trim_end_matches(['\n', '\r']);
+    if !line.chars().any(char::is_alphanumeric) {
+        return true;
+    }
+    let field = |key: &str| !key.is_empty() && key.chars().all(|c| c.is_ascii_lowercase() || c == '_');
+    match line.split_once(':') {
+        Some((key, rest)) => field(key) && (rest.is_empty() || rest.starts_with('\t')),
+        None => false,
+    }
+}
+
+/// `text` with the comments at its end taken out (#295, the review of #297). Going from the last of `bodies` back,
+/// each is taken out only where it ends the text left, but for the lines a tracker prints around it (`around`); the
+/// first that does not stops it, and what is before it stays. Where something was taken out, the lines around a
+/// comment left at the end go too. The issue's own text is never searched. The second value says whether the last
+/// comment did not end the text, so that nothing was taken out.
+fn without_comments(text: &str, bodies: &[String]) -> (String, bool) {
     let mut end = text.len();
-    let mut cuts: Vec<(usize, usize)> = Vec::new();
+    let mut cut = false;
+    let mut last_missing = false;
     for body in bodies.iter().rev() {
         let body = body.trim_end();
-        if body.trim().is_empty() {
+        if !body.chars().any(char::is_alphanumeric) {
             continue;
         }
-        if let Some(at) = text[..end].rfind(body) {
-            cuts.push((at, at + body.len()));
-            end = at;
+        let left = &text[..end];
+        match left.rfind(body).filter(|at| left[at + body.len()..].split_inclusive('\n').all(around)) {
+            Some(at) => {
+                end = at;
+                cut = true;
+            }
+            None => {
+                last_missing = !cut;
+                break;
+            }
         }
     }
-    let mut kept = String::with_capacity(text.len());
-    let mut from = 0;
-    for (start, stop) in cuts.into_iter().rev() {
-        kept.push_str(&text[from..start]);
-        from = stop;
+    if !cut {
+        return (text.to_string(), last_missing);
     }
-    kept.push_str(&text[from..]);
-    kept
+    let mut lines: Vec<&str> = text[..end].split_inclusive('\n').collect();
+    while lines.last().is_some_and(|line| around(line)) {
+        lines.pop();
+    }
+    (lines.concat(), false)
 }
 
 /// Writes a new file of the view, never over a file that is there: a link in its place is not followed (`O_EXCL`).
@@ -113,7 +143,14 @@ pub fn bring_in(root: &str, issue: &str, view: &Path) -> Result<Brought, String>
     let text = starter::run_capped(root, "issue_address", &address.replace("{issue}", issue), bounded::TEXT_CAP)?;
     let printed = starter::run_capped(root, "issue_comment_bodies", &comments.replace("{issue}", issue), bounded::TEXT_CAP)?;
     let bodies = answer::split_bodies(&printed);
-    let text = without_comments(&String::from_utf8_lossy(&text), &bodies);
+    let (text, last_missing) = without_comments(&String::from_utf8_lossy(&text), &bodies);
+    let mut notes = Vec::new();
+    if last_missing {
+        notes.push(
+            "the last comment that `issue_comment_bodies` prints does not end what `issue_address` printed, so no comment is taken out of the issue's text: the breakdown reads it as it was printed"
+                .to_string(),
+        );
+    }
     let kept: Vec<&str> = bodies
         .iter()
         .filter(|body| asked_or_answered(issue, body.split('\n').next().unwrap_or_default().trim_end_matches('\r')))
@@ -127,7 +164,7 @@ pub fn bring_in(root: &str, issue: &str, view: &Path) -> Result<Brought, String>
     write_new(&folder.join(format!("{}.md", issue)), &text)?;
     write_new(&folder.join(format!("{}.questions", issue)), &questions)?;
     let hash = Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{:02x}", byte)).collect();
-    Ok(Brought { hash })
+    Ok(Brought { hash, notes })
 }
 
 /// One question of the issue's file: its number and the line of what is unclear, then the rest as it was written.
@@ -149,6 +186,15 @@ fn question_of(issue: &str, text: &str) -> Result<Question, String> {
         ));
     };
     let number = digits.parse().map_err(|_| format!("the number of the question {} is too big", crate::issue::shown(first)))?;
+    // What the session wrote goes to the terminal and the tracker: never a character a prompt never holds (the review
+    // of #297).
+    if text.chars().any(|c| crate::issue::is_unsafe(c, true)) {
+        return Err(format!(
+            "the question {} of the issue's file holds a control character, a line separator or a bidirectional control: {}",
+            crate::issue::shown(first),
+            crate::issue::shown(text)
+        ));
+    }
     let rest = rest.trim_end().trim_start_matches(['\n', '\r']).to_string();
     Ok(Question { number, short: short.trim().to_string(), rest })
 }
@@ -170,12 +216,48 @@ fn comment_of(issue: &str, questions: &[Question]) -> String {
     format!("[questions] {} {}\n{}", issue, names.join(" "), parts.join("\n"))
 }
 
-/// Posts the questions of the issue's file of `issue`, as the working tree of the checkout at `root` has it once the
-/// breakdown's commit is taken back, that the issue does not hold yet (#295): by `issue_comment`, after it is said on
-/// `err`. A file with no new question posts nothing. The error says why nothing was posted.
-pub fn post_questions(name: &str, root: &str, issue: &str, err: &mut dyn Write) -> Result<(), String> {
+/// The issue's file of `issue` in `commit` of the checkout at `root`, read through the cap of an issue's file.
+fn file_in(root: &str, commit: &str, issue: &str) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    let place = format!("{}/{}.yml", crate::issue::FOLDER, issue);
+    let mut command = Command::new("git");
+    command.arg("-C").arg(root).args(["--no-replace-objects", "cat-file", "blob", &format!("{}:{}", commit, place)]);
+    for (key, _) in std::env::vars_os() {
+        if key.to_string_lossy().starts_with("GIT_") {
+            command.env_remove(key);
+        }
+    }
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| format!("git could not be run to read {}: {}", place, error))?;
+    let mut bytes = Vec::new();
+    let read = match child.stdout.take() {
+        Some(out) => out.take(crate::issue::MAX_BYTES + 1).read_to_end(&mut bytes).map(|_| ()),
+        None => Ok(()),
+    };
+    if bytes.len() as u64 > crate::issue::MAX_BYTES {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(format!("{} in the commit {} is over 1 MiB", place, crate::view::short(commit)));
+    }
+    let status = child.wait().map_err(|error| format!("git could not be waited for: {}", error))?;
+    read.map_err(|error| format!("{} could not be read: {}", place, error))?;
+    if !status.success() {
+        return Err(format!("{} is not a file of the commit {} taken back", place, crate::view::short(commit)));
+    }
+    Ok(bytes)
+}
+
+/// Posts the questions of the issue's file of `issue`, as `commit` holds it, the last commit taken back from the
+/// breakdown's view, that the issue does not hold yet (#295): by `issue_comment`, after it is said on `err`. A file
+/// with no new question posts nothing. The error says why nothing was posted; it holds nothing raw.
+pub fn post_questions(name: &str, root: &str, issue: &str, commit: &str, err: &mut dyn Write) -> Result<(), String> {
     let path = Path::new(root).join(crate::issue::FOLDER).join(format!("{}.yml", issue));
-    let document = crate::yamlfile::load(&path).map_err(|why| why.to_string())?;
+    let document = crate::yamlfile::load_bytes(&path, file_in(root, commit, issue)?).map_err(|why| crate::issue::shown(&why.to_string()))?;
     let place = [crate::yamlfile::Part::from("questions")];
     let written = if document.has(&place) { document.texts(&place, true).map_err(|why| why.to_string())? } else { Vec::new() };
     if written.is_empty() {
@@ -213,10 +295,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_WB_BUILD_135_each_comment_is_taken_out_once_from_the_last_back() {
+    fn test_WB_BUILD_144_only_the_comments_at_the_end_are_taken_out_from_the_last_back() {
         let text = "ok\nThe text.\n--\nok\n--\nA stamp\n--\n";
         let bodies = vec!["ok".to_string(), "A stamp\n".to_string()];
-        assert_eq!(without_comments(text, &bodies), "ok\nThe text.\n--\n\n--\n\n--\n");
+        assert_eq!(without_comments(text, &bodies), ("ok\nThe text.\n".to_string(), false));
+        // A comment that does not end the text is never looked for in it.
+        assert_eq!(without_comments("Do not delete the log.\n", &["not".to_string()]), ("Do not delete the log.\n".to_string(), true));
     }
 
     #[test]

@@ -1421,7 +1421,12 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     // person and outside the sandbox, and brought into its view before anything is posted. The stamp holds the hash.
     let brought = match (role, value_of(&handed.values, "issue")) {
         ("breakdown", Some(issue)) => match brought::bring_in(root, issue, &prepared.view.folder) {
-            Ok(found) => Some(found),
+            Ok(found) => {
+                for note in &found.notes {
+                    let _ = writeln!(err, "{}: {}", name, note);
+                }
+                Some(found)
+            }
             Err(why) => {
                 discard(&prepared);
                 return refused(&mut lines, err, "issue", &why);
@@ -1553,8 +1558,9 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         }
         say_push(name, role, root, prepared.view.branch_name(), err);
         // The breakdown posts nothing (#295): its new questions, written in full in the issue's file, are posted here.
-        if let (true, Some(issue)) = (role == "breakdown", value_of(&handed.values, "issue")) {
-            if let Err(why) = brought::post_questions(name, root, issue, err) {
+        // They are read from the last commit taken back, not from the working tree, which need not hold it (#296).
+        if let (true, Some(issue), Some((commit, _))) = (role == "breakdown", value_of(&handed.values, "issue"), back.taken.last()) {
+            if let Err(why) = brought::post_questions(name, root, issue, commit, err) {
                 refusal::limit(err, name, format_args!("the questions of the issue's file are not posted: {}", why));
                 // not a refusal: the limit is said just above, after the session; the code says it too.
                 code = 1;

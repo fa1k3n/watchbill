@@ -662,11 +662,14 @@ fn test_WB_ROLE_37_the_stamp_on_the_issue_says_what_the_session_was_handed_out_a
 
 #[test]
 fn test_WB_ROLE_38_the_session_reads_its_stamp_and_says_where_its_own_word_differs() {
-    for role in ROLES {
+    for role in ASKERS {
         let text = after_fields(role);
         assert!(text.contains("Read the stamp of your own session on the issue, where it is given"), "{}: {}", role, text);
         assert!(text.contains("Where your own word differs from it, say so under `model` and `effort`."), "{}: {}", role, text);
     }
+    // The breakdown's stamp is not in its view (#295): a person holds its word against the stamp.
+    let text = after_fields("breakdown");
+    assert!(text.contains("A person holds them against the stamp."), "{}", text);
 }
 
 // The breakdown: it reads the issue and the code, and writes the issue's file (#75).
@@ -1304,7 +1307,14 @@ fn test_WB_ROLE_76_every_role_gives_its_model_and_effort_from_its_stamp() {
         let text = after_fields(role);
         let stamp = format!("Your model and effort are in your stamp on the issue: the latest comment whose first line starts with `[stamp] {}`.", role);
         assert!(text.contains(&stamp), "{}: {}", role, text);
-        assert!(text.contains("give `model` and `effort` in your last message from there"), "{}: {}", role, text);
+        if role == "breakdown" {
+            // The breakdown's stamp is not brought into its view (#295): it gives its own word.
+            assert!(text.contains("That stamp is not in your view"), "{}", text);
+            assert!(text.contains("give `model` and `effort` in your last message as your session says of itself"), "{}", text);
+            assert!(!text.contains("Read the stamp of your own session on the issue"), "{}", text);
+        } else {
+            assert!(text.contains("give `model` and `effort` in your last message from there"), "{}: {}", role, text);
+        }
     }
 }
 

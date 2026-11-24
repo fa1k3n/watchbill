@@ -247,9 +247,9 @@ const USAGE: &str = "usage:
             (issue_address) and what it was worked out from; --stage <heading>
             prints that heading only, whatever its case. A job whose work is
             accepted, or whose change is merged, is done: it is not listed,
-            and <issue> prints Done and what closed it. For one issue it also
-            prints a line accepted: for each acceptance, by its object. For
-            one issue it also prints a line kept: <role> round <n>, <k> commits not taken,
+            and <issue> prints Done and what closed it, and a line accepted:
+            for each acceptance, by its object. For one issue it also prints
+            a line kept: <role> round <n>, <k> commits not taken,
             <folder> for each view kept with work not taken back, and cut off:
             <role> round <n>, <folder> for each session whose wb ended before
             it did. With no issue it says on standard error how many such
@@ -294,15 +294,15 @@ const USAGE: &str = "usage:
             change_comment.
             The branch, the issue's file and its acceptance, and the change are
             not touched: taking commits back is git's. The planner is taken
-            back with git, not by a marker. A job that is done is refused. Ends with 0 when the marker is
-            posted, 1 when it was refused or the posting failed, 2 when it was
+            back with git, not by a marker. A job that is done is refused.
+            Ends with 0 when the marker is posted, 1 when it was refused or the posting failed, 2 when it was
             used wrongly or the repository is not set up
   clean     remove the views kept on this machine for this repository that
             have nothing left in them: those whose session ended and that hold
             no commit not taken back (a commit a take-back took is taken) and
             no path left uncommitted, and those of a job that is done whose
-            commits are all in the default branch. It says first, on standard output,
-            Removing <folder> for each view it will remove and Keeping
+            commits are all in the default branch. It says first, on standard
+            output, Removing <folder> for each view it will remove and Keeping
             <folder>: <what is left> for each it keeps, then removes.
             --dry-run (-n) says Would remove and removes nothing. <view>, the
             name of the folder of a view or its whole path, as wb view --kept

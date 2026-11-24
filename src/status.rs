@@ -318,19 +318,44 @@ fn default_holds(root: &str, default: &str, number: &str) -> bool {
 /// record is read on every branch of the issue, a local one before one at `origin`.
 fn closing(root: &str, number: &str, pattern: &str, all: &[Branch], flow: &[String], default: &str) -> Option<Closed> {
     let mine = || all.iter().filter(|branch| is_of(pattern, number, &branch.name));
-    if let Some((branch, record)) = mine().find_map(|branch| crate::finished::holding(root, number, &branch.full).map(|record| (branch, record))) {
+    let work = |record: &crate::finished::Record, on: &str| {
         let said = crate::finished::said(&record.commit, &[]);
         let not_run = if record.not_run.is_empty() { String::new() } else { format!("; not run: {}", issue::shown(&record.not_run.join(", "))) };
         let line = format!("accepted: {} ({}, {}{})", said, issue::shown(&record.by), issue::shown(&record.time), not_run);
-        return Some(Closed { line, said: format!("its work is accepted ({}, on {})", said, issue::shown(&branch.name)) });
+        Closed { line, said: format!("its work is accepted ({}, on {})", said, issue::shown(on)) }
+    };
+    if let Some((branch, record)) = mine().find_map(|branch| crate::finished::holding(root, number, &branch.full).map(|record| (branch, record))) {
+        return Some(work(&record, &branch.name));
     }
-    // A branch of the issue is there, none is in the flow, and the default branch holds the file with its acceptance.
-    // With no branch left there is nothing in git that says the change was this issue's.
-    if mine().next().is_none() || mine().any(|branch| flow.contains(&branch.full)) || !default_holds(root, default, number) {
+    // The record reached the default branch with the merge of the branch: no branch is needed then (#282).
+    if default_holds(root, default, number) {
+        let record = git(root, &["show", &format!("{}:{}", default, crate::finished::path_of(number))]).and_then(|text| crate::finished::parse(&String::from_utf8_lossy(&text)));
+        if let Some(record) = record {
+            return Some(work(&record, short_ref(default)));
+        }
+    }
+    // A branch of the issue is there, none is in the flow, one holds work after the acceptance, and the default branch
+    // holds the file with its acceptance. With no branch left, or one with no work, git does not say that the change
+    // on the default branch was this issue's.
+    if mine().next().is_none() || mine().any(|branch| flow.contains(&branch.full)) || !default_holds(root, default, number) || !mine().any(|branch| has_work(root, number, &branch.full)) {
         return None;
     }
     let into = short_ref(default);
     Some(Closed { line: format!("merged: into {}", issue::shown(into)), said: format!("its change is merged into {}", issue::shown(into)) })
+}
+
+/// Whether the branch `full` holds work after the commit that added the acceptance: a path other than the issue's own
+/// files changes between that commit and the branch's tip. Trees are compared, so a squash does not hide it.
+fn has_work(root: &str, number: &str, full: &str) -> bool {
+    let accepted = format!("{}/{}.accepted", issue::FOLDER, number);
+    let Some(added) = git(root, &["log", "--diff-filter=A", "--format=%H", "-1", full, "--", &accepted]) else { return false };
+    let added = String::from_utf8_lossy(&added).trim().to_string();
+    if added.is_empty() {
+        return false;
+    }
+    let own: Vec<String> = ["yml", "accepted", "finished"].iter().map(|end| format!("{}/{}.{}", issue::FOLDER, number, end)).collect();
+    let Some(names) = git(root, &["diff", "--name-only", "--no-renames", "-z", &added, full]) else { return false };
+    names.split(|byte| *byte == 0).filter(|name| !name.is_empty()).any(|name| !own.iter().any(|one| one.as_bytes() == name))
 }
 
 /// Why the job `number` is done, in words, or none where it is not or git cannot say (#282): for `wb revert` and for
@@ -344,6 +369,9 @@ pub(crate) fn done_of(root: &str, number: &str) -> Option<String> {
 
 /// Whether the commit `commit` (as the views name it) is in the default branch: git says it is an ancestor of it.
 pub(crate) fn in_default(root: &str, commit: &str) -> bool {
+    if !crate::finished::is_object(commit) {
+        return false;
+    }
     let Some(default) = default_branch(root) else { return false };
     crate::detect::git_output(&["-C", root, "merge-base", "--is-ancestor", &format!("{}^{{commit}}", commit), &default], None).is_some_and(|run| run.status.code() == Some(0))
 }

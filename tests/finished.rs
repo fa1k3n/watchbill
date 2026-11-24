@@ -467,3 +467,38 @@ fn test_WB_STATUS_95_a_view_of_a_job_that_is_not_done_with_its_commit_in_the_def
     assert!(out_of(&run).starts_with(&format!("Keeping {}: ", view.display())), "{}", out_of(&run));
     assert!(view.exists());
 }
+
+#[test]
+fn test_WB_STATUS_96_a_branch_made_where_the_file_and_its_acceptance_are_already_in_the_default_branch_is_not_a_merge() {
+    let folder = set_up();
+    issues_ready(&folder.path, &["54"]);
+    git(&folder.path, &["branch", "issue-54-work"]);
+    comments(&folder.path, "54", &["[stamp] tester round 1"]);
+    let out = out_of(&wb(&folder.path, &["status", "54"], ""));
+    assert!(!out.contains("Done") && !out.contains("merged:"), "{}", out);
+    let run = wb(&folder.path, &["revert", "54", "tester"], "");
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    assert!(folder.path.join(".tracker/54.bodies").exists());
+}
+
+#[test]
+fn test_WB_STATUS_91_accepted_work_that_is_merged_is_done_with_its_branches_deleted() {
+    let folder = done_job();
+    let main = default_branch(&folder.path);
+    git(&folder.path, &["checkout", "-q", &main]);
+    git(&folder.path, &["merge", "-q", "--no-edit", "issue-54-work"]);
+    git(&folder.path, &["branch", "-q", "-D", "issue-54-work"]);
+    assert_eq!(out_of(&wb(&folder.path, &["status"], "")), "");
+    let out = out_of(&wb(&folder.path, &["status", "54"], ""));
+    assert!(out.starts_with("Done:\n  54\n") && out.contains("accepted: the work "), "{}", out);
+    let run = wb(&folder.path, &["revert", "54", "build"], "");
+    assert_eq!(code(&run), Some(1), "{}", out_of(&run));
+    assert!(!folder.path.join(".tracker/54.bodies").exists());
+}
+
+#[test]
+fn test_WB_TASK_50_the_refusal_says_how_to_accept_again() {
+    let folder = done_job();
+    let run = wb(&folder.path, &["accept", "54"], "");
+    assert!(err_of(&run).contains("remove it in a commit of its own"), "{}", err_of(&run));
+}

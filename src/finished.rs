@@ -30,7 +30,7 @@ pub struct Record {
     pub not_run: Vec<String>,
 }
 
-fn is_object(text: &str) -> bool {
+pub(crate) fn is_object(text: &str) -> bool {
     matches!(text.len(), 40 | 64) && text.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
@@ -93,7 +93,7 @@ pub fn accept(root: &str, issue: &str, commit: bool, state: Option<&Path>, out: 
     let path = path_of(issue);
     let record = base.join(&path);
     if fs::symlink_metadata(&record).is_ok() {
-        return crate::refusal::limit(err, NAME, format_args!("{} is there already, and is never written over. Nothing written.", path));
+        return crate::refusal::limit(err, NAME, format_args!("{} is there already, and is never written over. Nothing written. Where a later commit voided it, remove it in a commit of its own and run wb accept again.", path));
     }
     if let Err(not_ready) = issue::ready_to_commit(root, issue) {
         let (issue::NotReady::Fault(why) | issue::NotReady::Guard(why)) = not_ready;
@@ -141,6 +141,8 @@ pub fn accept(root: &str, issue: &str, commit: bool, state: Option<&Path>, out: 
         Ok(classed) => classed,
         Err(why) => return crate::refusal::limit(err, NAME, format_args!("{}. Nothing written.", why)),
     };
+    // The rule table of revision 1 has one rule on classed code, WB-RULE-5: a person is the verifier. This follows it by
+    // hand until the table has more than one rule.
     let touched = crate::prompt::touched_text(root, &classed, Some(&branch), Some(issue));
     if touched != "none" {
         return crate::refusal::limit(

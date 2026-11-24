@@ -220,7 +220,23 @@ fn kept_of(root: &str, state: &Path, session: &Session, look: bool) -> Option<Ke
                 uncommitted.push(path.to_string());
             }
         }
-        return (!commits.is_empty() || !uncommitted.is_empty()).then(|| made(folder, commits, uncommitted, None));
+        // The view is read too, where it can be: a commit made in it after a take-back is named by no line of `back`
+        // (#277). What `back` names stays as it says; a commit it does not name is added, the ones taken not.
+        let mut more = 0;
+        if look {
+            if let Some(place) = &session.place {
+                if let Ok(left) = view::work_left(root, &place.view, &taken_of(&session.folder)) {
+                    for (commit, subject) in left.commits {
+                        let commit = view::short(&commit).to_string();
+                        if !commits.iter().any(|(named, _)| *named == commit) {
+                            commits.push((commit, subject));
+                        }
+                    }
+                    more = left.more;
+                }
+            }
+        }
+        return (!commits.is_empty() || !uncommitted.is_empty()).then(|| Kept { more, ..made(folder, commits, uncommitted, None) });
     }
     // No `back`, or one that failed: the view is read, as the file `folder` names it.
     let folder_of_back = back.and_then(|back| back.lines().last()?.strip_prefix("view: kept ")).and_then(|folder| held_folder(state, folder));
@@ -329,12 +345,15 @@ impl Kept {
         let mut parts = vec![format!("kept: {} round {}", self.role, self.round)];
         match (self.count(), &self.unread) {
             (_, Some(why)) => parts.push(format!("not read: {}", why)),
-            (0, None) if !self.uncommitted.is_empty() => parts.push("work left uncommitted".to_string()),
+            (0, None) if !self.uncommitted.is_empty() => {
+                let n = self.uncommitted.len();
+                parts.push(format!("{} {} left uncommitted", n, if n == 1 { "path" } else { "paths" }));
+            }
             (1, None) => parts.push("1 commit not taken".to_string()),
             (n, None) if self.more > 0 => parts.push(format!("{} commits not taken and {} more", n, self.more)),
             (n, None) => parts.push(format!("{} commits not taken", n)),
         }
-        if !self.uncommitted.is_empty() {
+        if !self.uncommitted.is_empty() && self.count() > 0 {
             parts.push(format!("{} paths uncommitted", self.uncommitted.len()));
         }
         parts.push(crate::issue::shown(&self.folder.display().to_string()));
@@ -364,11 +383,9 @@ pub fn refusal(issue: &str, found: &[Kept]) -> String {
         if one.more > 0 {
             text.push_str(&format!("\n    and {} more", one.more));
         }
-        if one.commits.is_empty() && !one.uncommitted.is_empty() && one.unread.is_none() {
-            text.push_str("\n    work left uncommitted:");
-        }
+        let heading = if one.commits.is_empty() && one.unread.is_none() { "work left uncommitted" } else { "uncommitted" };
         for path in &one.uncommitted {
-            text.push_str(&format!("\n    uncommitted: {}", path));
+            text.push_str(&format!("\n    {}: {}", heading, path));
         }
         if let Some(why) = &one.unread {
             text.push_str(&format!("\n    not read: {}", why));

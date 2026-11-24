@@ -5149,9 +5149,9 @@ fn test_WB_VIEW_121_a_kept_view_whose_commits_were_all_taken_is_named_as_work_le
     let bench = bench();
     let (folder, _) = taken_once(&bench);
     let out = text_of(&wb_state(&bench, &["status", "54"]).stdout);
-    assert!(out.lines().any(|line| line == format!("kept: build round 1, work left uncommitted, 1 paths uncommitted, {}", folder.display())), "{}", out);
+    assert!(out.lines().any(|line| line == format!("kept: build round 1, 1 path left uncommitted, {}", folder.display())), "{}", out);
     let err = text_of(&bench.start(&["start", "build", "54"]).stderr);
-    assert!(err.contains("work left uncommitted") && err.contains("uncommitted: left.txt"), "{}", err);
+    assert!(err.contains("work left uncommitted: left.txt") && !err.contains("\n    uncommitted:"), "{}", err);
 }
 
 #[test]
@@ -5168,15 +5168,34 @@ fn test_WB_VIEW_122_a_take_back_of_a_view_with_only_uncommitted_work_left_takes_
 }
 
 #[test]
-fn test_WB_VIEW_123_a_commit_made_in_the_view_after_a_take_back_is_taken_by_the_next_one_and_the_one_taken_is_not() {
+fn test_WB_VIEW_123_a_commit_made_in_the_view_after_a_take_back_is_named_and_taken_by_the_next_one_and_the_one_taken_is_not() {
     let bench = bench();
     let (folder, _) = taken_once(&bench);
     commit_in(&folder, "tests/test_brake.c", "int second;\n", "A second commit");
+    let out = text_of(&wb_state(&bench, &["status", "54"]).stdout);
+    assert!(out.contains("kept: build round 1, 1 commit not taken, 1 paths uncommitted"), "{}", out);
+    let err = text_of(&bench.start(&["start", "build", "54"]).stderr);
+    assert!(err.contains("A second commit") && !err.contains("A taken commit") && !err.contains("work left uncommitted"), "{}", err);
     let run = bench.start(&["start", "build", "54", "--take-back"]);
     let err = text_of(&run.stderr);
     assert_eq!(code(&run), Some(1), "{}", err);
     assert_eq!(subjects(&bench, 2), vec!["A second commit", "A taken commit"], "{}", err);
     assert!(!err.contains("moved on") && !err.contains("taken before"), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_120_after_a_take_back_that_took_and_a_later_one_that_failed_the_commit_taken_is_not_named() {
+    let bench = bench();
+    let (folder, _) = taken_once(&bench);
+    // A second commit that changes the path the first one did: the next take-back is refused, as the branch has moved on.
+    commit_in(&folder, "src/new.c", "int second;\n", "A second commit");
+    let run = bench.start(&["start", "build", "54", "--take-back"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert_eq!(subjects(&bench, 1), vec!["A taken commit"]);
+    let out = text_of(&wb_state(&bench, &["status", "54"]).stdout);
+    assert!(out.contains("kept: build round 1, 1 commit not taken,"), "{}", out);
+    let err = text_of(&bench.start(&["start", "build", "54"]).stderr);
+    assert!(err.contains("A second commit") && !err.contains("A taken commit"), "{}", err);
 }
 
 #[test]

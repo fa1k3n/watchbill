@@ -308,6 +308,84 @@ fn test_WB_JOB_4_a_file_is_read_from_the_folder_wb_runs_in() {
     assert_eq!(bench.git(&["cat-file", "-p", &bench.hash_of(TEXT)]), TEXT);
 }
 
+/// `wb` run as a child, as a person runs it, under a cap of 1 GiB of memory and for at most `seconds`, with `input` as
+/// its standard input: a `wb` that hangs or reads without end fails the test and does not take the machine.
+fn wb_child(folder: &Path, args: &[&str], input: Stdio, seconds: u64) -> std::process::Output {
+    let child = Command::new("prlimit")
+        .arg("--as=1073741824")
+        .arg("--")
+        .arg(env!("CARGO_BIN_EXE_wb"))
+        .args(args)
+        .current_dir(folder)
+        .env_clear()
+        .envs(env())
+        .stdin(input)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("wb could not be started");
+    let id = child.id();
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = send.send(child.wait_with_output());
+    });
+    match receive.recv_timeout(std::time::Duration::from_secs(seconds)) {
+        Ok(done) => done.expect("wb could not be waited for"),
+        Err(_) => {
+            // Only the child this test started is ended.
+            let _ = Command::new("kill").args(["-9", &id.to_string()]).status();
+            panic!("wb {:?} did not end within {} seconds", args, seconds);
+        }
+    }
+}
+
+#[test]
+fn test_WB_JOB_4_a_fifo_a_device_or_a_folder_as_the_file_is_refused_with_1_and_not_waited_on() {
+    let bench = bench();
+    let fifo = bench.log.path.join("job.fifo");
+    assert!(Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+    let folder = bench.log.path.join("a-folder");
+    fs::create_dir(&folder).unwrap();
+
+    for path in [fifo.to_str().unwrap(), "/dev/zero", "/dev/null", folder.to_str().unwrap()] {
+        let run = wb_child(&bench.repo.path, &["plan", "add", "97", "-F", path], Stdio::null(), 20);
+
+        assert_eq!(code(&run), Some(1), "{}: {}", path, text(&run.stderr));
+        let err = text(&run.stderr);
+        assert!(err.contains("wb plan add: limit: ") && err.contains("not a plain file") && err.contains("-F -"), "{}: {}", path, err);
+    }
+    assert_eq!(bench.refs(), "");
+}
+
+#[test]
+fn test_WB_JOB_4_a_text_that_is_empty_not_utf_8_or_over_1_mib_is_refused_with_1() {
+    let bench = bench();
+    let at = |name: &str| bench.log.path.join(name).to_str().unwrap().to_string();
+    fs::write(at("big.txt"), vec![b'a'; 1024 * 1024 + 1]).unwrap();
+    fs::write(at("blank.txt"), " \n\t\n\n").unwrap();
+    fs::write(at("bad.txt"), b"The brakes \xff hold.\n").unwrap();
+    let (big, blank, bad) = (at("big.txt"), at("blank.txt"), at("bad.txt"));
+    let cases: Vec<(Vec<&str>, Stdio, &str)> = vec![
+        (vec!["-F", &big], Stdio::null(), "over 1 MiB"),
+        (vec!["-F", "-"], Stdio::from(fs::File::open("/dev/zero").unwrap()), "over 1 MiB"),
+        (vec!["-F", &blank], Stdio::null(), "empty"),
+        (vec!["-F", "-"], Stdio::null(), "empty"),
+        (vec!["-m", "  ", "-m", "\n"], Stdio::null(), "empty"),
+        (vec!["-F", &bad], Stdio::null(), "not UTF-8"),
+    ];
+
+    for (words, input, said) in cases {
+        let mut args = vec!["plan", "add", "97"];
+        args.extend(&words);
+        let run = wb_child(&bench.repo.path, &args, input, 20);
+
+        assert_eq!(code(&run), Some(1), "{:?}: {}", words, text(&run.stderr));
+        let err = text(&run.stderr);
+        assert!(err.contains("wb plan add: limit: ") && err.contains(said), "{:?}: {}", words, err);
+    }
+    assert_eq!(bench.refs(), "");
+}
+
 // ---- WB-JOB-5: exactly one way of giving the text ----
 
 #[test]
@@ -658,6 +736,38 @@ fn test_WB_JOB_21_messages_are_joined_as_git_joins_them_each_a_paragraph() {
     assert!(bench.job_yml("97").contains(&bench.hash_of(joined)), "{}", bench.job_yml("97"));
 }
 
+#[test]
+fn test_WB_JOB_21_messages_are_cleaned_up_as_git_commit_cleans_them() {
+    let bench = bench();
+    let messages = ["  The brakes hold.  \t", "", "\n\nThey are tested.\n\n\n\nAt 80 km/h.   \n\n"];
+    // What `git commit -m` builds of them: each on a line of its own after a line break, then cleaned up by
+    // `git stripspace`, its clean-up of whitespace.
+    let mut built = String::new();
+    for message in messages {
+        if !built.is_empty() {
+            built.push('\n');
+        }
+        built.push_str(message);
+        if !built.ends_with('\n') {
+            built.push('\n');
+        }
+    }
+    let mut child = Command::new("git").arg("stripspace").env_clear().envs(env()).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    use std::io::Write;
+    child.stdin.take().unwrap().write_all(built.as_bytes()).unwrap();
+    let expected = String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap();
+    assert_eq!(expected, "  The brakes hold.\n\nThey are tested.\n\nAt 80 km/h.\n");
+    let mut args = vec!["add", "97"];
+    for message in &messages {
+        args.push("-m");
+        args.push(message);
+    }
+
+    ok(&bench.plan(&args, ""));
+
+    assert_eq!(bench.git(&["cat-file", "-p", &bench.hash_of(&expected)]), expected);
+}
+
 // ---- WB-JOB-22: one text under two names is one job ----
 
 #[test]
@@ -669,8 +779,45 @@ fn test_WB_JOB_22_the_same_text_under_a_second_name_is_one_job_with_two_names() 
 
     ok(&ran);
     assert_eq!(bench.commit_of("gitlab/54"), bench.commit_of("github/54"));
-    assert_eq!(bench.git(&["rev-list", "--count", "refs/watchbill/gitlab/54"]).trim(), "1");
     assert!(ran.out.contains("github/54"), "{}", ran.out);
+    // job.yml keeps the first name and lists both.
+    let yml = bench.job_yml("gitlab/54");
+    assert!(yml.contains("name: github/54\nnames:\n  - github/54\n  - gitlab/54\n"), "{}", yml);
+    assert_eq!(yml.matches("hash: ").count(), 1, "{}", yml);
+}
+
+#[test]
+fn test_WB_JOB_22_a_source_added_under_the_second_name_moves_every_name_of_the_job() {
+    let bench = bench();
+    let other = "The brakes are tested at 80 km/h.\n";
+    ok(&bench.plan(&["add", "github/54", "-F", "-"], TEXT));
+    ok(&bench.plan(&["add", "gitlab/54", "-F", "-"], TEXT));
+    let before = bench.commit_of("github/54");
+
+    ok(&bench.plan(&["add", "gitlab/54", "-F", "-"], other));
+
+    let after = bench.commit_of("github/54");
+    assert_ne!(after, before);
+    assert_eq!(bench.commit_of("gitlab/54"), after);
+    assert_eq!(bench.git(&["rev-parse", &format!("{}^", after)]).trim(), before);
+    for name in ["github/54", "gitlab/54"] {
+        let yml = bench.job_yml(name);
+        assert!(yml.contains(&bench.hash_of(TEXT)) && yml.contains(&bench.hash_of(other)), "{}: {}", name, yml);
+        assert!(yml.contains("name: github/54\n"), "{}: {}", name, yml);
+    }
+}
+
+#[test]
+fn test_WB_JOB_22_a_ref_under_refs_watchbill_that_is_not_a_job_is_passed_over_and_said_once() {
+    let bench = bench();
+    let head = bench.git(&["rev-parse", "HEAD"]).trim().to_string();
+    git(&bench.repo.path, &["update-ref", "refs/watchbill/not-a-job", &head]);
+
+    let ran = bench.plan(&["add", "97", "-F", "-"], TEXT);
+
+    ok(&ran);
+    assert_eq!(ran.err.matches("refs/watchbill/not-a-job").count(), 1, "{}", ran.err);
+    assert_eq!(bench.refs(), "refs/watchbill/97\nrefs/watchbill/not-a-job\n");
 }
 
 // ---- WB-JOB-23 and 24: --from ----

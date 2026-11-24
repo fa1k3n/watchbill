@@ -506,3 +506,22 @@ fn test_WB_TASK_50_the_refusal_says_how_to_accept_again() {
     let run = wb(&folder.path, &["accept", "54"], "");
     assert!(err_of(&run).contains("remove it in a commit of its own"), "{}", err_of(&run));
 }
+
+#[test]
+fn test_WB_TASK_52_new_work_on_a_branch_of_the_issue_after_the_record_was_merged_puts_the_job_back_in_the_list() {
+    let folder = done_job();
+    let main = default_branch(&folder.path);
+    git(&folder.path, &["checkout", "-q", &main]);
+    git(&folder.path, &["merge", "-q", "--no-edit", "issue-54-work"]);
+    git(&folder.path, &["checkout", "-q", "issue-54-work"]);
+    put(&folder.path, "src/more.c", "int more;\n");
+    git(&folder.path, &["add", "--", "src/more.c"]);
+    git(&folder.path, &["commit", "-q", "-m", "More"]);
+    git(&folder.path, &["checkout", "-q", &main]);
+    let list = out_of(&wb(&folder.path, &["status"], ""));
+    assert!(list.starts_with("Built:\n  54  issue-54-work"), "{}", list);
+    let one = out_of(&wb(&folder.path, &["status", "54"], ""));
+    assert!(one.starts_with("Built:\n"), "{}", one);
+    let run = wb(&folder.path, &["revert", "54", "build"], "");
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+}

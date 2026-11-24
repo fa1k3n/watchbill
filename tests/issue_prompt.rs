@@ -55,7 +55,7 @@ fn set_up() -> Folder {
 fn accepted_with(file: &str) -> Folder {
     let folder = set_up();
     put(&folder.path, ".watchbill/issues/54.yml", file);
-    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     // The file and its acceptance are committed, as no role is handed out without (#97).
     git(&folder.path, &["add", "--", ".watchbill/issues/54.yml", ".watchbill/issues/54.accepted"]);

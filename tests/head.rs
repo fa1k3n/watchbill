@@ -129,7 +129,7 @@ fn commands() -> Vec<(&'static str, Command)> {
         ("wb revert", |b| wb(&b.repo.path, &["revert", "54", "review"], "")),
         ("wb accept", |b| {
             put(&b.repo.path, ".watchbill/issues/54.yml", ISSUE);
-            wb(&b.repo.path, &["accept", "--no-commit", "54"], "")
+            wb(&b.repo.path, &["plan", "accept", "--no-commit", "54"], "")
         }),
     ]
 }
@@ -202,7 +202,7 @@ fn test_WB_BUILD_40_no_option_that_a_command_takes_lifts_the_refusal() {
     put(&bench.repo.path, ".watchbill/issues/54.yml", ISSUE);
     let by_start = |words: &[&str]| start_with(&bench.repo.path, &bench.org, true, words);
     let runs: Vec<(&str, Output)> = vec![
-        ("wb accept 54 --no-commit", wb(&bench.repo.path, &["accept", "54", "--no-commit"], "")),
+        ("wb accept 54 --no-commit", wb(&bench.repo.path, &["plan", "accept", "54", "--no-commit"], "")),
         ("wb answer 54 --suggested", wb(&bench.repo.path, &["answer", "54", "--suggested"], "")),
         ("wb revert 54 review --round 1", wb(&bench.repo.path, &["revert", "54", "review", "--round", "1"], "")),
         ("wb start review 54 --change 9 --runner stand-in", by_start(&["start", "review", "54", "--change", "9", "--runner", "stand-in"])),
@@ -284,7 +284,7 @@ const DRIFT: &str = ".watchbill/watchbill.yml differs from HEAD";
 fn view_bench() -> Bench {
     let bench = bench();
     put(&bench.repo.path, ".watchbill/issues/54.yml", ISSUE);
-    let run = wb(&bench.repo.path, &["accept", "54", "--no-commit"], "");
+    let run = wb(&bench.repo.path, &["plan", "accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     put(&bench.repo.path, "src/brake.c", "int brake_hold(void) { return 1; }\n");
     put(&bench.repo.path, "build/Makefile", "all:\n");
@@ -855,6 +855,8 @@ fn test_WB_BUILD_106_accept_answer_and_revert_refuse_a_thing_in_the_place_of_wat
     for kind in ["a FIFO", "a folder", "a link to /dev/zero"] {
         let bench = bench();
         put(&bench.repo.path, ".watchbill/issues/54.yml", ISSUE);
+        // The work is accepted where the file is: the acceptance is written before the thing is put in place.
+        assert_eq!(code(&wb_within(&bench.repo.path, &["plan", "accept", "--no-commit", "54"], 10)), Some(0));
         put_thing(&bench, kind);
         for words in [&["accept", "--no-commit", "54"][..], &["answer", "54", "--suggested"], &["revert", "54", "review"]] {
             let run = wb_within(&bench.repo.path, words, 10);
@@ -870,7 +872,7 @@ fn test_WB_BUILD_106_accept_answer_and_revert_still_end_with_2_where_watchbill_y
     let bench = bench();
     put(&bench.repo.path, ".watchbill/issues/54.yml", ISSUE);
     fs::remove_file(config(&bench.repo.path)).unwrap();
-    for words in [&["accept", "--no-commit", "54"][..], &["answer", "54", "--suggested"], &["revert", "54", "review"]] {
+    for words in [&["plan", "accept", "--no-commit", "54"][..], &["answer", "54", "--suggested"], &["revert", "54", "review"]] {
         let run = wb_within(&bench.repo.path, words, 10);
         assert_eq!(code(&run), Some(2), "{:?}: {}", words, text(&run.stderr));
         assert!(text(&run.stderr).contains("is not there"), "{:?}: {}", words, text(&run.stderr));

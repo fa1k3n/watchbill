@@ -326,11 +326,11 @@ fn test_WB_JOB_30_show_with_no_branch_of_the_plan_reads_the_working_tree_and_say
 // ---- WB-JOB-31: a name that is no plan ----
 
 #[test]
-fn test_WB_JOB_31_show_edit_accept_and_remove_of_a_name_that_is_no_plan_end_with_1_naming_list() {
+fn test_WB_JOB_31_show_edit_and_remove_of_a_name_that_is_no_plan_end_with_1_naming_list() {
     let bench = bench();
     bench.planned();
 
-    for args in [&["plan", "show", "54"][..], &["plan", "edit", "54"][..], &["plan", "accept", "54"][..], &["plan", "remove", "54"][..]] {
+    for args in [&["plan", "show", "54"][..], &["plan", "edit", "54"][..], &["plan", "remove", "54"][..]] {
         let run = bench.wb(args);
 
         assert_eq!(code(&run), Some(1), "{:?}: {}", args, text(&run.stderr));
@@ -771,12 +771,16 @@ fn test_WB_JOB_43_wb_accept_of_a_plan_not_accepted_ends_with_2_naming_wb_plan_ac
 }
 
 #[test]
-fn test_WB_JOB_43_wb_accept_of_a_name_with_no_plan_accepts_the_issue_s_file_as_before() {
+fn test_WB_JOB_43_wb_accept_of_a_name_with_no_plan_and_a_file_not_accepted_ends_with_2_and_wb_plan_accept_accepts_it() {
     let bench = bench();
     bench.planned();
 
     let run = bench.wb(&["accept", "54"]);
 
+    assert_eq!(code(&run), Some(2), "{}", text(&run.stderr));
+    assert!(text(&run.stderr).contains("wb plan accept 54"), "{}", text(&run.stderr));
+    assert!(!bench.repo.path.join(ACCEPTED).exists());
+    let run = bench.wb(&["plan", "accept", "54"]);
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(bench.repo.path.join(ACCEPTED).exists());
 }

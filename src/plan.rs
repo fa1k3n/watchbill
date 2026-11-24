@@ -924,8 +924,11 @@ fn issue_name(name: &str, command: &str, err: &mut dyn Write) -> Result<(), i32>
 /// `wb plan accept <name> [--no-commit]`: the acceptance of the plan's issue's file, as `wb accept` made it (point 13).
 pub fn accept(root: &str, name: &str, commit: bool, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     const COMMAND: &str = "wb plan accept";
-    if let Err(code) = live_plan(root, name, COMMAND, err) {
-        return code;
+    // A plan that is there must not be removed; a name with no plan is an issue's file written by hand (#282).
+    if plan_of(root, name).is_some() {
+        if let Err(code) = live_plan(root, name, COMMAND, err) {
+            return code;
+        }
     }
     if let Err(code) = issue_name(name, COMMAND, err) {
         return code;
@@ -933,11 +936,24 @@ pub fn accept(root: &str, name: &str, commit: bool, out: &mut dyn Write, err: &m
     crate::issue::accept_as(COMMAND, root, name, commit, out, err)
 }
 
-/// `wb accept <name>` where a plan of the name is there (#290): `Some(2)` with the words that name `wb plan accept`
-/// where its issue's file is not accepted, by its hash, its sources and a planner round after it; `None` where there is
-/// no plan of the name, or it is accepted, and `wb accept` goes on as before.
+/// `wb accept <name>` where the issue's file is not accepted (#290, #282): `Some(2)` with the words that name
+/// `wb plan accept`, where a plan of the name is there and its issue's file is not accepted (by its hash, its sources
+/// and a planner round after it), or where there is no plan and the file is not accepted as it stands; `None` where it
+/// is accepted, and `wb accept` accepts the work.
 pub fn accept_word(root: &str, name: &str, err: &mut dyn Write) -> Option<i32> {
-    let plan = plan_of(root, name).filter(|plan| !plan.removed)?;
+    let said = |err: &mut dyn Write, what: &str| {
+        let _ = writeln!(
+            err,
+            "wb accept: {} {}. The issue's file is accepted with `wb plan accept {}`; wb accept is the acceptance of the work (#282). Nothing written.",
+            crate::issue::shown(name),
+            what,
+            name
+        );
+        Some(2)
+    };
+    let Some(plan) = plan_of(root, name).filter(|plan| !plan.removed) else {
+        return if crate::issue::is_accepted(std::path::Path::new(root), name) { None } else { said(err, "is not accepted") };
+    };
     let (file, _) = files_of(name);
     let body = accepted_in_tree(root, name);
     let accepted = match plain(root, &file).map(|bytes| state_of(&plan, &bytes, body.as_deref())) {
@@ -948,13 +964,7 @@ pub fn accept_word(root: &str, name: &str, err: &mut dyn Write) -> Option<i32> {
     if accepted {
         return None;
     }
-    let _ = writeln!(
-        err,
-        "wb accept: {} is a plan, and it is not accepted. A plan is accepted with `wb plan accept {}`; wb accept is the acceptance of the work (#282). Nothing written.",
-        crate::issue::shown(name),
-        name
-    );
-    Some(2)
+    said(err, "is a plan, and it is not accepted")
 }
 
 /// `wb plan edit <name>`: opens the plan's issue's file in the editor git would use, and commits the edit alone.

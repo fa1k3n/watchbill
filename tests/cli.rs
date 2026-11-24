@@ -122,14 +122,13 @@ const USAGE: &str = "usage:
             it commits nothing, and where the editor fails, the file no longer
             holds its form or names another issue, it commits nothing and
             leaves the edit. wb plan accept <name> [--no-commit] accepts the
-            issue's file as wb accept does. wb plan remove <name> adds a
+            issue's file, also one with no plan, as above. wb plan remove <name> adds a
             commit with the marker removed after the plan's, moves every name
             of it there, and rewrites nothing; the name stays taken. It is
             refused while a branch of any of its names holds work the default
             branch does not, or this machine keeps a view of it with work not
             taken back. A name with / has no issue's file until point 15, and
-            show, edit, accept and remove of a name that is no plan are
-            refused. Ends with 0 when it is done or nothing changes, 1 when it
+            show, edit and remove of a name that is no plan are refused. Ends with 0 when it is done or nothing changes, 1 when it
             is refused, 2 when it was used wrongly or the repository is not
             set up
   prompt    print the prompt of a role on standard output and nothing else: the
@@ -211,18 +210,18 @@ const USAGE: &str = "usage:
             repository pinned to it. Ends with 0 when they are the same, 1 when
             they differ or the files of a revision are refused, 2 when a
             revision is not found or it was used wrongly. Writes nothing
-  accept    accept the issue's file .watchbill/issues/<issue>.yml: read it,
-            hold it to its form, refuse it while it holds a question, say what
+  accept    accept the work of an issue. The issue's file
+            .watchbill/issues/<issue>.yml is accepted by wb plan accept, which
+            does this: read it, hold it to its form, refuse it while it holds a question, say what
             will be written, and write .watchbill/issues/<issue>.accepted with
             the SHA-256 of the file, the git user.name and user.email, and the
             time in UTC. An acceptance that is there is never written over.
             Then commit it alone, on the issue's branch, with nothing else: it
             refuses first when the checkout is not on that branch or the
             issue's file is not committed as it is. --no-commit only writes it
-            and says the commit. Where a plan of the name is there (wb plan)
-            and is not accepted, it ends with 2 and names wb plan accept
-            <name>. Where the issue's file is accepted as it stands, it
-            accepts the work: it says first accepting the work <commit> (not
+            and says the commit. Where the issue's file is not accepted, a
+            plan or not, wb accept ends with 2 and names wb plan accept
+            <name>. Where it is accepted as it stands, it accepts the work: it says first accepting the work <commit> (not
             run: <roles>), then writes .watchbill/issues/<issue>.finished with
             the head commit of the branch, who and when, and commits it alone.
             It ends with 1 when no role has committed work, a question is open,

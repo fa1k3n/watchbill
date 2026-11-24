@@ -229,7 +229,7 @@ fn refused(bench: &Bench, run: &Output, status: i32, named: &[&str]) {
 fn issue_file(bench: &Bench, issue: &str, changes: &str) {
     let file = BARE_ISSUE.replace("{issue}", issue).replace("changes: []", &format!("changes: {}", changes));
     put(&bench.repo.path, &format!(".watchbill/issues/{}.yml", issue), &file);
-    let run = wb(&bench.repo.path, &["accept", "--no-commit", "--", issue], "");
+    let run = wb(&bench.repo.path, &["plan", "accept", "--no-commit", "--", issue], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     git(&bench.repo.path, &["add", "--", ".watchbill/issues"]);
     git(&bench.repo.path, &["commit", "-q", "-m", "The issue's file"]);

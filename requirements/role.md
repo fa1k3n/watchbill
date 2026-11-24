@@ -21,7 +21,7 @@ The role prompts: breakdown, tester, build, review and fix. The first revision h
 | WB-ROLE-15 | Every role prompt shall say that the role opens no file outside those the prompt lists, and that where it needs another it stops and asks before it opens it. Issue: #4. | T | Implemented |
 | WB-ROLE-16 | The builder's prompt shall say that the builder never changes a file the issue does not name, and the reviewer's that a file changed outside those the issue names is a finding. Issue: #4. | I | Implemented |
 | WB-ROLE-17 | The list of placeholders shall hold `{checkout}`, `{branch}`, `{issue_address}` and `{change_address}`: where the session works and where its issue and its change are read. Issue: #43. | T | Implemented |
-| WB-ROLE-18 | Every role prompt shall name the checkout and the branch it works in, and the address its issue is read at. Issue: #43. | T | Implemented |
+| WB-ROLE-18 | Every role prompt shall name the checkout and the branch it works in, and where its issue is read: the address, or for the breakdown the file the program brings it in as (#295). Issue: #43, #295. | T | Draft |
 | WB-ROLE-19 | The reviewer's and the fixer's prompts shall name the address the change is read and posted at. Issue: #43. | T | Implemented |
 | WB-ROLE-20 | Every role prompt shall say that how work is pushed and posted is taken from the project's own text. Issue: #43. | T | Implemented |
 | WB-ROLE-21 | Every role prompt shall say that a search opens every file it reads, and that a search is kept to the files the role may read. Issue: #44. | T | Implemented |
@@ -51,7 +51,7 @@ The role prompts: breakdown, tester, build, review and fix. The first revision h
 | WB-ROLE-45 | The tester's prompt shall say that where the tester thinks an existing test the issue names as a guard does not cover its clause, it says so under `untested`. Issue: #62. | T | Implemented |
 | WB-ROLE-46 | The reviewer's prompt shall say that a new test that repeats an existing one is a `note`. Issue: #62. | T | Implemented |
 | WB-ROLE-47 | The revision shall hold one prompt file, `roles/<role>.md`, for each of the roles breakdown, tester, build, review and fix, and for no other role. Issue: #75. | T | Implemented |
-| WB-ROLE-48 | The breakdown's prompt shall say that the breakdown reads the issue at `{issue_address}` and the code in `{checkout}`. Issue: #75. | T | Implemented |
+| WB-ROLE-48 | The breakdown's prompt shall say that the breakdown reads the issue in `.watchbill/issue/{issue}.md`, which the program brought in, and the code in `{checkout}`. Issue: #75, #295. | T | Draft |
 | WB-ROLE-49 | The breakdown's prompt shall say that the breakdown writes `.watchbill/issues/{issue}.yml` in the form of the issue's file, with every key in its order. Issue: #75. | T | Implemented |
 | WB-ROLE-50 | The breakdown's prompt shall say that the breakdown commits the issue's file alone on `{branch}`. Issue: #75. | T | Implemented |
 | WB-ROLE-51 | The breakdown's prompt shall say that the breakdown never changes the issue, the code or a test. Issue: #75. | T | Implemented |
@@ -66,7 +66,7 @@ The role prompts: breakdown, tester, build, review and fix. The first revision h
 | WB-ROLE-60 | The breakdown's prompt shall say that each question is also posted as its own comment on the issue, whose first line is `[question] {issue}.q<n>`, and that a question is never posted twice. Replaced by WB-ANSWER-9 and WB-ROLE-83. Issue: #95, #145. | T | Deprecated |
 | WB-ROLE-61 | The breakdown's prompt shall say that a person answers in a comment whose first line is `[answer] {issue}.q<n>`, or in the question's thread. Replaced by WB-ROLE-84. Issue: #95, #145. | T | Deprecated |
 | WB-ROLE-62 | The breakdown's prompt shall say that a second, fresh session folds the answers of a person into the issue's file, removes the questions answered, keeps those with no answer, and commits the file alone. Issue: #95. | T | Implemented |
-| WB-ROLE-63 | The breakdown's last message shall have the field `asked`, naming the comments it posted. Issue: #95. | T | Implemented |
+| WB-ROLE-63 | The breakdown's last message shall have the field `asked`, naming the new questions of the issue's file, which the program posts. Issue: #95, #295. | T | Draft |
 | WB-ROLE-64 | The prompts of the breakdown, the tester, the build and the fix shall say to commit and then push to `{branch}`, and their last messages shall name the commit that was pushed. Replaced by WB-ROLE-88, WB-ROLE-89 and WB-ROLE-91. Issue: #98, #145. | T | Deprecated |
 | WB-ROLE-65 | The breakdown's prompt shall say that a requirement is what the change must do and a test or a reading of the code can show, and that how an existing test changes goes under `existing_tests_changed`, never as a requirement. Issue: #98. | T | Implemented |
 | WB-ROLE-66 | The line "Draft: this prompt has not yet run on a project." shall stand in `fix.md` and in no other role file. Replaced by WB-ROLE-77. Issue: #98. | T | Deprecated |
@@ -86,7 +86,7 @@ The role prompts: breakdown, tester, build, review and fix. The first revision h
 | WB-ROLE-80 | The prompts of the tester, the build, the review and the fix shall say that an answer that does not change what the issue's file says is taken by the next session of the same role, which reads the issue with its comments. Issue: #113. | T | Implemented |
 | WB-ROLE-81 | The prompts of the tester, the build, the review and the fix shall say that the number of a new question counts on from the highest number of that role's questions already on the issue. Replaced by WB-ANSWER-10. Issue: #113, #145. | T | Deprecated |
 | WB-ROLE-82 | The review's and the fix's prompts shall say that where the issue is none, their questions are posted on the change, with `{change}` in place of `{issue}` in each name. Issue: #113. | T | Implemented |
-| WB-ROLE-83 | Every role's prompt shall say that a question is never posted twice: a question that stands on the issue already is not posted again. Issue: #145. | T | Implemented |
+| WB-ROLE-83 | Every role's prompt shall say that a question is never posted twice: a question that stands on the issue already is not posted again; the breakdown's, that the program posts none twice. Issue: #145, #295. | T | Draft |
 | WB-ROLE-84 | Every role's prompt shall say that a person answers with `wb answer`, in one comment whose first line is `[answers] {issue}.<role>` (`[answers] {issue}` for the breakdown) and the names of the questions it answers, with one line `q<n>: <answer>` for each, and that an answer counts only from a person. Issue: #145. | T | Implemented |
 | WB-ROLE-85 | Every role's prompt shall say how an answer is read: `q<n>: <number>` takes that choice of the question; any other text is the answer in words; a number that is not one of the question's choices is no answer, and the question stays open. Issue: #145. | T | Implemented |
 | WB-ROLE-86 | Every role's prompt shall say that the forms of revision 0.0.8 are still read and are not posted: a question as its own `[question]` comment, an answer as a line `[answer] <name> <answer>`, and `[answer] {issue} suggested` for every suggestion posted before it. Issue: #145. | T | Implemented |
@@ -107,3 +107,9 @@ The role prompts: breakdown, tester, build, review and fix. The first revision h
 | WB-ROLE-101 | Every role's prompt shall say that a question is never edited once posted, and that one that has to change is posted again with the next number. Replaces WB-ROLE-87. Issue: #226. | T | Implemented |
 | WB-ROLE-102 | The breakdown's prompt shall say to commit on `{branch}`, to push nothing and open no change, and that a person pushes the branch; its condition to stop shall not speak of a push. Replaces WB-ROLE-91. Issue: #202. | T | Implemented |
 | WB-ROLE-103 | The breakdown's last message shall name in the field `file` the commit that holds the issue's file, on `{branch}`, and not as pushed. Replaces WB-ROLE-91. Issue: #202. | T | Implemented |
+| WB-ROLE-104 | The breakdown's prompt shall hold no `{issue_address}`, and name no program of a tracker to run. Issue: #295. | T | Draft |
+| WB-ROLE-105 | The breakdown's prompt shall say that the session has no login to the tracker and needs none, and that it posts nothing on the issue. Issue: #295. | T | Draft |
+| WB-ROLE-106 | The breakdown's prompt shall say to write each question in full under `questions` of the issue's file, in a form it shows: what is unclear, why it matters, the choices numbered with their roles, and the suggestion; and that the program posts the new ones after the session. Issue: #295. | T | Draft |
+| WB-ROLE-107 | The breakdown's prompt shall say that its view is writable but for `.watchbill/` other than `.watchbill/issues/`, and that only its issue's file comes back. Issue: #295. | T | Draft |
+| WB-ROLE-108 | The breakdown's prompt shall say that the program puts its commit on `{branch}`, and makes that branch where it is not there. Issue: #295. | T | Draft |
+| WB-ROLE-109 | The breakdown's prompt shall say that `from` is the SHA-256 of `.watchbill/issue/{issue}.md`. Issue: #295. | T | Draft |

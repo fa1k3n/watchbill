@@ -727,13 +727,14 @@ fn test_WB_VIEW_87_an_issue_s_file_not_accepted_or_not_committed_ends_with_1() {
 }
 
 #[test]
-fn test_WB_VIEW_85_the_breakdown_runs_in_a_view_of_the_whole_tree_where_only_its_issues_folder_is_writable() {
+fn test_WB_VIEW_85_the_breakdown_runs_in_a_writable_view_of_the_whole_tree_with_watchbill_read_only_but_its_issues_folder() {
     let bench = bench();
     let run = bench.view(&["54", "breakdown"]);
 
     assert_eq!(code(&run), Some(1));
     assert_eq!(text(&run.stdout), "");
     let err = text(&run.stderr);
-    assert!(err.contains("a view of every file of HEAD") && err.contains("only .watchbill/issues/ is writable"), "{}", err);
+    assert!(err.contains("a view of every file of HEAD, writable,") && err.contains(".watchbill/ read-only but for .watchbill/issues/"), "{}", err);
+    assert!(!err.contains("only .watchbill/issues/ is writable"), "{}", err);
     assert!(!err.contains("without a view"), "{}", err);
 }

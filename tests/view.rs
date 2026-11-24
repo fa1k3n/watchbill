@@ -104,8 +104,15 @@ fn bench_for(issue_54: &str) -> Bench {
     let ro = folder_named("ro");
     let state = folder_named("state");
     let l = log.path.to_str().unwrap();
-    script(&log.path.join("post.sh"), &format!("echo \"post $1 $2\" >> {l}/calls\ncat > {l}/posted-$1-$2\nexit 0\n"));
-    script(&log.path.join("comments.sh"), &format!("echo \"comments $1 $2\" >> {l}/calls\nexit 0\n"));
+    script(&log.path.join("post.sh"), &format!("echo \"post $1 $2\" >> {l}/calls\ncat > {l}/posted-$1-$2\nexit $(cat {l}/post.status 2>/dev/null || echo 0)\n"));
+    script(&log.path.join("comments.sh"), &format!("echo \"comments $1 $2\" >> {l}/calls\ncat {l}/comments-$1-$2 2>/dev/null\nexit 0\n"));
+    // The issue's text and its whole comments, for the breakdown (#295): what the test leaves in `address-<issue>` and
+    // `bodies-<issue>`, else a line of text and no comment.
+    script(
+        &log.path.join("address.sh"),
+        &format!("echo \"address $1\" >> {l}/calls\nif [ -f {l}/address-$1 ]; then cat {l}/address-$1; else echo \"The text of issue $1.\"; fi\nexit $(cat {l}/address.status 2>/dev/null || echo 0)\n"),
+    );
+    script(&log.path.join("bodies.sh"), &format!("echo \"bodies $1\" >> {l}/calls\ncat {l}/bodies-$1 2>/dev/null\nexit $(cat {l}/bodies.status 2>/dev/null || echo 0)\n"));
     script(&log.path.join("changes.sh"), &format!("echo \"changes $1\" >> {l}/calls\necho 174\nexit 0\n"));
     script(&log.path.join("ssh.sh"), &format!("echo ssh >> {l}/network\nexit 1\n"));
     script(&log.path.join("session.sh"), &format!("echo start >> {l}/calls\nexit 0\n"));
@@ -122,7 +129,8 @@ fn bench_for(issue_54: &str) -> Bench {
         format!("change_comment: '{}/post.sh change {{change}}'", l),
         format!("change_comments: '{}/comments.sh change {{change}}'", l),
         format!("change_of_branch: '{}/changes.sh {{branch}}'", l),
-        "issue_address: 'tracker {issue}'".to_string(),
+        format!("issue_address: '{}/address.sh {{issue}}'", l),
+        format!("issue_comment_bodies: '{}/bodies.sh {{issue}}'", l),
         "change_address: 'server {change}'".to_string(),
         "confidentiality: public".to_string(),
         "build_files: [build]".to_string(),
@@ -3851,16 +3859,40 @@ fn test_WB_VIEW_73_the_breakdown_runs_in_a_view_of_every_file_of_head_with_no_hi
 }
 
 #[test]
-fn test_WB_VIEW_74_in_the_breakdown_s_view_only_the_issues_folder_can_be_written() {
-    if !sandbox("test_WB_VIEW_74") {
+fn test_WB_VIEW_94_in_the_breakdown_s_view_a_build_may_write_outside_watchbill_and_it_stays_in_the_view() {
+    if !sandbox("test_WB_VIEW_94") {
+        return;
+    }
+    // A stand-in for `cargo test -- --list`: it writes `Cargo.lock` and `target/`, and changes a file of the code.
+    let bench = on_99();
+    bench.session(
+        "echo lock > Cargo.lock && mkdir -p target/debug && echo built > target/debug/tests && echo yes > {log}/built\n\
+         echo x > new.txt && echo x >> src/brake.c && echo yes > {log}/code\n",
+    );
+
+    let run = bench.start(&["start", "breakdown", "99"]);
+
+    assert!(bench.started(), "{}", text_of(&run.stderr));
+    assert_eq!(bench.left("built"), "yes\n");
+    assert_eq!(bench.left("code"), "yes\n");
+    for path in ["Cargo.lock", "target", "new.txt"] {
+        assert!(!bench.repo.path.join(path).exists(), "{} reached the checkout", path);
+    }
+    assert_eq!(read(&bench.repo.path.join("src/brake.c")), "int brake(void) { return 1; }\n");
+}
+
+#[test]
+fn test_WB_VIEW_95_in_the_breakdown_s_view_watchbill_is_read_only_but_for_its_issues_folder() {
+    if !sandbox("test_WB_VIEW_95") {
         return;
     }
     let bench = on_99();
     let yml = read(&config(&bench.repo.path));
     bench.session(
         "echo x >> .watchbill/watchbill.yml 2> /dev/null && echo yes > {log}/yml\n\
-         echo x > new.txt 2> /dev/null && echo yes > {log}/new\n\
-         echo x >> src/brake.c 2> /dev/null && echo yes > {log}/brake\n\
+         echo x >> .watchbill/revision/rules.yml 2> /dev/null && echo yes > {log}/revision\n\
+         cat .watchbill/issue/99.md > {log}/read\n\
+         echo x >> .watchbill/issue/99.md 2> /dev/null && echo yes > {log}/brought\n\
          mkdir .watchbill/other 2> /dev/null && echo yes > {log}/other\n\
          echo 'issue: x' > .watchbill/issues/99.yml && echo yes > {log}/issue\n",
     );
@@ -3868,12 +3900,13 @@ fn test_WB_VIEW_74_in_the_breakdown_s_view_only_the_issues_folder_can_be_written
     let run = bench.start(&["start", "breakdown", "99"]);
 
     assert!(bench.started(), "{}", text_of(&run.stderr));
-    for name in ["yml", "new", "brake", "other"] {
+    for name in ["yml", "revision", "brought", "other"] {
         assert_eq!(bench.left(name), "", "{} was written", name);
     }
     assert_eq!(bench.left("issue"), "yes\n");
+    // The issue's text the program brought in is there to read, and not to write.
+    assert_eq!(bench.left("read"), "The text of issue 99.\n");
     assert_eq!(read(&config(&bench.repo.path)), yml);
-    assert!(!bench.repo.path.join("new.txt").exists());
 }
 
 #[test]
@@ -4317,4 +4350,365 @@ fn test_WB_PROMPT_72_the_posted_stamp_of_a_role_with_no_issue_s_file_holds_the_l
     ok(&bench.start(&["start", "build", "99"]));
     let posted = bench.left("posted-issue-99");
     assert_eq!(line_of(&posted, "level").as_deref(), Some("public"), "{}", posted);
+}
+
+// ---- #295: the breakdown reads its issue without a login, and `wb` posts its questions ----
+
+/// The settings with the line of `key` taken out, committed so that `HEAD` has them.
+fn without_line(bench: &Bench, key: &str) {
+    let yml = read(&config(&bench.repo.path));
+    let kept: String = yml.lines().filter(|line| !line.starts_with(&format!("{}:", key))).map(|line| format!("{}\n", line)).collect();
+    fs::write(config(&bench.repo.path), kept).unwrap();
+    commit_config_keeping_refs(&bench.repo.path);
+}
+
+/// Refused before anything is posted or started, with `named` on standard error as a limit, and no view left.
+fn refused_before_posting(bench: &Bench, run: &Output, named: &[&str]) {
+    assert_eq!(code(run), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    assert!(err.contains("limit:"), "{}", err);
+    for name in named {
+        assert!(err.contains(name), "{} not in: {}", name, err);
+    }
+    assert!(!bench.any_posted() && !bench.started(), "{:?}", bench.calls());
+    assert!(bench.below("views").is_empty(), "{:?}", bench.below("views"));
+}
+
+/// The issue's file of 54 as a breakdown writes it with two questions, each in full (#295).
+const TWO_QUESTIONS: &str = "issue: '54'
+from: 3f0c1d9e
+requirements: []
+interface: |
+  none
+changes: [src/brake.c]
+reads:
+  tester: []
+  build: []
+  review: []
+  fix: []
+existing_tests_changed: []
+questions:
+  - |
+    54.q1: Which brake does the issue mean?
+    Why it matters: the tests check one brake or the other.
+
+    1. (breakdown) The front brake.
+    2. (breakdown) The rear brake.
+
+    Suggested: 1, because the issue names the front brake first.
+  - |
+    54.q2: Is a test of the timing asked for?
+    Why it matters: a test of the timing needs the clock stubbed.
+
+    1. (breakdown) No timing test.
+    2. (breakdown) A timing test, with the clock stubbed.
+
+    Suggested: 2, because the issue speaks of a deadline.
+";
+
+/// The comment of questions `wb` posts for `TWO_QUESTIONS`.
+const TWO_POSTED: &str = "[questions] 54 q1 q2
+q1: Which brake does the issue mean?
+<details>
+
+Why it matters: the tests check one brake or the other.
+
+1. (breakdown) The front brake.
+2. (breakdown) The rear brake.
+
+Suggested: 1, because the issue names the front brake first.
+
+</details>
+
+q2: Is a test of the timing asked for?
+<details>
+
+Why it matters: a test of the timing needs the clock stubbed.
+
+1. (breakdown) No timing test.
+2. (breakdown) A timing test, with the clock stubbed.
+
+Suggested: 2, because the issue speaks of a deadline.
+
+</details>
+";
+
+/// A session of the breakdown of 54 that writes `file` as the issue's file and commits it alone, then runs `after`.
+fn breakdown_writes_then(bench: &Bench, file: &str, after: &str) {
+    bench.session(&format!(
+        "cat > .watchbill/issues/54.yml <<'YML'\n{}YML\ngit add .watchbill/issues/54.yml && git commit -q -m 'The issue file of 54'\n{}",
+        file, after
+    ));
+}
+
+/// A session of the breakdown of 54 that writes `file` as the issue's file and commits it alone.
+fn breakdown_writes(bench: &Bench, file: &str) {
+    breakdown_writes_then(bench, file, "");
+}
+
+/// The calls that posted on issue 54.
+fn posts_on_54(bench: &Bench) -> usize {
+    bench.calls().iter().filter(|call| *call == "post issue 54").count()
+}
+
+#[test]
+fn test_WB_BUILD_135_the_issue_s_text_is_brought_into_the_view_as_issue_address_printed_it() {
+    if !sandbox("test_WB_BUILD_135") {
+        return;
+    }
+    let bench = bench();
+    fs::write(bench.at("address-54"), "Brakes: the front one.\nA second line.\n").unwrap();
+    bench.session("cat .watchbill/issue/54.md > {log}/seen\n");
+
+    let run = bench.start(&["start", "breakdown", "54"]);
+
+    ok(&run);
+    assert_eq!(bench.left("seen"), "Brakes: the front one.\nA second line.\n");
+    // Run by `wb`, before the stamp is posted and the session started.
+    let calls = bench.calls();
+    let address = calls.iter().position(|call| call == "address 54").expect("issue_address was not run");
+    let posted = calls.iter().position(|call| call == "post issue 54").unwrap();
+    assert!(address < posted, "{:?}", calls);
+    // It is not taken back: the checkout has no such folder.
+    assert!(!bench.repo.path.join(".watchbill/issue").exists());
+}
+
+#[test]
+fn test_WB_PROMPT_73_the_breakdown_s_posted_stamp_holds_the_sha256_of_the_issue_s_text_before_the_parts() {
+    if !sandbox("test_WB_PROMPT_73") {
+        return;
+    }
+    let bench = bench();
+    let issue = "Brakes: the front one.\n";
+    fs::write(bench.at("address-54"), issue).unwrap();
+
+    ok(&bench.start(&["start", "breakdown", "54"]));
+
+    let posted = bench.posted();
+    assert_eq!(line_of(&posted, "issue_text"), Some(sha256(issue)), "{}", posted);
+    let names: Vec<&str> = posted.lines().map(|line| line.split(':').next().unwrap()).collect();
+    let at = names.iter().position(|name| *name == "issue_text").unwrap();
+    let level = names.iter().position(|name| *name == "level").unwrap();
+    let part = names.iter().position(|name| *name == "part").unwrap();
+    assert!(level < at && at < part, "{}", posted);
+}
+
+#[test]
+fn test_WB_ROLE_104_the_breakdown_s_prompt_as_handed_out_names_the_issue_s_file_and_no_program_of_the_tracker() {
+    let bench = bench();
+    let run = prompt_with(&bench.repo.path, &bench.organisation(), &["breakdown", "54", "--runner", "stand-in", "--round", "1"]);
+    ok(&run);
+    let prompt = text_of(&run.stdout);
+    assert!(prompt.contains(".watchbill/issue/54.md"), "{}", prompt);
+    assert!(!prompt.contains("address.sh") && !prompt.contains("gh "), "{}", prompt);
+}
+
+#[test]
+fn test_WB_BUILD_136_the_questions_and_answers_come_in_whole_and_no_stamp_or_other_comment() {
+    if !sandbox("test_WB_BUILD_136") {
+        return;
+    }
+    let bench = bench();
+    let comments = [
+        "[stamp] breakdown round 1\nrole: breakdown\nmodel: claude-opus-5-5",
+        "[questions] 54 q1\nq1: Which brake?\n<details>\n\n1. (breakdown) The front brake.\n\nSuggested: 1, because it is first.\n\n</details>",
+        "[answers] 54 q1>breakdown\nq1: 1",
+        "[answers] 54.tester q1>tester\nq1: 2",
+        "Thanks, that reads well.",
+    ];
+    let mut address = String::from("title:\tBrakes\n--\nThe front brake holds the car.\n");
+    let mut bodies = Vec::new();
+    for comment in comments {
+        address.push_str(&format!("author:\tada\n--\n{}\n--\n", comment));
+        bodies.extend_from_slice(comment.as_bytes());
+        bodies.extend_from_slice(b"\0\n");
+    }
+    fs::write(bench.at("address-54"), address).unwrap();
+    fs::write(bench.at("bodies-54"), bodies).unwrap();
+    bench.session("cat .watchbill/issue/54.md > {log}/text\ncat .watchbill/issue/54.questions.md > {log}/questions\n");
+
+    ok(&bench.start(&["start", "breakdown", "54"]));
+
+    let text = bench.left("text");
+    assert!(text.contains("The front brake holds the car."), "{}", text);
+    for never in ["[stamp]", "model: claude", "[questions]", "[answers]", "Thanks"] {
+        assert!(!text.contains(never), "{}: {}", never, text);
+    }
+    let questions = bench.left("questions");
+    assert!(questions.contains(comments[1]), "{}", questions);
+    assert!(questions.contains(comments[2]), "{}", questions);
+    for never in ["[stamp]", "54.tester", "Thanks"] {
+        assert!(!questions.contains(never), "{}: {}", never, questions);
+    }
+}
+
+#[test]
+fn test_WB_BUILD_137_a_failing_issue_address_or_issue_comment_bodies_is_refused_as_a_limit_naming_it() {
+    for (status, named) in [("address.status", "issue_address"), ("bodies.status", "issue_comment_bodies")] {
+        let bench = on_99();
+        fs::write(bench.at(status), "1\n").unwrap();
+        let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "99"]);
+        refused_before_posting(&bench, &run, &[named]);
+    }
+}
+
+#[test]
+fn test_WB_BUILD_137_without_issue_address_or_issue_comment_bodies_the_breakdown_is_refused_naming_it() {
+    for key in ["issue_address", "issue_comment_bodies"] {
+        let bench = on_99();
+        without_line(&bench, key);
+        let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "99"]);
+        refused_before_posting(&bench, &run, &[key]);
+    }
+}
+
+#[test]
+fn test_WB_BUILD_138_more_than_1_mib_from_issue_address_or_issue_comment_bodies_is_refused_naming_it() {
+    for (file, named) in [("address-99", "issue_address"), ("bodies-99", "issue_comment_bodies")] {
+        let bench = on_99();
+        fs::write(bench.at(file), "a".repeat(1024 * 1024 + 1)).unwrap();
+        let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "99"]);
+        refused_before_posting(&bench, &run, &[named, "1 MiB"]);
+    }
+}
+
+#[test]
+fn test_WB_BUILD_143_a_head_that_holds_watchbill_issue_is_refused_naming_it() {
+    let bench = on_99();
+    commit_file(&bench, ".watchbill/issue/99.md", "planted\n");
+    let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "99"]);
+    refused_before_posting(&bench, &run, &[".watchbill/issue"]);
+}
+
+#[test]
+fn test_WB_BUILD_139_the_new_questions_of_the_file_are_posted_in_one_comment_by_issue_comment() {
+    if !sandbox("test_WB_BUILD_139") {
+        return;
+    }
+    let bench = bench();
+    breakdown_writes(&bench, TWO_QUESTIONS);
+    ok(&bench.start(&["start", "breakdown", "54"]));
+    assert_eq!(posts_on_54(&bench), 2, "{:?}", bench.calls());
+    assert_eq!(bench.posted(), TWO_POSTED);
+
+    // A question that stands on the issue already is not posted again.
+    let bench = crate::bench();
+    fs::write(bench.at("comments-issue-54"), "[stamp] breakdown round 1\n[questions] 54 q1\n").unwrap();
+    breakdown_writes(&bench, TWO_QUESTIONS);
+    ok(&bench.start(&["start", "breakdown", "54"]));
+    assert_eq!(posts_on_54(&bench), 2, "{:?}", bench.calls());
+    let q2 = TWO_POSTED.split_once("q2: ").unwrap().1;
+    assert_eq!(bench.posted(), format!("[questions] 54 q2\nq2: {}", q2));
+}
+
+#[test]
+fn test_WB_BUILD_140_the_comment_of_questions_is_said_before_it_is_posted() {
+    if !sandbox("test_WB_BUILD_140") {
+        return;
+    }
+    let bench = bench();
+    breakdown_writes(&bench, TWO_QUESTIONS);
+    let run = bench.start(&["start", "breakdown", "54"]);
+    ok(&run);
+    let err = text_of(&run.stderr);
+    let said = format!("wb start breakdown: will post on issue 54, by `issue_comment` of watchbill.yml:\n{}", TWO_POSTED);
+    assert!(err.contains(&said), "{}", err);
+}
+
+#[test]
+fn test_WB_BUILD_141_a_file_with_no_question_or_none_new_posts_nothing_after_the_session() {
+    if !sandbox("test_WB_BUILD_141") {
+        return;
+    }
+    let bench = bench();
+    let none = TWO_QUESTIONS.split_once("questions:\n").unwrap().0.to_string() + "questions: []\n";
+    breakdown_writes(&bench, &none);
+    ok(&bench.start(&["start", "breakdown", "54"]));
+    assert_eq!(posts_on_54(&bench), 1, "{:?}", bench.calls());
+    assert!(bench.posted().starts_with("[stamp] breakdown"), "{}", bench.posted());
+
+    let bench = crate::bench();
+    fs::write(bench.at("comments-issue-54"), "[questions] 54 q1 q2\n").unwrap();
+    breakdown_writes(&bench, TWO_QUESTIONS);
+    ok(&bench.start(&["start", "breakdown", "54"]));
+    assert_eq!(posts_on_54(&bench), 1, "{:?}", bench.calls());
+    // The questions on the issue were read, after the session, and found to be all of them.
+    let calls = bench.calls();
+    let start = calls.iter().position(|call| call == "start").unwrap();
+    assert!(calls[start..].iter().any(|call| call == "comments issue 54"), "{:?}", calls);
+}
+
+#[test]
+fn test_WB_BUILD_142_questions_that_cannot_be_posted_end_with_1_as_a_limit_saying_so() {
+    if !sandbox("test_WB_BUILD_142") {
+        return;
+    }
+    let bench = bench();
+    // The stamp is posted; the comment of questions is not.
+    breakdown_writes_then(&bench, TWO_QUESTIONS, "echo 1 > {log}/post.status\n");
+    let run = bench.start(&["start", "breakdown", "54"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    assert!(err.contains("limit:") && err.contains("not posted"), "{}", err);
+    // The issue's file came back all the same.
+    assert_eq!(subjects(&bench, 1), vec!["The issue file of 54"]);
+}
+
+#[test]
+fn test_WB_ANSWER_46_wb_answer_suggested_takes_the_suggestions_of_the_questions_the_breakdown_s_start_posted() {
+    if !sandbox("test_WB_ANSWER_46") {
+        return;
+    }
+    let bench = bench();
+    breakdown_writes(&bench, TWO_QUESTIONS);
+    ok(&bench.start(&["start", "breakdown", "54"]));
+    let mut bodies = bench.posted().into_bytes();
+    bodies.push(0);
+    fs::write(bench.at("bodies-54"), bodies).unwrap();
+
+    let run = wb(&bench.repo.path, &["answer", "54", "--suggested"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text_of(&run.stderr));
+    let answers = bench.posted();
+    assert!(answers.starts_with("[answers] 54 q1>breakdown q2>breakdown\n"), "{}", answers);
+    assert!(answers.contains("q1: 1\n") && answers.contains("q2: 2"), "{}", answers);
+}
+
+#[test]
+fn test_WB_VIEW_96_a_path_the_breakdown_left_uncommitted_beside_its_file_is_not_said_and_does_not_keep_the_view() {
+    if !sandbox("test_WB_VIEW_96") {
+        return;
+    }
+    let bench = on_99();
+    bench.session(
+        "echo lock > Cargo.lock && echo x >> src/brake.c && echo yes > {log}/wrote\n\
+         printf 'issue: 99\\n' > .watchbill/issues/99.yml && git add .watchbill/issues/99.yml && git commit -q -m 'The issue file of 99'\n",
+    );
+    let run = bench.start(&["start", "breakdown", "99"]);
+    ok(&run);
+    assert_eq!(bench.left("wrote"), "yes\n");
+    assert!(!text_of(&run.stderr).contains("left uncommitted"), "{}", text_of(&run.stderr));
+    assert!(bench.below("views").is_empty(), "{:?}", bench.below("views"));
+
+    // Its issue's file, left uncommitted, is said, and keeps the view.
+    let bench = on_99();
+    bench.session("echo lock > Cargo.lock\nprintf 'issue: 99\\n' > .watchbill/issues/99.yml\n");
+    let run = bench.start(&["start", "breakdown", "99"]);
+    let err = text_of(&run.stderr);
+    assert!(err.contains("left uncommitted") && err.contains(".watchbill/issues/99.yml") && !err.contains("Cargo.lock"), "{}", err);
+    assert_eq!(bench.below("views").len(), 1, "{:?}", bench.below("views"));
+}
+
+#[test]
+fn test_WB_VIEW_77_a_commit_of_cargo_lock_by_the_breakdown_is_refused_at_the_take_back() {
+    if !sandbox("test_WB_VIEW_77") {
+        return;
+    }
+    let bench = on_99();
+    let before = bench.head();
+    bench.session("echo lock > Cargo.lock && git add Cargo.lock && git commit -q -m 'The lock'\n");
+    let run = bench.start(&["start", "breakdown", "99"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("Cargo.lock"), "{}", text_of(&run.stderr));
+    assert_eq!(bench.head(), before);
 }

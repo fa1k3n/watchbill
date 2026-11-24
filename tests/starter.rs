@@ -127,7 +127,8 @@ fn org(log: &Path, default: Option<&str>) -> String {
 }
 
 /// A repository set up by `wb init --yes`, which writes `classed: []`, with every pattern a stand-in, the level `public`,
-/// committed on `main`, with `origin/HEAD` naming `main`, the branch `issue-54`, and `feature-x` checked out.
+/// committed on `main`, with `origin/HEAD` naming `main`, the branch `feature-x`, and the branch `issue-54` checked out, where
+/// the commits of its sessions come back (#296).
 /// `origin` is an address no stand-in serves; git reaches it only through `ssh.sh`, which writes `network`.
 fn bench() -> Bench {
     let repo = repository(Some("ssh://example.invalid/brakes/controller.git"));
@@ -173,7 +174,8 @@ fn bench() -> Bench {
     git(&repo.path, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
     git(&repo.path, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
     git(&repo.path, &["branch", "issue-54"]);
-    git(&repo.path, &["checkout", "-q", "-b", "feature-x"]);
+    git(&repo.path, &["branch", "feature-x"]);
+    git(&repo.path, &["checkout", "-q", "issue-54"]);
     let org_folder = folder_named("org");
     let path = org_folder.path.join("organisation.yml");
     fs::write(&path, org(&log.path, Some("stand-in"))).unwrap();
@@ -810,17 +812,17 @@ fn test_WB_BUILD_19_a_path_below_a_classed_folder_or_a_folder_above_a_classed_pa
     for (n, changes) in ["[src/brake/pedal.c]", "[src]", "[docs/safety.md]", "[src/brake]"].iter().enumerate() {
         let issue = format!("{}", 60 + n);
         issue_file(&bench, &issue, changes);
-        git(&bench.repo.path, &["branch", &format!("issue-{}", issue)]);
+        git(&bench.repo.path, &["checkout", "-q", "-b", &format!("issue-{}", issue)]);
         let run = bench.start(true, &["start", "build", &issue]);
         refused(&bench, &run, 1, &["#65"]);
     }
     // A path beside a classed one, or whose name only starts the same, is not classed.
     issue_file(&bench, "70", "[src/brakes.c, src/other/a.c, docs]");
-    git(&bench.repo.path, &["branch", "issue-70"]);
+    git(&bench.repo.path, &["checkout", "-q", "-b", "issue-70"]);
     let run = bench.start(true, &["start", "build", "70"]);
     assert_eq!(code(&run), Some(1), "docs is above docs/safety.md: {}", text(&run.stderr));
     issue_file(&bench, "71", "[src/brakes.c, src/other/a.c, docs/other.md]");
-    git(&bench.repo.path, &["branch", "issue-71"]);
+    git(&bench.repo.path, &["checkout", "-q", "-b", "issue-71"]);
     ok_in_view(&bench.start(true, &["start", "build", "71"]));
 }
 
@@ -833,7 +835,7 @@ fn test_WB_BUILD_19_with_no_classed_every_path_is_classed() {
     refused(&bench, &run, 1, &["#65", "classed"]);
     // An issue's file that changes nothing touches nothing classed.
     issue_file(&bench, "55", "[]");
-    git(&bench.repo.path, &["branch", "issue-55"]);
+    git(&bench.repo.path, &["checkout", "-q", "-b", "issue-55"]);
     ok_in_view(&bench.start(true, &["start", "build", "55"]));
 }
 
@@ -892,6 +894,7 @@ fn test_WB_BUILD_21_a_value_given_that_is_not_plain_is_used_wrongly_by_its_optio
 #[test]
 fn test_WB_BUILD_21_a_branch_worked_out_that_is_not_plain_is_refused_with_1_saying_to_give_change() {
     let bench = bench();
+    git(&bench.repo.path, &["checkout", "-q", "feature-x"]);
     git(&bench.repo.path, &["branch", "-D", "issue-54"]);
     git(&bench.repo.path, &["branch", "issue-54-a/b"]);
     let run = bench.start(true, &["start", "review", "54"]);

@@ -1279,6 +1279,8 @@ fn test_WB_BUILD_30_a_file_that_is_not_of_the_view_is_no_local_change_and_neithe
     assert!(err.contains("bubblewrap") && !err.contains("guard") && !err.contains("src/secret.c"), "{}", err);
     // A role with no issue's file runs in a view of the whole tree (#202): its guard is the whole tree, and `--ignore-local` passes it.
     put(&bench.repo.path, "src/brake.h", "int brake(int);\n");
+    // On the branch of issue 99, which the commits come back onto (#296).
+    git(&bench.repo.path, &["checkout", "-q", "issue-99"]);
     ok(&bench.start_by(&pass_through(&bench), &["start", "build", "99", "--ignore-local"]));
     assert!(bench.started());
 }
@@ -2776,6 +2778,8 @@ fn test_WB_BUILD_75_ignore_kept_passes_the_kept_views_alone() {
 #[test]
 fn test_WB_MON_10_outcome_says_running_with_the_process_id_while_the_session_runs_and_ended_after() {
     let bench = bench();
+    // On the branch of issue 99, which the commits come back onto (#296).
+    git(&bench.repo.path, &["checkout", "-q", "issue-99"]);
     bench.session("cat {state}/watchbill/sessions/*/outcome > {log}/during\n");
     // The state folder is not in a sandbox: the stand-in makes none (#202).
     let run = bench.start_by(&pass_through(&bench), &["start", "build", "99"]);
@@ -4351,6 +4355,10 @@ fn tree_of(bench: &Bench) -> String {
 #[test]
 fn test_WB_VIEW_110_with_main_checked_out_the_breakdown_s_commit_makes_the_issue_s_branch_and_main_is_not_moved() {
     let bench = on_main();
+    // `wb status` reads the issue's title by `issue_address` as `HEAD` has it: a stand-in that prints one.
+    let yml = read(&config(&bench.repo.path)).replace("issue_address: 'tracker {issue}'", "issue_address: 'echo {issue}'");
+    fs::write(config(&bench.repo.path), yml).unwrap();
+    git(&bench.repo.path, &["commit", "-q", "-a", "-m", "A tracker that answers"]);
     let main = bench.head();
     let tree = tree_of(&bench);
     breakdown_7(&bench, "");

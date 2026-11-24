@@ -880,18 +880,19 @@ fn test_WB_ROLE_103_the_last_message_of_the_planner_names_the_commit_on_the_bran
     assert!(!file.contains("push"), "{}", file);
 }
 
-// The roles that commit in a view, and push nothing (#145).
+// The roles that commit in a view, and push nothing (#145): the program pushes their branch after the session (#151).
 const COMMITTERS: [&str; 3] = ["tester", "build", "fix"];
 
 #[test]
 fn test_WB_ROLE_88_the_tester_the_build_and_the_fix_commit_on_the_branch_and_push_nothing() {
     for role in COMMITTERS {
         let body = part(role, "## What you produce");
-        let point = body.split('\n').find(|line| line.contains("You push nothing and open no change: a person pushes the branch."));
-        let point = point.unwrap_or_else(|| panic!("{}: no point says that a person pushes: {}", role, body));
+        let point = body.split('\n').find(|line| line.contains("You push nothing and open no change: the program pushes the branch after your session"));
+        let point = point.unwrap_or_else(|| panic!("{}: no point says that the program pushes: {}", role, body));
         assert!(point.to_lowercase().contains("commit") && point.contains("{branch}"), "{}: {}", role, point);
+        assert!(!point.contains("a person pushes"), "{}: {}", role, point);
         let never = part(role, "## What you never do");
-        assert!(never.contains("- You never push, and never open a change."), "{}: {}", role, never);
+        assert!(never.contains("- You never push, and never open a change. The program does, after your session."), "{}: {}", role, never);
         let stop = stop_line(role);
         assert!(stop.contains("committed on {branch}"), "{}: {}", role, stop);
         assert!(!stop.contains("push"), "{}: {}", role, stop);
@@ -903,8 +904,8 @@ fn test_WB_ROLE_88_the_tester_the_build_and_the_fix_are_not_told_to_push_anywher
     for role in COMMITTERS {
         for line in prompt(role).split('\n') {
             let lower = line.to_lowercase();
-            // What the project's own text says about pushing is read (WB-ROLE-20), and a person pushes.
-            let allowed = ["how work is pushed and posted here", "you push nothing", "you never push", "a person pushes"];
+            // What the project's own text says about pushing is read (WB-ROLE-20), and the program pushes (#151).
+            let allowed = ["how work is pushed and posted here", "you push nothing", "you never push", "the program pushes"];
             let rest = allowed.iter().fold(lower.clone(), |text, phrase| text.replace(phrase, ""));
             assert!(!rest.contains("push"), "{}: {}", role, line);
         }
@@ -926,13 +927,15 @@ fn test_WB_ROLE_89_the_last_message_names_the_last_commit_made() {
 }
 
 #[test]
-fn test_WB_ROLE_90_the_message_of_the_build_s_last_commit_is_the_description_of_the_change() {
+fn test_WB_ROLE_90_the_build_writes_the_description_of_the_change_to_its_file() {
     let body = part("build", "## What you produce");
     assert!(
-        body.contains("The message of your last commit names the issue {issue}, the requirements {requirements}, and anything in the change that a reviewer would not expect: the change is opened from your commits."),
+        body.contains("- The description of the change, written to the file {description}: it names the issue {issue}, the requirements {requirements}, and anything in the change that a reviewer would not expect."),
         "{}",
         body
     );
+    assert!(body.contains("The file is not in the checkout and is never committed: the program opens the change with it after your session."), "{}", body);
+    assert!(!body.contains("the change is opened from your commits"), "{}", body);
 }
 
 #[test]

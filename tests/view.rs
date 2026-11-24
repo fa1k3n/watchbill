@@ -3205,7 +3205,7 @@ fn test_WB_STATUS_68_status_leaves_nothing_in_the_temporary_folder() {
     let mut command = Command::new(env!("CARGO_BIN_EXE_wb"));
     command.args(["status", "54"]).current_dir(&bench.repo.path).env_clear().envs(env()).env("XDG_STATE_HOME", &bench.state.path).env("TMPDIR", &temporary.path);
     let (run, _) = bounded(command, 10).expect("status did not end");
-    assert!(text_of(&run.stdout).contains("kept: tester round 2, 1 commit not taken, 1 paths uncommitted"), "{}", text_of(&run.stdout));
+    assert!(text_of(&run.stdout).contains("kept: tester round 2, 1 commit not taken, 1 path uncommitted"), "{}", text_of(&run.stdout));
     assert_eq!(fs::read_dir(&temporary.path).unwrap().count(), 0);
 }
 
@@ -5173,7 +5173,7 @@ fn test_WB_VIEW_123_a_commit_made_in_the_view_after_a_take_back_is_named_and_tak
     let (folder, _) = taken_once(&bench);
     commit_in(&folder, "tests/test_brake.c", "int second;\n", "A second commit");
     let out = text_of(&wb_state(&bench, &["status", "54"]).stdout);
-    assert!(out.contains("kept: build round 1, 1 commit not taken, 1 paths uncommitted"), "{}", out);
+    assert!(out.contains("kept: build round 1, 1 commit not taken, 1 path uncommitted"), "{}", out);
     let err = text_of(&bench.start(&["start", "build", "54"]).stderr);
     assert!(err.contains("A second commit") && !err.contains("A taken commit") && !err.contains("work left uncommitted"), "{}", err);
     let run = bench.start(&["start", "build", "54", "--take-back"]);
@@ -5206,4 +5206,18 @@ fn test_WB_VIEW_124_a_view_with_no_line_took_lists_every_commit_as_before() {
     commit_in(&folder, "src/new.c", "int two;\n", "Two");
     let out = text_of(&wb_state(&bench, &["status", "54"]).stdout);
     assert!(out.contains("kept: build round 1, 2 commits not taken,"), "{}", out);
+}
+
+#[test]
+fn test_WB_VIEW_121_a_kept_view_that_cannot_be_read_is_not_said_to_hold_only_uncommitted_work() {
+    let bench = bench();
+    let (folder, _) = taken_once(&bench);
+    fifo_for_head(&folder);
+    let run = wb_state_bounded(&bench, &["status", "54"], 30).expect("wb status did not end in 30 seconds");
+    let out = text_of(&run.stdout);
+    let line = out.lines().find(|line| line.starts_with("kept: build round 1, not read: ")).unwrap_or_else(|| panic!("{}", out));
+    assert!(!line.contains("left uncommitted"), "{}", line);
+    let run = wb_state_bounded(&bench, &["start", "build", "54"], 30).expect("wb start did not end in 30 seconds");
+    let err = text_of(&run.stderr);
+    assert!(err.contains("not read: ") && err.contains("uncommitted: left.txt") && !err.contains("work left uncommitted"), "{}", err);
 }

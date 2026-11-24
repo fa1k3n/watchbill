@@ -223,20 +223,25 @@ fn kept_of(root: &str, state: &Path, session: &Session, look: bool) -> Option<Ke
         // The view is read too, where it can be: a commit made in it after a take-back is named by no line of `back`
         // (#277). What `back` names stays as it says; a commit it does not name is added, the ones taken not.
         let mut more = 0;
+        let mut unread = None;
         if look {
             if let Some(place) = &session.place {
-                if let Ok(left) = view::work_left(root, &place.view, &taken_of(&session.folder)) {
-                    for (commit, subject) in left.commits {
-                        let commit = view::short(&commit).to_string();
-                        if !commits.iter().any(|(named, _)| *named == commit) {
-                            commits.push((commit, subject));
+                match view::work_left(root, &place.view, &taken_of(&session.folder)) {
+                    Ok(left) => {
+                        for (commit, subject) in left.commits {
+                            let commit = view::short(&commit).to_string();
+                            if !commits.iter().any(|(named, _)| *named == commit) {
+                                commits.push((commit, subject));
+                            }
                         }
+                        more = left.more;
                     }
-                    more = left.more;
+                    // Not read: what `back` names stays, and nothing is said of what the view may hold besides.
+                    Err(why) => unread = Some(crate::issue::shown(&why)),
                 }
             }
         }
-        return (!commits.is_empty() || !uncommitted.is_empty()).then(|| Kept { more, ..made(folder, commits, uncommitted, None) });
+        return (!commits.is_empty() || !uncommitted.is_empty()).then(|| Kept { more, ..made(folder, commits, uncommitted, unread) });
     }
     // No `back`, or one that failed: the view is read, as the file `folder` names it.
     let folder_of_back = back.and_then(|back| back.lines().last()?.strip_prefix("view: kept ")).and_then(|folder| held_folder(state, folder));
@@ -354,7 +359,8 @@ impl Kept {
             (n, None) => parts.push(format!("{} commits not taken", n)),
         }
         if !self.uncommitted.is_empty() && self.count() > 0 {
-            parts.push(format!("{} paths uncommitted", self.uncommitted.len()));
+            let n = self.uncommitted.len();
+            parts.push(format!("{} {} uncommitted", n, if n == 1 { "path" } else { "paths" }));
         }
         parts.push(crate::issue::shown(&self.folder.display().to_string()));
         parts.join(", ")

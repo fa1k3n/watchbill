@@ -54,6 +54,8 @@ struct Found {
     waits: Option<(String, String)>,
     /// The lines it was worked out from, for `wb status <issue>`.
     from: Vec<String>,
+    /// The rounds that are known to have brought nothing back (#300), as the role and the number.
+    empty: Vec<(String, u64)>,
 }
 
 /// A branch or a remote branch: how it is read with `git show`, and the name it has.
@@ -216,7 +218,7 @@ fn on_branches(root: &str, number: &str, pattern: &str, all: &[Branch], from: &m
 }
 
 /// Reads one issue, or says why it could not be read.
-fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flow: &[String], default: &str, with_title: bool) -> Result<Found, String> {
+fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flow: &[String], default: &str, with_title: bool, starts: Option<&crate::kept::Starts>) -> Result<Found, String> {
     let (comments, pattern) = (patterns.comments.as_deref(), patterns.branch.as_str());
     let mut from = Vec::new();
     let mut lines = Vec::new();
@@ -263,7 +265,12 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
     };
     // A new planner takes the issue back: only the stamps after the last `[stamp] planner` decide the step.
     let since = stamps.iter().rposition(|(name, _)| name == "planner").map_or(0, |at| at + 1);
-    let stamps = &stamps[since..];
+    // A round of a role whose work is commits counts only where something of it came back (#300): the round that the
+    // start on this machine recorded as bringing nothing back is left out. A round not recorded counts by its stamp.
+    let mut empty = starts.map(|starts| starts.empty_rounds(number)).unwrap_or_default();
+    // Only a round whose stamp still counts is said: not one before the last planner, nor one a `[revert]` took back.
+    empty.retain(|round| stamps[since..].iter().any(|(role, number)| *role == round.0 && *number == round.1));
+    let stamps: Vec<(String, u64)> = stamps[since..].iter().filter(|(role, round)| !empty.iter().any(|(name, number)| name == role && number == round)).cloned().collect();
     let has = |role: &str| stamps.iter().any(|(name, _)| name == role);
     let step = match stamps.last().map(|(name, _)| name.as_str()) {
         Some("fix") => "Fixed",
@@ -282,7 +289,7 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
     }
     let questions = answer::open_names(number, &counted);
     let waits = answer::waits_for(number, &counted);
-    Ok(Found { number: number.to_string(), branch: shown.map(|branch| branch.name.clone()), changes, unpushed, title, step, questions, waits, from })
+    Ok(Found { number: number.to_string(), branch: shown.map(|branch| branch.name.clone()), changes, unpushed, title, step, questions, waits, from, empty })
 }
 
 /// The patterns of `watchbill.yml` that `wb status` reads.
@@ -373,8 +380,10 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
 
     let mut failed: Vec<(String, String)> = Vec::new();
     let mut read: Vec<Found> = Vec::new();
+    // The folders of the starts are read once for every issue (#300).
+    let starts = state.map(crate::kept::Starts::read);
     for number in issues {
-        match read_issue(root, &number, &patterns, &all, &flow, &default, only.is_some()) {
+        match read_issue(root, &number, &patterns, &all, &flow, &default, only.is_some(), starts.as_ref()) {
             Ok(found) => read.push(found),
             Err(why) => failed.push((issue::shown(&number), issue::shown(&why))),
         }
@@ -414,7 +423,24 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
     if let Some(state) = state {
         match (only, stage) {
             (Some(number), None) => {
-                let mut lines: Vec<String> = crate::kept::scan(root, state, number).iter().map(|kept| kept.line()).collect();
+                let kept = crate::kept::scan(root, state, number);
+                // A round that brought nothing back is said, with the view kept for it where there is one (#300).
+                let mut lines: Vec<String> = read
+                    .first()
+                    .map(|found| found.empty.iter())
+                    .into_iter()
+                    .flatten()
+                    .map(|(role, round)| {
+                        let mut line = format!("{} round {}: no commit came back", issue::shown(role), round);
+                        if let Some(view) = kept.iter().find(|view| view.role == *role && view.round == round.to_string()) {
+                            line.push_str(&format!("; kept: {}", view.detail()));
+                        }
+                        line
+                    })
+                    .collect();
+                // A view named beside its round is not named again on a `kept:` line.
+                let named = |view: &crate::kept::Kept| read.first().is_some_and(|found| found.empty.iter().any(|(role, round)| view.role == *role && view.round == round.to_string()));
+                lines.extend(kept.iter().filter(|view| !named(view)).map(|kept| kept.line()));
                 lines.extend(crate::kept::cut_off(state, number).iter().map(|cut| cut.line()));
                 if !lines.is_empty() {
                     sections.push(lines.iter().map(|line| format!("{}\n", line)).collect());

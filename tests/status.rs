@@ -1073,3 +1073,194 @@ fn test_WB_STATUS_57_a_word_that_is_no_role_closes_the_question_and_names_none()
     assert!(!out.contains("waits for"), "{}", out);
     assert!(!out.contains("Questions open"), "{}", out);
 }
+
+// ---- #300: a stage only where its work came back, and a round that brought nothing back is said ----
+
+/// A folder of the lines of one start, as `wb start` leaves it, below `state`: its stamp, its outcome, and `back` where
+/// one is given.
+fn session(state: &Path, role: &str, issue: &str, round: u32, outcome: &str, back: Option<&str>) {
+    let folder = state.join("watchbill/sessions").join(format!("2026-11-24T10{:02}00Z-{}-{}", round, role, issue));
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(folder.join("stamp"), format!("[stamp] {} round {}\n", role, round)).unwrap();
+    fs::write(folder.join("outcome"), outcome).unwrap();
+    if let Some(back) = back {
+        fs::write(folder.join("back"), back).unwrap();
+    }
+}
+
+const ENDED: &str = "outcome: ended\nstatus: 0\nseconds: 5\n";
+const TAKEN: &str = "taken: 1a2b3c4 Write the tests\nview: removed\n";
+const NOTHING: &str = "view: removed\n";
+
+/// `wb status` with the state folder `state`.
+fn status_in(folder: &Path, state: &Path, args: &[&str]) -> (String, Option<i32>) {
+    let run = Command::new(env!("CARGO_BIN_EXE_wb"))
+        .arg("status")
+        .args(args)
+        .current_dir(folder)
+        .env_clear()
+        .envs(env().into_iter().filter(|(name, _)| name != "XDG_STATE_HOME"))
+        .env("XDG_STATE_HOME", state)
+        .stdin(Stdio::null())
+        .output()
+        .expect("wb could not be started");
+    (text(&run.stdout), code(&run))
+}
+
+/// Issue 3 with a tester round and a build round stamped, and a state folder.
+fn stamped_3() -> (Folder, Folder) {
+    let folder = set_up();
+    open(&folder.path, &["3"]);
+    comments(&folder.path, "3", &["[stamp] tester round 1", "[stamp] build round 1"]);
+    branch(&folder.path, "3", true);
+    (folder, common::folder())
+}
+
+#[test]
+fn test_WB_STATUS_79_a_build_round_that_brought_nothing_back_leaves_the_issue_at_tested() {
+    let (folder, state) = stamped_3();
+    session(&state.path, "tester", "3", 1, ENDED, Some(TAKEN));
+    session(&state.path, "build", "3", 1, ENDED, Some(NOTHING));
+    let (out, status) = status_in(&folder.path, &state.path, &[]);
+    assert_eq!(status, Some(0));
+    assert_eq!(out, "Tested:\n  3  issue-3-work\n");
+}
+
+#[test]
+fn test_WB_STATUS_79_a_tester_round_that_brought_nothing_back_leaves_the_issue_at_accepted() {
+    let (folder, state) = stamped_3();
+    comments(&folder.path, "3", &["[stamp] tester round 1"]);
+    session(&state.path, "tester", "3", 1, ENDED, Some("failed: the branch moved\nview: kept /somewhere\n"));
+    let (out, _) = status_in(&folder.path, &state.path, &[]);
+    assert_eq!(out, "Accepted:\n  3  issue-3-work\n");
+}
+
+#[test]
+fn test_WB_STATUS_80_a_build_round_that_brought_a_commit_back_is_built() {
+    let (folder, state) = stamped_3();
+    session(&state.path, "tester", "3", 1, ENDED, Some(TAKEN));
+    session(&state.path, "build", "3", 1, ENDED, Some(TAKEN));
+    let (out, _) = status_in(&folder.path, &state.path, &[]);
+    assert_eq!(out, "Built:\n  3  issue-3-work\n");
+}
+
+#[test]
+fn test_WB_STATUS_80_a_take_back_later_that_took_a_commit_counts_for_its_round() {
+    let (folder, state) = stamped_3();
+    session(&state.path, "tester", "3", 1, ENDED, Some(TAKEN));
+    session(&state.path, "build", "3", 1, ENDED, Some("not taken: 1a2b3c4 Build it\nview: kept /somewhere\ntake-back\ntaken: 5d6e7f8 Build it\nview: removed\n"));
+    let (out, _) = status_in(&folder.path, &state.path, &[]);
+    assert_eq!(out, "Built:\n  3  issue-3-work\n");
+}
+
+#[test]
+fn test_WB_STATUS_81_a_round_with_no_record_on_this_machine_counts_by_its_stamp() {
+    let (folder, state) = stamped_3();
+    // No folder of a start at all.
+    let (out, _) = status_in(&folder.path, &state.path, &[]);
+    assert_eq!(out, "Built:\n  3  issue-3-work\n");
+    // A folder with no `back`.
+    session(&state.path, "build", "3", 1, "outcome: ended\nstatus: 1\nseconds: 5\n", None);
+    let (out, _) = status_in(&folder.path, &state.path, &[]);
+    assert_eq!(out, "Built:\n  3  issue-3-work\n");
+    // A session that still runs: its process is one that is read as `wb` (a copy of `sleep` named `wb`).
+    let program = state.path.join("wb");
+    fs::copy("/usr/bin/sleep", &program).unwrap();
+    let mut running = Command::new(&program).arg("60").spawn().expect("the stand-in for wb could not be started");
+    fs::write(state.path.join("watchbill/sessions/2026-11-24T100100Z-build-3/outcome"), format!("outcome: running\npid: {}\n", running.id())).unwrap();
+    fs::write(state.path.join("watchbill/sessions/2026-11-24T100100Z-build-3/back"), NOTHING).unwrap();
+    let (out, _) = status_in(&folder.path, &state.path, &[]);
+    let _ = running.kill();
+    let _ = running.wait();
+    assert_eq!(out, "Built:\n  3  issue-3-work\n");
+}
+
+#[test]
+fn test_WB_STATUS_81_a_start_of_another_issue_or_another_round_says_nothing_of_this_one() {
+    let (folder, state) = stamped_3();
+    session(&state.path, "build", "33", 1, ENDED, Some(NOTHING));
+    session(&state.path, "build", "3", 2, ENDED, Some(NOTHING));
+    let (out, _) = status_in(&folder.path, &state.path, &[]);
+    assert_eq!(out, "Built:\n  3  issue-3-work\n");
+}
+
+#[test]
+fn test_WB_STATUS_82_one_issue_says_the_round_that_brought_nothing_back() {
+    let (folder, state) = stamped_3();
+    session(&state.path, "tester", "3", 1, ENDED, Some(TAKEN));
+    session(&state.path, "build", "3", 1, ENDED, Some(NOTHING));
+    let (out, _) = status_in(&folder.path, &state.path, &["3"]);
+    assert!(out.starts_with("Tested:\n  3  issue-3-work\n"), "{}", out);
+    assert!(out.lines().any(|line| line == "build round 1: no commit came back"), "{}", out);
+    assert!(!out.contains("tester round 1: no commit"), "{}", out);
+    // The list says nothing of it.
+    let (out, _) = status_in(&folder.path, &state.path, &[]);
+    assert!(!out.contains("no commit came back"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_83_a_round_with_work_kept_in_a_view_names_the_view_beside_it() {
+    let (folder, state) = stamped_3();
+    let view = state.path.join("watchbill/views/view-1");
+    fs::create_dir_all(&view).unwrap();
+    session(&state.path, "tester", "3", 1, ENDED, Some(TAKEN));
+    session(&state.path, "build", "3", 1, ENDED, Some(&format!("uncommitted: src/a.c\nuncommitted: src/b.c\nview: kept {}\n", view.display())));
+    let (out, _) = status_in(&folder.path, &state.path, &["3"]);
+    let line = format!("build round 1: no commit came back; kept: 2 paths uncommitted, {}", view.display());
+    assert!(out.lines().any(|one| one == line), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_84_a_review_round_is_not_held_to_a_commit() {
+    let folder = set_up();
+    open(&folder.path, &["3"]);
+    comments(&folder.path, "3", &["[stamp] tester round 1", "[stamp] build round 1", "[stamp] review round 1"]);
+    branch(&folder.path, "3", true);
+    let state = common::folder();
+    session(&state.path, "tester", "3", 1, ENDED, Some(TAKEN));
+    session(&state.path, "build", "3", 1, ENDED, Some(TAKEN));
+    session(&state.path, "review", "3", 1, ENDED, Some(NOTHING));
+    let (out, _) = status_in(&folder.path, &state.path, &[]);
+    assert_eq!(out, "Reviewed:\n  3  issue-3-work\n");
+    let (out, _) = status_in(&folder.path, &state.path, &["3"]);
+    assert!(!out.contains("no commit came back"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_82_a_round_before_the_last_planner_stamp_is_not_said() {
+    let folder = set_up();
+    open(&folder.path, &["3"]);
+    comments(&folder.path, "3", &["[stamp] build round 1", "[stamp] planner round 2", "[stamp] tester round 1"]);
+    branch(&folder.path, "3", true);
+    let state = common::folder();
+    session(&state.path, "build", "3", 1, ENDED, Some(NOTHING));
+    session(&state.path, "tester", "3", 1, ENDED, Some(NOTHING));
+    let (out, _) = status_in(&folder.path, &state.path, &["3"]);
+    assert!(!out.contains("build round 1: no commit came back"), "{}", out);
+    assert!(out.contains("tester round 1: no commit came back"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_82_a_round_that_a_revert_took_back_is_not_said() {
+    let folder = set_up();
+    open(&folder.path, &["3"]);
+    comments(&folder.path, "3", &["[stamp] tester round 1", "[stamp] build round 1", "[revert] build round 1"]);
+    branch(&folder.path, "3", true);
+    let state = common::folder();
+    session(&state.path, "tester", "3", 1, ENDED, Some(TAKEN));
+    session(&state.path, "build", "3", 1, ENDED, Some(NOTHING));
+    let (out, _) = status_in(&folder.path, &state.path, &["3"]);
+    assert!(!out.contains("no commit came back"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_83_a_view_named_beside_its_round_is_not_named_again_on_a_kept_line() {
+    let (folder, state) = stamped_3();
+    let view = state.path.join("watchbill/views/view-1");
+    fs::create_dir_all(&view).unwrap();
+    session(&state.path, "tester", "3", 1, ENDED, Some(TAKEN));
+    session(&state.path, "build", "3", 1, ENDED, Some(&format!("uncommitted: src/a.c\nview: kept {}\n", view.display())));
+    let (out, _) = status_in(&folder.path, &state.path, &["3"]);
+    assert_eq!(out.matches(&view.display().to_string()).count(), 1, "{}", out);
+    assert!(!out.contains("kept: build round 1"), "{}", out);
+}

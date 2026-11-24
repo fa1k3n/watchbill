@@ -89,7 +89,7 @@ At 0.12.0. An issue that changes a verdict changes its row.
 | Group | Commands |
 |---|---|
 | set up | `init`, `check`, `doctor` (planned for 0.12.0, #178), `upgrade` |
-| work | `accept`, `start`, `run` (planned for 0.12.0, #183) |
+| work | `plan` ([Taking a job in](#taking-a-job-in)), `accept`, `start`, `run` (planned for 0.12.0, #183) |
 | see | `status`, `view` ([Seeing a view first](#seeing-a-view-first)), `log` (planned for 0.12.0, #177), `answer` |
 | take back | `revert`, `clean` (planned for 0.12.0, #176) |
 | plumbing | `prompt`, `revision`, `compare` |
@@ -129,7 +129,7 @@ ci driver (github-actions, gitlab-ci, jenkins or none): (gitlab-ci)
 classed code (paths from the root, separated by commas, or [] for none): ([])
 ```
 
-Enter keeps what stands in brackets. `wb init --yes` takes all of it and asks nothing; it shows the files before it writes them. Input that ends before a yes, and Ctrl-C, write nothing and end with 1. The result is the folder `.watchbill/` at the root of the repository, to be kept under version control with the code:
+Enter keeps what stands in brackets. `wb init --yes` takes all of it and asks nothing; it shows the files before it writes them. Where the repository has the remote `origin`, `wb init` also adds the fetch line `+refs/watchbill/*:refs/watchbill/*` to it in `.git/config`, and says so first, so that a clone fetches the jobs ([Taking a job in](#taking-a-job-in)). Input that ends before a yes, and Ctrl-C, write nothing and end with 1. The result is the folder `.watchbill/` at the root of the repository, to be kept under version control with the code:
 
 ```
 .watchbill/
@@ -220,13 +220,36 @@ Nothing is committed. Commit the change alone, with nothing else in the commit; 
 - **It says each write first:** each file it adds, changes or removes, and each line it sets or adds, in the order it writes them. Then it writes, runs the check of `wb check` and says its result. `wb upgrade --dry-run` says the same and writes nothing.
 - **What it writes over** is only the revision's own: the files under `.watchbill/revision/`, the manifest, and the two lines. It does so only when git holds everything under `.watchbill/` as committed, so git gives back every byte it wrote over. A write that fails part way puts back what it had written.
 - **Refused with 1, writing nothing:** a path under `.watchbill/` that is changed, staged, not tracked or ignored by git; an installed version older than the one the repository is pinned to; a version that is not numbers separated by dots; a link under `.watchbill/revision/`, or for `.watchbill`, the manifest or `watchbill.yml`, which is never followed; a `watchbill.yml` the loader refuses, or one whose two lines are not one line each. Versions compare as numbers: 0.10.0 is newer than 0.0.9.
-- **Nothing to do:** a repository at the installed revision, its files, its manifest, its two lines and its patterns, ends with 0 and writes nothing. That is so right after an upgrade too, before the commit. The same version with another hash is upgraded.
+- **The fetch line of the jobs.** Where the remote `origin` is there and has no fetch line `+refs/watchbill/*:refs/watchbill/*`, it adds it in `.git/config`, said with the other writes (#234). Where that line is all there is to write, it writes it and runs no check and says no commit: nothing under `.watchbill/` changed.
+- **Nothing to do:** a repository at the installed revision, its files, its manifest, its two lines, its patterns and the fetch line, ends with 0 and writes nothing. That is so right after an upgrade too, before the commit. The same version with another hash is upgraded.
 
 The exit status:
 
 - **0**: it wrote and the check holds, `--dry-run` said what it would write, or there was nothing to do.
 - **1**: it was refused and wrote nothing, or it wrote and the check does not hold. The differences are said, and what was written stays.
 - **2**: `wb upgrade` was used wrongly, the folder is not in a git repository, or `.watchbill/watchbill.yml` is not there; `wb init` sets Watchbill up.
+
+## Taking a job in
+
+A job is the text of what is to be built ([docs/revision.md](docs/revision.md), point 15). `wb plan add` takes one in: its text is stored in git as a blob, under the hash of its content, and its name is a ref, `refs/watchbill/<name>` (#234). The pipe is the way in, so `wb` needs no tracker:
+
+```sh
+gh issue view 54 | wb plan add github/54 -F - --source https://github.com/acme/brake-controller/issues/54
+wb plan add -F job.txt
+wb plan add brakes -m 'The brakes hold the train on a slope of 4 %.' -m 'They are tested at 80 km/h.'
+wb plan add --from github 54
+```
+
+- **The text** is given in exactly one way: `-F <file>` (`--file`), `-F -` for standard input (a pipe or a here-document), `-m <text>` (`--message`), or `--from <adapter> <number>`. `-m` may be given more than once, and the texts are joined and cleaned up as `git commit -m` does it: each a paragraph, the whitespace at the end of each line taken off, runs of blank lines made one, and blank lines at the start and the end taken out. A file is read only where it is a plain file: a FIFO, a device or a folder is refused with 1, and a pipe is read with `-F -`. A text that is empty, not UTF-8, or over 1 MiB is refused with 1.
+- **The name** is the word after `add`. A name may hold `/`, so that a job from each tracker has its own namespace: `github/54`, `gitlab/54`. A name that `git check-ref-format` refuses, such as `github:54`, is refused with 1, and so is a name that meets another as a folder (`github` and `github/54`). With no name, the job is named by the first 12 hex digits of its hash.
+- **What it writes:** the blob of the text, `job.yml`, a tree of `job.yml` and the text under `sources/<hash>`, and a commit on the ref, moved from the value it had. It says each first. `job.yml` holds the name it was first taken in under, all its names (`names`) and, for each source, the hash, whether the text is kept, the source (`--source <address>`, or `none`), the level, the person's git identity and the time.
+- **Several sources:** other text under a name that is there is added as a source, a new commit after the one before, and it says the hashes there and the one it adds. The same text again changes nothing. Text that is already a job under another name gives that job the new name too: `job.yml` lists it, and both refs point at one new commit. Each later commit of the job moves every ref that points at the commit before, in one transaction of `git update-ref` with the values they had, so the job stays one job under all its names. Looking for the text, a ref under `refs/watchbill/` that is not a job is passed over, and said once on standard error.
+- **`--from <adapter> <number>`** runs the pattern `issue_text` of `watchbill.yml` for the number, as the person, takes what it prints as `-F -` takes it, names the job `<adapter>/<number>`, and keeps the command as the source. Until adapters are built, the adapter is set up where `tracker:` of `watchbill.yml` is its name and the file has `issue_text`; otherwise it ends with 2 and says to pipe the text in.
+- **The level** of the job is `--level <level>`, or the repository's ([Confidentiality](#confidentiality)). The text is in every clone and cannot be deleted from them, so a level above the repository's is refused with 1, and so is a run on a machine with no organisation's file. `--hash-only` keeps the hash and the source, not the text, where the organisation's file has `jobs: hash_only: allowed`; otherwise it is refused with 1.
+- **It only queues.** It runs no prompt and starts no session. With `-F` and `-m` it asks nothing of the network and runs no pattern. It pushes nothing: the refs are pushed with git, and the fetch line that `wb init` and `wb upgrade` add brings them to each clone.
+- **What it does not do yet:** `list`, `show`, `edit`, `accept` and `remove` of `wb plan`, and the planner reading the sources, are #290. `wb plan` with no subcommand, or another, ends with 2 and names `add`.
+
+The exit status: 0 the job is taken in or nothing changes; 1 it was refused, and nothing is written; 2 it was used wrongly, no adapter is set up for `--from`, or the repository is not set up.
 
 ## The prompt of an assignment
 
@@ -360,6 +383,7 @@ runners:
 - `start` is there only when `wb start <role>` may start sessions on the runner ([Starting a session](#starting-a-session)). It is a list of one word or more, each a text of one line. `{model}`, `{effort}` and `{prompt}` are the only placeholders, and the first word, the program, holds none.
 - `binds` is there only when the runner needs paths of its own in a view ([The view](#the-view)): its program, its settings, its login. Each is a path from the root, `/…`, or from the home folder of the person who runs `wb`, `~/…`, with no `..`, and not the root or the home folder itself. It is read-only, unless it is written `{writable: <path>}`. A path that is not there is left out. The paths above are where Claude Code keeps itself on one machine; they are an example, not a promise.
 - `default` is the name of one of the runners.
+- `jobs` is there only when the organisation lets `wb plan add --hash-only` keep a job's hash without its text: `jobs: {hash_only: allowed}`. Its one key is `hash_only`, `allowed` or `refused` ([Taking a job in](#taking-a-job-in)).
 - A key that is not known, at any depth, a level written twice, a field missing or a value of the wrong type is refused, with the file and the place named.
 
 The repository states its own level, as the line `confidentiality:` of `.watchbill/watchbill.yml`. Where the line is missing, the level is the most restrictive of the list. A level that is not on the list is refused by name, and so are `levels` and `runners` in `watchbill.yml`: they are the organisation's.

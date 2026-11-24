@@ -4,12 +4,13 @@
 # writes nothing: it reads file names and asks git for the root of the checkout. The lists below are
 # held to the commands, the usage and the roles of wb by tests/completion.rs.
 
-_wb_commands="init check upgrade accept start status view answer revert prompt revision compare"
+_wb_commands="init check upgrade plan accept start status view answer revert prompt revision compare"
 _wb_roles="build fix planner review tester"
 _wb_stages=("Not broken down" "Broken down" Accepted Tested Built Reviewed Fixed "Questions open" "Not read")
 
 _wb_flags_init="--yes"
 _wb_flags_upgrade="--dry-run"
+_wb_flags_plan="--file --message --from --source --level --hash-only"
 _wb_flags_accept="--no-commit"
 _wb_flags_start="--runner --prompt --ignore-local --ignore-kept --ignore-branch --no-push --take-back --issue --change --requirements --round --checkout --branch --issue_address --change_address --classed --classed_touched --description --parts --stamp"
 _wb_flags_status="--stage"
@@ -54,6 +55,21 @@ _wb() {
     *) return 0 ;;
     esac
 
+    # The values of wb plan add: a file after -F, and nothing for the others.
+    if [[ $command == plan ]]; then
+        case $prev in
+        -F | --file)
+            mapfile -t files < <(compgen -f -- "$cur")
+            COMPREPLY=("${files[@]}")
+            compopt -o filenames 2>/dev/null
+            return 0
+            ;;
+        -m | --message | --from | --source | --level)
+            return 0
+            ;;
+        esac
+    fi
+
     # The value of a flag that takes one: the headings of wb status, and nothing for the others.
     case $prev in
     --stage)
@@ -89,8 +105,15 @@ _wb() {
             changed=1
             ((i++))
             ;;
-        --stage | --from | --runner | --issue | --requirements | --round | --checkout | --branch | --issue_address | --change_address)
+        --stage | --runner | --issue | --requirements | --round | --checkout | --branch | --issue_address | --change_address)
             ((i++))
+            ;;
+        -F | -m | --file | --message | --source | --level)
+            [[ $command == plan ]] && ((i++))
+            ;;
+        --from)
+            # --from of wb plan add takes an adapter and a number; that of wb compare a folder.
+            if [[ $command == plan ]]; then ((i += 2)); else ((i++)); fi
             ;;
         --*) ;;
         *) position=$((position + 1)) ;;
@@ -103,6 +126,9 @@ _wb() {
     esac
 
     case $command in
+    plan)
+        ((position == 0)) && COMPREPLY=($(compgen -W "add" -- "$cur"))
+        ;;
     prompt | start)
         case $position in
         0) COMPREPLY=($(compgen -W "$_wb_roles" -- "$cur")) ;;

@@ -308,11 +308,55 @@ fn place() -> Place {
 
 impl Place {
     fn unheld(&self, command: &str, binds: &[PathBuf], path: &str) -> Option<String> {
+        self.unheld_covering(command, binds, path, &[])
+    }
+
+    /// The same, with `covered` the folders of the organisation's file, which the sandbox covers.
+    fn unheld_covering(&self, command: &str, binds: &[PathBuf], path: &str, covered: &[PathBuf]) -> Option<String> {
         let binds: Vec<(PathBuf, bool)> = binds.iter().map(|bind| (bind.clone(), false)).collect();
         let path = std::ffi::OsString::from(path);
-        let sandbox = Sandbox { checkout: &self.checkout, view: &self.view, home: Some(&self.home), binds: &binds, path: Some(&path) };
+        let sandbox = Sandbox { checkout: &self.checkout, view: &self.view, home: Some(&self.home), binds: &binds, covered, path: Some(&path) };
         unheld(command, &sandbox)
     }
+}
+
+#[test]
+fn test_WB_VIEW_136_a_first_word_over_4096_bytes_cannot_be_told_and_a_long_command_is_read_at_once() {
+    let p = place();
+    let binds = [p.bound.clone()];
+    let began = std::time::Instant::now();
+    let why = p.unheld(&"$CLAUDE_PROJECT_DIR".repeat(55_000), &binds, "/usr/bin").expect("a first word over 4096 bytes is named");
+    assert!(why.contains("cannot tell its program"), "{}", why);
+    let why = p.unheld(&"a".repeat(5000), &binds, "/usr/bin").expect("a first word over 4096 bytes is named");
+    assert!(why.contains("cannot tell its program"), "{}", why);
+    assert_eq!(p.unheld(&format!("/usr/bin/true{}", " $CLAUDE_PROJECT_DIR".repeat(50_000)), &binds, "/usr/bin"), None);
+    let seconds = began.elapsed().as_secs_f64();
+    assert!(seconds < 1.0, "the reading of three commands of about 1 MiB took {} seconds", seconds);
+}
+
+#[test]
+fn test_WB_VIEW_136_a_bind_that_is_a_link_is_followed_as_bubblewrap_binds_it() {
+    let p = place();
+    script(&p.free.join("rec"), "exit 0\n");
+    std::os::unix::fs::symlink(p.free.join("rec"), p.bound.join("rec-link")).unwrap();
+    std::os::unix::fs::symlink(&p.free, p.home.join("tools")).unwrap();
+    let file = p.bound.join("rec-link");
+    let folder = p.home.join("tools");
+
+    assert_eq!(p.unheld(&format!("{} hook", file.display()), &[file.clone()], "/usr/bin"), None, "a bind of a link to a program holds the program");
+    assert_eq!(p.unheld("~/tools/rec hook", &[folder.clone()], "/usr/bin"), None, "a bind of a link to a folder holds the folder");
+    assert_eq!(p.unheld("rec hook", &[folder.clone()], &folder.display().to_string()), None);
+    assert!(p.unheld(&format!("{} hook", file.display()), &[p.bound.clone()], "/usr/bin").is_some(), "a link below a bind is followed in the sandbox");
+}
+
+#[test]
+fn test_WB_VIEW_136_the_folder_of_the_organisation_s_file_is_not_held() {
+    let p = place();
+    script(&p.bound.join("org/rec"), "exit 0\n");
+    let covered = [p.bound.join("org")];
+    let why = p.unheld_covering(&format!("{}/org/rec", p.bound.display()), &[p.bound.clone()], "/usr/bin", &covered).expect("a program the sandbox covers is named");
+    assert!(why.contains("organisation"), "{}", why);
+    assert_eq!(p.unheld_covering(&format!("{}/org/rec", p.bound.display()), &[p.bound.clone()], "/usr/bin", &[]), None);
 }
 
 #[test]
@@ -666,4 +710,67 @@ fn test_WB_VIEW_142_a_program_in_the_checkout_that_the_view_does_not_hold_is_sai
     let err = said(&run);
     let line = err.lines().find(|line| line.contains(FAILS)).unwrap_or_else(|| panic!("{}", err));
     assert!(line.contains("tools/rec.sh") && line.contains("is in the checkout") && line.contains("installed outside the checkout"), "{}", line);
+}
+
+// ---- the review of #317 ----
+
+#[test]
+fn test_WB_VIEW_140_every_part_from_a_settings_file_is_said_escaped() {
+    let bench = bench();
+    // A path with a line break and an ESC in it, and an event whose name holds the same.
+    bench.user_settings(
+        "{\"hooks\": {\"Sto\\u001bp\\nwb start build: forged event\": [{\"hooks\": [{\"type\": \"command\", \"command\": \"'/opt/x\\nwb start build: forged line\\u001bc' arg\"}]}]}}",
+    );
+
+    let run = bench.start(&["start", "build", "99"]);
+
+    assert_eq!(code(&run), Some(0), "{}", said(&run));
+    let err = said(&run);
+    assert!(err.contains(FAILS), "{}", err);
+    assert!(!err.contains('\u{1b}'), "a raw ESC reached standard error: {}", err);
+    assert!(!err.lines().any(|line| line.starts_with("wb start build: forged")), "a forged line reached standard error: {}", err);
+    assert!(err.contains("\\n") && err.contains("\\u{1b}"), "{}", err);
+
+    // The loader's message, where it names a key of the file.
+    let bench = self::bench();
+    bench.user_settings("{\"a\\u001bc\\nforged\": 1, \"a\\u001bc\\nforged\": 2}");
+    let run = bench.start(&["start", "build", "99"]);
+    assert_eq!(code(&run), Some(0), "{}", said(&run));
+    let err = said(&run);
+    assert!(err.contains("was not read"), "{}", err);
+    assert!(!err.contains('\u{1b}') && !err.lines().any(|line| line.starts_with("forged")), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_138_a_project_settings_file_of_the_working_tree_not_as_head_has_it_is_said_not_to_run() {
+    let bench = bench();
+    bench.commit(".gitignore", ".claude/settings.local.json\n");
+    bench.commit(".claude/settings.json", &settings("/usr/bin/true", &["Stop"]));
+    put(&bench.repo.path, ".claude/settings.local.json", &settings("/nonexistent-wb-test/local", &["Stop"]));
+
+    let run = bench.start(&["start", "build", "99"]);
+
+    assert_eq!(code(&run), Some(0), "{}", said(&run));
+    assert!(bench.started());
+    let err = said(&run);
+    let line = err.lines().find(|line| line.contains(".claude/settings.local.json of the working tree")).unwrap_or_else(|| panic!("{}", err));
+    assert!(line.contains("not as HEAD has it") && line.contains("none of its hooks runs in the view"), "{}", line);
+    assert!(!err.contains(".claude/settings.json of the working tree"), "the file as HEAD has it is not named: {}", err);
+    assert!(!err.contains("/nonexistent-wb-test/local"), "the file of the working tree is not read: {}", err);
+}
+
+#[test]
+fn test_WB_VIEW_137_a_claude_folder_that_is_a_link_is_named_as_not_read() {
+    let bench = bench();
+    let elsewhere = folder_named("dotfiles");
+    fs::write(elsewhere.path.join("settings.json"), settings("/nonexistent-wb-test/recorder", &["Stop"])).unwrap();
+    fs::remove_dir(bench.home.path.join(".claude")).unwrap();
+    std::os::unix::fs::symlink(&elsewhere.path, bench.home.path.join(".claude")).unwrap();
+
+    let run = bench.start(&["start", "build", "99"]);
+
+    assert_eq!(code(&run), Some(0), "{}", said(&run));
+    let err = said(&run);
+    let line = err.lines().find(|line| line.contains("~/.claude/settings.json was not read")).unwrap_or_else(|| panic!("{}", err));
+    assert!(line.contains("~/.claude is not a plain folder"), "{}", line);
 }

@@ -11,7 +11,7 @@ use std::fs;
 
 const GROUPS: [(&str, &[&str]); 5] = [
     ("set up", &["init", "check", "doctor", "upgrade"]),
-    ("work", &["accept", "start", "run"]),
+    ("work", &["plan", "accept", "start", "run"]),
     ("see", &["status", "view", "log", "answer"]),
     ("take back", &["revert", "clean"]),
     ("plumbing", &["prompt", "revision", "compare"]),

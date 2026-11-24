@@ -410,7 +410,7 @@ fn new_folder(below: &Path, base: &str) -> Result<PathBuf, String> {
 }
 
 /// Removes a folder and all below it, also folders the session left without write permission.
-fn remove(folder: &Path) -> std::io::Result<()> {
+pub(crate) fn remove(folder: &Path) -> std::io::Result<()> {
     let mut open = vec![folder.to_path_buf()];
     while let Some(at) = open.pop() {
         if let Ok(found) = fs::symlink_metadata(&at) {
@@ -2291,6 +2291,11 @@ pub fn tidy(name: &str, view: &View, back: &Back, err: &mut dyn Write) -> Option
     }
     let _ = writeln!(err, "{}: the view is kept, with what was not taken back: {}", name, view.folder.display());
     Some(view.folder.clone())
+}
+
+/// Whether `commit` is a commit of the repository at `root`: a view made from another repository is not this one's (#176).
+pub fn in_repository(root: &str, commit: &str) -> bool {
+    is_object(commit) && git(Path::new(root), &["cat-file", "-e", &format!("{}^{{commit}}", commit)], &[], None).is_ok()
 }
 
 /// Removes a view that no session ran in.

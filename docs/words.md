@@ -55,6 +55,8 @@ The words `wb` and its documents use, one line each, and how they are like git. 
 | `run` (planned for 0.12.0, #183) | `git rebase` | stops at gates, no `--continue` |
 | `answer` | resolving, then continuing | posts on the issue |
 | `revert` | `git revert` | takes back a step and every step after it, by a marker on the issue; nothing is deleted |
+| `clean` | `git clean` | removes the kept views whose work is all taken back; `-n` and `--dry-run` as git; a view named is removed with its work, no `--force` |
+| `view --kept` | `git status` | the kept views, what each holds |
 | `view --in` | `git ls-files` | |
 | `view --out` | `git ls-files --others` | by folder, with counts |
 | `view <path>` | `git check-ignore -v` | says the list and the line |

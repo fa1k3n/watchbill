@@ -203,9 +203,10 @@ const USAGE: &str = "usage:
             --dry-run (-n) says Would remove and removes nothing. <view>, the
             name of the folder of a view or its whole path, as wb view --kept
             prints it, removes that view although work is left in it, and says
-            the work first: there is no --force. A view that git could not
-            read, or whose session runs, is never removed, named or not. It
-            never removes the checkout, a branch or the lines of a session.
+            the work first. Naming a view is the one waiver of the work left in
+            it. A view that git could not read, or whose session runs, is
+            never removed, named or not. It never removes the checkout, a
+            branch or the lines of a session.
             Ends with 0 when it is done or there is nothing to remove, 1 when
             a named view is not removed, 2 when it was used wrongly or this
             folder is not in a git repository

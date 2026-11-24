@@ -11,13 +11,13 @@ _wb_stages=("Not broken down" "Broken down" Accepted Tested Built Reviewed Fixed
 _wb_flags_init="--yes"
 _wb_flags_upgrade="--dry-run"
 _wb_flags_accept="--no-commit"
-_wb_flags_start="--runner --prompt --ignore-local --ignore-kept --ignore-branch --take-back --issue --change --requirements --round --checkout --branch --issue_address --change_address --classed --classed_touched --parts --stamp"
+_wb_flags_start="--runner --prompt --ignore-local --ignore-kept --ignore-branch --no-push --take-back --issue --change --requirements --round --checkout --branch --issue_address --change_address --classed --classed_touched --description --parts --stamp"
 _wb_flags_status="--stage"
 _wb_flags_view="--in --out"
 _wb_flags_answer="--change --show --suggested"
 _wb_flags_revert="--change --round"
 _wb_flags_compare="--from"
-_wb_flags_prompt="--issue --change --requirements --round --checkout --branch --issue_address --change_address --runner --classed --classed_touched --parts --stamp"
+_wb_flags_prompt="--issue --change --requirements --round --checkout --branch --issue_address --change_address --runner --classed --classed_touched --description --parts --stamp"
 
 # Adds to COMPREPLY the issues that start with $cur: the names of the files .watchbill/issues/<name>.yml of the
 # checkout that wb takes as an issue (letters, digits, . _ -, at most 64, not starting with a dot). A name read

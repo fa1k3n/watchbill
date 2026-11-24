@@ -180,7 +180,7 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
             ("change_comment_bodies", whole("change")),
             // The command that opens the change as a draft, which `wb start build` says and a person runs (#145). The
             // description is filled from the commits: the build writes it in the message of its last commit.
-            ("draft_change", format!("gh pr create --repo {} --head {{branch}} --draft --fill-verbose", repository)),
+            ("draft_change", format!("gh pr create --repo {} --head {{branch}} --draft --fill --body-file -", repository)),
         ];
         for (key, line) in patterns {
             text.push_str(&format!("{}: {}\n", key, yaml_value(&line)));
@@ -243,8 +243,10 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
             // byte, oldest first. The query is quoted: it holds `&`.
             ("issue_comment_bodies", whole("issues", "issue")),
             ("change_comment_bodies", whole("merge_requests", "change")),
-            // The command that opens the change as a draft, which `wb start build` says and a person runs (#145).
-            ("draft_change", format!("glab mr create --repo {} --source-branch {{branch}} --draft --fill --fill-commit-body --yes", url)),
+            // The command that opens the change as a draft (#145, #151). `--fill` gives the title from the commits;
+            // `--push=false` keeps `glab` from pushing, which `--fill` does by default: `wb`'s push is the only push.
+            // A given `--description` is kept over the one `--fill` would make.
+            ("draft_change", format!("glab mr create --repo {} --source-branch {{branch}} --draft --fill --push=false --yes --description \"$(cat)\"", url)),
         ];
         for (key, line) in patterns {
             text.push_str(&format!("{}: {}\n", key, yaml_value(&line)));

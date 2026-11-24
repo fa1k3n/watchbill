@@ -19,7 +19,7 @@ const MANIFEST_PATH: &str = ".watchbill/revision.sha256";
 const PLACEHOLDERS_FILE: &str = "placeholders.md";
 
 /// The words a prompt is filled in with and no others: `roles/placeholders.md` of the revision.
-pub const PLACEHOLDERS: [&str; 10] = [
+pub const PLACEHOLDERS: [&str; 11] = [
     "issue",
     "change",
     "requirements",
@@ -30,6 +30,7 @@ pub const PLACEHOLDERS: [&str; 10] = [
     "change_address",
     "classed",
     "classed_touched",
+    "description",
 ];
 
 /// The line between the role's text and the project's own text.
@@ -626,6 +627,10 @@ pub fn derive_with(
     let change = get(&values, "change");
     if !has(&values, "checkout") {
         values.push(("checkout", root.to_string()));
+    }
+    // The file the change's description is written to: in the sandbox, outside the view's tree (#151).
+    if !has(&values, "description") {
+        values.push(("description", crate::view::DESCRIPTION.to_string()));
     }
     // A review or a fix of a change with no issue takes the change's description as the spec (#116).
     let alone = match (&issue, &change) {

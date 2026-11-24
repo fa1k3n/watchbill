@@ -7,7 +7,8 @@ wb\-prompt \- print the prompt of a role
     [\-\-requirements <text>] [\-\-round <text>] [\-\-checkout <text>]
     [\-\-branch <text>] [\-\-issue_address <text>]
     [\-\-change_address <text>] [\-\-classed <text>]
-    [\-\-classed_touched <text>] [\-\-runner <name>] [\-\-parts] [\-\-stamp]
+    [\-\-classed_touched <text>] [\-\-description <text>]
+    [\-\-runner <name>] [\-\-parts] [\-\-stamp]
 .fi
 .SH DESCRIPTION
 .PP
@@ -49,6 +50,9 @@ The classed paths, for {classed}.
 .TP
 .B \-\-classed_touched <text>
 The classed paths the change touches, for {classed_touched}.
+.TP
+.B \-\-description <text>
+The file of the change's description, for {description}. Without it, /run/watchbill/description, where a session that wb start starts writes it.
 .TP
 .B \-\-runner <name>
 The runner the prompt is handed to. The planner needs it, and is handed out only to a runner that /etc/watchbill/organisation.yml clears for the planner up to the level of the repository, the line confidentiality: of watchbill.yml. Its stamp then has the model and effort of that file, and \-\-parts adds the level and the runner.

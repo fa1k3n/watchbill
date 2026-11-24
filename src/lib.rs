@@ -38,28 +38,30 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// What `wb --help` prints. The words are those of the Python `wb`.
 pub const USAGE: &str = "usage:
-  wb init [--yes]
-  wb check
-  wb upgrade [--dry-run]
+  wb init [--yes] [-q | --quiet]
+  wb check [-q | --quiet]
+  wb upgrade [--dry-run | -n] [-q | --quiet]
   wb plan add [<name>] (-F <file> | -m <text>... | --from <adapter> <number>)
-            [--source <address>] [--level <level>] [--hash-only]
+            [--source <address>] [--level <level>] [--hash-only] [-q | --quiet]
             -F is --file and -m is --message
-            or list
-            or show <name>
-            or edit <name>
-            or accept <name> [--no-commit]
-            or remove <name>
-  wb accept <issue> [--no-commit]
+            or list [-q | --quiet]
+            or show <name> [-q | --quiet]
+            or edit <name> [-q | --quiet]
+            or accept <name> [--no-commit | -n] [-q | --quiet]
+            or remove <name> [-q | --quiet]
+  wb accept <issue> [--no-commit | -n] [-q | --quiet]
   wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [--ignore-kept]
-            [--ignore-branch] [--no-push] [the options of prompt]
+            [--ignore-branch] [--no-push] [-q | --quiet] [the options of prompt]
             or <role> <issue> --take-back
             or --list [-v | --verbose]
-  wb status [<issue>] [--stage <heading>]
-  wb view <issue> (<role> [--in | --out] | <path>)
+  wb status [<issue>] [--stage <heading>] [-q | --quiet]
+  wb view <issue> (<role> [--in | --out] | <path>) [-q | --quiet]
             or --kept [-v | --verbose]
   wb answer (<issue> | --change <n>) [--show | [--suggested] [<question> <answer>]...]
-  wb revert (<issue> | --change <n>) <role> [--round <n>]
+            [-q | --quiet]
+  wb revert (<issue> | --change <n>) <role> [--round <n>] [-q | --quiet]
   wb clean [--dry-run | -n] [<view>]
+            [-q | --quiet]
   wb prompt <role> [<issue>] [--issue <text>] [--change <text>]
             [--requirements <text>] [--round <text>] [--checkout <text>]
             [--branch <text>] [--issue_address <text>]
@@ -67,9 +69,9 @@ pub const USAGE: &str = "usage:
             [--classed_touched <text>] [--description <text>]
             [--brought <text>] [--questions <text>]
             [--change_comment <text>] [--needs_person <text>]
-            [--runner <name>] [--parts] [--stamp] [--show-origin]
-  wb revision
-  wb compare [--from <path>] <revision> <revision>
+            [--runner <name>] [--parts] [--stamp] [--show-origin] [-q | --quiet]
+  wb revision [-q | --quiet]
+  wb compare [--from <path>] <revision> <revision> [-q | --quiet]
   wb --version
 
   init      set Watchbill up in the git repository of this folder: propose what
@@ -77,13 +79,16 @@ pub const USAGE: &str = "usage:
             origin, a folder of requirements, the CI driver), ask one line per
             answer, show the file and write .watchbill/watchbill.yml at the
             root of the repository. --yes (-y) takes what it found and asks
-            nothing. A file that is already there is never changed
+            nothing. A file that is already there is never changed. -q
+            (--quiet) leaves out the lines after the files are written, and
+            nothing it says before
   check     say whether the repository still is at the revision it is pinned to:
             each file under .watchbill/revision/ against the manifest, the
             manifest against the revision line of watchbill.yml, and that
             revision against the installed wb, and the project text for a
             placeholder the revision does not know. Ends with 0 when all of it
-            holds, 1 when something differs. Writes nothing
+            holds, 1 when something differs. Writes nothing. -q (--quiet)
+            leaves out the line that says all holds, and no difference
   upgrade   pin the repository to the installed revision: copy its files over
             .watchbill/revision/, removing those it does not have, and its
             manifest to .watchbill/revision.sha256, set the lines watchbill:
@@ -91,11 +96,14 @@ pub const USAGE: &str = "usage:
             wb init would write that the file lacks; no other line is changed.
             It says each write first, then writes, runs the check of wb check
             and says the command that commits the change: it commits nothing.
-            --dry-run says the same and writes nothing. Ends with 0 when it is
+            --dry-run (-n) says the same and writes nothing. Ends with 0 when it is
             done and the check holds, or there is nothing to do; 1 when it is
             refused (a change under .watchbill/ that is not committed, an
             installed version older than the pinned one) or the check does not
-            hold; 2 when it was used wrongly or the repository is not set up
+            hold; 2 when it was used wrongly or the repository is not set up.
+            -q (--quiet) leaves out the lines that follow the writes and the
+            line that says there is nothing to do, and not what it says before
+            it writes, a refusal or a difference of the check
   plan      the plans of the jobs, kept in git (docs/revision.md, point 15).
             wb plan add takes a job in. Its text is given in one of three
             ways: -F <file>, where -F - reads standard input, a pipe or a
@@ -148,7 +156,7 @@ pub const USAGE: &str = "usage:
             the message Edit the issue's file (<name>); where nothing changed
             it commits nothing, and where the editor fails, the file no longer
             holds its form or names another issue, it commits nothing and
-            leaves the edit. wb plan accept <name> [--no-commit] accepts the
+            leaves the edit. wb plan accept <name> [--no-commit | -n] accepts the
             issue's file as wb accept does. wb plan remove <name> adds a
             commit with the marker removed after the plan's, moves every name
             of it there, and rewrites nothing; the name stays taken. It is
@@ -158,7 +166,9 @@ pub const USAGE: &str = "usage:
             show, edit, accept and remove of a name that is no plan are
             refused. Ends with 0 when it is done or nothing changes, 1 when it
             is refused, 2 when it was used wrongly or the repository is not
-            set up
+            set up. -q (--quiet) leaves out what a subcommand says after it
+            has written or where it has nothing to do, and not what it says
+            before it writes, a refusal, or what list and show print
   prompt    print the prompt of a role on standard output and nothing else: the
             role's text of the pinned revision with each placeholder filled
             from the option of its name, such as --issue for {issue}, then the
@@ -186,7 +196,9 @@ pub const USAGE: &str = "usage:
             watchbill.yml. Its stamp then has the model and effort of that
             file, and --parts adds the level and the runner. Ends with 0 when
             the prompt is printed, 1 when it is refused, 2 when it was used
-            wrongly or the repository is not set up. Writes nothing
+            wrongly or the repository is not set up. Writes nothing. -q
+            (--quiet) is taken and changes nothing: what it prints is what a
+            script reads
   start     start a session of one role, planner, tester, build, review or
             fix: the role is the word after start. The issue is needed by
             all but the review and the fix, which may be given --change
@@ -228,16 +240,25 @@ pub const USAGE: &str = "usage:
             runner with start and planner up to the level of the repository.
             --show-origin prints as prompt does. Ends with the session: 0 when
             it ended with 0, else 1; 1 when it is refused, 2 when it was used
-            wrongly or the repository is not set up
+            wrongly or the repository is not set up. -q (--quiet) leaves out
+            the lines that only inform, as how to see what a commit changes,
+            the size of a view of the whole tree and that --take-back pushes
+            nothing, and not a refusal, what it says before it posts or
+            writes, or what --prompt, --stamp, --parts, --show-origin and
+            --list print
   revision  print the version of the package, the hash of its revision and the
-            manifest: the hash of every file the revision holds. Writes nothing
+            manifest: the hash of every file the revision holds. Writes
+            nothing. -q (--quiet) is taken and changes nothing: what it prints
+            is what a script reads
   compare   say what changed between two revisions, each named by its version
             or its hash: one line for each file added, removed or changed, then
             a unified diff of each changed file. The installed revision is one;
             the other is that of the repository at --from, the root of a
             repository pinned to it. Ends with 0 when they are the same, 1 when
             they differ or the files of a revision are refused, 2 when a
-            revision is not found or it was used wrongly. Writes nothing
+            revision is not found or it was used wrongly. Writes nothing. -q
+            (--quiet) is taken and changes nothing: what it prints is what a
+            script reads
   accept    accept the issue's file .watchbill/issues/<issue>.yml: read it,
             hold it to its form, refuse it while it holds a question, say what
             will be written, and write .watchbill/issues/<issue>.accepted with
@@ -245,11 +266,13 @@ pub const USAGE: &str = "usage:
             time in UTC. An acceptance that is there is never written over.
             Then commit it alone, on the issue's branch, with nothing else: it
             refuses first when the checkout is not on that branch or the
-            issue's file is not committed as it is. --no-commit only writes it
+            issue's file is not committed as it is. --no-commit (-n) only writes it
             and says the commit. Where a plan of the name is there (wb plan)
             and is not accepted, it ends with 2 and names wb plan accept
             <name>. Ends with 0 when it is accepted, 1 when it is refused, 2
-            when it was used wrongly or the repository is not set up
+            when it was used wrongly or the repository is not set up. -q
+            (--quiet) leaves out the check of the lists and the lines after
+            the write, and not what it will write or commit, or a refusal
   status    list the issues in the flow under headings, as git status lists
             files: each issue under the last step it has done (Not planned,
             Planned, Accepted, Tested, Built, Reviewed, Fixed), and last the
@@ -275,7 +298,8 @@ pub const USAGE: &str = "usage:
             pattern failed for one (it is listed under Not read), 2 when it
             was used wrongly or the repository is not set up. Writes nothing
             but a temporary repository in $TMPDIR, removed after, where it
-            reads a kept view
+            reads a kept view. -q (--quiet) is taken and changes nothing: what
+            it prints is what a script reads
   view      show what a session of a role will see, before it starts. wb view
             <issue> <role> prints the paths of its view, one to a line, the
             list the start makes the view from, and nothing else. --in
@@ -299,7 +323,8 @@ pub const USAGE: &str = "usage:
             role or the view is shown, 1 when it is in none, the folder is not
             in HEAD or the issue has no accepted, committed file, 2 when it
             was used wrongly (a file given as the folder too) or the
-            repository is not set up. Writes nothing
+            repository is not set up. Writes nothing. -q (--quiet) is taken
+            and changes nothing: what it prints is what a script reads
   revert    take an issue back to before a step, deleting nothing:
             wb revert <issue> <role> [--round <n>] posts, by issue_comment of
             watchbill.yml, one comment whose first line is
@@ -312,7 +337,8 @@ pub const USAGE: &str = "usage:
             not touched: taking commits back is git's. The planner is taken
             back with git, not by a marker. Ends with 0 when the marker is
             posted, 1 when it was refused or the posting failed, 2 when it was
-            used wrongly or the repository is not set up
+            used wrongly or the repository is not set up. -q (--quiet) leaves
+            out the line that says what stays as it was, and not a refusal
   clean     remove the views kept on this machine for this repository that
             have nothing left in them: those whose session ended and that hold
             no commit not taken back (a commit a take-back took is taken) and
@@ -328,7 +354,9 @@ pub const USAGE: &str = "usage:
             branch or the lines of a session.
             Ends with 0 when it is done or there is nothing to remove, 1 when
             a named view is not removed, 2 when it was used wrongly or this
-            folder is not in a git repository
+            folder is not in a git repository. -q (--quiet) leaves out the
+            Keeping lines, and not Removing or Would remove, which it says
+            before it removes
   answer    answer the open questions of an issue: wb answer <issue> reads
             the whole comments by issue_comment_bodies of watchbill.yml, shows
             each open question in full, one at a time, and asks: Enter takes
@@ -352,7 +380,9 @@ pub const USAGE: &str = "usage:
             issue's file: where an answer does, it says so. Ends with 0 when
             the answers are posted or no question is open, 1 when it was
             refused, the input ended or a pattern failed, 2 when it was used
-            wrongly or the repository is not set up
+            wrongly or the repository is not set up. -q (--quiet) leaves out
+            the line that says the answers are posted, and not what it will
+            post, a question or a refusal
 ";
 
 /// Runs a command so that a fault in `wb` itself is not shown as a panic: the hook prints nothing,
@@ -432,6 +462,39 @@ fn named(found: Word, parser: &mut Parser) -> String {
         },
         Word::Value(value) => word(value.as_bytes()),
     }
+}
+
+/// What `quiet_of` made of a word.
+enum Quiet {
+    /// The word is not `-q` or `--quiet`.
+    Not,
+    /// The word is `-q` or `--quiet`, the first of it: the command is quiet.
+    Taken,
+    /// The word is `-q` or `--quiet` again.
+    Twice,
+}
+
+/// What a command says of `-q` given twice: the same in every command.
+const QUIET_TWICE: &str = "'--quiet' is given twice";
+
+/// `-q` and `--quiet` (#285), read once for every command: the one place that says which words they are. The first
+/// makes the command quiet (`refusal::quiet`): it leaves out the lines that only inform, through `refusal::inform`,
+/// and never a refusal, what it says before it writes, or the output a script reads. `given` is whether it was given.
+fn quiet_of(found: &Word, given: &mut bool) -> Quiet {
+    let quiet = match found {
+        Word::Short('q') => true,
+        Word::Long(option) if option == "quiet" => true,
+        _ => false,
+    };
+    if !quiet {
+        return Quiet::Not;
+    }
+    if *given {
+        return Quiet::Twice;
+    }
+    *given = true;
+    refusal::set_quiet();
+    Quiet::Taken
 }
 
 /// Runs `wb` with the words after its name and returns the exit status:
@@ -566,18 +629,25 @@ fn run_help(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i3
 /// `wb init [--yes]`
 fn run_init(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let mut yes = false;
+    let mut quiet = false;
     loop {
         let refused = match next(parser) {
             Ok(None) => break,
-            Ok(Some(Word::Short('y'))) => {
-                yes = true;
-                continue;
-            }
-            Ok(Some(Word::Long(option))) if option == "yes" => {
-                yes = true;
-                continue;
-            }
-            Ok(Some(found)) => named(found, parser),
+            Ok(Some(found)) => match quiet_of(&found, &mut quiet) {
+                Quiet::Taken => continue,
+                Quiet::Twice => return used(err, "wb init", QUIET_TWICE),
+                Quiet::Not => match found {
+                    Word::Short('y') => {
+                        yes = true;
+                        continue;
+                    }
+                    Word::Long(option) if option == "yes" => {
+                        yes = true;
+                        continue;
+                    }
+                    found => named(found, parser),
+                },
+            },
             Err(refused) => refused,
         };
         let _ = write!(err, "wb init: '{}' is not known\n\n{}", refused, USAGE);
@@ -598,12 +668,17 @@ fn run_init(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write, e
 
 /// `wb check`: the repository against its pinned revision and the installed `wb`. It writes nothing.
 fn run_check(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    let refused = match next(parser) {
-        Ok(None) => None,
-        Ok(Some(found)) => Some(named(found, parser)),
-        Err(refused) => Some(refused),
-    };
-    if let Some(refused) = refused {
+    let mut quiet = false;
+    loop {
+        let refused = match next(parser) {
+            Ok(None) => break,
+            Ok(Some(found)) => match quiet_of(&found, &mut quiet) {
+                Quiet::Taken => continue,
+                Quiet::Twice => return used(err, "wb check", QUIET_TWICE),
+                Quiet::Not => named(found, parser),
+            },
+            Err(refused) => refused,
+        };
         let _ = write!(err, "wb check: '{}' is not known\n\n{}", refused, USAGE);
         return 2;
     }
@@ -623,17 +698,31 @@ fn run_check(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i
 /// `wb upgrade [--dry-run]`: pins the repository to the installed revision, saying each write first (#174).
 fn run_upgrade(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let mut dry_run = false;
+    let mut quiet = false;
     loop {
         let refused = match next(parser) {
             Ok(None) => break,
-            Ok(Some(Word::Long(option))) if option == "dry-run" => {
-                if dry_run {
-                    return used(err, "wb upgrade", "'--dry-run' is given twice");
-                }
-                dry_run = true;
-                continue;
-            }
-            Ok(Some(found)) => named(found, parser),
+            Ok(Some(found)) => match quiet_of(&found, &mut quiet) {
+                Quiet::Taken => continue,
+                Quiet::Twice => return used(err, "wb upgrade", QUIET_TWICE),
+                Quiet::Not => match found {
+                    Word::Short('n') => {
+                        if dry_run {
+                            return used(err, "wb upgrade", "'--dry-run' is given twice");
+                        }
+                        dry_run = true;
+                        continue;
+                    }
+                    Word::Long(option) if option == "dry-run" => {
+                        if dry_run {
+                            return used(err, "wb upgrade", "'--dry-run' is given twice");
+                        }
+                        dry_run = true;
+                        continue;
+                    }
+                    found => named(found, parser),
+                },
+            },
             Err(refused) => refused,
         };
         return used(err, "wb upgrade", &format!("'{}' is not known", refused));
@@ -752,27 +841,37 @@ fn run_start_word(parser: &mut Parser, folder: Option<&Path>, machine: &Machine,
 fn run_list(given: (bool, bool), parser: &mut Parser, folder: Option<&Path>, machine: &Machine, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let name = "wb start";
     let (mut list, mut verbose) = given;
+    let mut quiet = false;
     loop {
-        match next(parser) {
+        let found = match next(parser) {
             Ok(None) => break,
-            Ok(Some(Word::Long(option))) if option == "list" || option == "verbose" => {
+            Ok(Some(found)) => found,
+            Err(given) => return used(err, name, &format!("'{}' is not taken with --list", given.escape_debug())),
+        };
+        // `-q` is taken with `--list` and changes nothing: the roles are what a script reads.
+        match quiet_of(&found, &mut quiet) {
+            Quiet::Taken => continue,
+            Quiet::Twice => return used(err, name, QUIET_TWICE),
+            Quiet::Not => {}
+        }
+        match found {
+            Word::Long(option) if option == "list" || option == "verbose" => {
                 let flag = if option == "list" { &mut list } else { &mut verbose };
                 if *flag {
                     return used(err, name, &format!("'--{}' is given twice", option));
                 }
                 *flag = true;
             }
-            Ok(Some(Word::Short('v'))) => {
+            Word::Short('v') => {
                 if verbose {
                     return used(err, name, "'-v' is given twice");
                 }
                 verbose = true;
             }
-            Ok(Some(found)) => {
+            found => {
                 let given = named(found, parser);
                 return used(err, name, &format!("'{}' is not taken with --list", given.escape_debug()));
             }
-            Err(given) => return used(err, name, &format!("'{}' is not taken with --list", given.escape_debug())),
         }
     }
     if !list {
@@ -913,12 +1012,18 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
     let (mut parts, mut stamp, mut print, mut ignore_local, mut ignore_kept, mut take_back) = (false, false, false, false, false, false);
     let (mut ignore_branch, mut no_push, mut show_origin) = (false, false, false);
     let mut runner: Option<String> = None;
+    let mut quiet = false;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
             Ok(Some(found)) => found,
             Err(refused) => return Err(used(err, name, &format!("'{}' is not known", refused))),
         };
+        match quiet_of(&found, &mut quiet) {
+            Quiet::Taken => continue,
+            Quiet::Twice => return Err(used(err, name, QUIET_TWICE)),
+            Quiet::Not => {}
+        }
         match found {
             Word::Long(option) if option == "parts" || option == "stamp" || option == "show-origin" || (starter && (option == "prompt" || option == "ignore-local" || option == "ignore-kept" || option == "ignore-branch" || option == "take-back" || option == "no-push")) => {
                 let flag = match option.as_str() {
@@ -1843,7 +1948,7 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     let _held = interrupt::hold();
     // A view of the whole tree (#202) is said: what it holds, and for a role with no issue's file what it is not.
     if let Some(size) = &prepared.size {
-        let _ = writeln!(err, "{}: the view holds the whole tree of HEAD: {} files, {} bytes", name, size.files, size.bytes);
+        refusal::inform(err, format_args!("{}: the view holds the whole tree of HEAD: {} files, {} bytes", name, size.files, size.bytes));
         if layout == view::Layout::Whole {
             let _ = writeln!(
                 err,
@@ -1909,7 +2014,7 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     push::remove_out(&prepared.out);
     // How to look at what was taken (#159): the commits keep who wrote them, the tests, the checks.
     for (commit, _) in &back.taken {
-        let _ = writeln!(err, "{}: to see what the commit changes, run:\n  git show --stat {}", name, commit);
+        refusal::inform(err, format_args!("{}: to see what the commit changes, run:\n  git show --stat {}", name, commit));
     }
     // The push and the change (#151): by `wb`, as the person, outside the sandbox, or said where `wb` does not push.
     let ended = push::Ended {
@@ -2087,11 +2192,11 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
         refusal::limit(err, name, format_args!("{}the lines of this take-back could not be written in {}: {}", held, kept.session.display(), error));
     }
     for (commit, _) in &back.taken {
-        let _ = writeln!(err, "{}: to see what the commit changes, run:\n  git show --stat {}", name, commit);
+        refusal::inform(err, format_args!("{}: to see what the commit changes, run:\n  git show --stat {}", name, commit));
     }
     if !back.taken.is_empty() {
         // A take-back is not the end of a session (#151): the person, who is there, pushes.
-        let _ = writeln!(err, "{}: nothing is pushed: wb pushes at the end of a session, and --take-back is not one.", name);
+        refusal::inform(err, format_args!("{}: nothing is pushed: wb pushes at the end of a session, and --take-back is not one.", name));
         push::say_commands(name, role, &root, kept.view.branch_name(), err);
     }
     if back.all_taken() && written.is_ok() {
@@ -2221,14 +2326,21 @@ fn run_plan_of(sub: &str, parser: &mut Parser, folder: Option<&Path>, out: &mut 
     let name = format!("wb plan {}", sub);
     let mut given: Option<String> = None;
     let mut commit = true;
+    let mut quiet = false;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
             Ok(Some(found)) => found,
             Err(refused) => return used(err, &name, &format!("'{}' is not known", refused)),
         };
+        match quiet_of(&found, &mut quiet) {
+            Quiet::Taken => continue,
+            Quiet::Twice => return used(err, &name, QUIET_TWICE),
+            Quiet::Not => {}
+        }
         match found {
             Word::Long(option) if option == "no-commit" && sub == "accept" && commit => commit = false,
+            Word::Short('n') if sub == "accept" && commit => commit = false,
             Word::Value(value) if sub != "list" && given.is_none() => given = Some(word(value.as_bytes())),
             found => return used(err, &name, &format!("'{}' is not known", named(found, parser).escape_debug())),
         }
@@ -2281,12 +2393,18 @@ fn run_plan(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, inp
     let wanted = |parser: &mut Parser, flag: &str| -> Result<String, String> {
         parser.value().map(|value| word(value.as_bytes())).map_err(|_| format!("{} needs a value", flag))
     };
+    let mut quiet = false;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
             Ok(Some(found)) => found,
             Err(refused) => return used(err, name, &format!("'{}' is not known", refused)),
         };
+        match quiet_of(&found, &mut quiet) {
+            Quiet::Taken => continue,
+            Quiet::Twice => return used(err, name, QUIET_TWICE),
+            Quiet::Not => {}
+        }
         let taken: Result<(), String> = match found {
             Word::Short('F') => wanted(parser, "-F").map(|value| files.push(value)),
             Word::Long(option) if option == "file" => wanted(parser, "--file").map(|value| files.push(value)),
@@ -2368,14 +2486,21 @@ fn run_accept(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     };
     let mut issue: Option<String> = None;
     let mut commit = true;
+    let mut quiet = false;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
             Ok(Some(found)) => found,
             Err(refused) => return used(err, format!("'{}' is not known", refused)),
         };
+        match quiet_of(&found, &mut quiet) {
+            Quiet::Taken => continue,
+            Quiet::Twice => return used(err, QUIET_TWICE.to_string()),
+            Quiet::Not => {}
+        }
         match found {
             Word::Long(option) if option == "no-commit" => commit = false,
+            Word::Short('n') => commit = false,
             Word::Value(value) if issue.is_none() => issue = Some(word(value.as_bytes())),
             found => {
                 let refused = named(found, parser);
@@ -2414,12 +2539,18 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     };
     let mut issue: Option<String> = None;
     let mut stage: Option<&'static str> = None;
+    let mut quiet = false;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
             Ok(Some(found)) => found,
             Err(refused) => return used(err, format!("'{}' is not known", refused)),
         };
+        match quiet_of(&found, &mut quiet) {
+            Quiet::Taken => continue,
+            Quiet::Twice => return used(err, QUIET_TWICE.to_string()),
+            Quiet::Not => {}
+        }
         match found {
             Word::Value(value) if issue.is_none() => issue = Some(word(value.as_bytes())),
             Word::Long(option) if option == "stage" && stage.is_none() => {
@@ -2503,12 +2634,18 @@ fn run_clean(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i
     let name = "wb clean";
     let mut dry = false;
     let mut view: Option<String> = None;
+    let mut quiet = false;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
             Ok(Some(found)) => found,
             Err(refused) => return used(err, name, &format!("'{}' is not known", refused)),
         };
+        match quiet_of(&found, &mut quiet) {
+            Quiet::Taken => continue,
+            Quiet::Twice => return used(err, name, QUIET_TWICE),
+            Quiet::Not => {}
+        }
         match found {
             Word::Short('n') => {
                 if dry {
@@ -2560,7 +2697,8 @@ fn run_clean(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i
                 if kept::removable(entry) {
                     lines.push(format!("{} {}", say, folder));
                     chosen.push(entry);
-                } else {
+                } else if !refusal::quiet() {
+                    // A view that is kept is said as it was, unless `-q` was given (#285): it only informs.
                     lines.push(format!("Keeping {}: {}", folder, entry.left()));
                 }
             }
@@ -2598,12 +2736,18 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
     let name = "wb view";
     let mut words: Vec<String> = Vec::new();
     let (mut inside, mut outside, mut kept, mut verbose) = (false, false, false, false);
+    let mut quiet = false;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
             Ok(Some(found)) => found,
             Err(refused) => return used(err, name, &format!("'{}' is not known", refused)),
         };
+        match quiet_of(&found, &mut quiet) {
+            Quiet::Taken => continue,
+            Quiet::Twice => return used(err, name, QUIET_TWICE),
+            Quiet::Not => {}
+        }
         match found {
             Word::Long(option) if option == "verbose" => {
                 if verbose {
@@ -2856,12 +3000,18 @@ fn run_answer(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write,
     let mut change: Option<String> = None;
     let mut suggested = false;
     let mut show = false;
+    let mut quiet = false;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
             Ok(Some(found)) => found,
             Err(refused) => return used(err, format!("'{}' is not known", refused)),
         };
+        match quiet_of(&found, &mut quiet) {
+            Quiet::Taken => continue,
+            Quiet::Twice => return used(err, QUIET_TWICE.to_string()),
+            Quiet::Not => {}
+        }
         match found {
             Word::Value(value) => values.push(word(value.as_bytes())),
             Word::Long(option) if option == "change" && change.is_none() => match parser.value() {
@@ -2948,12 +3098,18 @@ fn run_revert(parser: &mut Parser, err: &mut dyn Write) -> i32 {
     let mut values: Vec<String> = Vec::new();
     let mut change: Option<String> = None;
     let mut round: Option<u64> = None;
+    let mut quiet = false;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
             Ok(Some(found)) => found,
             Err(refused) => return used(err, format!("'{}' is not known", refused)),
         };
+        match quiet_of(&found, &mut quiet) {
+            Quiet::Taken => continue,
+            Quiet::Twice => return used(err, QUIET_TWICE.to_string()),
+            Quiet::Not => {}
+        }
         match found {
             Word::Value(value) if values.len() < 2 => values.push(word(value.as_bytes())),
             Word::Long(option) if option == "change" && change.is_none() => match parser.value() {
@@ -3051,12 +3207,17 @@ pub fn revision(args: &[OsString], base: &Path, out: &mut dyn Write, err: &mut d
 }
 
 fn run_revision(parser: &mut Parser, base: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    let refused = match next(parser) {
-        Ok(None) => None,
-        Ok(Some(found)) => Some(named(found, parser)),
-        Err(refused) => Some(refused),
-    };
-    if let Some(refused) = refused {
+    let mut quiet = false;
+    loop {
+        let refused = match next(parser) {
+            Ok(None) => break,
+            Ok(Some(found)) => match quiet_of(&found, &mut quiet) {
+                Quiet::Taken => continue,
+                Quiet::Twice => return used(err, "wb revision", QUIET_TWICE),
+                Quiet::Not => named(found, parser),
+            },
+            Err(refused) => refused,
+        };
         let _ = write!(err, "wb revision: '{}' is not known\n\n{}", refused, USAGE);
         return 2;
     }
@@ -3076,12 +3237,18 @@ fn run_revision(parser: &mut Parser, base: &Path, out: &mut dyn Write, err: &mut
 fn run_compare(parser: &mut Parser, package: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let mut from: Option<std::path::PathBuf> = None;
     let mut names: Vec<String> = Vec::new();
+    let mut quiet = false;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
             Ok(Some(found)) => found,
             Err(refused) => return used(err, "wb compare", &format!("'{}' is not known", refused)),
         };
+        match quiet_of(&found, &mut quiet) {
+            Quiet::Taken => continue,
+            Quiet::Twice => return used(err, "wb compare", QUIET_TWICE),
+            Quiet::Not => {}
+        }
         match found {
             Word::Value(value) if names.len() < 2 => names.push(word(value.as_bytes())),
             Word::Long(option) if option == "from" && from.is_none() => match parser.value() {

@@ -8,18 +8,36 @@ _wb_commands="init check upgrade plan accept start status view answer revert cle
 _wb_roles="build fix planner review tester"
 _wb_stages=("Not planned" Planned Accepted Tested Built Reviewed Fixed "Questions open" "Not read")
 
-_wb_flags_init="--yes"
-_wb_flags_upgrade="--dry-run"
-_wb_flags_plan="--file --message --from --source --level --hash-only --no-commit"
-_wb_flags_accept="--no-commit"
-_wb_flags_start="--runner --prompt --ignore-local --ignore-kept --ignore-branch --no-push --take-back --issue --change --requirements --round --checkout --branch --issue_address --change_address --classed --classed_touched --description --brought --questions --change_comment --needs_person --parts --stamp --show-origin --list --verbose"
-_wb_flags_status="--stage"
-_wb_flags_view="--in --out --kept --verbose"
-_wb_flags_answer="--change --show --suggested"
-_wb_flags_revert="--change --round"
-_wb_flags_clean="--dry-run"
-_wb_flags_compare="--from"
-_wb_flags_prompt="--issue --change --requirements --round --checkout --branch --issue_address --change_address --runner --classed --classed_touched --description --brought --questions --change_comment --needs_person --parts --stamp --show-origin"
+_wb_flags_init="--yes --quiet"
+_wb_flags_check="--quiet"
+_wb_flags_upgrade="--dry-run --quiet"
+_wb_flags_plan="--file --message --from --source --level --hash-only --no-commit --quiet"
+_wb_flags_accept="--no-commit --quiet"
+_wb_flags_start="--runner --prompt --ignore-local --ignore-kept --ignore-branch --no-push --take-back --issue --change --requirements --round --checkout --branch --issue_address --change_address --classed --classed_touched --description --brought --questions --change_comment --needs_person --parts --stamp --show-origin --list --verbose --quiet"
+_wb_flags_status="--stage --quiet"
+_wb_flags_view="--in --out --kept --verbose --quiet"
+_wb_flags_answer="--change --show --suggested --quiet"
+_wb_flags_revert="--change --round --quiet"
+_wb_flags_clean="--dry-run --quiet"
+_wb_flags_compare="--from --quiet"
+_wb_flags_prompt="--issue --change --requirements --round --checkout --branch --issue_address --change_address --runner --classed --classed_touched --description --brought --questions --change_comment --needs_person --parts --stamp --show-origin --quiet"
+_wb_flags_revision="--quiet"
+
+# The short forms of the flags, as the usage names them (#285): offered after a single - (the long ones after --).
+_wb_short_init="-q"
+_wb_short_check="-q"
+_wb_short_upgrade="-n -q"
+_wb_short_plan="-F -m -n -q"
+_wb_short_accept="-n -q"
+_wb_short_start="-q -v"
+_wb_short_status="-q"
+_wb_short_view="-q -v"
+_wb_short_answer="-q"
+_wb_short_revert="-q"
+_wb_short_clean="-n -q"
+_wb_short_prompt="-q"
+_wb_short_revision="-q"
+_wb_short_compare="-q"
 
 # Adds to COMPREPLY the issues that start with $cur: the names of the files .watchbill/issues/<name>.yml of the
 # checkout that wb takes as an issue (letters, digits, . _ -, at most 64, not starting with a dot). A name read
@@ -98,6 +116,12 @@ _wb() {
         return 0
     fi
 
+    if [[ $cur == -* && $cur != --* ]]; then
+        var=_wb_short_$command
+        COMPREPLY=($(compgen -W "${!var-}" -- "$cur"))
+        return 0
+    fi
+
     # The words that are neither flags nor the values of flags, between the command and the cursor.
     for ((i = 2; i < COMP_CWORD; i++)); do
         word=${COMP_WORDS[i]}
@@ -116,7 +140,7 @@ _wb() {
             # --from of wb plan add takes an adapter and a number; that of wb compare a folder.
             if [[ $command == plan ]]; then ((i += 2)); else ((i++)); fi
             ;;
-        --*) ;;
+        --* | -q | -n | -v | -y) ;;
         *) position=$((position + 1)) ;;
         esac
     done

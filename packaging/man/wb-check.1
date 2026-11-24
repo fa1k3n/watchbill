@@ -3,11 +3,17 @@
 wb\-check \- say whether the repository is at its revision
 .SH SYNOPSIS
 .nf
-\fBwb\fR check
+\fBwb\fR check [\-q | \-\-quiet]
 .fi
 .SH DESCRIPTION
 .PP
 Say whether the repository still is at the revision it is pinned to: each file under .watchbill/revision/ against the manifest, the manifest against the revision line of watchbill.yml, and that revision against the installed wb, and the project text for a placeholder the revision does not know. Ends with 0 when all of it holds, 1 when something differs. Writes nothing.
+.PP
+\-q (\-\-quiet) leaves out the line that says all holds, and no difference.
+.SH OPTIONS
+.TP
+.B \-q, \-\-quiet
+Leave out the lines that only inform, and no refusal and nothing said before a write.
 .SH EXIT STATUS
 .TP
 .B 0

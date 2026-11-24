@@ -115,7 +115,7 @@ fn test_WB_CMD_37_upgrade_n_does_what_dry_run_does() {
     assert_eq!(code(&long), Some(0), "{}", err_of(&long));
     assert_eq!(code(&short), Some(0), "{}", err_of(&short));
     assert_eq!(out_of(&short), out_of(&long));
-    assert!(out_of(&short).contains("add .watchbill/revision/roles/fix.md"), "{}", out_of(&short));
+    assert!(out_of(&short).split_whitespace().collect::<Vec<_>>().join(" ").contains("add .watchbill/revision/roles/fix.md"), "{}", out_of(&short));
     assert!(out_of(&short).contains("--dry-run: Nothing written."), "{}", out_of(&short));
     assert!(!folder.path.join(".watchbill/revision/roles/fix.md").exists());
     assert_eq!(files(&folder.path), before);
@@ -355,7 +355,7 @@ fn test_WB_CMD_40_upgrade_q_says_each_write_first_and_leaves_out_what_follows() 
 
     assert_eq!(code(&run), Some(0), "{}{}", out_of(&run), err_of(&run));
     let out = out_of(&run);
-    assert!(out.contains("It writes these, in this order:") && out.contains("add .watchbill/revision/roles/fix.md"), "{}", out);
+    assert!(out.contains("It writes these, in this order:") && out.split_whitespace().collect::<Vec<_>>().join(" ").contains("add .watchbill/revision/roles/fix.md"), "{}", out);
     assert!(!out.contains("Written.") && !out.contains("The check of wb check") && !out.contains("Nothing is committed"), "{}", out);
     assert!(folder.path.join(".watchbill/revision/roles/fix.md").exists());
 }
@@ -511,16 +511,16 @@ fn help(command: &str) -> String {
 fn test_WB_CMD_42_the_usage_and_the_help_of_each_command_name_q_and_quiet() {
     assert_eq!(built().len(), 14);
     for command in built() {
-        let words: Vec<String> = help(&command).split_whitespace().map(String::from).collect();
+        let words: Vec<String> = help(&command).split(|c: char| c.is_whitespace() || "[]()|".contains(c)).map(String::from).collect();
         assert!(words.iter().any(|word| word == "-q"), "{}", command);
-        assert!(words.iter().any(|word| word == "--quiet" || word == "--quiet]"), "{}", command);
+        assert!(words.iter().any(|word| word == "--quiet"), "{}", command);
     }
 }
 
 #[test]
 fn test_WB_CMD_42_the_usage_names_n_for_dry_run_and_no_commit() {
     for command in WITH_N {
-        let words: Vec<String> = help(command).split_whitespace().map(String::from).collect();
+        let words: Vec<String> = help(command).split(|c: char| c.is_whitespace() || "[]()|".contains(c)).map(String::from).collect();
         assert!(words.iter().any(|word| word == "-n"), "{}: {}", command, help(command));
     }
     assert!(help("upgrade").contains("[--dry-run | -n]"), "{}", help("upgrade"));

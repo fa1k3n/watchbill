@@ -11,28 +11,30 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 const USAGE: &str = "usage:
-  wb init [--yes]
-  wb check
-  wb upgrade [--dry-run]
+  wb init [--yes] [-q | --quiet]
+  wb check [-q | --quiet]
+  wb upgrade [--dry-run | -n] [-q | --quiet]
   wb plan add [<name>] (-F <file> | -m <text>... | --from <adapter> <number>)
-            [--source <address>] [--level <level>] [--hash-only]
+            [--source <address>] [--level <level>] [--hash-only] [-q | --quiet]
             -F is --file and -m is --message
-            or list
-            or show <name>
-            or edit <name>
-            or accept <name> [--no-commit]
-            or remove <name>
-  wb accept <issue> [--no-commit]
+            or list [-q | --quiet]
+            or show <name> [-q | --quiet]
+            or edit <name> [-q | --quiet]
+            or accept <name> [--no-commit | -n] [-q | --quiet]
+            or remove <name> [-q | --quiet]
+  wb accept <issue> [--no-commit | -n] [-q | --quiet]
   wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [--ignore-kept]
-            [--ignore-branch] [--no-push] [the options of prompt]
+            [--ignore-branch] [--no-push] [-q | --quiet] [the options of prompt]
             or <role> <issue> --take-back
             or --list [-v | --verbose]
-  wb status [<issue>] [--stage <heading>]
-  wb view <issue> (<role> [--in | --out] | <path>)
+  wb status [<issue>] [--stage <heading>] [-q | --quiet]
+  wb view <issue> (<role> [--in | --out] | <path>) [-q | --quiet]
             or --kept [-v | --verbose]
   wb answer (<issue> | --change <n>) [--show | [--suggested] [<question> <answer>]...]
-  wb revert (<issue> | --change <n>) <role> [--round <n>]
+            [-q | --quiet]
+  wb revert (<issue> | --change <n>) <role> [--round <n>] [-q | --quiet]
   wb clean [--dry-run | -n] [<view>]
+            [-q | --quiet]
   wb prompt <role> [<issue>] [--issue <text>] [--change <text>]
             [--requirements <text>] [--round <text>] [--checkout <text>]
             [--branch <text>] [--issue_address <text>]
@@ -40,9 +42,9 @@ const USAGE: &str = "usage:
             [--classed_touched <text>] [--description <text>]
             [--brought <text>] [--questions <text>]
             [--change_comment <text>] [--needs_person <text>]
-            [--runner <name>] [--parts] [--stamp] [--show-origin]
-  wb revision
-  wb compare [--from <path>] <revision> <revision>
+            [--runner <name>] [--parts] [--stamp] [--show-origin] [-q | --quiet]
+  wb revision [-q | --quiet]
+  wb compare [--from <path>] <revision> <revision> [-q | --quiet]
   wb --version
 
   init      set Watchbill up in the git repository of this folder: propose what
@@ -50,13 +52,16 @@ const USAGE: &str = "usage:
             origin, a folder of requirements, the CI driver), ask one line per
             answer, show the file and write .watchbill/watchbill.yml at the
             root of the repository. --yes (-y) takes what it found and asks
-            nothing. A file that is already there is never changed
+            nothing. A file that is already there is never changed. -q
+            (--quiet) leaves out the lines after the files are written, and
+            nothing it says before
   check     say whether the repository still is at the revision it is pinned to:
             each file under .watchbill/revision/ against the manifest, the
             manifest against the revision line of watchbill.yml, and that
             revision against the installed wb, and the project text for a
             placeholder the revision does not know. Ends with 0 when all of it
-            holds, 1 when something differs. Writes nothing
+            holds, 1 when something differs. Writes nothing. -q (--quiet)
+            leaves out the line that says all holds, and no difference
   upgrade   pin the repository to the installed revision: copy its files over
             .watchbill/revision/, removing those it does not have, and its
             manifest to .watchbill/revision.sha256, set the lines watchbill:
@@ -64,11 +69,14 @@ const USAGE: &str = "usage:
             wb init would write that the file lacks; no other line is changed.
             It says each write first, then writes, runs the check of wb check
             and says the command that commits the change: it commits nothing.
-            --dry-run says the same and writes nothing. Ends with 0 when it is
+            --dry-run (-n) says the same and writes nothing. Ends with 0 when it is
             done and the check holds, or there is nothing to do; 1 when it is
             refused (a change under .watchbill/ that is not committed, an
             installed version older than the pinned one) or the check does not
-            hold; 2 when it was used wrongly or the repository is not set up
+            hold; 2 when it was used wrongly or the repository is not set up.
+            -q (--quiet) leaves out the lines that follow the writes and the
+            line that says there is nothing to do, and not what it says before
+            it writes, a refusal or a difference of the check
   plan      the plans of the jobs, kept in git (docs/revision.md, point 15).
             wb plan add takes a job in. Its text is given in one of three
             ways: -F <file>, where -F - reads standard input, a pipe or a
@@ -121,7 +129,7 @@ const USAGE: &str = "usage:
             the message Edit the issue's file (<name>); where nothing changed
             it commits nothing, and where the editor fails, the file no longer
             holds its form or names another issue, it commits nothing and
-            leaves the edit. wb plan accept <name> [--no-commit] accepts the
+            leaves the edit. wb plan accept <name> [--no-commit | -n] accepts the
             issue's file as wb accept does. wb plan remove <name> adds a
             commit with the marker removed after the plan's, moves every name
             of it there, and rewrites nothing; the name stays taken. It is
@@ -131,7 +139,9 @@ const USAGE: &str = "usage:
             show, edit, accept and remove of a name that is no plan are
             refused. Ends with 0 when it is done or nothing changes, 1 when it
             is refused, 2 when it was used wrongly or the repository is not
-            set up
+            set up. -q (--quiet) leaves out what a subcommand says after it
+            has written or where it has nothing to do, and not what it says
+            before it writes, a refusal, or what list and show print
   prompt    print the prompt of a role on standard output and nothing else: the
             role's text of the pinned revision with each placeholder filled
             from the option of its name, such as --issue for {issue}, then the
@@ -159,7 +169,9 @@ const USAGE: &str = "usage:
             watchbill.yml. Its stamp then has the model and effort of that
             file, and --parts adds the level and the runner. Ends with 0 when
             the prompt is printed, 1 when it is refused, 2 when it was used
-            wrongly or the repository is not set up. Writes nothing
+            wrongly or the repository is not set up. Writes nothing. -q
+            (--quiet) is taken and changes nothing: what it prints is what a
+            script reads
   start     start a session of one role, planner, tester, build, review or
             fix: the role is the word after start. The issue is needed by
             all but the review and the fix, which may be given --change
@@ -201,16 +213,25 @@ const USAGE: &str = "usage:
             runner with start and planner up to the level of the repository.
             --show-origin prints as prompt does. Ends with the session: 0 when
             it ended with 0, else 1; 1 when it is refused, 2 when it was used
-            wrongly or the repository is not set up
+            wrongly or the repository is not set up. -q (--quiet) leaves out
+            the lines that only inform, as how to see what a commit changes,
+            the size of a view of the whole tree and that --take-back pushes
+            nothing, and not a refusal, what it says before it posts or
+            writes, or what --prompt, --stamp, --parts, --show-origin and
+            --list print
   revision  print the version of the package, the hash of its revision and the
-            manifest: the hash of every file the revision holds. Writes nothing
+            manifest: the hash of every file the revision holds. Writes
+            nothing. -q (--quiet) is taken and changes nothing: what it prints
+            is what a script reads
   compare   say what changed between two revisions, each named by its version
             or its hash: one line for each file added, removed or changed, then
             a unified diff of each changed file. The installed revision is one;
             the other is that of the repository at --from, the root of a
             repository pinned to it. Ends with 0 when they are the same, 1 when
             they differ or the files of a revision are refused, 2 when a
-            revision is not found or it was used wrongly. Writes nothing
+            revision is not found or it was used wrongly. Writes nothing. -q
+            (--quiet) is taken and changes nothing: what it prints is what a
+            script reads
   accept    accept the issue's file .watchbill/issues/<issue>.yml: read it,
             hold it to its form, refuse it while it holds a question, say what
             will be written, and write .watchbill/issues/<issue>.accepted with
@@ -218,11 +239,13 @@ const USAGE: &str = "usage:
             time in UTC. An acceptance that is there is never written over.
             Then commit it alone, on the issue's branch, with nothing else: it
             refuses first when the checkout is not on that branch or the
-            issue's file is not committed as it is. --no-commit only writes it
+            issue's file is not committed as it is. --no-commit (-n) only writes it
             and says the commit. Where a plan of the name is there (wb plan)
             and is not accepted, it ends with 2 and names wb plan accept
             <name>. Ends with 0 when it is accepted, 1 when it is refused, 2
-            when it was used wrongly or the repository is not set up
+            when it was used wrongly or the repository is not set up. -q
+            (--quiet) leaves out the check of the lists and the lines after
+            the write, and not what it will write or commit, or a refusal
   status    list the issues in the flow under headings, as git status lists
             files: each issue under the last step it has done (Not planned,
             Planned, Accepted, Tested, Built, Reviewed, Fixed), and last the
@@ -248,7 +271,8 @@ const USAGE: &str = "usage:
             pattern failed for one (it is listed under Not read), 2 when it
             was used wrongly or the repository is not set up. Writes nothing
             but a temporary repository in $TMPDIR, removed after, where it
-            reads a kept view
+            reads a kept view. -q (--quiet) is taken and changes nothing: what
+            it prints is what a script reads
   view      show what a session of a role will see, before it starts. wb view
             <issue> <role> prints the paths of its view, one to a line, the
             list the start makes the view from, and nothing else. --in
@@ -272,7 +296,8 @@ const USAGE: &str = "usage:
             role or the view is shown, 1 when it is in none, the folder is not
             in HEAD or the issue has no accepted, committed file, 2 when it
             was used wrongly (a file given as the folder too) or the
-            repository is not set up. Writes nothing
+            repository is not set up. Writes nothing. -q (--quiet) is taken
+            and changes nothing: what it prints is what a script reads
   revert    take an issue back to before a step, deleting nothing:
             wb revert <issue> <role> [--round <n>] posts, by issue_comment of
             watchbill.yml, one comment whose first line is
@@ -285,7 +310,8 @@ const USAGE: &str = "usage:
             not touched: taking commits back is git's. The planner is taken
             back with git, not by a marker. Ends with 0 when the marker is
             posted, 1 when it was refused or the posting failed, 2 when it was
-            used wrongly or the repository is not set up
+            used wrongly or the repository is not set up. -q (--quiet) leaves
+            out the line that says what stays as it was, and not a refusal
   clean     remove the views kept on this machine for this repository that
             have nothing left in them: those whose session ended and that hold
             no commit not taken back (a commit a take-back took is taken) and
@@ -301,7 +327,9 @@ const USAGE: &str = "usage:
             branch or the lines of a session.
             Ends with 0 when it is done or there is nothing to remove, 1 when
             a named view is not removed, 2 when it was used wrongly or this
-            folder is not in a git repository
+            folder is not in a git repository. -q (--quiet) leaves out the
+            Keeping lines, and not Removing or Would remove, which it says
+            before it removes
   answer    answer the open questions of an issue: wb answer <issue> reads
             the whole comments by issue_comment_bodies of watchbill.yml, shows
             each open question in full, one at a time, and asks: Enter takes
@@ -325,7 +353,9 @@ const USAGE: &str = "usage:
             issue's file: where an answer does, it says so. Ends with 0 when
             the answers are posted or no question is open, 1 when it was
             refused, the input ended or a pattern failed, 2 when it was used
-            wrongly or the repository is not set up
+            wrongly or the repository is not set up. -q (--quiet) leaves out
+            the line that says the answers are posted, and not what it will
+            post, a question or a refusal
 ";
 
 fn root() -> &'static Path {

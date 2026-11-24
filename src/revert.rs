@@ -88,6 +88,9 @@ pub fn revert(root: &str, on: On, role: &str, round: Option<u64>, err: &mut dyn 
             return crate::refusal::limit(err, "wb revert", format_args!("{}. The marker may not be posted.", why));
         }
     }
-    let _ = writeln!(err, "wb revert: the commits of the steps taken back stay on the branch, and the issue's file, its acceptance and the change are as they were. Taking commits back is git's.");
+    crate::refusal::inform(
+        err,
+        format_args!("wb revert: the commits of the steps taken back stay on the branch, and the issue's file, its acceptance and the change are as they were. Taking commits back is git's."),
+    );
     0
 }

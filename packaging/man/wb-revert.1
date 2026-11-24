@@ -3,13 +3,15 @@
 wb\-revert \- take an issue back to before a step
 .SH SYNOPSIS
 .nf
-\fBwb\fR revert (<issue> | \-\-change <n>) <role> [\-\-round <n>]
+\fBwb\fR revert (<issue> | \-\-change <n>) <role> [\-\-round <n>] [\-q | \-\-quiet]
 .fi
 .SH DESCRIPTION
 .PP
 Take an issue back to before a step, deleting nothing: wb revert <issue> <role> [\-\-round <n>] posts, by issue_comment of watchbill.yml, one comment whose first line is [revert] <role> round <n>, for the last stamp of the role, or round <n>. From that stamp up to the marker no stamp, question or answer counts, for wb start <role>, wb prompt and wb status. wb revert \-\-change <n> <role> posts it on a change with no issue, by change_comment.
 .PP
 The branch, the issue's file and its acceptance, and the change are not touched: taking commits back is git's. The planner is taken back with git, not by a marker. Ends with 0 when the marker is posted, 1 when it was refused or the posting failed, 2 when it was used wrongly or the repository is not set up.
+.PP
+\-q (\-\-quiet) leaves out the line that says what stays as it was, and not a refusal.
 .SH OPTIONS
 .TP
 .B \-\-round <n>
@@ -17,6 +19,9 @@ Take it back to the stamp of this round.
 .TP
 .B \-\-change <n>
 Post the marker on a change with no issue, by change_comment.
+.TP
+.B \-q, \-\-quiet
+Leave out the lines that only inform, and no refusal and nothing said before a write.
 .SH EXIT STATUS
 .TP
 .B 0

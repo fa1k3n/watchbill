@@ -3,7 +3,7 @@
 wb\-view \- show what a session of a role sees
 .SH SYNOPSIS
 .nf
-\fBwb\fR view <issue> (<role> [\-\-in | \-\-out] | <path>)
+\fBwb\fR view <issue> (<role> [\-\-in | \-\-out] | <path>) [\-q | \-\-quiet]
 .br
 or \-\-kept [\-v | \-\-verbose]
 .fi
@@ -18,6 +18,8 @@ wb view <issue> <path> says for each role whether the path, from the root, is in
 wb view \-\-kept takes no other word but \-v. It lists the views kept on this machine for this repository whose session does not run, one to a line: the folder, the role, round <n>, issue <issue>, and <k> commits not taken <m> paths uncommitted, or not read where git could not read the view. \-v (\-\-verbose) adds below each line why it was kept, each commit not taken, each path left uncommitted, and why a view was not read. It writes nothing.
 .PP
 Writes nothing.
+.PP
+\-q (\-\-quiet) is taken and changes nothing: what it prints is what a script reads.
 .SH OPTIONS
 .TP
 .B \-\-in [<folder>]
@@ -31,6 +33,9 @@ List the views kept on this machine for this repository, with what is left in ea
 .TP
 .B \-\-verbose, \-v
 With \-\-kept, add below each line why the view was kept, each commit not taken, each path left uncommitted, and why a view was not read.
+.TP
+.B \-q, \-\-quiet
+Taken, and changes nothing: what the command prints is what a script reads.
 .SH EXIT STATUS
 .TP
 .B 0

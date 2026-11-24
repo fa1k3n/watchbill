@@ -3,15 +3,20 @@
 wb\-init \- set Watchbill up in this repository
 .SH SYNOPSIS
 .nf
-\fBwb\fR init [\-\-yes]
+\fBwb\fR init [\-\-yes] [\-q | \-\-quiet]
 .fi
 .SH DESCRIPTION
 .PP
 Set Watchbill up in the git repository of this folder: propose what the repository says about itself (its name, the git server of origin, a folder of requirements, the CI driver), ask one line per answer, show the file and write .watchbill/watchbill.yml at the root of the repository. \-\-yes (\-y) takes what it found and asks nothing. A file that is already there is never changed.
+.PP
+\-q (\-\-quiet) leaves out the lines after the files are written, and nothing it says before.
 .SH OPTIONS
 .TP
 .B \-\-yes, \-y
 Take what it found and ask nothing.
+.TP
+.B \-q, \-\-quiet
+Leave out the lines that only inform, and no refusal and nothing said before a write.
 .SH EXIT STATUS
 .TP
 .B 0

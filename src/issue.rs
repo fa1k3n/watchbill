@@ -722,11 +722,9 @@ pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: 
             }
             Ok(Needs { run, missing }) if missing.is_empty() => {
                 let files = if run == 1 { "1 file".to_string() } else { format!("{} files", run) };
-                let _ = writeln!(
+                crate::refusal::inform(
                     out,
-                    "{}: the lists were checked by `needs` of watchbill.yml, for {}: each file the tester and the build see has what it needs to build.",
-                    name,
-                    files
+                    format_args!("{}: the lists were checked by `needs` of watchbill.yml, for {}: each file the tester and the build see has what it needs to build.", name, files),
                 );
             }
             Ok(Needs { missing, .. }) => {
@@ -776,9 +774,12 @@ pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: 
     if let Err(error) = result {
         return crate::refusal::limit(err, name, format_args!("{} could not be written ({}). Nothing written.", shown_accepted, error));
     }
-    let _ = writeln!(out, "{}: {} is accepted.", name, shown);
+    crate::refusal::inform(out, format_args!("{}: {} is accepted.", name, shown));
     if !commit {
-        let _ = writeln!(out, "{}: commit the acceptance alone, so the history holds it before any work it allows:\n  {}", name, commit_command(issue));
+        crate::refusal::inform(
+            out,
+            format_args!("{}: commit the acceptance alone, so the history holds it before any work it allows:\n  {}", name, commit_command(issue)),
+        );
         return 0;
     }
     let _ = writeln!(out, "{}: will commit {} alone, with the message \"{}\", as {} <{}>.", name, shown_accepted, commit_message(issue), user, email);
@@ -801,8 +802,8 @@ pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: 
                     ),
                 );
             }
-            let _ = writeln!(out, "{}: committed {} alone ({}). What was staged before stays staged.", name, shown_accepted, short);
-            let _ = writeln!(out, "{}: wb pushes nothing. Push the branch {} so that the history elsewhere holds the acceptance.", name, branch);
+            crate::refusal::inform(out, format_args!("{}: committed {} alone ({}). What was staged before stays staged.", name, shown_accepted, short));
+            crate::refusal::inform(out, format_args!("{}: wb pushes nothing. Push the branch {} so that the history elsewhere holds the acceptance.", name, branch));
             0
         }
         Err(why) => {

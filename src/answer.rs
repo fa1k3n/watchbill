@@ -647,7 +647,7 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
             }
         }
     }
-    let _ = writeln!(err, "wb answer: posted.");
+    crate::refusal::inform(err, format_args!("wb answer: posted."));
     // An answer that changes the issue's file is taken by a person, never by `wb`.
     for (_, kept) in &comments {
         let changing: Vec<String> = kept.iter().filter(|(question, _, role)| changes_file(question, role)).map(|(question, _, _)| question.name()).collect();

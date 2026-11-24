@@ -477,7 +477,10 @@ pub fn upgrade(root: &str, version: &str, package: &Path, dry_run: bool, out: &m
     };
     if steps.is_empty() && lines.is_empty() {
         if !fetch {
-            let _ = writeln!(out, "wb upgrade: the repository is at the installed revision, version {}, revision {}. Nothing to do: nothing written.", version, pin.hash);
+            crate::refusal::inform(
+                out,
+                format_args!("wb upgrade: the repository is at the installed revision, version {}, revision {}. Nothing to do: nothing written.", version, pin.hash),
+            );
             return 0;
         }
         // Only the fetch line: nothing under .watchbill/ changes, so there is no check to run again and nothing to commit.
@@ -492,7 +495,7 @@ pub fn upgrade(root: &str, version: &str, package: &Path, dry_run: bool, out: &m
         if let Err(why) = crate::plan::add_fetch(root) {
             return refused(err, &format!("the fetch line {} could not be added: {}", crate::plan::FETCH, why));
         }
-        let _ = writeln!(out, "\nWritten.");
+        crate::refusal::inform(out, format_args!("\nWritten."));
         return 0;
     }
     match not_committed(root) {
@@ -546,14 +549,15 @@ pub fn upgrade(root: &str, version: &str, package: &Path, dry_run: bool, out: &m
             return crate::refusal::limit(err, "wb upgrade", format_args!("the fetch line {} could not be added: {}. The files are written.", crate::plan::FETCH, why));
         }
     }
-    let _ = writeln!(out, "\nWritten.\n\nThe check of wb check:");
+    crate::refusal::inform(out, format_args!("\nWritten.\n\nThe check of wb check:"));
     // not a refusal: the check after the upgrade is an answer, which `check` marks; it ends with 1 where it does not hold.
     let checked = crate::check::check(root, version, package, out, err);
-    let _ = writeln!(
+    crate::refusal::inform(
         out,
-        "\nNothing is committed. Commit the change alone, with nothing else in the commit; until {} is committed, wb runs none of its patterns (#186):",
-        place
+        format_args!(
+            "\nNothing is committed. Commit the change alone, with nothing else in the commit; until {} is committed, wb runs none of its patterns (#186):\n  git add --all -- ':/{1}' && git commit -m 'Watchbill {2}' -- ':/{1}'",
+            place, CONFIG_FOLDER, version
+        ),
     );
-    let _ = writeln!(out, "  git add --all -- ':/{0}' && git commit -m 'Watchbill {1}' -- ':/{0}'", CONFIG_FOLDER, version);
     checked
 }

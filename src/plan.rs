@@ -498,7 +498,7 @@ pub fn add(root: &str, folder: &Path, organisation: &Path, add: &Add, input: &mu
     }
     let commit_of = |object: &str| git_line(root, &["rev-parse", "--verify", "-q", &format!("{}^{{commit}}", object)], None);
     let at = |commit: &str| -> Vec<String> { refs.iter().filter(|(object, _)| object == commit).map(|(_, name)| name.clone()).collect() };
-    let _ = writeln!(out, "{}: the text is {} bytes, and its hash is {}.", NAME, bytes.len(), hash);
+    crate::refusal::inform(out, format_args!("{}: the text is {} bytes, and its hash is {}.", NAME, bytes.len(), hash));
 
     // The job the text goes to: the one of the name, or one that has the text already, or a new one.
     let mut existing = None;
@@ -516,7 +516,7 @@ pub fn add(root: &str, folder: &Path, organisation: &Path, add: &Add, input: &mu
             return limit(err, &format!("the plan {} was removed (commit {}), and its name stays taken: give the text another name", name, commit));
         }
         if job.sources.iter().any(|source| source.hash == hash) {
-            let _ = writeln!(out, "{}: the text is already a source of the job {}. Nothing to do. Nothing written.", NAME, name);
+            crate::refusal::inform(out, format_args!("{}: the text is already a source of the job {}. Nothing to do. Nothing written.", NAME, name));
             return 0;
         }
         existing = Some((commit, job, false));
@@ -599,10 +599,10 @@ pub fn add(root: &str, folder: &Path, organisation: &Path, add: &Add, input: &mu
         return failed(err, why);
     }
     for name in &moved {
-        let _ = writeln!(out, "Wrote {}: moved to commit {}.", name, commit);
+        crate::refusal::inform(out, format_args!("Wrote {}: moved to commit {}.", name, commit));
     }
     if let Some(name) = &made {
-        let _ = writeln!(out, "Wrote {}: made at commit {}.", name, commit);
+        crate::refusal::inform(out, format_args!("Wrote {}: made at commit {}.", name, commit));
     }
     0
 }
@@ -1004,7 +1004,7 @@ pub fn edit(root: &str, name: &str, out: &mut dyn Write, err: &mut dyn Write) ->
         return limit(err, format!("{} is not a plain file after the editor. Nothing committed.", file));
     };
     if after == before {
-        let _ = writeln!(out, "{}: nothing changed in {}. Nothing committed.", COMMAND, file);
+        crate::refusal::inform(out, format_args!("{}: nothing changed in {}. Nothing committed.", COMMAND, file));
         return 0;
     }
     match crate::issue::read(&path) {
@@ -1034,9 +1034,9 @@ pub fn edit(root: &str, name: &str, out: &mut dyn Write, err: &mut dyn Write) ->
         return limit(err, format!("the commit {} is not alone: a hook of git added files to it. Nothing more is done: undo or amend it as you decide.", short));
     }
     if held_before {
-        let _ = writeln!(out, "{}: committed {} alone ({}). An acceptance of the file before holds no longer.", COMMAND, file, short);
+        crate::refusal::inform(out, format_args!("{}: committed {} alone ({}). An acceptance of the file before holds no longer.", COMMAND, file, short));
     } else {
-        let _ = writeln!(out, "{}: committed {} alone ({}).", COMMAND, file, short);
+        crate::refusal::inform(out, format_args!("{}: committed {} alone ({}).", COMMAND, file, short));
     }
     0
 }
@@ -1131,7 +1131,7 @@ pub fn remove(root: &str, name: &str, state: Option<&Path>, out: &mut dyn Write,
         return failed(err, why);
     }
     for full in &moved {
-        let _ = writeln!(out, "Wrote {}: moved to commit {}.", full, commit);
+        crate::refusal::inform(out, format_args!("Wrote {}: moved to commit {}.", full, commit));
     }
     0
 }

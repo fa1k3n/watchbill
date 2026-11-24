@@ -3,15 +3,20 @@
 wb\-clean \- remove the views that a session left and nothing is left in
 .SH SYNOPSIS
 .nf
-\fBwb\fR clean [\-\-dry\-run | \-n] [<view>]
+\fBwb\fR clean [\-\-dry\-run | \-n] [<view>] [\-q | \-\-quiet]
 .fi
 .SH DESCRIPTION
 .PP
 Remove the views kept on this machine for this repository that have nothing left in them: those whose session ended and that hold no commit not taken back (a commit a take\-back took is taken) and no path left uncommitted. It says first, on standard output, Removing <folder> for each view it will remove and Keeping <folder>: <what is left> for each it keeps, then removes. \-\-dry\-run (\-n) says Would remove and removes nothing. <view>, the name of the folder of a view or its whole path, as wb view \-\-kept prints it, removes that view although work is left in it, and says first each commit (20 at most) and each path (20 at most) it loses. Naming a view is the one waiver of the work left in it. A view that git could not read, or whose session runs, is never removed, named or not. It never removes the checkout, a branch or the lines of a session. Ends with 0 when it is done or there is nothing to remove, 1 when a named view is not removed, 2 when it was used wrongly or this folder is not in a git repository
+.PP
+\-q (\-\-quiet) leaves out the Keeping lines, and not Removing or Would remove, which it says before it removes.
 .SH OPTIONS
 .TP
 .B \-\-dry\-run, \-n
 Say what would be removed, as Would remove <folder>, and remove nothing.
+.TP
+.B \-q, \-\-quiet
+Leave out the lines that only inform, and no refusal and nothing said before a write.
 .SH EXIT STATUS
 .TP
 .B 0

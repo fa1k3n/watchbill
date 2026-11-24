@@ -351,6 +351,11 @@ impl Talk<'_> {
         let _ = writeln!(self.out, "{}", text);
     }
 
+    /// A line that only informs, after the files are written: `-q` leaves it out (#285).
+    fn inform(&mut self, text: &str) {
+        crate::refusal::inform(self.out, format_args!("{}", text));
+    }
+
     /// A question and its answer, one line from standard input: `Ok(None)` when there are no more.
     /// A line that is not UTF-8 is an error of the kind `InvalidData`.
     fn ask(&mut self, prompt: &str) -> io::Result<Option<String>> {
@@ -532,14 +537,14 @@ pub fn init(
         return crate::refusal::limit(err, "wb init", format_args!("cannot write {}: {}. Nothing written.", path.display(), error));
     }
     for path in &targets {
-        talk.say(&format!("Wrote {}.", path));
+        talk.inform(&format!("Wrote {}.", path));
     }
-    talk.say("Keep them under version control with the code.");
+    talk.inform("Keep them under version control with the code.");
     if fetch {
         if let Err(why) = crate::plan::add_fetch(root) {
             return crate::refusal::limit(err, "wb init", format_args!("the fetch line {} could not be added to .git/config: {}. The files are written.", crate::plan::FETCH, why));
         }
-        talk.say(&format!("Added the fetch line {} to the remote origin in .git/config.", crate::plan::FETCH));
+        talk.inform(&format!("Added the fetch line {} to the remote origin in .git/config.", crate::plan::FETCH));
     }
     0
 }

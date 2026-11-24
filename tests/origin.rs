@@ -57,9 +57,72 @@ fn test_WB_CMD_46_start_list_with_v_or_verbose_names_the_view_or_the_tree_and_wh
             assert_eq!(row.len(), 3, "{:?}", row);
             assert_eq!((row[0].as_str(), row[1].as_str()), (role, view), "{:?}", row);
         }
-        // The organisation's file clears a runner for the planner, and gives no runner a `start`.
-        assert_eq!(rows[0][2], "cleared");
-        assert_eq!(rows[1][2], "not-cleared");
+        // The runner is cleared for the planner but has no `start`: no role can be started.
+        for row in &rows {
+            assert_eq!(row[2], "not-cleared", "{:?}", row);
+        }
+    }
+}
+
+/// The words `wb start --list -v` gives each role, as `(role, word)`, with one runner of the organisation's file that
+/// has the lines given after its `up_to`, and the repository at `level`.
+fn cleared_words(runner_lines: &str, level: &str) -> Vec<(String, String)> {
+    let folder = set_up();
+    let place = folder_named("organisation");
+    let path = place.path.join("organisation.yml");
+    let file = format!(
+        "levels: [public, internal, confidential]\nrunners:\n  stand-in:\n    tools: this machine\n    model: a stand-in\n    agreement: none\n    up_to: confidential\n{}",
+        runner_lines
+    );
+    fs::write(&path, file).unwrap();
+    let mut yml = read(&config(&folder.path));
+    yml.push_str(&format!("confidentiality: {}\n", level));
+    fs::write(config(&folder.path), yml).unwrap();
+    commit_config(&folder.path);
+    let run = start_with(&folder.path, &path, false, &["start", "--list", "-v"]);
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    lines_of(&run)
+        .iter()
+        .map(|line| {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            (words[0].to_string(), words[2].to_string())
+        })
+        .collect()
+}
+
+const START: &str = "    start: ['/bin/true', '{model}', '{effort}', '{prompt}']\n";
+const PLANNER: &str = "    planner:\n      up_to: public\n      model: claude-opus-5-5\n      effort: high\n";
+
+#[test]
+fn test_WB_CMD_46_a_runner_with_start_alone_clears_the_four_roles_and_not_the_planner() {
+    let found = cleared_words(START, "public");
+    let want: Vec<(String, String)> = [("planner", "not-cleared"), ("tester", "cleared"), ("build", "cleared"), ("review", "cleared"), ("fix", "cleared")]
+        .iter()
+        .map(|(role, word)| (role.to_string(), word.to_string()))
+        .collect();
+    assert_eq!(found, want);
+}
+
+#[test]
+fn test_WB_CMD_46_a_runner_with_planner_alone_clears_no_role() {
+    for (role, word) in cleared_words(PLANNER, "public") {
+        assert_eq!(word, "not-cleared", "{}", role);
+    }
+}
+
+#[test]
+fn test_WB_CMD_46_a_runner_with_start_and_planner_up_to_the_level_clears_every_role() {
+    for (role, word) in cleared_words(&format!("{}{}", START, PLANNER), "public") {
+        assert_eq!(word, "cleared", "{}", role);
+    }
+}
+
+#[test]
+fn test_WB_CMD_46_a_level_above_the_planners_up_to_leaves_the_planner_not_cleared() {
+    let found = cleared_words(&format!("{}{}", START, PLANNER), "internal");
+    assert_eq!(found[0], ("planner".to_string(), "not-cleared".to_string()));
+    for (role, word) in &found[1..] {
+        assert_eq!(word, "cleared", "{}", role);
     }
 }
 
@@ -108,19 +171,19 @@ fn test_WB_CMD_47_start_list_writes_nothing_under_the_repository() {
 #[test]
 fn test_WB_CMD_48_start_list_is_used_wrongly_with_a_role_another_word_or_an_option_it_does_not_take() {
     let folder = set_up();
-    for args in [
-        vec!["start", "--list", "build"],
-        vec!["start", "build", "--list"],
-        vec!["start", "--list", "--prompt"],
-        vec!["start", "--list", "--stamp"],
-        vec!["start", "--list", "-v", "-v"],
-        vec!["start", "-v"],
-        vec!["start", "--verbose"],
+    for (args, said) in [
+        (vec!["start", "--list", "build"], "is not taken with --list"),
+        (vec!["start", "--list", "--prompt"], "is not taken with --list"),
+        (vec!["start", "--list", "--stamp"], "is not taken with --list"),
+        (vec!["start", "--list", "-v", "-v"], "is given twice"),
+        (vec!["start", "-v"], "taken only with --list"),
+        (vec!["start", "--verbose"], "taken only with --list"),
     ] {
         let run = wb(&folder.path, &args, "");
         assert_eq!(code(&run), Some(2), "{:?}: {}", args, text(&run.stderr));
         assert_eq!(text(&run.stdout), "", "{:?}", args);
-        assert!(text(&run.stderr).contains("usage:"), "{:?}", args);
+        let err = text(&run.stderr);
+        assert!(err.contains(said) && err.contains("usage:"), "{:?}: {}", args, err);
     }
 }
 
@@ -130,7 +193,7 @@ fn test_WB_CMD_48_start_list_in_a_folder_that_is_not_set_up_ends_with_2_and_prin
     let run = wb(&folder.path, &["start", "--list"], "");
     assert_eq!(code(&run), Some(2), "{}", text(&run.stderr));
     assert_eq!(text(&run.stdout), "");
-    assert!(!text(&run.stderr).is_empty());
+    assert!(text(&run.stderr).contains("run wb init"), "{}", text(&run.stderr));
 }
 
 #[test]
@@ -254,6 +317,45 @@ fn test_WB_PROMPT_75_the_text_between_the_origin_lines_joined_is_the_prompt_with
         assert!(!origins.is_empty(), "{}", role);
         assert_eq!(joined, text(&plain.stdout), "{}", role);
     }
+}
+
+#[test]
+fn test_WB_PROMPT_75_parts_that_end_with_no_newline_still_join_to_the_prompt() {
+    let folder = set_up();
+    put_committed(&folder.path, ".watchbill/project/all.md", "Everyone: use make.");
+    put_committed(&folder.path, ".watchbill/project/build.md", "Builders: run make test.");
+
+    let shown = wb(&folder.path, &prompt_args("build", "54", &["--show-origin"]), "");
+    let plain = wb(&folder.path, &prompt_args("build", "54", &[]), "");
+
+    assert_eq!(code(&shown), Some(0), "{}", text(&shown.stderr));
+    let (_, joined) = taken_apart(&text(&shown.stdout));
+    assert_eq!(joined, text(&plain.stdout));
+    assert!(joined.ends_with("Builders: run make test."));
+}
+
+#[test]
+fn test_WB_PROMPT_77_for_a_change_with_no_issue_the_issue_and_its_address_say_what_wb_filled_them_with() {
+    let folder = set_up();
+    let run = wb(&folder.path, &["prompt", "review", "--change", "9", "--round", "1", "--branch", "b", "--checkout", "/w", "--show-origin"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let out = text(&run.stdout);
+    assert!(out.contains("# {issue}  none: the change has no issue\n"), "{}", out);
+    assert!(out.contains("# {change}  given on the command line\n"), "{}", out);
+    assert!(!out.contains("the command line\n# {issue}"), "{}", out);
+    assert!(!out.contains("# {issue}  the command line"), "{}", out);
+}
+
+#[test]
+fn test_WB_PROMPT_77_the_branch_of_the_planner_is_from_the_pattern_alone() {
+    let folder = set_up();
+    let (_place, organisation) = cleared(&folder.path);
+    let run = prompt_with(&folder.path, &organisation, &["planner", "54", "--runner", "claude-code", "--checkout", "/w", "--issue_address", "a", "--show-origin"]);
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let out = text(&run.stdout);
+    assert!(out.contains("# {branch}  the pattern branch of watchbill.yml (HEAD)\n"), "{}", out);
 }
 
 #[test]

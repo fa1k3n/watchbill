@@ -843,9 +843,59 @@ pub fn arguments(plan: &Plan) -> Vec<OsString> {
     arguments_in(plan, Layout::Listed)
 }
 
+/// Where the folder that `wb` makes for what a session writes for it stands in the sandbox (#151): outside the view's
+/// tree, so that nothing in it is ever a commit.
+pub const OUT_FOLDER: &str = "/run/watchbill";
+
+/// The file the build writes the change's description to, `{description}` of the prompt (#151).
+pub const DESCRIPTION: &str = "/run/watchbill/description";
+
+/// The variables that hold or lead to a login of the code host (#151): `gh`'s, `glab`'s and ssh's, the secrets GitLab
+/// CI hands a job, and the address of the session bus, which leads to the keyring `gh` keeps its login in. None is
+/// handed into the sandbox, as no `GIT_*` is. They are named one by one, never by an ending such as `_TOKEN`, which
+/// would take the runner's own login of its model too.
+pub const LOGINS: [&str; 19] = [
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "GH_ENTERPRISE_TOKEN",
+    "GITHUB_ENTERPRISE_TOKEN",
+    "GH_CONFIG_DIR",
+    "GITLAB_TOKEN",
+    "GLAB_TOKEN",
+    "GITLAB_ACCESS_TOKEN",
+    "GLAB_CONFIG_DIR",
+    "OAUTH_TOKEN",
+    "GLAB_CLIENT_CERT_PASSWORD",
+    "CI_JOB_TOKEN",
+    "CI_REGISTRY_PASSWORD",
+    "CI_DEPENDENCY_PROXY_PASSWORD",
+    "CI_JOB_JWT",
+    "CI_JOB_JWT_V2",
+    "SSH_AUTH_SOCK",
+    "SSH_ASKPASS",
+    "DBUS_SESSION_BUS_ADDRESS",
+];
+
+/// Takes the variables of a login of the code host, and every `GIT_*`, out of what `command` is handed.
+pub fn without_logins(command: &mut Command) {
+    for (name, _) in std::env::vars_os() {
+        if name.to_string_lossy().starts_with("GIT_") {
+            command.env_remove(name);
+        }
+    }
+    for name in LOGINS {
+        command.env_remove(name);
+    }
+}
+
 /// The words bubblewrap is given for a session in a view laid out as `layout`. The binds inside the view come after
 /// the view itself, so that they stand over it; their sources are folders of the view (`make_whole`).
 pub fn arguments_in(plan: &Plan, layout: Layout) -> Vec<OsString> {
+    arguments_out(plan, layout, None)
+}
+
+/// The same, with `out`, a folder of `wb`'s own, bound writable at `OUT_FOLDER` after the view (#151).
+pub fn arguments_out(plan: &Plan, layout: Layout, out: Option<&Path>) -> Vec<OsString> {
     let mut words: Vec<OsString> = UNSHARE.iter().map(OsString::from).collect();
     if plan.new_session {
         words.push("--new-session".into());
@@ -863,6 +913,10 @@ pub fn arguments_in(plan: &Plan, layout: Layout) -> Vec<OsString> {
     let fixed = Path::new(crate::confidentiality::ORGANISATION_FILE).parent().filter(|folder| folder.is_dir());
     for folder in [fixed, plan.organisation.filter(|folder| Some(*folder) != fixed)].into_iter().flatten() {
         add(&["--tmpfs".as_ref(), folder.as_os_str()]);
+    }
+    // What the session writes for `wb` (#151), in `/run` of the sandbox's own, before the view and away from it.
+    if let Some(out) = out {
+        add(&["--bind".as_ref(), out.as_os_str(), OUT_FOLDER.as_ref()]);
     }
     add(&["--bind".as_ref(), plan.view.as_os_str(), plan.checkout.as_os_str()]);
     let inside: &[(&str, &str)] = match layout {
@@ -931,6 +985,11 @@ pub fn run_saying(bwrap: &Path, plan: &Plan, name: &str, err: &mut dyn Write) ->
 
 /// The same, in a view laid out as `layout` (#202).
 pub fn run_in(bwrap: &Path, plan: &Plan, layout: Layout, name: &str, err: &mut dyn Write) -> Result<ExitStatus, String> {
+    run_out(bwrap, plan, layout, None, name, err)
+}
+
+/// The same, with `out` bound at `OUT_FOLDER` (#151).
+pub fn run_out(bwrap: &Path, plan: &Plan, layout: Layout, out: Option<&Path>, name: &str, err: &mut dyn Write) -> Result<ExitStatus, String> {
     use std::os::fd::AsRawFd;
     use std::os::unix::process::{CommandExt, ExitStatusExt};
     let held = crate::interrupt::hold();
@@ -942,7 +1001,7 @@ pub fn run_in(bwrap: &Path, plan: &Plan, layout: Layout, name: &str, err: &mut d
         .filter(|(number, _)| !crate::interrupt::was_ignored(*number))
         .map(|(_, name)| name)
         .collect();
-    let mut words = arguments_in(plan, layout);
+    let mut words = arguments_out(plan, layout, out);
     // Without `env` the signals cannot be given back to the session, and bubblewrap ignores none, as before #257.
     let ignore = back.is_empty() || Path::new(ENV).is_file();
     if ignore && !back.is_empty() {
@@ -952,11 +1011,7 @@ pub fn run_in(bwrap: &Path, plan: &Plan, layout: Layout, name: &str, err: &mut d
     words.splice(0..0, [OsString::from("--info-fd"), OsString::from(info.to_string())]);
     let mut command = Command::new(bwrap);
     command.args(words).current_dir(plan.checkout);
-    for (name, _) in std::env::vars_os() {
-        if name.to_string_lossy().starts_with("GIT_") {
-            command.env_remove(name);
-        }
-    }
+    without_logins(&mut command);
     command.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
     // Only `signal(2)` and `fcntl(2)` run between fork and exec.
     unsafe {
@@ -1114,6 +1169,8 @@ fn children_of(pid: i32) -> Option<Vec<i32>> {
 pub struct Back {
     /// Each commit put on the branch: its name there and its subject.
     pub taken: Vec<(String, String)>,
+    /// The commit of the view that each of `taken` was made from, in the same order (#277).
+    pub from: Vec<String>,
     /// The commit refused, its subject and why.
     pub refused: Option<(String, String, String)>,
     /// The commits after the one refused, not taken: each its name in the view and its subject.
@@ -1140,8 +1197,11 @@ impl Back {
     /// The file `back` of the session's folder, with the last line `view: removed` or `view: kept <folder>`.
     pub fn text(&self, kept: Option<&Path>) -> String {
         let mut text = String::new();
-        for (commit, subject) in &self.taken {
+        for (at, (commit, subject)) in self.taken.iter().enumerate() {
             text.push_str(&format!("taken: {} {}\n", commit, subject));
+            if let Some(from) = self.from.get(at) {
+                text.push_str(&format!("took: {} {}\n", from, commit));
+            }
         }
         if let Some((commit, subject, why)) = &self.refused {
             text.push_str(&format!("refused: {} {}: {}\n", commit, subject, why));
@@ -1519,14 +1579,22 @@ enum Taken {
     /// At the end of the session: the branch is as the view was made with it, at this commit or not there.
     AtTheEnd(Option<String>),
     /// After the session (#223), the number of commits that was said.
-    Later(usize),
+    Later(usize, Vec<String>),
 }
 
 impl Taken {
     fn later(&self) -> Option<usize> {
         match self {
-            Taken::Later(count) => Some(*count),
+            Taken::Later(count, _) => Some(*count),
             Taken::AtTheEnd(_) => None,
+        }
+    }
+
+    /// The commits of the view that an earlier take-back put on the branch (#277).
+    fn already(&self) -> &[String] {
+        match self {
+            Taken::Later(_, already) => already,
+            Taken::AtTheEnd(_) => &[],
         }
     }
 }
@@ -1539,15 +1607,16 @@ const TAKE_BACK_DEADLINE: std::time::Duration = std::time::Duration::from_secs(3
 /// touch none of the paths that a commit of the view changes; the commits then go on top of it. The branch must be
 /// the view's. Every git run ends within a bound, for a view is hostile.
 pub fn take_back_later(name: &str, root: &str, view: &View, changes: &[String], build_files: &[String], expected: usize, list: Option<&Path>, err: &mut dyn Write) -> Back {
-    take_back_later_of(name, root, view, &Allowed::Changes(changes.to_vec()), build_files, expected, list, err)
+    take_back_later_of(name, root, view, &Allowed::Changes(changes.to_vec()), build_files, expected, &[], list, err)
 }
 
-/// The same, with what may come back as `allowed` (#202).
+/// The same, with what may come back as `allowed` (#202), and the commits of the view that an earlier take-back put on
+/// the branch, which are not taken again (#277).
 #[allow(clippy::too_many_arguments)]
-pub fn take_back_later_of(name: &str, root: &str, view: &View, allowed: &Allowed, build_files: &[String], expected: usize, list: Option<&Path>, err: &mut dyn Write) -> Back {
+pub fn take_back_later_of(name: &str, root: &str, view: &View, allowed: &Allowed, build_files: &[String], expected: usize, already: &[String], list: Option<&Path>, err: &mut dyn Write) -> Back {
     let _bound = bounded(std::time::Duration::from_secs(60));
     let _deadline = deadline(TAKE_BACK_DEADLINE, "take-back");
-    take_back_in(name, root, view, allowed, build_files, list, Taken::Later(expected), err)
+    take_back_in(name, root, view, allowed, build_files, list, Taken::Later(expected, already.to_vec()), err)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1583,7 +1652,8 @@ fn take_back_in(name: &str, root: &str, view: &View, allowed: &Allowed, build_fi
 /// What a kept view holds that is not on the branch (#222), read as `take_back` reads a view and through a
 /// repository of `wb`'s own, never with the settings of the view: the commits of the view after the one it was made
 /// with (the first 200, the first parent only), each its name and subject, and the paths left uncommitted. Reads only.
-pub fn work_left(root: &str, view: &View) -> Result<Left, String> {
+/// A commit named in `taken` was put on the branch by a take-back, and is not listed (#277).
+pub fn work_left(root: &str, view: &View, taken: &[String]) -> Result<Left, String> {
     // Every git run here ends after 3 seconds: a view is hostile, and git may wait for ever on what it holds. All of
     // them end within one deadline for the view (#265).
     let _bound = bounded(test_seconds("WB_TEST_RUN_BOUND").unwrap_or(std::time::Duration::from_secs(3)));
@@ -1619,7 +1689,7 @@ pub fn work_left(root: &str, view: &View) -> Result<Left, String> {
         let range = format!("{}..{}", view.base, head);
         let listed = on(&["rev-list", "--first-parent", "--reverse", &range])?;
         let listed = String::from_utf8_lossy(&listed);
-        let all: Vec<&str> = listed.lines().filter(|commit| is_object(commit)).collect();
+        let all: Vec<&str> = listed.lines().filter(|commit| is_object(commit) && !taken.iter().any(|done| done == commit)).collect();
         more = all.len().saturating_sub(MOST_COMMITS);
         for commit in all.into_iter().take(MOST_COMMITS) {
             commits.push((commit.to_string(), subject_capped(&on, commit)?));
@@ -1765,7 +1835,7 @@ fn commits(root: &str, view: &View, store: &Path, allowed: &Allowed, build_files
     // the commits go on top of it once their paths are seen to be untouched.
     let expected = match taken {
         Taken::AtTheEnd(at) => at.clone(),
-        Taken::Later(_) => tip_of(root, &view.branch)?,
+        Taken::Later(..) => tip_of(root, &view.branch)?,
     };
     let onto = expected.clone().unwrap_or_else(|| view.head.clone());
     if onto != view.head && git(Path::new(root), &["merge-base", "--is-ancestor", &view.head, &onto], &[], None).is_err() {
@@ -1797,17 +1867,28 @@ fn commits(root: &str, view: &View, store: &Path, allowed: &Allowed, build_files
     }
     let listed = git(store, &["rev-list", "--first-parent", "--reverse", "--parents", &format!("{}..{}", view.base, head)], &[], None)?;
     let listed = String::from_utf8_lossy(&listed).to_string();
+    // The commits that an earlier take-back put on the branch come first, in a row, and are not taken again (#277).
+    let mut parent = view.base.clone();
+    let mut skipped = 0;
+    for line in listed.lines() {
+        let words: Vec<&str> = line.split(' ').collect();
+        if words.len() == 2 && words[1] == parent && taken.already().iter().any(|done| done == words[0]) {
+            parent = words[0].to_string();
+            skipped += 1;
+        } else {
+            break;
+        }
+    }
     // What was said is what is taken: the count found now is the one said, or nothing is taken.
     if let Some(said) = later {
-        let found = listed.lines().count();
+        let found = listed.lines().count() - skipped;
         if found != said {
             return Err(format!("the view holds {} commits now, and {} were said, so nothing is taken back", found, said));
         }
     }
     // Each commit of the view, its parent and what it changes, until one is refused.
     let mut wanted: Vec<(String, Raw, Vec<Change>)> = Vec::new();
-    let mut parent = view.base.clone();
-    for line in listed.lines() {
+    for line in listed.lines().skip(skipped) {
         let words: Vec<&str> = line.split(' ').collect();
         let commit = words[0].to_string();
         let raw = raw_of(store, &commit)?;
@@ -1938,6 +2019,7 @@ fn commits(root: &str, view: &View, store: &Path, allowed: &Allowed, build_files
     let mut tip = view.head.clone();
     let mut before = line(&git(root, &["rev-parse", &format!("{}^{{tree}}", view.head)], &[], None)?);
     let mut made: Vec<(String, String)> = Vec::new();
+    let mut from: Vec<String> = Vec::new();
     for (index, (commit, raw, found)) in wanted.iter().enumerate() {
         let mut info: Vec<u8> = Vec::new();
         for change in found {
@@ -1973,6 +2055,7 @@ fn commits(root: &str, view: &View, store: &Path, allowed: &Allowed, build_files
         tip = line(&git(root, &["commit-tree", &tree, "-p", &tip], &who, Some(&raw.message))?);
         before = tree;
         made.push((tip.clone(), raw.subject()));
+        from.push(commit.clone());
     }
     if made.is_empty() {
         return Ok(());
@@ -2023,6 +2106,7 @@ fn commits(root: &str, view: &View, store: &Path, allowed: &Allowed, build_files
         back.notes.push(format!("{} is not checked out: {}; the branch checked out, the index and the working tree are as they were", view.branch_name(), how));
     }
     back.taken = made;
+    back.from = from;
     Ok(())
 }
 
@@ -2421,5 +2505,92 @@ mod tests {
         assert_eq!(held(), Some((300, "take-back")), "the deadline of the take-back was not held again");
         drop(outer);
         assert_eq!(held(), None);
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_WB_PUSH_12_no_variable_of_a_login_of_the_code_host_is_handed_into_the_sandbox() {
+        let mut command = Command::new("/usr/bin/bwrap");
+        without_logins(&mut command);
+        let removed: Vec<String> =
+            command.get_envs().filter(|(_, value)| value.is_none()).map(|(name, _)| name.to_string_lossy().to_string()).collect();
+        for name in [
+            "GH_TOKEN",
+            "GITHUB_TOKEN",
+            "GH_ENTERPRISE_TOKEN",
+            "GITHUB_ENTERPRISE_TOKEN",
+            "GH_CONFIG_DIR",
+            "GITLAB_TOKEN",
+            "GLAB_TOKEN",
+            "GITLAB_ACCESS_TOKEN",
+            "GLAB_CONFIG_DIR",
+            "CI_JOB_TOKEN",
+            "SSH_AUTH_SOCK",
+            "SSH_ASKPASS",
+        ] {
+            assert!(removed.iter().any(|one| one == name), "{} is handed in: {:?}", name, removed);
+        }
+    }
+
+    /// The variables `without_logins` takes out of what a command is handed.
+    fn removed() -> Vec<String> {
+        let mut command = Command::new("/usr/bin/bwrap");
+        without_logins(&mut command);
+        command.get_envs().filter(|(_, value)| value.is_none()).map(|(name, _)| name.to_string_lossy().to_string()).collect()
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_WB_PUSH_12_glab_s_other_name_of_its_token_and_its_certificate_s_password_are_not_handed_in() {
+        let removed = removed();
+        for name in ["OAUTH_TOKEN", "GLAB_CLIENT_CERT_PASSWORD"] {
+            assert!(removed.iter().any(|one| one == name), "{} is handed in: {:?}", name, removed);
+        }
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_WB_PUSH_12_the_secrets_gitlab_ci_hands_a_job_are_not_handed_in() {
+        let removed = removed();
+        for name in ["CI_JOB_TOKEN", "CI_REGISTRY_PASSWORD", "CI_DEPENDENCY_PROXY_PASSWORD", "CI_JOB_JWT", "CI_JOB_JWT_V2"] {
+            assert!(removed.iter().any(|one| one == name), "{} is handed in: {:?}", name, removed);
+        }
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_WB_PUSH_12_the_address_of_the_session_bus_is_not_handed_in() {
+        // The bus leads to the keyring that `gh` keeps its login in by default.
+        let removed = removed();
+        assert!(removed.iter().any(|one| one == "DBUS_SESSION_BUS_ADDRESS"), "{:?}", removed);
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_WB_PUSH_8_the_folder_of_the_description_is_bound_at_run_watchbill_in_the_sandbox_s_own_run() {
+        let words = ["runner".to_string()];
+        let plan = Plan {
+            view: Path::new("/var/views/1"),
+            checkout: Path::new("/work/brakes"),
+            binds: vec![],
+            organisation: None,
+            home: Some(Path::new("/home/ada")),
+            new_session: false,
+            words: &words,
+        };
+        let words: Vec<String> =
+            arguments_out(&plan, Layout::Listed, Some(Path::new("/state/watchbill/out/1"))).iter().map(|word| word.to_string_lossy().to_string()).collect();
+        let find = |pair: [&str; 3]| words.windows(3).position(|three| three == pair);
+        find(["--bind", "/var/views/1", "/work/brakes"]).expect("the view is not bound");
+        let out = find(["--bind", "/state/watchbill/out/1", OUT_FOLDER]).expect("the folder of the description is not bound");
+        // In the sandbox's own `/run`, made empty before it.
+        let run = words.windows(2).position(|two| two == ["--tmpfs", "/run"]).expect("/run is not the sandbox's own");
+        assert!(run < out, "{:?}", words);
+        assert_eq!(DESCRIPTION, "/run/watchbill/description");
+        assert!(DESCRIPTION.starts_with(&format!("{}/", OUT_FOLDER)));
+        // Without it, the words are those of `arguments_in`.
+        let none: Vec<String> = arguments_out(&plan, Layout::Listed, None).iter().map(|word| word.to_string_lossy().to_string()).collect();
+        let before: Vec<String> = arguments_in(&plan, Layout::Listed).iter().map(|word| word.to_string_lossy().to_string()).collect();
+        assert_eq!(none, before);
     }
 }

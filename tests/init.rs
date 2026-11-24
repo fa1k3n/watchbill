@@ -73,7 +73,7 @@ fn test_WB_INIT_14_yes_writes_what_the_repository_says_and_asks_nothing() {
             // The whole comments, for `wb answer` (#145), and the command that opens the change as a draft.
             r#"issue_comment_bodies: 'gh api repos/example/brake-controller/issues/{issue}/comments --paginate --jq ''.[] | .body + "\u0000"'''"#,
             r#"change_comment_bodies: 'gh api repos/example/brake-controller/issues/{change}/comments --paginate --jq ''.[] | .body + "\u0000"'''"#,
-            "draft_change: 'gh pr create --repo example/brake-controller --head {branch} --draft --fill-verbose'",
+            "draft_change: 'gh pr create --repo example/brake-controller --head {branch} --draft --fill --body-file -'",
             "issue_address: 'gh issue view {issue} --repo example/brake-controller; gh issue view {issue} --repo example/brake-controller --comments'",
             // The issue's text alone, for the planner (#295).
             "issue_text: 'gh issue view {issue} --repo example/brake-controller --json body --jq .body'",
@@ -1095,15 +1095,29 @@ fn test_WB_ANSWER_14_a_github_and_a_gitlab_origin_get_change_comment_bodies() {
 fn test_WB_INIT_58_a_github_and_a_gitlab_origin_get_draft_change() {
     let folder = repository(Some("https://github.com/example/brake-controller.git"));
     assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
-    assert_eq!(pattern(&folder.path, "draft_change").as_deref(), Some("gh pr create --repo example/brake-controller --head {branch} --draft --fill-verbose"));
+    assert_eq!(pattern(&folder.path, "draft_change").as_deref(), Some("gh pr create --repo example/brake-controller --head {branch} --draft --fill --body-file -"));
     let folder = repository(Some("https://gitlab.team.example/brakes/controller.git"));
     assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
     assert_eq!(
         pattern(&folder.path, "draft_change").as_deref(),
-        Some("glab mr create --repo https://gitlab.team.example/brakes/controller --source-branch {branch} --draft --fill --fill-commit-body --yes")
+        Some("glab mr create --repo https://gitlab.team.example/brakes/controller --source-branch {branch} --draft --fill --push=false --yes --description \"$(cat)\"")
     );
     assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
     no_pattern(&["draft_change"]);
+}
+
+#[test]
+fn test_WB_PUSH_19_the_draft_change_of_wb_init_reads_the_description_from_standard_input() {
+    let folder = repository(Some("https://github.com/example/brake-controller.git"));
+    assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+    let line = pattern(&folder.path, "draft_change").unwrap();
+    assert!(line.ends_with(" --body-file -") && !line.contains("--fill-verbose"), "{}", line);
+    let folder = repository(Some("https://gitlab.team.example/brakes/controller.git"));
+    assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+    let line = pattern(&folder.path, "draft_change").unwrap();
+    assert!(line.ends_with(" --description \"$(cat)\"") && !line.contains("--fill-commit-body"), "{}", line);
+    // `--fill` alone would have `glab` push the branch itself: `wb`'s own push is the only push.
+    assert!(line.contains(" --push=false "), "{}", line);
 }
 
 

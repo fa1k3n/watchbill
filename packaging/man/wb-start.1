@@ -3,7 +3,7 @@
 wb\-start \- start a session of one role
 .SH SYNOPSIS
 .nf
-\fBwb\fR start <role> [<issue>] [\-\-runner <name>] [\-\-prompt] [\-\-ignore\-local] [\-\-ignore\-kept] [\-\-ignore\-branch] [the options of prompt]
+\fBwb\fR start <role> [<issue>] [\-\-runner <name>] [\-\-prompt] [\-\-ignore\-local] [\-\-ignore\-kept] [\-\-ignore\-branch] [\-\-no\-push] [the options of prompt]
 .br
 or <role> <issue> \-\-take\-back
 .fi
@@ -11,7 +11,7 @@ or <role> <issue> \-\-take\-back
 .PP
 Start a session of one role, planner, tester, build, review or fix: the role is the word after start. The issue is needed by all but the review and the fix, which may be given \-\-change and no issue. It checks what prompt checks, that a fix follows a review, that no classed code is in its way (classed: of watchbill.yml), that the runner has start in the organisation's file, and that standard input and output are a terminal; then say and post the stamp by issue_comment of watchbill.yml (by change_comment for a review or a fix of a change with no issue), and run the runner's start in the root of the checkout.
 .PP
-The runner is \-\-runner, or the organisation's default. The round and the change are worked out from issue_comments, change_comments and change_of_branch; \-\-round and \-\-change win. \-\-prompt, \-\-stamp and \-\-parts print as prompt does, and post and start nothing. A view of the issue kept with work not taken back, from any role, stops the start with 1 before anything is posted; \-\-ignore\-kept goes on without it, and the stamp says so. The commits of the session come back onto the branch of the stamp, made where it is not there. Where it is there and HEAD is not its commit, the start ends with 1 before anything is posted. A checkout on another branch, but the default branch before the branch of the stamp is there, stops the start with 1 before anything is posted, and \-\-ignore\-branch goes on. \-\-take\-back, given with the role and the issue alone, starts and posts nothing: it says what it will take, then takes back the commits of the newest view of that role and issue that was kept, through the checks of the end of a session; 0 when all of it is taken and the view removed, 1 when anything is refused or left.
+The runner is \-\-runner, or the organisation's default. The round and the change are worked out from issue_comments, change_comments and change_of_branch; \-\-round and \-\-change win. \-\-prompt, \-\-stamp and \-\-parts print as prompt does, and post and start nothing. A view of the issue kept with work not taken back, from any role, stops the start with 1 before anything is posted; \-\-ignore\-kept goes on without it, and the stamp says so. The commits of the session come back onto the branch of the stamp, made where it is not there. Where it is there and HEAD is not its commit, the start ends with 1 before anything is posted. A checkout on another branch, but the default branch before the branch of the stamp is there, stops the start with 1 before anything is posted, and \-\-ignore\-branch goes on. After the tester, the build or the fix of an issue whose commits all came back, and whose session ended with 0, it pushes the branch to origin with git, never with force, and after a build with no change open it opens one as a draft by draft_change, with the description the session wrote; without change_of_branch and draft_change, or with \-\-no\-push, it says the commands and runs neither. \-\-take\-back, given with the role and the issue alone, starts and posts nothing: it says what it will take, then takes back the commits of the newest view of that role and issue that was kept, through the checks of the end of a session; 0 when all of it is taken and the view removed, 1 when anything is refused or left.
 .PP
 Ends with the session: 0 when it ended with 0, else 1; 1 when it is refused, 2 when it was used wrongly or the repository is not set up.
 .SH OPTIONS
@@ -30,6 +30,9 @@ Start although a view of the issue is kept with work not taken back. It passes t
 .TP
 .B \-\-ignore\-branch
 Start although the checkout is on another branch than the branch of the stamp, at the same commit, or, where that branch is not there yet, on a branch that is not the default branch. It passes that check alone: the commits of the session still come back onto the branch of the stamp, and the branch checked out is not moved.
+.TP
+.B \-\-no\-push
+Push nothing and open no change after the session: say the command that pushes the branch and, after a build, the command that opens the change, and run neither.
 .TP
 .B \-\-take\-back
 Take back the kept view of the role and the issue. It is used with the role and the issue alone. The commits are taken as at the end of a session, onto the branch of the view's stamp, whichever branch is checked out: its HEAD is the commit the view was made from or a descendant of it whose changes touch none of the paths of the commits, and where it is not there it is made at the commit the view was made from. Where that branch is not checked out, only its ref is moved. Where the view still holds work not taken, it is kept and named. Before it takes, it reads every object the commits add and counts the commits, each git run within 3 seconds; during the take each git run ends within 60 seconds and the whole take\-back within 300 seconds. It says every commit, or the first 200 and and <k> more, and takes exactly that many. Where the lines of the take\-back cannot be written it ends with 1.
@@ -63,6 +66,9 @@ The classed paths, for {classed}.
 .TP
 .B \-\-classed_touched <text>
 The classed paths the change touches, for {classed_touched}.
+.TP
+.B \-\-description <text>
+The file of the change's description, for {description}. Only with \-\-prompt, \-\-stamp or \-\-parts: a session that wb starts writes it where wb names it, /run/watchbill/description in the sandbox.
 .TP
 .B \-\-parts
 Print the path and the SHA\-256 of each part, in the form sha256sum prints, in place of the text.

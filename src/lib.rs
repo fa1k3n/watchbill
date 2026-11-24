@@ -19,6 +19,7 @@ pub mod kept;
 pub mod manifest;
 pub mod plan;
 pub mod prompt;
+pub mod push;
 pub mod refusal;
 pub mod revert;
 pub mod rules;
@@ -45,7 +46,7 @@ pub const USAGE: &str = "usage:
             -F is --file and -m is --message
   wb accept <issue> [--no-commit]
   wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [--ignore-kept]
-            [--ignore-branch] [the options of prompt]
+            [--ignore-branch] [--no-push] [the options of prompt]
             or <role> <issue> --take-back
   wb status [<issue>] [--stage <heading>]
   wb view <issue> (<role> [--in | --out] | <path>)
@@ -55,7 +56,8 @@ pub const USAGE: &str = "usage:
             [--requirements <text>] [--round <text>] [--checkout <text>]
             [--branch <text>] [--issue_address <text>]
             [--change_address <text>] [--classed <text>]
-            [--classed_touched <text>] [--runner <name>] [--parts] [--stamp]
+            [--classed_touched <text>] [--description <text>]
+            [--runner <name>] [--parts] [--stamp]
   wb revision
   wb compare [--from <path>] <revision> <revision>
   wb --version
@@ -159,7 +161,13 @@ pub const USAGE: &str = "usage:
             1 before anything is posted. A checkout on another branch, but
             the default branch before the branch of the stamp is there, stops
             the start with 1 before anything is posted, and --ignore-branch
-            goes on. --take-back, given with the role
+            goes on. After the tester, the build or the fix of an issue whose
+            commits all came back, and whose session ended with 0, it pushes
+            the branch to origin with git, never with force, and after a build
+            with no change open it opens one as a draft by draft_change, with
+            the description the session wrote; without change_of_branch and
+            draft_change, or with --no-push, it says the commands and runs
+            neither. --take-back, given with the role
             and the issue alone, starts and posts nothing: it says what it will
             take, then takes back the commits of the newest view of that role
             and issue that was kept, through the checks of the end of a
@@ -701,6 +709,9 @@ struct Words {
     /// `--ignore-branch` of `wb start <role>`: a checkout on a branch that is neither the stamp's nor the default
     /// branch does not stop the start (#296).
     ignore_branch: bool,
+    /// `--no-push` of `wb start <role>`: the branch is not pushed and no change is opened after the session; the
+    /// commands are said, as before #151.
+    no_push: bool,
 }
 
 impl Words {
@@ -728,7 +739,7 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
     let mut issue_word: Option<String> = None;
     let mut values: Vec<(&'static str, String)> = Vec::new();
     let (mut parts, mut stamp, mut print, mut ignore_local, mut ignore_kept, mut take_back) = (false, false, false, false, false, false);
-    let mut ignore_branch = false;
+    let (mut ignore_branch, mut no_push) = (false, false);
     let mut runner: Option<String> = None;
     loop {
         let found = match next(parser) {
@@ -737,13 +748,14 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
             Err(refused) => return Err(used(err, name, &format!("'{}' is not known", refused))),
         };
         match found {
-            Word::Long(option) if option == "parts" || option == "stamp" || (starter && (option == "prompt" || option == "ignore-local" || option == "ignore-kept" || option == "ignore-branch" || option == "take-back")) => {
+            Word::Long(option) if option == "parts" || option == "stamp" || (starter && (option == "prompt" || option == "ignore-local" || option == "ignore-kept" || option == "ignore-branch" || option == "take-back" || option == "no-push")) => {
                 let flag = match option.as_str() {
                     "parts" => &mut parts,
                     "stamp" => &mut stamp,
                     "ignore-local" => &mut ignore_local,
                     "ignore-kept" => &mut ignore_kept,
                     "ignore-branch" => &mut ignore_branch,
+                    "no-push" => &mut no_push,
                     "take-back" => &mut take_back,
                     _ => &mut print,
                 };
@@ -836,7 +848,7 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
             return Err(used(err, name, &why));
         }
     }
-    Ok(Words { role, values, parts, stamp, print, runner, ignore_local, ignore_kept, take_back, ignore_branch })
+    Ok(Words { role, values, parts, stamp, print, runner, ignore_local, ignore_kept, take_back, ignore_branch, no_push })
 }
 
 /// A prompt handed out: the values it was filled with, what was put together, and what was read for it.
@@ -1233,6 +1245,10 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
             Err(status) => status,
         };
     }
+    // The file of the change's description is named by `wb` (#151): a session it starts writes it where `wb` reads it.
+    if words.get("description").is_some() {
+        return used(err, name, "'--description' is taken only with --prompt, --stamp or --parts: the file of the change's description is named by wb");
+    }
     // The stamp's first line is read back by the next start: the round is a whole number.
     if let Some(round) = words.get("round") {
         if !is_round(round) {
@@ -1480,8 +1496,12 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         Ok(found) => found,
         Err(why) => return refused(&mut lines, err, "view", &why),
     };
-    // A view made and not run in is removed, whatever ends the start.
-    let discard = |prepared: &Prepared| view::discard(&prepared.view);
+    // A view made and not run in is removed, whatever ends the start, and the folder of what the session writes for
+    // `wb` with it (#151).
+    let discard = |prepared: &Prepared| {
+        view::discard(&prepared.view);
+        push::remove_out(&prepared.out);
+    };
     // A program named by its path lies under what the sandbox holds, as it is there: the system's folders and the
     // runner's binds, once they are made sure of (#202).
     if let Some(why) = filled.first().and_then(|program| outside_the_sandbox(program, &prepared.binds)) {
@@ -1587,9 +1607,10 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         new_session: view::new_session(),
         words: &filled,
     };
-    let status = match view::run_in(machine.sandbox, &plan, layout, name, err) {
+    let status = match view::run_out(machine.sandbox, &plan, layout, Some(&prepared.out), name, err) {
         Ok(status) => status,
         Err(why) => {
+            push::remove_out(&prepared.out);
             let message = refusal::limit_text(&why);
             let code = refusal::say(err, name, &message);
             let back = view::Back { failed: Some(why), ..Default::default() };
@@ -1618,12 +1639,34 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         // not a refusal: what was refused at the take-back is said by `view::take_back` as a limit.
         code = 1;
     }
+    // What the session wrote for `wb` (#151), read before its folder goes.
+    let description = push::read_description(&prepared.out);
+    push::remove_out(&prepared.out);
+    // How to look at what was taken (#159): the commits keep who wrote them, the tests, the checks.
+    for (commit, _) in &back.taken {
+        let _ = writeln!(err, "{}: to see what the commit changes, run:\n  git show --stat {}", name, commit);
+    }
+    // The push and the change (#151): by `wb`, as the person, outside the sandbox, or said where `wb` does not push.
+    let ended = push::Ended {
+        name,
+        role,
+        root,
+        issue: value_of(&handed.values, "issue"),
+        branch: prepared.view.branch_name(),
+        back: &back,
+        ended_well: status.success(),
+        no_push: words.no_push,
+        description,
+    };
+    let pushed = push::after(&ended, err);
+    if let Some(text) = &pushed.lines {
+        lines.write("push", text, err);
+    }
+    if pushed.code != 0 {
+        // not a refusal: what stopped the push or the change is said by `push::after` as a limit.
+        code = 1;
+    }
     if !back.taken.is_empty() {
-        // How to look at what was taken (#159): the commits keep who wrote them, the tests, the checks.
-        for (commit, _) in &back.taken {
-            let _ = writeln!(err, "{}: to see what the commit changes, run:\n  git show --stat {}", name, commit);
-        }
-        say_push(name, role, root, prepared.view.branch_name(), err);
         // The planner posts nothing (#295): its new questions, written in full in the issue's file, are posted here.
         // They are read from the last commit taken back, not from the working tree, which need not hold it (#296).
         if let (true, Some(issue), Some((commit, _))) = (role == "planner", value_of(&handed.values, "issue"), back.taken.last()) {
@@ -1643,7 +1686,7 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
 /// will take is said first. Ends with 0 when all of the view was taken and it is removed, 1 when anything was refused
 /// or left, 2 when it is used wrongly.
 fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, state: Option<&Path>, err: &mut dyn Write) -> i32 {
-    let others = words.print || words.stamp || words.parts || words.runner.is_some() || words.ignore_local || words.ignore_kept || words.ignore_branch || words.values.iter().any(|(given, _)| *given != "issue");
+    let others = words.print || words.stamp || words.parts || words.runner.is_some() || words.ignore_local || words.ignore_kept || words.ignore_branch || words.no_push || words.values.iter().any(|(given, _)| *given != "issue");
     if others {
         return used(err, name, "'--take-back' is used with the role and the issue alone: it starts and posts nothing");
     }
@@ -1713,7 +1756,8 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
     };
     // What will be taken, said first: the view, its role and round, each commit with its subject.
     let shown_view = issue::shown(&kept.view.folder.display().to_string());
-    let (commits, more, left) = match view::work_left(&root, &kept.view) {
+    let taken = kept::taken_of(&kept.session);
+    let (commits, more, left) = match view::work_left(&root, &kept.view, &taken) {
         Ok(found) => (found.commits, found.more, found.uncommitted),
         Err(why) => return refuse(err, &format!("the view {} was not read, and nothing is taken back: {}", shown_view, issue::shown(&why))),
     };
@@ -1728,7 +1772,7 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
         let _ = writeln!(err, "{}:   {} {}", name, view::short(commit), subject);
     }
     if commits.is_empty() {
-        let _ = writeln!(err, "{}:   no commit", name);
+        let _ = writeln!(err, "{}:   no commit{}", name, if taken.is_empty() { "" } else { ": every commit of the view was taken before" });
     }
     if total > commits.len() {
         let _ = writeln!(err, "{}:   and {} more", name, total - commits.len());
@@ -1737,7 +1781,7 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
         let _ = writeln!(err, "{}:   uncommitted, and not taken: {}", name, issue::shown(path));
     }
     let list = kept.session.join("back");
-    let back = view::take_back_later_of(name, &root, &kept.view, &allowed, &build_files, total, Some(&list), err);
+    let back = view::take_back_later_of(name, &root, &kept.view, &allowed, &build_files, total, &taken, Some(&list), err);
     let still = view::tidy(name, &kept.view, &back, err);
     let written = sessions::append_back(&kept.session, &format!("take-back\n{}", back.text(still.as_deref())));
     if let Err(error) = &written {
@@ -1748,36 +1792,15 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
         let _ = writeln!(err, "{}: to see what the commit changes, run:\n  git show --stat {}", name, commit);
     }
     if !back.taken.is_empty() {
-        say_push(name, role, &root, kept.view.branch_name(), err);
+        // A take-back is not the end of a session (#151): the person, who is there, pushes.
+        let _ = writeln!(err, "{}: nothing is pushed: wb pushes at the end of a session, and --take-back is not one.", name);
+        push::say_commands(name, role, &root, kept.view.branch_name(), err);
     }
     if back.all_taken() && written.is_ok() {
         0
     } else {
         // not a refusal: each thing not taken, and the lines not written, is said above as a limit.
         1
-    }
-}
-
-/// Says the command that pushes `branch` and, after a build, the command that opens the change as a draft: the
-/// pattern `draft_change` of `watchbill.yml`, filled. `wb` runs neither (#145): a person does.
-fn say_push(name: &str, role: &str, root: &str, branch: &str, err: &mut dyn Write) {
-    let _ = writeln!(err, "{}: nothing is pushed. To push the branch, run:\n  git push origin {}", name, branch);
-    if role != "build" {
-        return;
-    }
-    match prompt::pattern_of(root, "draft_change") {
-        Ok(Some(line)) if prompt::is_plain_name(branch) => {
-            let _ = writeln!(err, "{}: to open the change as a draft, where none is open yet, run:\n  {}", name, line.replace("{branch}", branch));
-        }
-        Ok(Some(_)) => {
-            let _ = writeln!(err, "{}: the branch '{}' is not a plain name that fills `draft_change`: open the change as a draft at the git server.", name, branch.escape_debug());
-        }
-        Ok(None) => {
-            let _ = writeln!(err, "{}: watchbill.yml has no `draft_change`, so the command that opens the change is not known: open it as a draft at the git server, where none is open yet.", name);
-        }
-        Err(why) => {
-            let _ = writeln!(err, "{}: {}", name, why);
-        }
     }
 }
 
@@ -1790,6 +1813,8 @@ struct Prepared {
     size: Option<view::Size>,
     /// The commit of the branch the commits go back onto, as the view was made, or none where it was not there (#296).
     at: Option<String>,
+    /// The folder of what the session writes for `wb`, bound at `view::OUT_FOLDER` (#151).
+    out: std::path::PathBuf,
 }
 
 /// Makes sure of what a session in a view needs, and makes the view (#126): the runner's binds, each from the
@@ -1847,6 +1872,15 @@ fn prepare_view(
                 ));
             }
         }
+        // No login of the code host is in the sandbox (#151): `wb` pushes and opens the change outside it.
+        if let Some(login) = push::login_of(path, machine.home, &|name| std::env::var_os(name)) {
+            return Err(format!(
+                "the runner's bind {} holds or lies in {}, a login of the code host, and no session holds one: wb pushes the branch and opens the change outside the sandbox. Take it out of `binds` in the organisation's file {}",
+                path.display(),
+                login.display(),
+                machine.organisation.display()
+            ));
+        }
     }
     let state = machine
         .state
@@ -1861,7 +1895,14 @@ fn prepare_view(
         Some(paths) => view::make_onto(root, paths, &below, &base, onto).map(|(made, at)| (made, None, at))?,
         None => view::make_whole_onto(root, &below, &base, onto).map(|(made, size, at)| (made, Some(size), at))?,
     };
-    Ok(Prepared { view: made, binds: resolved, build_files, size, at })
+    let out = match push::make_out(state, &made.folder) {
+        Ok(out) => out,
+        Err(why) => {
+            view::discard(&made);
+            return Err(why);
+        }
+    };
+    Ok(Prepared { view: made, binds: resolved, build_files, size, at, out })
 }
 
 /// `wb plan`, with the words after `plan`, in the repository of `folder`, with the organisation's file at `organisation`

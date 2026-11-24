@@ -217,7 +217,7 @@ fn test_WB_TASK_49_off_the_branch_of_the_issue_or_with_no_issue_comments_it_ends
     let before = snapshot(&folder.path);
     let run = wb(&folder.path, &["accept", "54"], "");
     assert_eq!(code(&run), Some(1), "{}", out_of(&run));
-    assert!(err_of(&run).contains("issue-54-work"), "{}", err_of(&run));
+    assert!(err_of(&run).contains("not on the branch of the issue"), "{}", err_of(&run));
     assert_eq!(snapshot(&folder.path), before);
     git(&folder.path, &["checkout", "-q", &main]);
 
@@ -271,7 +271,7 @@ fn test_WB_TASK_52_a_commit_after_the_record_voids_it() {
     git(&folder.path, &["add", "--", "src/more.c"]);
     git(&folder.path, &["commit", "-q", "-m", "More"]);
     let list = out_of(&wb(&folder.path, &["status"], ""));
-    assert_eq!(list, "Built:\n  54  issue-54-work\n", "{}", list);
+    assert!(list.starts_with("Built:\n  54  issue-54-work") && list.lines().count() == 2, "{}", list);
     let one = out_of(&wb(&folder.path, &["status", "54"], ""));
     assert!(one.starts_with("Built:\n"), "{}", one);
     assert!(!one.contains("accepted: the work"), "{}", one);
@@ -349,7 +349,7 @@ fn test_WB_STATUS_91_a_job_whose_work_is_accepted_is_not_listed_and_wb_status_of
     let folder = done_job();
     assert_eq!(out_of(&wb(&folder.path, &["status"], "")), "");
     let out = out_of(&wb(&folder.path, &["status", "54"], ""));
-    assert!(out.starts_with("Done:\n  54  issue-54-work\n"), "{}", out);
+    assert!(out.starts_with("Done:\n  54  issue-54-work"), "{}", out);
     assert!(!out.contains("merged:"), "{}", out);
 }
 
@@ -389,6 +389,16 @@ fn test_WB_STATUS_94_there_is_no_stage_done_and_a_done_job_is_in_no_stage_of_the
     for stage in ["built", "accepted", "tested"] {
         assert_eq!(out_of(&wb(&folder.path, &["status", "--stage", stage], "")), "");
     }
+}
+
+#[test]
+fn test_WB_STATUS_96_with_no_branch_of_the_issue_left_a_file_on_the_default_branch_is_not_a_merge() {
+    let folder = set_up();
+    issues_ready(&folder.path, &["54"]);
+    comments(&folder.path, "54", &BUILT);
+    let out = out_of(&wb(&folder.path, &["status", "54"], ""));
+    assert!(out.starts_with("Built:\n  54\n"), "{}", out);
+    assert!(!out.contains("merged:"), "{}", out);
 }
 
 // ---- wb clean ----

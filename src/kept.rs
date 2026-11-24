@@ -351,6 +351,9 @@ pub struct Entry {
     pub cut_off: bool,
     /// Whether the view was read: the lines of its start name it, and what it holds was read.
     pub read: bool,
+    /// Whether its job is done (#282) and every commit it holds, with nothing uncommitted, is in the default branch:
+    /// what is left in it is nothing that is not already in the history.
+    pub merged: bool,
 }
 
 /// The most commits and the most paths that a named removal says.
@@ -440,16 +443,33 @@ pub fn entries(root: &str, state: &Path) -> Vec<Entry> {
             ended,
             cut_off: session.cut_off(),
             read,
+            merged: false,
         });
     }
     found.reverse();
+    let mut done: Vec<(String, bool)> = Vec::new();
+    for entry in found.iter_mut().filter(|entry| entry.read && entry.ended && !entry.runs && !entry.cut_off) {
+        let Some(kept) = &entry.work else { continue };
+        if kept.commits.is_empty() || kept.more > 0 || !kept.uncommitted.is_empty() || kept.unread.is_some() {
+            continue;
+        }
+        let closed = match done.iter().find(|(issue, _)| *issue == entry.issue) {
+            Some((_, closed)) => *closed,
+            None => {
+                let closed = crate::status::done_of(root, &entry.issue).is_some();
+                done.push((entry.issue.clone(), closed));
+                closed
+            }
+        };
+        entry.merged = closed && kept.commits.iter().all(|(commit, _)| crate::status::in_default(root, commit));
+    }
     found
 }
 
 /// Whether `wb clean` removes the view without being told to: its session ended, it was read, and nothing is left
-/// in it. This is the one place that says so: a job whose change is merged is done (#282) is added here.
+/// in it, or its job is done and what it holds is in the default branch (#282). This is the one place that says so.
 pub fn removable(entry: &Entry) -> bool {
-    entry.read && entry.ended && !entry.runs && !entry.cut_off && entry.work.is_none()
+    entry.read && entry.ended && !entry.runs && !entry.cut_off && (entry.work.is_none() || entry.merged)
 }
 
 /// Why a view that is named is not removed, where it is not: its session runs, or it was not read. A view with work

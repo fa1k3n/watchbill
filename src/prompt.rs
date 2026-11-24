@@ -849,7 +849,7 @@ pub fn touched_text(root: &str, list: &Option<Vec<String>>, branch: Option<&str>
         return told("git gave no diff".to_string());
     };
     let changed: Vec<String> = names.split(|byte| *byte == 0).filter(|name| !name.is_empty()).map(|name| String::from_utf8_lossy(name).to_string()).collect();
-    let own: Vec<String> = issue.map(|issue| vec![format!(".watchbill/issues/{}.yml", issue), format!(".watchbill/issues/{}.accepted", issue)]).unwrap_or_default();
+    let own: Vec<String> = issue.map(|issue| vec![format!(".watchbill/issues/{}.yml", issue), format!(".watchbill/issues/{}.accepted", issue), crate::finished::path_of(issue)]).unwrap_or_default();
     let hit: Vec<&str> = changed
         .iter()
         .filter(|path| !own.contains(path))

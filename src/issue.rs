@@ -230,7 +230,7 @@ fn accepted_of(root: &Path, issue: &str) -> std::path::PathBuf {
 
 /// A folder on the way to the issue files that is a link, or is there and is not a folder: it is named,
 /// and nothing is read or written through it.
-fn way_fault(root: &Path) -> Option<String> {
+pub(crate) fn way_fault(root: &Path) -> Option<String> {
     for name in [".watchbill", FOLDER] {
         match fs::symlink_metadata(root.join(name)) {
             Ok(found) if found.file_type().is_symlink() => {
@@ -465,7 +465,7 @@ impl Used {
 }
 
 /// One value of `git config`, or why there is none.
-fn git_value(root: &str, key: &str) -> Result<String, String> {
+pub(crate) fn git_value(root: &str, key: &str) -> Result<String, String> {
     let none = || format!("git has no {} for this repository. Set it with `git config {} <value>`.", key, key);
     let run = crate::detect::git_output(&["-C", root, "config", key], None).ok_or_else(|| "git could not be run.".to_string())?;
     if !run.status.success() {
@@ -825,7 +825,7 @@ fn commit_message(issue: &str) -> String {
 }
 
 /// The branch the checkout is on, or none when it is detached or git could not be run.
-fn current_branch(root: &str) -> Option<String> {
+pub(crate) fn current_branch(root: &str) -> Option<String> {
     let run = crate::detect::git_output(&["-C", root, "symbolic-ref", "--short", "-q", "HEAD"], None)?;
     if !run.status.success() {
         return None;
@@ -889,7 +889,13 @@ pub(crate) enum NotReady {
 /// `by:`, whatever the environment says. Ok holds the paths the commit holds. When the commit fails, the
 /// acceptance is unstaged again, so the index is as it was; Err holds what git said.
 fn commit_alone(root: &str, issue: &str, name: &str, email: &str) -> Result<Vec<String>, String> {
-    let path = format!("{}/{}.accepted", FOLDER, issue);
+    commit_path(root, &format!("{}/{}.accepted", FOLDER, issue), &commit_message(issue), name, email)
+}
+
+/// Commits the one new file `path` alone with `message`, as `commit_alone` does for an acceptance (#282 uses it for
+/// the record of the final acceptance).
+pub(crate) fn commit_path(root: &str, path: &str, message: &str, name: &str, email: &str) -> Result<Vec<String>, String> {
+    let path = path.to_string();
     let run = |args: &[&str]| -> Result<String, String> {
         let output = std::process::Command::new("git")
             .arg("-C")
@@ -915,7 +921,7 @@ fn commit_alone(root: &str, issue: &str, name: &str, email: &str) -> Result<Vec<
         return Err(why);
     }
     let author = format!("{} <{}>", name, email);
-    if let Err(why) = run(&["commit", "-q", "-m", &commit_message(issue), "--author", &author, "--only", "--", &path]) {
+    if let Err(why) = run(&["commit", "-q", "-m", message, "--author", &author, "--only", "--", &path]) {
         unstage();
         return Err(why);
     }

@@ -37,8 +37,8 @@ added_requirement_goes_to: [tester, build]
 # For each role: the step and what it produces, what it may read, what it may do,
 # the roles the same team member may not also hold on one change, the prompt file, and the
 # limits of a session in minutes: past quiet_minutes with nothing changed in its view the
-# program says so, and past max_minutes it ends the session. watchbill.yml may set them lower
-# for a role, never higher.
+# program says so, and past max_minutes it ends the session. The settings of a project may set
+# them lower for a role, never higher.
 roles:
   planner:
     step: Read the issue and the code, and write the issue's file. The planner comes before the tester. No other role of the issue is started until a person has accepted the issue's file.

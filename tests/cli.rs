@@ -16,7 +16,7 @@ const USAGE: &str = "usage:
   wb upgrade [--dry-run]
   wb accept <issue> [--no-commit]
   wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [--ignore-kept]
-            [--ignore-branch] [the options of prompt]
+            [--ignore-branch] [--no-push] [the options of prompt]
             or <role> <issue> --take-back
   wb status [<issue>] [--stage <heading>]
   wb view <issue> (<role> [--in | --out] | <path>)
@@ -26,7 +26,8 @@ const USAGE: &str = "usage:
             [--requirements <text>] [--round <text>] [--checkout <text>]
             [--branch <text>] [--issue_address <text>]
             [--change_address <text>] [--classed <text>]
-            [--classed_touched <text>] [--runner <name>] [--parts] [--stamp]
+            [--classed_touched <text>] [--description <text>]
+            [--runner <name>] [--parts] [--stamp]
   wb revision
   wb --version
 
@@ -98,7 +99,13 @@ const USAGE: &str = "usage:
             1 before anything is posted. A checkout on another branch, but
             the default branch before the branch of the stamp is there, stops
             the start with 1 before anything is posted, and --ignore-branch
-            goes on. --take-back, given with the role
+            goes on. After the tester, the build or the fix of an issue whose
+            commits all came back, and whose session ended with 0, it pushes
+            the branch to origin with git, never with force, and after a build
+            with no change open it opens one as a draft by draft_change, with
+            the description the session wrote; without change_of_branch and
+            draft_change, or with --no-push, it says the commands and runs
+            neither. --take-back, given with the role
             and the issue alone, starts and posts nothing: it says what it will
             take, then takes back the commits of the newest view of that role
             and issue that was kept, through the checks of the end of a

@@ -2422,4 +2422,56 @@ mod tests {
         drop(outer);
         assert_eq!(held(), None);
     }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_WB_PUSH_12_no_variable_of_a_login_of_the_code_host_is_handed_into_the_sandbox() {
+        let mut command = Command::new("/usr/bin/bwrap");
+        without_logins(&mut command);
+        let removed: Vec<String> =
+            command.get_envs().filter(|(_, value)| value.is_none()).map(|(name, _)| name.to_string_lossy().to_string()).collect();
+        for name in [
+            "GH_TOKEN",
+            "GITHUB_TOKEN",
+            "GH_ENTERPRISE_TOKEN",
+            "GITHUB_ENTERPRISE_TOKEN",
+            "GH_CONFIG_DIR",
+            "GITLAB_TOKEN",
+            "GLAB_TOKEN",
+            "GITLAB_ACCESS_TOKEN",
+            "GLAB_CONFIG_DIR",
+            "CI_JOB_TOKEN",
+            "SSH_AUTH_SOCK",
+            "SSH_ASKPASS",
+        ] {
+            assert!(removed.iter().any(|one| one == name), "{} is handed in: {:?}", name, removed);
+        }
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn test_WB_PUSH_8_the_folder_of_the_description_is_bound_at_run_watchbill_after_the_view() {
+        let words = ["runner".to_string()];
+        let plan = Plan {
+            view: Path::new("/var/views/1"),
+            checkout: Path::new("/work/brakes"),
+            binds: vec![],
+            organisation: None,
+            home: Some(Path::new("/home/ada")),
+            new_session: false,
+            words: &words,
+        };
+        let words: Vec<String> =
+            arguments_out(&plan, Layout::Listed, Some(Path::new("/state/watchbill/out/1"))).iter().map(|word| word.to_string_lossy().to_string()).collect();
+        let find = |pair: [&str; 3]| words.windows(3).position(|three| three == pair);
+        let view = find(["--bind", "/var/views/1", "/work/brakes"]).expect("the view is not bound");
+        let out = find(["--bind", "/state/watchbill/out/1", OUT_FOLDER]).expect("the folder of the description is not bound");
+        assert!(view < out, "{:?}", words);
+        assert_eq!(DESCRIPTION, "/run/watchbill/description.md");
+        assert!(DESCRIPTION.starts_with(&format!("{}/", OUT_FOLDER)));
+        // Without it, the words are those of `arguments_in`.
+        let none: Vec<String> = arguments_out(&plan, Layout::Listed, None).iter().map(|word| word.to_string_lossy().to_string()).collect();
+        let before: Vec<String> = arguments_in(&plan, Layout::Listed).iter().map(|word| word.to_string_lossy().to_string()).collect();
+        assert_eq!(none, before);
+    }
 }

@@ -852,7 +852,8 @@ fn test_WB_VIEW_15_after_a_build_the_command_that_opens_the_change_as_a_draft_is
     with_line(&bench, "draft_change: 'draft-stand-in --head {branch}'");
     bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\n");
 
-    let run = bench.start(&["start", "build", "54"]);
+    // With both patterns `wb` pushes (#151): `--no-push` keeps the commands said and not run.
+    let run = bench.start(&["start", "build", "54", "--no-push"]);
 
     ok(&run);
     let err = text_of(&run.stderr);
@@ -4142,7 +4143,8 @@ fn test_WB_VIEW_82_the_commits_of_a_role_with_no_issue_s_file_come_back_with_the
     with_line(&bench, "draft_change: 'draft-stand-in --head {branch}'");
     bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\n");
 
-    let run = bench.start(&["start", "build", "99"]);
+    // With both patterns `wb` pushes (#151): `--no-push` keeps the commands said and not run.
+    let run = bench.start(&["start", "build", "99", "--no-push"]);
 
     ok(&run);
     assert_eq!(subjects(&bench, 1), vec!["A new file"]);
@@ -5093,4 +5095,471 @@ fn test_WB_VIEW_117_a_take_back_onto_a_branch_behind_the_commit_the_view_was_mad
     assert!(line.contains("issue-54") && line.contains("behind") && !line.contains("moved on"), "{}", err);
     assert_eq!(bench.git_text(&["rev-parse", "issue-54"]), before);
     assert!(folder.exists());
+}
+
+// ---- #151: wb pushes the branch and opens the change after a session; the session holds no login ----
+
+/// The bench with `origin` a bare repository of its own, whose hook notes each ref it is given in `pushes` (and what
+/// `wb` had said by then, from `err`, in `said-at-push`), and the patterns of the change: `change_of_branch` prints
+/// what the test leaves in `open`; `draft_change` notes its call, keeps its standard input in `description`, and
+/// leaves 175 in `open`, as a change opened.
+fn pushing() -> (Bench, Folder) {
+    let bench = bench();
+    let origin = folder_named("origin");
+    let l = bench.log.path.to_str().unwrap().to_string();
+    git(&origin.path, &["init", "-q", "--bare"]);
+    script(
+        &origin.path.join("hooks").join("post-receive"),
+        &format!("cat {l}/err > {l}/said-at-push 2>/dev/null\nwhile read old new ref; do echo \"$ref $new\" >> {l}/pushes; done\n"),
+    );
+    git(&bench.repo.path, &["remote", "set-url", "origin", origin.path.to_str().unwrap()]);
+    script(&bench.at("changes.sh"), &format!("echo \"changes $1\" >> {l}/calls\ncat {l}/open 2>/dev/null\nexit 0\n"));
+    script(
+        &bench.at("draft.sh"),
+        &format!("echo \"draft $1\" >> {l}/calls\ncat > {l}/description\necho 175 > {l}/open\nexit $(cat {l}/draft.status 2>/dev/null || echo 0)\n"),
+    );
+    with_line(&bench, &format!("draft_change: '{}/draft.sh {{branch}}'", l));
+    (bench, origin)
+}
+
+/// A build's session: a new file committed, and `description` written to the description's file, where given.
+fn build_session(bench: &Bench, description: Option<&str>) {
+    let write = match description {
+        Some(text) => format!(" && printf '%s' '{}' > /run/watchbill/description.md", text),
+        None => String::new(),
+    };
+    bench.session(&format!("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'{}\n", write));
+}
+
+/// The refs of the bare `origin`, each as `<ref> <commit>`.
+fn refs_of(origin: &Folder) -> String {
+    let run = Command::new("git").arg("-C").arg(&origin.path).args(["for-each-ref", "--format=%(refname) %(objectname)"]).env_clear().envs(env()).output().unwrap();
+    text_of(&run.stdout)
+}
+
+/// The file `push` of the session's folder.
+fn push_lines(bench: &Bench) -> String {
+    read(&bench.lines().join("push"))
+}
+
+/// How many times a stand-in was called, by the first word of its call.
+fn called(bench: &Bench, word: &str) -> usize {
+    bench.calls().iter().filter(|call| call.split(' ').next() == Some(word)).count()
+}
+
+#[test]
+fn test_WB_PUSH_1_after_a_build_the_issue_s_branch_is_pushed_once_to_origin() {
+    if !sandbox("test_WB_PUSH_1") {
+        return;
+    }
+    let (bench, _origin) = pushing();
+    build_session(&bench, Some("What changed.\n"));
+
+    let run = bench.start(&["start", "build", "54"]);
+
+    ok(&run);
+    let tip = bench.git_text(&["rev-parse", "issue-54"]).trim().to_string();
+    assert_eq!(bench.left("pushes"), format!("refs/heads/issue-54 {}\n", tip), "{}", text_of(&run.stderr));
+}
+
+#[test]
+fn test_WB_PUSH_2_only_the_stamp_s_branch_is_pushed_at_the_last_commit_taken_back() {
+    if !sandbox("test_WB_PUSH_2") {
+        return;
+    }
+    let (bench, origin) = pushing();
+    bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file' && echo 'int more;' >> src/new.c && git commit -q -a -m 'More'\n");
+
+    let run = bench.start(&["start", "build", "54"]);
+
+    ok(&run);
+    let tip = bench.git_text(&["rev-parse", "issue-54"]).trim().to_string();
+    assert_eq!(subjects(&bench, 1), vec!["More"]);
+    assert_eq!(refs_of(&origin), format!("refs/heads/issue-54 {}\n", tip));
+}
+
+#[test]
+fn test_WB_PUSH_2_a_branch_at_origin_that_has_moved_on_is_never_forced() {
+    if !sandbox("test_WB_PUSH_2") {
+        return;
+    }
+    let (bench, origin) = pushing();
+    // `origin` holds the issue's branch at a commit the checkout's branch does not hold.
+    let tree = bench.git_text(&["rev-parse", "main^{tree}"]).trim().to_string();
+    let main = bench.git_text(&["rev-parse", "main"]).trim().to_string();
+    let other = bench.git_text(&["commit-tree", &tree, "-p", &main, "-m", "Elsewhere"]).trim().to_string();
+    git(&bench.repo.path, &["push", "-q", origin.path.to_str().unwrap(), &format!("{}:refs/heads/issue-54", other)]);
+    fs::remove_file(bench.at("pushes")).unwrap();
+    build_session(&bench, Some("What changed.\n"));
+
+    let run = bench.start(&["start", "build", "54"]);
+
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert_eq!(refs_of(&origin), format!("refs/heads/issue-54 {}\n", other));
+    assert_eq!(bench.left("pushes"), "");
+}
+
+#[test]
+fn test_WB_PUSH_3_what_is_pushed_is_said_before_the_push() {
+    if !sandbox("test_WB_PUSH_3") {
+        return;
+    }
+    let (bench, _origin) = pushing();
+    build_session(&bench, Some("What changed.\n"));
+    let mut said = fs::File::create(bench.at("err")).unwrap();
+
+    let run = bench.start_saying(Path::new(watchbill::view::BWRAP), &["start", "build", "54"], &mut said);
+
+    let err = bench.left("err");
+    assert_eq!(code(&run), Some(0), "{}", err);
+    let tip = bench.git_text(&["rev-parse", "issue-54"]).trim().to_string();
+    let before = bench.left("said-at-push");
+    let line = before.lines().find(|line| line.starts_with("wb start build: will push ")).unwrap_or_else(|| panic!("{}", before));
+    assert!(line.contains(&tip) && line.contains("issue-54"), "{}", line);
+    assert!(before.contains(&format!("git push origin {}:refs/heads/issue-54", tip)), "{}", before);
+}
+
+#[test]
+fn test_WB_PUSH_4_a_commit_refused_at_the_taking_back_pushes_nothing_and_says_so() {
+    if !sandbox("test_WB_PUSH_4") {
+        return;
+    }
+    let (bench, origin) = pushing();
+    bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file' && echo 'int brake(int);' > src/brake.h && git commit -q -a -m 'Change a read'\n");
+
+    let run = bench.start(&["start", "build", "54"]);
+
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert_eq!(subjects(&bench, 1), vec!["A new file"]);
+    assert_eq!(refs_of(&origin), "");
+    assert_eq!(called(&bench, "draft"), 0);
+    let err = text_of(&run.stderr);
+    assert!(err.lines().any(|line| line.starts_with("wb start build: nothing is pushed") && line.contains("refused")), "{}", err);
+    assert!(err.contains("git push origin issue-54"), "{}", err);
+}
+
+#[test]
+fn test_WB_PUSH_4_work_left_uncommitted_pushes_nothing_and_says_so() {
+    if !sandbox("test_WB_PUSH_4") {
+        return;
+    }
+    let (bench, origin) = pushing();
+    bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file' && echo 'int left;' > tests/test_brake.c\n");
+
+    let run = bench.start(&["start", "build", "54"]);
+
+    let err = text_of(&run.stderr);
+    assert_eq!(subjects(&bench, 1), vec!["A new file"], "{}", err);
+    assert_eq!(refs_of(&origin), "");
+    assert_eq!(called(&bench, "draft"), 0);
+    assert!(err.lines().any(|line| line.starts_with("wb start build: nothing is pushed") && line.contains("uncommitted")), "{}", err);
+    assert!(err.contains("git push origin issue-54"), "{}", err);
+}
+
+#[test]
+fn test_WB_PUSH_5_a_push_git_refuses_ends_with_1_says_why_and_opens_no_change() {
+    if !sandbox("test_WB_PUSH_5") {
+        return;
+    }
+    let (bench, origin) = pushing();
+    // The remote refuses every ref it is given.
+    script(&origin.path.join("hooks").join("pre-receive"), "echo 'no pushes today' >&2\nexit 1\n");
+    build_session(&bench, Some("What changed.\n"));
+
+    let run = bench.start(&["start", "build", "54"]);
+
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    assert!(err.contains("no pushes today"), "{}", err);
+    let line = labelled_line(&err, "wb start build", "limit").unwrap_or_else(|| panic!("no limit: {}", err));
+    assert!(line.contains("push") && line.contains("no change is opened"), "{}", err);
+    assert_eq!(refs_of(&origin), "");
+    assert_eq!(called(&bench, "draft"), 0);
+    assert!(push_lines(&bench).starts_with("not pushed: "), "{}", push_lines(&bench));
+}
+
+#[test]
+fn test_WB_PUSH_6_after_a_build_with_no_change_open_one_is_opened_as_a_draft_with_the_description_on_standard_input() {
+    if !sandbox("test_WB_PUSH_6") {
+        return;
+    }
+    let (bench, _origin) = pushing();
+    build_session(&bench, Some("What changed, and why.\n"));
+
+    let run = bench.start(&["start", "build", "54"]);
+
+    ok(&run);
+    let calls = bench.calls();
+    let changes = calls.iter().position(|call| call == "changes issue-54").unwrap_or_else(|| panic!("{:?}", calls));
+    let draft = calls.iter().position(|call| call == "draft issue-54").unwrap_or_else(|| panic!("{:?}", calls));
+    assert!(changes < draft, "{:?}", calls);
+    assert_eq!(called(&bench, "draft"), 1);
+    assert_eq!(bench.left("description"), "What changed, and why.\n");
+    let err = text_of(&run.stderr);
+    let said = err.find("wb start build: will open the change of issue-54 as a draft").unwrap_or_else(|| panic!("{}", err));
+    assert!(err[said..].contains(&format!("{}/draft.sh issue-54", bench.log.path.display())), "{}", err);
+    assert!(err[said..].contains("What changed, and why."), "{}", err);
+}
+
+#[test]
+fn test_WB_PUSH_6_a_change_open_for_the_branch_gets_the_push_only() {
+    if !sandbox("test_WB_PUSH_6") {
+        return;
+    }
+    let (bench, origin) = pushing();
+    fs::write(bench.at("open"), "174\n").unwrap();
+    build_session(&bench, Some("What changed.\n"));
+
+    let run = bench.start(&["start", "build", "54"]);
+
+    ok(&run);
+    assert_ne!(refs_of(&origin), "");
+    assert_eq!(called(&bench, "draft"), 0);
+    assert!(push_lines(&bench).contains("change: 174\n"), "{}", push_lines(&bench));
+
+    // More than one open: none is opened either.
+    let (bench, _origin) = pushing();
+    fs::write(bench.at("open"), "174\n176\n").unwrap();
+    build_session(&bench, Some("What changed.\n"));
+    let run = bench.start(&["start", "build", "54"]);
+    ok(&run);
+    assert_eq!(called(&bench, "draft"), 0);
+    assert!(push_lines(&bench).contains("change: not opened: "), "{}", push_lines(&bench));
+}
+
+#[test]
+fn test_WB_PUSH_7_after_the_tester_and_the_fix_only_the_push() {
+    if !sandbox("test_WB_PUSH_7") {
+        return;
+    }
+    let (bench, origin) = pushing();
+    bench.session("echo 'int main(void) { return 1; }' > tests/test_brake.c && git commit -q -a -m 'A test'\n");
+    let run = bench.start(&["start", "tester", "54"]);
+    ok(&run);
+    assert_ne!(refs_of(&origin), "");
+    assert_eq!(called(&bench, "changes"), 0, "{:?}", bench.calls());
+    assert_eq!(called(&bench, "draft"), 0);
+
+    let (bench, origin) = pushing();
+    fs::write(bench.at("comments-issue-54"), "[stamp] review round 1\n").unwrap();
+    fs::write(bench.at("open"), "174\n").unwrap();
+    bench.session("echo 'int brake(void) { return 2; }' > src/brake.c && git commit -q -a -m 'Fix finding 1 of round 1'\n");
+    let run = bench.start(&["start", "fix", "54"]);
+    ok(&run);
+    assert_ne!(refs_of(&origin), "");
+    // The one call of `change_of_branch` is the start's own, which works out the change.
+    assert_eq!(called(&bench, "changes"), 1, "{:?}", bench.calls());
+    assert_eq!(called(&bench, "draft"), 0);
+}
+
+#[test]
+fn test_WB_PUSH_8_the_description_s_file_is_named_in_the_prompt_lies_outside_the_view_and_is_removed() {
+    if !sandbox("test_WB_PUSH_8") {
+        return;
+    }
+    let (bench, _origin) = pushing();
+    bench.session(
+        "printf '%s' \"$3\" > {log}/prompt\necho 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\nprintf 'Described.\\n' > /run/watchbill/description.md && git status --porcelain --untracked-files=all > {log}/status\n",
+    );
+
+    let run = bench.start(&["start", "build", "54"]);
+
+    ok(&run);
+    assert!(bench.left("prompt").contains("/run/watchbill/description.md"), "{}", bench.left("prompt"));
+    // Not in the view's tree: git sees nothing to commit after it is written.
+    assert_eq!(bench.left("status"), "");
+    assert_eq!(bench.left("description"), "Described.\n");
+    // The folder `wb` made for it is gone.
+    assert!(bench.below("out").is_empty(), "{:?}", bench.below("out"));
+}
+
+#[test]
+fn test_WB_PUSH_9_with_no_description_the_change_names_the_issue_and_says_the_session_wrote_none() {
+    if !sandbox("test_WB_PUSH_9") {
+        return;
+    }
+    for written in [None, Some("  \n\n")] {
+        let (bench, _origin) = pushing();
+        build_session(&bench, written);
+
+        let run = bench.start(&["start", "build", "54"]);
+
+        ok(&run);
+        let description = bench.left("description");
+        assert!(description.contains("54") && description.contains("wrote no description"), "{:?}: {}", written, description);
+    }
+}
+
+#[test]
+fn test_WB_PUSH_10_without_draft_change_nothing_is_pushed_and_the_commands_are_said() {
+    if !sandbox("test_WB_PUSH_10") {
+        return;
+    }
+    let bench = bench();
+    let origin = folder_named("origin");
+    git(&origin.path, &["init", "-q", "--bare"]);
+    git(&bench.repo.path, &["remote", "set-url", "origin", origin.path.to_str().unwrap()]);
+    build_session(&bench, Some("What changed.\n"));
+
+    let run = bench.start(&["start", "build", "54"]);
+
+    ok(&run);
+    assert_eq!(refs_of(&origin), "");
+    let err = text_of(&run.stderr);
+    assert!(err.lines().any(|line| line.starts_with("wb start build: nothing is pushed") && line.contains("`draft_change`")), "{}", err);
+    assert!(err.contains("git push origin issue-54"), "{}", err);
+    assert!(push_lines(&bench).starts_with("not pushed: "), "{}", push_lines(&bench));
+}
+
+#[test]
+fn test_WB_PUSH_10_no_push_says_the_commands_and_runs_neither() {
+    if !sandbox("test_WB_PUSH_10") {
+        return;
+    }
+    let (bench, origin) = pushing();
+    build_session(&bench, Some("What changed.\n"));
+
+    let run = bench.start(&["start", "build", "54", "--no-push"]);
+
+    ok(&run);
+    assert_eq!(refs_of(&origin), "");
+    assert_eq!(called(&bench, "draft"), 0);
+    assert_eq!(called(&bench, "changes"), 0);
+    let err = text_of(&run.stderr);
+    assert!(err.lines().any(|line| line.starts_with("wb start build: nothing is pushed") && line.contains("--no-push")), "{}", err);
+    let push = err.find("git push origin issue-54").unwrap_or_else(|| panic!("{}", err));
+    let draft = err.find(&format!("{}/draft.sh issue-54", bench.log.path.display())).unwrap_or_else(|| panic!("{}", err));
+    assert!(push < draft, "{}", err);
+}
+
+#[test]
+fn test_WB_PUSH_11_the_session_s_folder_holds_pushed_and_change() {
+    if !sandbox("test_WB_PUSH_11") {
+        return;
+    }
+    let (bench, _origin) = pushing();
+    build_session(&bench, Some("What changed.\n"));
+
+    let run = bench.start(&["start", "build", "54"]);
+
+    ok(&run);
+    let tip = bench.git_text(&["rev-parse", "issue-54"]).trim().to_string();
+    assert_eq!(push_lines(&bench), format!("pushed: {}\nchange: 175\n", tip));
+
+    // Nothing pushed: why.
+    let (bench, _origin) = pushing();
+    build_session(&bench, Some("What changed.\n"));
+    let run = bench.start(&["start", "build", "54", "--no-push"]);
+    ok(&run);
+    let lines = push_lines(&bench);
+    assert!(lines.starts_with("not pushed: ") && lines.contains("--no-push") && !lines.contains("change:"), "{}", lines);
+}
+
+#[test]
+fn test_WB_PUSH_12_a_runner_s_bind_that_holds_a_login_of_the_code_host_is_refused() {
+    let bench = bench();
+    let good = format!("binds: [{{writable: '{}'}}, '{}', '~/.runner']", bench.log.path.display(), bench.ro.path.display());
+    for bad in ["~/.config/gh", "~/.config/glab-cli", "~/.ssh", "~/.git-credentials", "~/.config/git/credentials", "~/.netrc", "~/.config"] {
+        let text = read(&bench.organisation()).replace(&good, &format!("binds: ['{}']", bad));
+        fs::write(bench.organisation(), &text).unwrap();
+        let run = start_unsandboxed(&bench, &["start", "build", "54"]);
+        assert_eq!(code(&run), Some(1), "{}: {}", bad, text_of(&run.stderr));
+        let err = text_of(&run.stderr);
+        assert!(err.contains("login") && err.contains("code host"), "{}: {}", bad, err);
+        assert!(!bench.any_posted() && !bench.started(), "{}: {:?}", bad, bench.calls());
+        let back = read(&bench.organisation()).replace(&format!("binds: ['{}']", bad), &good);
+        fs::write(bench.organisation(), back).unwrap();
+    }
+}
+
+#[test]
+fn test_WB_PUSH_15_a_session_that_did_not_end_with_0_pushes_nothing() {
+    if !sandbox("test_WB_PUSH_15") {
+        return;
+    }
+    let (bench, origin) = pushing();
+    bench.session("echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\nexit 3\n");
+
+    let run = bench.start(&["start", "build", "54"]);
+
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert_eq!(subjects(&bench, 1), vec!["A new file"]);
+    assert_eq!(refs_of(&origin), "");
+    let err = text_of(&run.stderr);
+    assert!(err.lines().any(|line| line.starts_with("wb start build: nothing is pushed") && line.contains("did not end with 0")), "{}", err);
+}
+
+#[test]
+fn test_WB_PUSH_16_after_a_review_nothing_is_pushed_and_the_commands_are_said() {
+    if !sandbox("test_WB_PUSH_16") {
+        return;
+    }
+    let (bench, origin) = pushing();
+    fs::write(bench.at("open"), "174\n").unwrap();
+    bench.session("echo 'int brake(void) { return 3; }' > src/brake.c && git commit -q -a -m 'A review that commits'\n");
+
+    let run = bench.start(&["start", "review", "54"]);
+
+    let err = text_of(&run.stderr);
+    assert_eq!(subjects(&bench, 1), vec!["A review that commits"], "{}", err);
+    assert_eq!(refs_of(&origin), "");
+    assert_eq!(called(&bench, "draft"), 0);
+    assert!(err.lines().any(|line| line.starts_with("wb start review: nothing is pushed: ") && line.contains("review")), "{}", err);
+    assert!(err.contains("git push origin issue-54"), "{}", err);
+}
+
+#[test]
+fn test_WB_PUSH_17_a_description_that_cannot_be_taken_opens_no_change() {
+    if !sandbox("test_WB_PUSH_17") {
+        return;
+    }
+    let link = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file' && ln -s /etc/hostname /run/watchbill/description.md\n";
+    let control = "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file' && printf 'red \\033[31m here\\n' > /run/watchbill/description.md\n";
+    for body in [link, control] {
+        let (bench, origin) = pushing();
+        bench.session(body);
+
+        let run = bench.start(&["start", "build", "54"]);
+
+        assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+        // The branch is pushed; the change is not opened.
+        assert_ne!(refs_of(&origin), "");
+        assert_eq!(called(&bench, "draft"), 0);
+        let err = text_of(&run.stderr);
+        assert!(labelled_line(&err, "wb start build", "limit").is_some_and(|line| line.contains("description")), "{}", err);
+        assert!(!err.contains('\u{1b}'), "{:?}", err);
+        assert!(push_lines(&bench).contains("change: not opened: "), "{}", push_lines(&bench));
+    }
+}
+
+#[test]
+fn test_WB_PUSH_18_description_given_to_start_is_used_wrongly() {
+    let bench = bench();
+    let run = start_unsandboxed(&bench, &["start", "build", "54", "--description", "/tmp/elsewhere.md"]);
+    assert_eq!(code(&run), Some(2), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("--description"), "{}", text_of(&run.stderr));
+    assert!(!bench.any_posted() && !bench.started());
+    // Printed only, it is taken as `wb prompt` takes it.
+    let run = start_unsandboxed(&bench, &["start", "build", "54", "--prompt", "--description", "/tmp/elsewhere.md"]);
+    assert_eq!(code(&run), Some(0), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stdout).contains("/tmp/elsewhere.md"), "{}", text_of(&run.stdout));
+}
+
+#[test]
+fn test_WB_PUSH_20_take_back_pushes_nothing_and_says_the_commands() {
+    let (bench, origin) = pushing();
+    let (folder, _) = kept_tester(&bench);
+    commit_in(&folder, "src/brake.c", "int brake(void) { return 2; }\n", "The tests of 54");
+
+    let run = take_back(&bench, &[]);
+
+    assert_eq!(code(&run), Some(0), "{}", text_of(&run.stderr));
+    assert_eq!(refs_of(&origin), "");
+    let err = text_of(&run.stderr);
+    assert!(err.lines().any(|line| line.starts_with("wb start tester: nothing is pushed: ") && line.contains("--take-back")), "{}", err);
+    assert!(err.contains("git push origin issue-54"), "{}", err);
+
+    let run = take_back(&bench, &["--no-push"]);
+    assert_eq!(code(&run), Some(2), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("'--take-back' is used with the role and the issue alone"), "{}", text_of(&run.stderr));
 }

@@ -19,7 +19,7 @@ const MANIFEST_PATH: &str = ".watchbill/revision.sha256";
 const PLACEHOLDERS_FILE: &str = "placeholders.md";
 
 /// The words a prompt is filled in with and no others: `roles/placeholders.md` of the revision.
-pub const PLACEHOLDERS: [&str; 11] = [
+pub const PLACEHOLDERS: [&str; 15] = [
     "issue",
     "change",
     "requirements",
@@ -31,7 +31,14 @@ pub const PLACEHOLDERS: [&str; 11] = [
     "classed",
     "classed_touched",
     "description",
+    "brought",
+    "questions",
+    "change_comment",
+    "needs_person",
 ];
+
+/// The placeholders whose values `wb start` names itself (#151, #153): a session it starts reads and writes there.
+pub const NAMED_BY_WB: [&str; 5] = ["description", "brought", "questions", "change_comment", "needs_person"];
 
 /// The line between the role's text and the project's own text.
 pub const FIXED_LINE: &str =
@@ -631,6 +638,17 @@ pub fn derive_with(
     // The file the change's description is written to: in the sandbox, outside the view's tree (#151).
     if !has(&values, "description") {
         values.push(("description", crate::view::DESCRIPTION.to_string()));
+    }
+    // What `wb` brings in and what the session writes for it to post (#153): in the sandbox, outside the view's tree.
+    for (name, path) in [
+        ("brought", crate::view::BROUGHT),
+        ("questions", crate::view::QUESTIONS),
+        ("change_comment", crate::view::CHANGE_COMMENT),
+        ("needs_person", crate::view::NEEDS_PERSON),
+    ] {
+        if !has(&values, name) {
+            values.push((name, path.to_string()));
+        }
     }
     // A review or a fix of a change with no issue takes the change's description as the spec (#116).
     let alone = match (&issue, &change) {

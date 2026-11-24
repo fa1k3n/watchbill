@@ -70,6 +70,9 @@ The classed paths the change touches, for {classed_touched}.
 .B \-\-description <text>
 The file of the change's description, for {description}. Only with \-\-prompt, \-\-stamp or \-\-parts: a session that wb starts writes it where wb names it, /run/watchbill/description in the sandbox.
 .TP
+.B \-\-brought <text>, \-\-questions <text>, \-\-change_comment <text>, \-\-needs_person <text>
+The folder of what wb brings in, and the files a session writes for wb to post, for {brought}, {questions}, {change_comment} and {needs_person}. Only with \-\-prompt, \-\-stamp or \-\-parts: wb names them, /run/watchbill/in, /run/watchbill/questions, /run/watchbill/change_comment and /run/watchbill/needs_person in the sandbox.
+.TP
 .B \-\-parts
 Print the path and the SHA\-256 of each part, in the form sha256sum prints, in place of the text.
 .TP

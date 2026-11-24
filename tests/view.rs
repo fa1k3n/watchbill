@@ -5828,7 +5828,7 @@ fn bodies_of(comments: &[&str]) -> Vec<u8> {
 /// write in the folder, and whether the view saw a file of it.
 fn reading_session(bench: &Bench) {
     bench.session(
-        "for f in issue.md questions change.md change.comments change.diff; do [ -f /run/watchbill/in/$f ] && cat /run/watchbill/in/$f > {log}/in-$f; done\n\
+        "for f in issue.text questions change.text change.comments change.diff; do [ -f /run/watchbill/in/$f ] && cat /run/watchbill/in/$f > {log}/in-$f; done\n\
          ( echo x > /run/watchbill/in/planted ) 2>/dev/null && echo wrote > {log}/wrote\n\
          git status --porcelain --untracked-files=all > {log}/status\n",
     );
@@ -5854,7 +5854,7 @@ fn test_WB_PUSH_21_the_issue_and_the_role_s_own_questions_are_brought_in_read_on
 
     ok(&bench.start(&["start", "tester", "54"]));
 
-    assert_eq!(bench.left("in-issue.md"), "Brakes: the front one.\n");
+    assert_eq!(bench.left("in-issue.text"), "Brakes: the front one.\n");
     let questions = bench.left("in-questions");
     assert!(questions.contains(comments[1]) && questions.contains(comments[2]), "{}", questions);
     for never in ["[stamp]", "model: claude", "54.build", "The planner's own", "Thanks"] {
@@ -5884,7 +5884,7 @@ fn test_WB_PUSH_21_every_role_but_the_planner_gets_the_issue_s_text() {
         fs::write(bench.at("text-54"), "Brakes: the front one.\n").unwrap();
         reading_session(&bench);
         ok(&bench.start(&["start", role, "54"]));
-        assert_eq!(bench.left("in-issue.md"), "Brakes: the front one.\n", "{}", role);
+        assert_eq!(bench.left("in-issue.text"), "Brakes: the front one.\n", "{}", role);
     }
 }
 
@@ -5927,7 +5927,7 @@ fn test_WB_PUSH_22_the_review_gets_the_change_s_description_and_the_comments_of_
 
     ok(&bench.start(&["start", "review", "54"]));
 
-    assert_eq!(bench.left("in-change.md"), "Issue 54: the front brake.\n");
+    assert_eq!(bench.left("in-change.text"), "Issue 54: the front brake.\n");
     let seen = bench.left("in-change.comments");
     assert!(seen.contains(comments[1]) && seen.contains(comments[2]), "{}", seen);
     for never in ["[stamp]", "Another issue's", "Looks good"] {
@@ -5951,7 +5951,7 @@ fn test_WB_PUSH_22_with_no_issue_the_questions_of_the_review_come_from_the_chang
 
     ok(&bench.start(&["start", "review", "--change", "174"]));
 
-    assert_eq!(bench.left("in-issue.md"), "", "no issue, no issue's text");
+    assert_eq!(bench.left("in-issue.text"), "", "no issue, no issue's text");
     let questions = bench.left("in-questions");
     assert!(questions.contains(comments[0]) && !questions.contains("Not the review's"), "{}", questions);
     assert!(!bench.calls().iter().any(|call| call.starts_with("text ")), "{:?}", bench.calls());
@@ -6242,7 +6242,7 @@ fn test_WB_PUSH_29_the_folder_wb_brings_in_and_the_files_a_session_writes_are_na
     bench.session("printf '%s' \"$3\" > {log}/prompt\n");
     ok(&bench.start(&["start", "review", "54"]));
     let prompt = bench.left("prompt");
-    for path in ["/run/watchbill/in/issue.md", "/run/watchbill/in/change.diff", "/run/watchbill/questions", "/run/watchbill/change_comment", "/run/watchbill/needs_person"] {
+    for path in ["/run/watchbill/in/issue.text", "/run/watchbill/in/change.diff", "/run/watchbill/questions", "/run/watchbill/change_comment", "/run/watchbill/needs_person"] {
         assert!(prompt.contains(path), "{}: {}", path, prompt);
     }
     assert!(!prompt.contains("address.sh") && !prompt.contains("server 174"), "{}", prompt);
@@ -6267,7 +6267,7 @@ fn test_WB_ROLE_119_the_tester_s_prompt_as_handed_out_names_the_files_wb_brings_
     let run = prompt_with(&bench.repo.path, &bench.organisation(), &["tester", "54", "--round", "1"]);
     ok(&run);
     let prompt = text_of(&run.stdout);
-    assert!(prompt.contains("/run/watchbill/in/issue.md") && prompt.contains("/run/watchbill/questions"), "{}", prompt);
+    assert!(prompt.contains("/run/watchbill/in/issue.text") && prompt.contains("/run/watchbill/questions"), "{}", prompt);
     let words: Vec<&str> = prompt.split(|c: char| !c.is_ascii_alphanumeric()).collect();
     assert!(!prompt.contains("address.sh") && !words.contains(&"gh") && !words.contains(&"glab"), "{}", prompt);
 }

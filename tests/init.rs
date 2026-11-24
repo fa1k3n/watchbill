@@ -76,7 +76,7 @@ fn test_WB_INIT_14_yes_writes_what_the_repository_says_and_asks_nothing() {
             // The change's description alone, for the review and the fix (#153).
             "change_text: 'gh pr view {change} --repo example/brake-controller --json body --jq .body'",
             "draft_change: 'gh pr create --repo example/brake-controller --head {branch} --draft --fill --body-file -'",
-            "issue_address:'gh issue view {issue} --repo example/brake-controller; gh issue view {issue} --repo example/brake-controller --comments'",
+            "issue_address: 'gh issue view {issue} --repo example/brake-controller; gh issue view {issue} --repo example/brake-controller --comments'",
             // The issue's text alone, for the planner (#295).
             "issue_text: 'gh issue view {issue} --repo example/brake-controller --json body --jq .body'",
             "change_address: 'gh pr view {change} --repo example/brake-controller; gh pr view {change} --repo example/brake-controller --comments'",

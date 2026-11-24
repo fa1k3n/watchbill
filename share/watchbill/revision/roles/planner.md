@@ -119,7 +119,11 @@ You do not open a file outside those listed here. The files of an issue are a bo
 
 ## How you end
 
-Stop when the issue's file is committed alone on {branch}, with its questions written in full. Your last message has these fields, every time, in this order, each on a line of its own that starts with its name:
+Stop when the issue's file is committed alone on {branch}, with its questions written in full.
+
+Where `needs_person` is not `none`, write it also to the file {needs_person}: after your session the program posts it on the issue, so that a person sees it.
+
+Your last message has these fields, every time, in this order, each on a line of its own that starts with its name:
 
 - `model`: the model you run as: what your session says of itself, or `unknown`.
 - `effort`: the effort you run with: what your session says of itself, or `unknown`.

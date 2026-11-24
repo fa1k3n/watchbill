@@ -40,6 +40,12 @@ fn filled(role: &str, values: &[(&str, &str)]) -> String {
     text = text.replace("{classed}", "none").replace("{classed_touched}", "none");
     // `{description}` is the file of the change's description in the sandbox, where no option gives it (#151).
     text = text.replace("{description}", "/run/watchbill/description");
+    // What `wb` brings in, and the files the session writes for it to post, where no option gives them (#153).
+    text = text
+        .replace("{brought}", "/run/watchbill/in")
+        .replace("{questions}", "/run/watchbill/questions")
+        .replace("{change_comment}", "/run/watchbill/change_comment")
+        .replace("{needs_person}", "/run/watchbill/needs_person");
     // The four roles after the planner get the part of the issue's file after their text (#97).
     if ["tester", "build", "review", "fix"].contains(&role) {
         text = format!("{}\n{}", text, BARE_PART);
@@ -305,6 +311,8 @@ fn test_WB_PROMPT_13_a_folder_that_is_not_in_a_git_repository_ends_with_2() {
 #[test]
 fn test_WB_PROMPT_14_a_placeholder_the_prompt_uses_with_no_option_is_refused_by_name() {
     let folder = set_up();
+    // No role's text names an address since #153: the project's own text of the build does here.
+    put_committed(&folder.path, ".watchbill/project/build.md", "Read the issue at {issue_address}.\n");
 
     // `requirements` has its default text (#72), and this repository has no pattern for the address.
     let run = wb(&folder.path, &["prompt", "build", "--issue", "12", "--branch", "issue-12"], "");
@@ -319,6 +327,8 @@ fn test_WB_PROMPT_14_an_issue_and_a_branch_alone_are_refused_for_a_placeholder_t
     // Was test_WB_PROMPT_14_no_option_at_all_is_refused_for_a_placeholder_that_is_used. Since #116 the
     // build with no issue is used wrongly; with one, this repository has no pattern for its address.
     let folder = set_up();
+    // No role's text names an address since #153: the project's own text of the build does here.
+    put_committed(&folder.path, ".watchbill/project/build.md", "Read the issue at {issue_address}.\n");
 
     let run = wb(&folder.path, &["prompt", "build", "1", "--branch", "b"], "");
 
@@ -517,6 +527,8 @@ fn test_WB_PROMPT_18_the_options_are_the_placeholders_of_the_list() {
 #[test]
 fn test_WB_PROMPT_18_an_option_of_where_the_work_is_is_taken_and_filled_in() {
     let folder = set_up();
+    // No role's text names an address since #153: the project's own text of the review does here.
+    put_committed(&folder.path, ".watchbill/project/review.md", "The issue is at {issue_address}, the change at {change_address}.\n");
 
     for name in ["checkout", "branch", "issue_address", "change_address"] {
         // Every option of ALL, with a value of its own for the one under test.
@@ -671,6 +683,8 @@ fn test_WB_PROMPT_19_a_stamped_value_that_got_no_option_is_written_empty_with_no
 #[test]
 fn test_WB_PROMPT_14_a_stamp_is_refused_for_a_placeholder_the_prompt_uses_with_no_value() {
     let folder = set_up();
+    // No role's text names an address since #153: the project's own text of the build does here.
+    put_committed(&folder.path, ".watchbill/project/build.md", "Read the issue at {issue_address}.\n");
 
     // Since #116 the build with no issue is used wrongly, so the issue is given and the address is not.
     let run = stamp_of(&folder.path, "build", &["1", "--branch", "b"]);
@@ -1100,6 +1114,8 @@ fn test_WB_PROMPT_36_an_option_given_wins_over_each_derived_value() {
 fn test_WB_PROMPT_36_an_issue_option_in_place_of_the_word_and_a_given_change_are_used_as_given() {
     let folder = set_up_github();
     branches(&folder.path, &["issue-54-serve"]);
+    // No role's text names an address since #153: the project's own text of the review does here.
+    put_committed(&folder.path, ".watchbill/project/review.md", "The change is at {change_address}.\n");
 
     let run = wb(&folder.path, &["prompt", "review", "--issue", "54", "--change", "9", "--round", "2"], "");
 

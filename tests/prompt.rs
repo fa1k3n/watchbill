@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use watchbill::prompt::{assemble, FIXED_LINE};
 
-const VALUES: [(&str, &str); 11] = [
+const VALUES: [(&str, &str); 15] = [
     ("issue", "T-1 brake light"),
     ("change", "42"),
     ("requirements", "WB-X-1, WB-X-2"),
@@ -26,6 +26,11 @@ const VALUES: [(&str, &str); 11] = [
     ("classed", "src/safety"),
     ("classed_touched", "none"),
     ("description", "/run/watchbill/description"),
+    // What `wb` brings in and the files the session writes for it to post (#153).
+    ("brought", "/run/watchbill/in"),
+    ("questions", "/run/watchbill/questions"),
+    ("change_comment", "/run/watchbill/change_comment"),
+    ("needs_person", "/run/watchbill/needs_person"),
 ];
 
 fn package() -> PathBuf {

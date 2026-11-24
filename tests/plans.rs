@@ -138,8 +138,10 @@ impl Bench {
         fs::write(self.at("54.bodies"), whole).unwrap();
     }
 
-    /// The branch `issue-54` from `main` with the issue's file committed alone, checked out.
+    /// The branch `issue-54` from `main` with the issue's file committed alone, checked out. A planner's round lasts
+    /// more than a second, and a source of the acceptance's own second voids it: the round starts in the next second.
     fn planned(&self) {
+        next_second();
         git(&self.repo.path, &["checkout", "-q", "-b", "issue-54", "main"]);
         put(&self.repo.path, YML, &BARE_ISSUE.replace("{issue}", "54"));
         git(&self.repo.path, &["add", "--", YML]);

@@ -732,7 +732,8 @@ fn test_WB_JOB_45_help_plan_says_each_subcommand_and_its_statuses() {
     let run = wb(&folder.path, &["help", "plan"], "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    let help = text(&run.stdout);
+    // The words are read across the line breaks of the usage.
+    let help = text(&run.stdout).split_whitespace().collect::<Vec<_>>().join(" ");
     for word in [
         "wb plan list",
         "wb plan show <name>",

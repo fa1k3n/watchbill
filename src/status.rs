@@ -217,6 +217,29 @@ fn on_branches(root: &str, number: &str, pattern: &str, all: &[Branch], from: &m
     (has_file, None)
 }
 
+/// Where `wb status` reads the issue's file of `number` (#290, for `wb plan show`): the first branch of the issue, by
+/// `pattern`, local before `origin`, whose acceptance holds for its file, else the first that holds the file. Its ref,
+/// the file, and the text of the acceptance on it, where there is one.
+pub(crate) fn file_of_issue(root: &str, number: &str, pattern: &str) -> Option<(String, Vec<u8>, Option<String>)> {
+    let file = format!("{}/{}.yml", issue::FOLDER, number);
+    let accepted = format!("{}/{}.accepted", issue::FOLDER, number);
+    let mut first = None;
+    for branch in branches(root).iter().filter(|branch| is_of(pattern, number, &branch.name)) {
+        let Some(bytes) = git(root, &["show", &format!("{}:{}", branch.full, file)]) else {
+            continue;
+        };
+        let hash = crate::manifest::hash_bytes(&bytes);
+        let body = git(root, &["show", &format!("{}:{}", branch.full, accepted)]).map(|text| String::from_utf8_lossy(&text).to_string());
+        if body.as_deref().is_some_and(|text| text.lines().find_map(|line| line.strip_prefix("sha256: ")) == Some(hash.as_str())) {
+            return Some((branch.full.clone(), bytes, body));
+        }
+        if first.is_none() {
+            first = Some((branch.full.clone(), bytes, body));
+        }
+    }
+    first
+}
+
 /// Whether a line of the comments' first lines is a `[stamp] planner` that still counts.
 fn has_planner(lines: &[String]) -> bool {
     starter::stamps_in(&lines.join("\n")).iter().any(|(role, _)| role == "planner")
@@ -233,22 +256,17 @@ fn voided(root: &str, number: &str, body: &str, planner: bool, from: &mut Vec<St
     if !planner {
         return Ok(false);
     }
-    let Some(line) = prompt::pattern_of(root, "issue_comment_bodies").map_err(|why| why.to_string())? else {
-        from.push("no `issue_comment_bodies`: the times of the planner's stamps were not read".to_string());
-        return Ok(false);
-    };
-    if !prompt::is_plain_name(number) {
-        return Err(format!("{} is not a plain name that fills `issue_comment_bodies`", issue::shown(number)));
+    match crate::plan::planned_again(root, number, &crate::plan::accepted_time(body))? {
+        None => {
+            from.push("no `issue_comment_bodies`: the times of the planner's stamps were not read".to_string());
+            Ok(false)
+        }
+        Some(true) => {
+            from.push("a [stamp] planner not before the acceptance: planned again after it".to_string());
+            Ok(true)
+        }
+        Some(false) => Ok(false),
     }
-    let printed = starter::run_capped(root, "issue_comment_bodies", &line.replace("{issue}", number), crate::bounded::TEXT_CAP)?;
-    if printed.len() as u64 > crate::bounded::TEXT_CAP {
-        return Err("`issue_comment_bodies` printed more than 1 MiB".to_string());
-    }
-    let after = crate::plan::planner_after(&answer::split_bodies(&printed), &crate::plan::accepted_time(body));
-    if after {
-        from.push("a [stamp] planner not before the acceptance: planned again after it".to_string());
-    }
-    Ok(after)
 }
 
 /// Reads one issue, or says why it could not be read.

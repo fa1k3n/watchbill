@@ -274,6 +274,8 @@ pub struct Used {
     pub hash: String,
     /// Each path of `changes` and of `reads`, with its list and its line, in the order of the file.
     pub listed: Vec<Listed>,
+    /// The `time:` of its acceptance, which a planner round after it voids (#290).
+    pub accepted_time: String,
 }
 
 /// The most an issue's file may be: it is read whole, and a file larger than an issue needs is refused.
@@ -378,7 +380,58 @@ pub fn for_prompt(root: &Path, issue: &str) -> Result<Option<Used>, String> {
             return Err(unsafe_in(&name));
         }
     }
-    Ok(Some(Used { issue: read, path: shown, hash, listed }))
+    let accepted_time = crate::plan::accepted_time(&body);
+    Ok(Some(Used { issue: read, path: shown, hash, listed, accepted_time }))
+}
+
+/// The gate of a planner round after the acceptance (#290), for a command that hands out a prompt of the issue or
+/// starts its session, after `for_prompt` found `used` accepted: a planner round started at or after the acceptance
+/// voids it, as `wb status` reads it. `planner` is whether the first lines of the comments, where the command read them
+/// already, hold a `[stamp] planner` that counts. With `None`, for a plan of `wb plan add` only, they are read by
+/// `issue_comments`, as `wb status` reads them; with no `issue_comments` the whole comments are read at once, and with
+/// neither no stamp is read. The stamps' times are read whole, by
+/// `issue_comment_bodies`, only where such a stamp is there. `Err` with why where it is void or a pattern failed;
+/// `Ok(Some(said))` where the times could not be read, as `watchbill.yml` has no `issue_comment_bodies`; else `Ok(None)`.
+pub fn planner_gate(root: &Path, issue: &str, used: &Used, planner: Option<bool>) -> Result<Option<String>, String> {
+    let root_text = root.display().to_string();
+    let planner = match planner {
+        Some(planner) => planner,
+        // A command that read no comments asks the tracker only for a plan of `wb plan add`: an issue with no plan keeps
+        // the gate of `wb accept` as it was, until #282, and `wb prompt` given every value runs no pattern for it.
+        None if !crate::plan::is_plan(&root_text, issue) => return Ok(None),
+        None => match crate::prompt::pattern_of(&root_text, "issue_comments").map_err(|why| format!("{}. No prompt is handed out.", why))? {
+            // With neither pattern no stamp can be read, as `wb status` reads none: nothing more to say.
+            None if crate::prompt::pattern_of(&root_text, "issue_comment_bodies").map_err(|why| format!("{}. No prompt is handed out.", why))?.is_none() => {
+                return Ok(None)
+            }
+            None => true,
+            Some(line) => {
+                if !crate::prompt::is_plain_name(issue) {
+                    return Err(format!("{} is not a plain name that fills `issue_comments`. No prompt is handed out.", self::shown(issue)));
+                }
+                let printed = crate::starter::run_capped(&root_text, "issue_comments", &line.replace("{issue}", issue), crate::bounded::TEXT_CAP)
+                    .map_err(|why| format!("{}. No prompt is handed out.", why))?;
+                if printed.len() as u64 > crate::bounded::TEXT_CAP {
+                    return Err("`issue_comments` printed more than 1 MiB. No prompt is handed out.".to_string());
+                }
+                crate::starter::stamps_in(&String::from_utf8_lossy(&printed)).iter().any(|(role, _)| role == "planner")
+            }
+        },
+    };
+    if !planner {
+        return Ok(None);
+    }
+    match crate::plan::planned_again(&root_text, issue, &used.accepted_time).map_err(|why| format!("{}. No prompt is handed out.", why))? {
+        None => Ok(Some("watchbill.yml has no `issue_comment_bodies`, so the times of the planner's stamps were not read, and the acceptance stands".to_string())),
+        Some(false) => Ok(None),
+        Some(true) => {
+            let accepting = if crate::plan::is_plan(&root_text, issue) { "wb plan accept" } else { "wb accept" };
+            Err(format!(
+                "the issue's file {} is not accepted: a planner round started at or after its acceptance, so it was planned again after it. Remove {}/{}.accepted and run `{} {}` again. No prompt is handed out.",
+                used.path, FOLDER, issue, accepting, issue
+            ))
+        }
+    }
 }
 
 impl Used {

@@ -546,7 +546,10 @@ pub fn add(root: &str, folder: &Path, organisation: &Path, add: &Add, input: &mu
         }
     }
 
-    let seconds = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|time| time.as_secs()).unwrap_or(0);
+    // A false time is worse than none: a source dated 1970 would be before every acceptance (#290).
+    let Ok(seconds) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|time| time.as_secs()) else {
+        return crate::refusal::limit(err, NAME, "the clock of this machine reads before 1970 or cannot be read. Nothing written.");
+    };
     let added = Source { hash: hash.clone(), kept: !add.hash_only, source, level, by, time: crate::prompt::utc(seconds) };
     let (job, old, moved, made, text, message) = match existing {
         // A name more for a job that has the text: job.yml lists it, and every name of the job moves to the new commit.
@@ -668,10 +671,11 @@ fn line_of<'a>(text: &'a str, key: &str) -> Option<&'a str> {
     text.lines().find_map(|line| line.trim_end_matches('\r').strip_prefix(&format!("{}: ", key)))
 }
 
-/// Whether a source of the job was added after an acceptance at `accepted`, to the second. A time that cannot be read
-/// counts as after.
+/// Whether a source of the job was added after an acceptance at `accepted`: its time, to the second, is the same as or
+/// later than the acceptance's. A planner round lasts longer than a second, so a source of the acceptance's own second
+/// was never read by the plan that was accepted. A time that cannot be read counts as after.
 fn source_after(job: &Job, accepted: &str) -> bool {
-    !is_time(accepted) || job.sources.iter().any(|source| !is_time(&source.time) || source.time.as_str() > accepted)
+    !is_time(accepted) || job.sources.iter().any(|source| !is_time(&source.time) || source.time.as_str() >= accepted)
 }
 
 /// Whether a plan of `name` is there, not removed.
@@ -690,15 +694,36 @@ pub(crate) fn sources_after_acceptance(root: &str, name: &str, accepted: &str) -
 
 /// Whether one of the whole comments `bodies` is a `[stamp] planner` whose time is the same as or later than the
 /// acceptance's, `accepted`: the stamp is written as the round starts, so a round of the same second ends after it.
-/// A time that cannot be read counts as after.
+/// A time that cannot be read counts as after. A stamp that a `[revert]` took back counts for nothing, as in the
+/// first lines that `wb status` reads (`starter::counted`).
 pub(crate) fn planner_after(bodies: &[String], accepted: &str) -> bool {
-    bodies.iter().any(|body| {
-        let first = body.split('\n').next().unwrap_or("").trim_end_matches('\r');
+    let firsts: Vec<&str> = bodies.iter().map(|body| body.split('\n').next().unwrap_or("").trim_end_matches('\r')).collect();
+    // One line for each body: a first line is never empty in the text that is read, so the lines stay in step.
+    let marked: Vec<String> = firsts.iter().map(|first| if first.is_empty() { " ".to_string() } else { first.to_string() }).collect();
+    let gone = crate::starter::taken_back(&marked.join("\n"));
+    bodies.iter().zip(&firsts).enumerate().any(|(at, (body, first))| {
         let is_planner = first
             .strip_prefix("[stamp] planner round ")
             .is_some_and(|round| !round.is_empty() && round.chars().all(|c| c.is_ascii_digit()));
-        is_planner && line_of(body, "time").map_or(true, |time| !is_time(time) || !is_time(accepted) || time >= accepted)
+        is_planner && !gone.get(at).copied().unwrap_or(false) && line_of(body, "time").map_or(true, |time| !is_time(time) || !is_time(accepted) || time >= accepted)
     })
+}
+
+/// Whether a planner round voids the acceptance written at `accepted` (#290): the whole comments of `issue`, read by
+/// `issue_comment_bodies` as `wb status` and `wb answer` read them (bounded), hold a `[stamp] planner` that counts and
+/// is not before it. `None` where `watchbill.yml` has no `issue_comment_bodies`, and the stamps' times are not read.
+pub(crate) fn planned_again(root: &str, issue: &str, accepted: &str) -> Result<Option<bool>, String> {
+    let Some(line) = crate::prompt::pattern_of(root, "issue_comment_bodies").map_err(|why| why.to_string())? else {
+        return Ok(None);
+    };
+    if !crate::prompt::is_plain_name(issue) {
+        return Err(format!("{} is not a plain name that fills `issue_comment_bodies`", crate::issue::shown(issue)));
+    }
+    let printed = crate::starter::run_capped(root, "issue_comment_bodies", &line.replace("{issue}", issue), crate::bounded::TEXT_CAP)?;
+    if printed.len() as u64 > crate::bounded::TEXT_CAP {
+        return Err("`issue_comment_bodies` printed more than 1 MiB".to_string());
+    }
+    Ok(Some(planner_after(&crate::answer::split_bodies(&printed), accepted)))
 }
 
 /// The time an acceptance was written, from the text of `.accepted`.
@@ -757,21 +782,27 @@ fn plain(root: &str, path: &str) -> Option<Vec<u8>> {
     }
 }
 
-/// The state of a plan whose issue's file is `bytes`, by its acceptance and its sources; the planner's stamps are
-/// read after, by the caller, where it is accepted. `Ok((by, time))` where it is accepted, else the state's words.
-fn state_of(root: &str, plan: &Plan, name: &str, bytes: &[u8]) -> Result<(String, String), &'static str> {
+/// The text of the acceptance of `name` in the working tree, where it is a plain file of UTF-8.
+fn accepted_in_tree(root: &str, name: &str) -> Option<String> {
     let (_, accepted) = files_of(name);
-    let Some(body) = plain(root, &accepted).and_then(|body| String::from_utf8(body).ok()) else {
+    plain(root, &accepted).and_then(|body| String::from_utf8(body).ok())
+}
+
+/// The state of a plan whose issue's file is `bytes` and whose acceptance is `body`, by its acceptance and its sources;
+/// the planner's stamps are read after, by the caller, where it is accepted. `Ok((by, time))` where it is accepted, else
+/// the state's words.
+fn state_of(plan: &Plan, bytes: &[u8], body: Option<&str>) -> Result<(String, String), &'static str> {
+    let Some(body) = body else {
         return Err("not accepted");
     };
-    if line_of(&body, "sha256") != Some(crate::manifest::hash_bytes(bytes).as_str()) {
+    if line_of(body, "sha256") != Some(crate::manifest::hash_bytes(bytes).as_str()) {
         return Err("not accepted (edited after the acceptance)");
     }
-    let time = accepted_time(&body);
+    let time = accepted_time(body);
     if source_after(&plan.job, &time) {
         return Err("not accepted (a source added after the acceptance)");
     }
-    Ok((line_of(&body, "by").unwrap_or("").to_string(), time))
+    Ok((line_of(body, "by").unwrap_or("").to_string(), time))
 }
 
 /// `wb plan show <name>` in the repository at `root`: the plan's names, its sources, its issue's file and its state.
@@ -818,37 +849,44 @@ pub fn show(root: &str, name: &str, out: &mut dyn Write, err: &mut dyn Write) ->
         return 0;
     }
     let (file, _) = files_of(name);
-    text.push_str(&format!("issue's file: {}\n", file));
-    let Some(bytes) = plain(root, &file) else {
-        text.push_str(&format!("state: not planned ({} is not there)\n", file));
-        let _ = out.write_all(text.as_bytes());
-        return 0;
+    // Where `wb status` reads it: the issue's branch, by the pattern `branch`; with no branch of it, the working tree.
+    let pattern = match crate::prompt::pattern_of(root, "branch") {
+        Ok(pattern) => pattern.unwrap_or_else(|| "issue-{issue}".to_string()),
+        Err(why) => return crate::refusal::limit(err, COMMAND, format_args!("{}", why)),
     };
-    let state = match state_of(root, &plan, name, &bytes) {
-        Err(words) => words.to_string(),
-        Ok((by, time)) => {
-            // A planner round after the acceptance voids it (the owner, 2026-11-24): its stamp is read whole.
-            let line = match crate::prompt::pattern_of(root, "issue_comment_bodies") {
-                Ok(line) => line,
-                Err(why) => return crate::refusal::limit(err, COMMAND, format_args!("{}", why)),
-            };
-            match line {
-                None => {
-                    let _ = writeln!(err, "{}: watchbill.yml has no `issue_comment_bodies`, so the planner's stamps were not read.", COMMAND);
-                    format!("accepted by {} at {}", shown(&by), shown(&time))
-                }
-                Some(line) => match crate::starter::run_capped(root, "issue_comment_bodies", &line.replace("{issue}", name), crate::bounded::TEXT_CAP) {
-                    Err(why) => return crate::refusal::limit(err, COMMAND, format_args!("{}", why)),
-                    Ok(printed) if printed.len() as u64 > crate::bounded::TEXT_CAP => {
-                        return crate::refusal::limit(err, COMMAND, format_args!("`issue_comment_bodies` printed more than 1 MiB"))
-                    }
-                    Ok(printed) if planner_after(&crate::answer::split_bodies(&printed), &time) => {
-                        "not accepted (planned again after the acceptance)".to_string()
-                    }
-                    Ok(_) => format!("accepted by {} at {}", shown(&by), shown(&time)),
-                },
-            }
+    let (bytes, body) = match crate::status::file_of_issue(root, name, &pattern) {
+        Some((full, bytes, body)) => {
+            text.push_str(&format!("issue's file: {}, read from {}\n", file, shown(&full)));
+            (bytes, body)
         }
+        None => match plain(root, &file) {
+            Some(bytes) => {
+                text.push_str(&format!("issue's file: {}, read from the working tree\n", file));
+                (bytes, accepted_in_tree(root, name))
+            }
+            None => {
+                text.push_str(&format!("issue's file: {}, on no branch of {} and not in the working tree\n", file, shown(name)));
+                text.push_str(&format!("state: not planned ({} is not there)\n", file));
+                let _ = out.write_all(text.as_bytes());
+                return 0;
+            }
+        },
+    };
+    if bytes.len() as u64 > crate::issue::MAX_BYTES {
+        return crate::refusal::limit(err, COMMAND, format_args!("{} is larger than 1 MiB, and an issue's file is not", file));
+    }
+    let state = match state_of(&plan, &bytes, body.as_deref()) {
+        Err(words) => words.to_string(),
+        // A planner round after the acceptance voids it (the owner, 2026-11-24): its stamp is read whole.
+        Ok((by, time)) => match planned_again(root, name, &time) {
+            Err(why) => return crate::refusal::limit(err, COMMAND, format_args!("{}", why)),
+            Ok(None) => {
+                let _ = writeln!(err, "{}: watchbill.yml has no `issue_comment_bodies`, so the planner's stamps were not read.", COMMAND);
+                format!("accepted by {} at {}", shown(&by), shown(&time))
+            }
+            Ok(Some(true)) => "not accepted (planned again after the acceptance)".to_string(),
+            Ok(Some(false)) => format!("accepted by {} at {}", shown(&by), shown(&time)),
+        },
     };
     text.push_str(&format!("state: {}\n\n", state));
     let file_text = String::from_utf8_lossy(&bytes);
@@ -896,12 +934,17 @@ pub fn accept(root: &str, name: &str, commit: bool, out: &mut dyn Write, err: &m
 }
 
 /// `wb accept <name>` where a plan of the name is there (#290): `Some(2)` with the words that name `wb plan accept`
-/// where its issue's file is not accepted, by its hash and its sources; `None` where there is no plan of the name, or
-/// it is accepted, and `wb accept` goes on as before.
+/// where its issue's file is not accepted, by its hash, its sources and a planner round after it; `None` where there is
+/// no plan of the name, or it is accepted, and `wb accept` goes on as before.
 pub fn accept_word(root: &str, name: &str, err: &mut dyn Write) -> Option<i32> {
     let plan = plan_of(root, name).filter(|plan| !plan.removed)?;
     let (file, _) = files_of(name);
-    let accepted = plain(root, &file).map(|bytes| state_of(root, &plan, name, &bytes).is_ok()).unwrap_or(false);
+    let body = accepted_in_tree(root, name);
+    let accepted = match plain(root, &file).map(|bytes| state_of(&plan, &bytes, body.as_deref())) {
+        // A stamp that cannot be read leaves it to `wb accept`, which refuses an acceptance that is there.
+        Some(Ok((_, time))) => !matches!(planned_again(root, name, &time), Ok(Some(true))),
+        _ => false,
+    };
     if accepted {
         return None;
     }
@@ -964,10 +1007,21 @@ pub fn edit(root: &str, name: &str, out: &mut dyn Write, err: &mut dyn Write) ->
         let _ = writeln!(out, "{}: nothing changed in {}. Nothing committed.", COMMAND, file);
         return 0;
     }
-    if let Err(why) = crate::issue::read(&path) {
-        let why = why.replace(&format!("{}/", root.trim_end_matches('/')), "");
-        return limit(err, format!("{} no longer holds its form: {}. Nothing committed: the edit is left in the working tree.", file, why.trim_end_matches('.')));
+    match crate::issue::read(&path) {
+        Err(why) => {
+            let why = why.replace(&format!("{}/", root.trim_end_matches('/')), "");
+            return limit(err, format!("{} no longer holds its form: {}. Nothing committed: the edit is left in the working tree.", file, why.trim_end_matches('.')));
+        }
+        // As `wb plan accept` holds it: the file names the plan's issue.
+        Ok(read) if read.issue != name => {
+            return limit(
+                err,
+                format!("{} says the issue is {}, not {}. Nothing committed: the edit is left in the working tree.", file, crate::issue::shown(&read.issue), name),
+            );
+        }
+        Ok(_) => {}
     }
+    let held_before = accepted_in_tree(root, name).is_some();
     let message = format!("Edit the issue's file ({})", name);
     let _ = writeln!(out, "{}: will commit {} alone, with the message \"{}\".", COMMAND, file, message);
     crate::interrupt::writing();
@@ -979,7 +1033,11 @@ pub fn edit(root: &str, name: &str, out: &mut dyn Write, err: &mut dyn Write) ->
     if held.lines().any(|path| path != file) {
         return limit(err, format!("the commit {} is not alone: a hook of git added files to it. Nothing more is done: undo or amend it as you decide.", short));
     }
-    let _ = writeln!(out, "{}: committed {} alone ({}). An acceptance of the file before holds no longer.", COMMAND, file, short);
+    if held_before {
+        let _ = writeln!(out, "{}: committed {} alone ({}). An acceptance of the file before holds no longer.", COMMAND, file, short);
+    } else {
+        let _ = writeln!(out, "{}: committed {} alone ({}).", COMMAND, file, short);
+    }
     0
 }
 
@@ -1007,16 +1065,21 @@ pub fn remove(root: &str, name: &str, state: Option<&Path>, out: &mut dyn Write,
         Ok(flow) => flow,
         Err(why) => return limit(err, format!("{}. Nothing written.", why)),
     };
+    // Every name of the plan is moved, so the work under each that is an issue's name is looked at.
+    let names: Vec<&String> = plan.job.names.iter().filter(|each| crate::issue::is_name(each)).collect();
     let mut holding: Vec<String> = flow
         .iter()
         .filter_map(|full| full.strip_prefix("refs/heads/").or_else(|| full.strip_prefix("refs/remotes/origin/")).map(|branch| (full, branch)))
-        .filter(|(_, branch)| crate::status::is_of(&pattern, name, branch))
+        .filter(|(_, branch)| names.iter().any(|each| crate::status::is_of(&pattern, each, branch)))
         .map(|(full, _)| format!("the branch {} holds work that {} does not", full, default))
         .collect();
-    if let (Some(state), true) = (state, crate::issue::is_name(name)) {
-        let kept = crate::kept::count(root, state, name);
-        if kept > 0 {
-            holding.push(format!("this machine keeps {} view{} of it with work not taken back", kept, if kept == 1 { "" } else { "s" }));
+    if let Some(state) = state {
+        for each in &names {
+            let kept = crate::kept::count(root, state, each);
+            if kept > 0 {
+                let of = if names.len() > 1 { crate::issue::shown(each) } else { "it".to_string() };
+                holding.push(format!("this machine keeps {} view{} of {} with work not taken back", kept, if kept == 1 { "" } else { "s" }, of));
+            }
         }
     }
     if !holding.is_empty() {
@@ -1026,7 +1089,9 @@ pub fn remove(root: &str, name: &str, state: Option<&Path>, out: &mut dyn Write,
         (Ok(user), Ok(email)) => format!("{} <{}>", user, email),
         (Err(why), _) | (_, Err(why)) => return limit(err, format!("{}. Nothing written.", why)),
     };
-    let seconds = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|time| time.as_secs()).unwrap_or(0);
+    let Ok(seconds) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|time| time.as_secs()) else {
+        return limit(err, "the clock of this machine reads before 1970 or cannot be read. Nothing written.".to_string());
+    };
     let marker = format!("by: {}\ntime: {}\n", by, crate::prompt::utc(seconds));
     let moved: Vec<String> = match git_line(root, &["for-each-ref", "--points-at", &plan.commit, "--format=%(refname)", PREFIX], None) {
         Ok(listed) => listed.lines().map(str::to_string).collect(),

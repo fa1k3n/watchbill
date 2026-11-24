@@ -100,29 +100,33 @@ const USAGE: &str = "usage:
             passed over and said on standard error. wb plan show <name> prints
             the plan's names, each source with its hash, where it came from,
             whether its text is kept, its level, who added it and when, then
-            the issue's file .watchbill/issues/<name>.yml and its state: not
-            planned, not accepted, not accepted (edited after the acceptance),
-            not accepted (a source added after the acceptance), not accepted
-            (planned again after the acceptance), or accepted by whom and
-            when; the planner's stamps are read whole by issue_comment_bodies.
-            A source later than the acceptance, or a [stamp] planner of the
-            same second or later, voids it. wb plan edit <name> opens the
-            issue's file in the editor git would use (GIT_EDITOR, core.editor,
-            VISUAL, EDITOR), on the issue's branch, from the file as HEAD has
-            it, and commits it alone with the message Edit the issue's file
-            (<name>); where nothing changed it commits nothing, and where the
-            editor fails or the file no longer holds its form it commits
-            nothing and leaves the edit. wb plan accept <name> [--no-commit]
-            accepts the issue's file as wb accept does. wb plan remove <name>
-            adds a commit with the marker removed after the plan's, moves
-            every name of it there, and rewrites nothing; the name stays
-            taken. It is refused while a branch of the name holds work the
-            default branch does not, or this machine keeps a view of it with
-            work not taken back. A name with / has no issue's file until point
-            15, and show, edit, accept and remove of a name that is no plan
-            are refused. Ends with 0 when it is done or nothing changes, 1
-            when it is refused, 2 when it was used wrongly or the repository
-            is not set up
+            the issue's file .watchbill/issues/<name>.yml, read where wb
+            status reads it (the issue's branch, else the working tree), and
+            says which, and its state: not planned, not accepted, not accepted
+            (edited after the acceptance), not accepted (a source added after
+            the acceptance), not accepted (planned again after the
+            acceptance), or accepted by whom and when; the planner's stamps
+            are read whole by issue_comment_bodies. A source or a [stamp]
+            planner of the same second as the acceptance or later voids it,
+            and no prompt of the issue is handed out until wb plan accept
+            again; a stamp that a [revert] took back counts for nothing. wb
+            plan edit <name> opens the issue's file in the editor git would
+            use (GIT_EDITOR, core.editor, VISUAL, EDITOR), on the issue's
+            branch, from the file as HEAD has it, and commits it alone with
+            the message Edit the issue's file (<name>); where nothing changed
+            it commits nothing, and where the editor fails, the file no longer
+            holds its form or names another issue, it commits nothing and
+            leaves the edit. wb plan accept <name> [--no-commit] accepts the
+            issue's file as wb accept does. wb plan remove <name> adds a
+            commit with the marker removed after the plan's, moves every name
+            of it there, and rewrites nothing; the name stays taken. It is
+            refused while a branch of any of its names holds work the default
+            branch does not, or this machine keeps a view of it with work not
+            taken back. A name with / has no issue's file until point 15, and
+            show, edit, accept and remove of a name that is no plan are
+            refused. Ends with 0 when it is done or nothing changes, 1 when it
+            is refused, 2 when it was used wrongly or the repository is not
+            set up
   prompt    print the prompt of a role on standard output and nothing else: the
             role's text of the pinned revision with each placeholder filled
             from the option of its name, such as --issue for {issue}, then the
@@ -210,7 +214,10 @@ const USAGE: &str = "usage:
             origin, holds a commit that the default branch of origin does not:
             git alone says which, and fetches nothing. Its line shows the
             branch, the open change as #<n> (change_of_branch) and how many
-            commits are not pushed. The comments come from issue_comments.
+            commits are not pushed. The comments come from issue_comments, and
+            for an accepted issue with a [stamp] planner the whole comments
+            from issue_comment_bodies: an acceptance that a source or a
+            planner round after it voided puts the issue under Planned.
             <issue> prints that issue, in the flow or not, with its title
             (issue_address) and what it was worked out from; --stage <heading>
             prints that heading only, whatever its case. For one issue it also

@@ -656,6 +656,8 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
         }
         let role = kept[0].0.role();
         let file = format!("{}/{}.yml", issue::FOLDER, value);
+        // The command that accepts it: `wb plan accept` where a plan of the name is there (#290).
+        let accepting = if crate::plan::is_plan(root, value) { "wb plan accept" } else { "wb accept" };
         let said = match (on, role.as_str()) {
             (On::Change(_), _) => format!(
                 "the answer to {} changes the issue's file, and change {} has no issue: change its description, which is its spec, before the role is started again. wb answer does not change it.",
@@ -663,16 +665,18 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
                 value
             ),
             (On::Issue(_), "planner") => format!(
-                "the answer to {} changes the issue's file: start `wb start planner {}` again to fold it into {}, and accept the file with `wb accept {}`. wb answer does not change the file.",
+                "the answer to {} changes the issue's file: start `wb start planner {}` again to fold it into {}, and accept the file with `{} {}`. wb answer does not change the file.",
                 changing.join(", "),
                 value,
                 file,
+                accepting,
                 value
             ),
             (On::Issue(_), _) => format!(
-                "the answer to {} changes the issue's file: change {} to hold it and accept it again with `wb accept {}`, before `wb start {} {}` is started again. wb answer does not change the file.",
+                "the answer to {} changes the issue's file: change {} to hold it and accept it again with `{} {}`, before `wb start {} {}` is started again. wb answer does not change the file.",
                 changing.join(", "),
                 file,
+                accepting,
                 value,
                 role,
                 value

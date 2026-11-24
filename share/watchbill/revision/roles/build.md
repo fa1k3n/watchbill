@@ -8,7 +8,7 @@ The tests were written by someone who has not seen your code, so that they can s
 
 - The smallest change that meets the requirements {requirements} and makes the tester's tests pass, on the branch {branch}.
 - Every test of the project still passes, not only the new ones. Run what the project runs before a change is handed over.
-- Your work committed on {branch}. You push nothing and open no change: the program pushes the branch after your session, and opens the change for review as a draft.
+- Your work committed on {branch}. You push nothing and open no change: the program pushes the branch after your session, and opens the change for review as a draft, where the settings of Watchbill in `.watchbill/` give the lines of the change and the person did not ask it not to. Otherwise a person does both, with the commands the program prints.
 - The description of the change, written to the file {description}: it names the issue {issue}, the requirements {requirements}, and anything in the change that a reviewer would not expect. The file is not in the checkout and is never committed: the program opens the change with it after your session.
 - If the requirements ask for behaviour that no test covers, say so in the description. Do not add it quietly without a test, and do not leave it out without saying.
 

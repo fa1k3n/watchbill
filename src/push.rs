@@ -4,6 +4,7 @@
 //! wrote. The session holds no login to the code host. Where `wb` does not push, it says why and the commands that
 //! would, as 0.0.9 did (#145).
 
+use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -16,22 +17,61 @@ pub const PUSHED: [&str; 3] = ["tester", "build", "fix"];
 /// The name of the description's file in the folder `wb` makes for a session (`view::DESCRIPTION` in the sandbox).
 const DESCRIPTION_FILE: &str = "description";
 
+/// The cap of the description: 64 KiB, well below the 128 KiB that Linux holds one word of a command to, as
+/// `draft_change` of GitLab passes it to `glab` as one word.
+pub const DESCRIPTION_CAP: u64 = 64 * 1024;
+
 /// The paths of a login of the code host on this machine, which no runner's bind may hold or lie in (#151): the
-/// folders of `gh` and `glab`, ssh's, and git's stored credentials, below `home`, and the folders that
-/// `GH_CONFIG_DIR` and `GLAB_CONFIG_DIR` name.
-pub fn logins(home: Option<&Path>) -> Vec<PathBuf> {
+/// folders of `gh` and `glab`, ssh's, and git's stored credentials, below `home` and below `XDG_CONFIG_HOME`, the
+/// folders that `GH_CONFIG_DIR` and `GLAB_CONFIG_DIR` name, the keyrings below `XDG_RUNTIME_DIR` and the session bus
+/// that leads to them, and the folder of the ssh agent's socket. `var` reads a variable of the environment.
+fn logins(home: Option<&Path>, var: &dyn Fn(&str) -> Option<OsString>) -> Vec<PathBuf> {
+    let absolute = |name: &str| var(name).map(PathBuf::from).filter(|path| path.is_absolute());
     let mut found = Vec::new();
     if let Some(home) = home {
         for below in [".config/gh", ".config/glab-cli", ".ssh", ".git-credentials", ".config/git/credentials", ".netrc"] {
             found.push(home.join(below));
         }
     }
-    for name in ["GH_CONFIG_DIR", "GLAB_CONFIG_DIR"] {
-        if let Some(folder) = std::env::var_os(name).map(PathBuf::from).filter(|folder| folder.is_absolute()) {
-            found.push(folder);
+    if let Some(config) = absolute("XDG_CONFIG_HOME") {
+        for below in ["gh", "glab-cli", "git/credentials"] {
+            found.push(config.join(below));
         }
     }
+    for name in ["GH_CONFIG_DIR", "GLAB_CONFIG_DIR"] {
+        found.extend(absolute(name));
+    }
+    if let Some(runtime) = absolute("XDG_RUNTIME_DIR") {
+        for below in ["keyring", "gnupg", "gcr", "bus"] {
+            found.push(runtime.join(below));
+        }
+    }
+    if let Some(socket) = absolute("SSH_AUTH_SOCK") {
+        found.push(socket.parent().map(Path::to_path_buf).unwrap_or(socket));
+    }
     found
+}
+
+/// The login of the code host that a runner's bind `bind` holds or lies in, if any (`logins`), and the folder
+/// `XDG_RUNTIME_DIR` where `bind` is it or holds it: the person's runtime folder holds the ssh agent's socket and the
+/// keyrings wherever a desktop puts them. A folder below it that is none of those is let through. Each path is
+/// taken as it is written and as its links lead.
+pub fn login_of(bind: &Path, home: Option<&Path>, var: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    let forms = |path: &Path| -> Vec<String> {
+        let mut found = vec![path.display().to_string()];
+        if let Ok(real) = std::fs::canonicalize(path) {
+            found.push(real.display().to_string());
+        }
+        found
+    };
+    let binds = forms(bind);
+    let meets = |login: &Path| binds.iter().any(|one| forms(login).iter().any(|two| starter::meet(one, two)));
+    if let Some(login) = logins(home, var).into_iter().find(|login| meets(login)) {
+        return Some(login);
+    }
+    let runtime = var("XDG_RUNTIME_DIR").map(PathBuf::from).filter(|path| path.is_absolute())?;
+    let holds = binds.iter().any(|one| forms(&runtime).iter().any(|two| starter::meet(one, two) && Path::new(two).starts_with(one)));
+    holds.then_some(runtime)
 }
 
 /// Makes the folder of what a session writes for `wb`, new and empty, readable by the person alone:
@@ -61,7 +101,7 @@ pub fn remove_out(out: &Path) {
 /// refused: the error says why, and holds nothing of it.
 pub fn read_description(out: &Path) -> Result<Option<String>, String> {
     let path = out.join(DESCRIPTION_FILE);
-    let bytes = match bounded::read_plain(&path, bounded::TEXT_CAP) {
+    let bytes = match bounded::read_plain(&path, DESCRIPTION_CAP) {
         Ok(bytes) => bytes,
         Err(bounded::Fault::NotFound) => return Ok(None),
         Err(fault) => return Err(format!("the description's file {} was not read: {}", view::DESCRIPTION, fault)),
@@ -75,6 +115,10 @@ pub fn read_description(out: &Path) -> Result<Option<String>, String> {
     }
     if text.trim().is_empty() {
         return Ok(None);
+    }
+    // `-` alone has `glab` open an editor, as the person.
+    if text.trim() == "-" {
+        return Err(format!("the description's file {} holds `-` alone, which a command that opens a change reads as no description", view::DESCRIPTION));
     }
     Ok(Some(text))
 }

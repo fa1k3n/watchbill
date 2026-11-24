@@ -1836,15 +1836,13 @@ fn prepare_view(
             }
         }
         // No login of the code host is in the sandbox (#151): `wb` pushes and opens the change outside it.
-        for login in push::logins(machine.home) {
-            if forms(path).iter().any(|one| forms(&login).iter().any(|two| starter::meet(one, two))) {
-                return Err(format!(
-                    "the runner's bind {} holds or lies in {}, a login of the code host, and no session holds one: wb pushes the branch and opens the change outside the sandbox. Take it out of `binds` in the organisation's file {}",
-                    path.display(),
-                    login.display(),
-                    machine.organisation.display()
-                ));
-            }
+        if let Some(login) = push::login_of(path, machine.home, &|name| std::env::var_os(name)) {
+            return Err(format!(
+                "the runner's bind {} holds or lies in {}, a login of the code host, and no session holds one: wb pushes the branch and opens the change outside the sandbox. Take it out of `binds` in the organisation's file {}",
+                path.display(),
+                login.display(),
+                machine.organisation.display()
+            ));
         }
     }
     let state = machine

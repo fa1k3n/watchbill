@@ -850,9 +850,11 @@ pub const OUT_FOLDER: &str = "/run/watchbill";
 /// The file the build writes the change's description to, `{description}` of the prompt (#151).
 pub const DESCRIPTION: &str = "/run/watchbill/description";
 
-/// The variables that hold or lead to a login of the code host (#151): `gh`'s, `glab`'s and ssh's. None is handed
-/// into the sandbox, as no `GIT_*` is.
-pub const LOGINS: [&str; 12] = [
+/// The variables that hold or lead to a login of the code host (#151): `gh`'s, `glab`'s and ssh's, the secrets GitLab
+/// CI hands a job, and the address of the session bus, which leads to the keyring `gh` keeps its login in. None is
+/// handed into the sandbox, as no `GIT_*` is. They are named one by one, never by an ending such as `_TOKEN`, which
+/// would take the runner's own login of its model too.
+pub const LOGINS: [&str; 19] = [
     "GH_TOKEN",
     "GITHUB_TOKEN",
     "GH_ENTERPRISE_TOKEN",
@@ -862,9 +864,16 @@ pub const LOGINS: [&str; 12] = [
     "GLAB_TOKEN",
     "GITLAB_ACCESS_TOKEN",
     "GLAB_CONFIG_DIR",
+    "OAUTH_TOKEN",
+    "GLAB_CLIENT_CERT_PASSWORD",
     "CI_JOB_TOKEN",
+    "CI_REGISTRY_PASSWORD",
+    "CI_DEPENDENCY_PROXY_PASSWORD",
+    "CI_JOB_JWT",
+    "CI_JOB_JWT_V2",
     "SSH_AUTH_SOCK",
     "SSH_ASKPASS",
+    "DBUS_SESSION_BUS_ADDRESS",
 ];
 
 /// Takes the variables of a login of the code host, and every `GIT_*`, out of what `command` is handed.

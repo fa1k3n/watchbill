@@ -23,8 +23,8 @@ pub enum Outcome {
     Refused { check: &'static str, status: i32, message: String },
     /// The stamp was not posted, and no session was started.
     NotPosted { status: i32, message: String },
-    /// The session ran, and ended.
-    Ended { status: ExitStatus, seconds: u64 },
+    /// The session ran, and ended; `limit` names the limit it was ended at, where it was (#267: `max_minutes`).
+    Ended { status: ExitStatus, seconds: u64, limit: Option<&'static str> },
 }
 
 impl Outcome {
@@ -37,11 +37,14 @@ impl Outcome {
             Outcome::NotPosted { status, message } => {
                 format!("outcome: not posted\nstatus: {}\nmessage: {}\n", status, first_line(crate::refusal::unlabelled(message)))
             }
-            Outcome::Ended { status, seconds } => match (status.code(), status.signal()) {
-                (Some(code), _) => format!("outcome: ended\nstatus: {}\nseconds: {}\n", code, seconds),
-                (None, Some(signal)) => format!("outcome: ended\nsignal: {}\nseconds: {}\n", signal_name(signal), seconds),
-                (None, None) => format!("outcome: ended\nseconds: {}\n", seconds),
-            },
+            Outcome::Ended { status, seconds, limit } => {
+                let limit = limit.map(|limit| format!("limit: {}\n", limit)).unwrap_or_default();
+                match (status.code(), status.signal()) {
+                    (Some(code), _) => format!("outcome: ended\nstatus: {}\nseconds: {}\n{}", code, seconds, limit),
+                    (None, Some(signal)) => format!("outcome: ended\nsignal: {}\nseconds: {}\n{}", signal_name(signal), seconds, limit),
+                    (None, None) => format!("outcome: ended\nseconds: {}\n{}", seconds, limit),
+                }
+            }
         }
     }
 }
@@ -139,6 +142,11 @@ impl Lines {
         self.made = Some(folder);
     }
 
+    /// The folder made, or none when none was made.
+    pub fn folder(&self) -> Option<&Path> {
+        self.made.as_deref()
+    }
+
     /// The path of a file of the folder made, or none when no folder was made.
     pub fn file(&self, file: &str) -> Option<PathBuf> {
         self.made.as_ref().map(|folder| folder.join(file))
@@ -155,12 +163,18 @@ impl Lines {
     }
 
     /// Writes `outcome` as `running`, with the process ID of this `wb` and its start time, in the folder made,
-    /// before the session starts (#222): `close` replaces it. A `wb` that is ended before its session leaves it.
+    /// before the session starts (#222): `close` replaces it. A `wb` that is ended before its session leaves it. The
+    /// line `since:` gives the time it was written, in seconds since 1970, by which `wb status` says how long the
+    /// session has run (#267).
     pub fn running(&mut self, err: &mut dyn Write) {
         self.open(None, err);
         let Some(folder) = &self.made else { return };
         let started = crate::kept::start_time(std::process::id()).map(|ticks| format!("started: {}\n", ticks)).unwrap_or_default();
-        let text = format!("outcome: running\npid: {}\n{}", std::process::id(), started);
+        let since = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| format!("since: {}\n", since.as_secs()))
+            .unwrap_or_default();
+        let text = format!("outcome: running\npid: {}\n{}{}", std::process::id(), started, since);
         if let Err(error) = new_file(&folder.join("outcome"), &text) {
             let _ = writeln!(err, "{}: the lines of this start could not be written in {}: {}", self.name, folder.display(), error);
         }
@@ -197,13 +211,18 @@ fn new_file(path: &Path, text: &str) -> std::io::Result<()> {
 /// Appends to the file `back` of the folder of a start what a take-back did (#223): the old lines, then `text`. The
 /// file is written anew beside it and moved onto it, as `outcome` is; where there is none, `text` is the file.
 pub fn append_back(folder: &Path, text: &str) -> std::io::Result<()> {
-    let path = folder.join("back");
+    append(folder, "back", text)
+}
+
+/// Appends `text` to the file `name` of the folder of a start, as `append_back` does: `back`, or `quiet` (#267).
+pub fn append(folder: &Path, name: &str, text: &str) -> std::io::Result<()> {
+    let path = folder.join(name);
     match fs::symlink_metadata(&path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => new_file(&path, text),
         Err(error) => Err(error),
         Ok(_) => match crate::view::small_file(&path) {
             Some(old) => replace_file(&path, &format!("{}{}", old, text)),
-            None => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "the file `back` is not a plain text file of 1 MiB or less")),
+            None => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("the file `{}` is not a plain text file of 1 MiB or less", name))),
         },
     }
 }

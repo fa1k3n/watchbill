@@ -332,8 +332,9 @@ fn move_refs(root: &str, moved: &[String], made: Option<&str>, old: &str, new: &
     git(root, &["update-ref", "--stdin"], Some(input.as_bytes())).map(|_| ())
 }
 
-/// Says what will be written: the blob of the text, or none, `job.yml`, the tree and the commit, and the refs it moves.
-fn say(out: &mut dyn Write, job: &Job, text: Option<&str>, kept: &[&str], old: Option<&str>, refs: &[String]) {
+/// Says what will be written: the blob of the text, or none, `job.yml`, the tree and the commit, the refs it moves to
+/// the commit from the one before, and the ref it makes.
+fn say(out: &mut dyn Write, job: &Job, text: Option<&str>, kept: &[&str], old: Option<&str>, moved: &[String], made: Option<&str>) {
     let _ = writeln!(out, "It writes:");
     if let Some(line) = text {
         let _ = writeln!(out, "  {}", line);
@@ -346,11 +347,17 @@ fn say(out: &mut dyn Write, job: &Job, text: Option<&str>, kept: &[&str], old: O
     let _ = writeln!(out, "  a tree of {}", tree.join(", "));
     match old {
         Some(commit) => {
-            let _ = writeln!(out, "  a commit after {}, and the refs {} moved to it from that commit", commit, refs.join(", "));
+            let _ = writeln!(out, "  a commit after {}", commit);
         }
         None => {
-            let _ = writeln!(out, "  a commit, the first of the job, and the ref {} at it", refs.join(", "));
+            let _ = writeln!(out, "  a commit, the first of the job");
         }
+    }
+    for name in moved {
+        let _ = writeln!(out, "  the ref {} moved to it from that commit", name);
+    }
+    if let Some(name) = made {
+        let _ = writeln!(out, "  the ref {} made at it", name);
     }
 }
 
@@ -561,9 +568,7 @@ pub fn add(root: &str, folder: &Path, organisation: &Path, add: &Add, input: &mu
         None if adds_source => Some(format!("no blob of the text: --hash-only keeps its hash {} and its source alone", hash)),
         None => None,
     };
-    let mut named: Vec<String> = moved.clone();
-    named.extend(made.iter().cloned());
-    say(out, &job, blob_line.as_deref(), &kept, old.as_deref(), &named);
+    say(out, &job, blob_line.as_deref(), &kept, old.as_deref(), &moved, made.as_deref());
 
     crate::interrupt::writing();
     let failed = |err: &mut dyn Write, why: String| crate::refusal::limit(err, NAME, format_args!("{}. No ref is written.", why));
@@ -581,6 +586,11 @@ pub fn add(root: &str, folder: &Path, organisation: &Path, add: &Add, input: &mu
     if let Err(why) = move_refs(root, &moved, made.as_deref(), old.as_deref().unwrap_or(""), &commit) {
         return failed(err, why);
     }
-    let _ = writeln!(out, "Wrote {}: commit {}.", named.join(", "), commit);
+    for name in &moved {
+        let _ = writeln!(out, "Wrote {}: moved to commit {}.", name, commit);
+    }
+    if let Some(name) = &made {
+        let _ = writeln!(out, "Wrote {}: made at commit {}.", name, commit);
+    }
     0
 }

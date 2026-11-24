@@ -20,7 +20,7 @@ const USAGE: &str = "usage:
             or <role> <issue> --take-back
   wb status [<issue>] [--stage <heading>]
   wb view <issue> (<role> [--in | --out] | <path>)
-  wb view --kept
+            or --kept
   wb answer (<issue> | --change <n>) [--show | [--suggested] [<question> <answer>]...]
   wb revert (<issue> | --change <n>) <role> [--round <n>]
   wb clean [--dry-run | -n] [<view>]

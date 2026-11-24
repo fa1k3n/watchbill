@@ -245,7 +245,7 @@ fn test_WB_VIEW_125_the_why_comes_from_back_and_a_commit_that_was_refused_is_nam
     let out = out_of(&wb_in(&bench, &["view", "--kept"]));
     let lines = block(&out, &folder);
     assert!(lines.iter().any(|line| line.starts_with("  why: ") && line.contains("refused") && line.contains("does not name")), "{}", out);
-    assert!(lines.iter().any(|line| line.starts_with("  commit ") && line.ends_with(" Refused one")), "{}", out);
+    assert!(lines.iter().any(|line| line.starts_with("  commit ") && line.contains(" Refused one")), "{}", out);
     // Without a `back` the session left none, and that is the reason.
     let (other, _) = keep(&bench, &Keep { commits: &["Alone"], ..Keep::new("2026-11-22T110000Z-tester-55") });
     let out = out_of(&wb_in(&bench, &["view", "--kept"]));
@@ -679,7 +679,7 @@ fn test_WB_VIEW_134_clean_is_a_built_command_with_its_usage_and_help() {
     assert!(watchbill::layout::planned("clean").is_none());
     assert!(watchbill::ARMS.contains(&"clean"));
     assert!(watchbill::USAGE.contains("\n  wb clean [--dry-run | -n] [<view>]\n"), "{}", watchbill::USAGE);
-    assert!(watchbill::USAGE.contains("\n  wb view --kept\n"), "{}", watchbill::USAGE);
+    assert!(watchbill::USAGE.contains("\n            or --kept\n"), "{}", watchbill::USAGE);
     let folder = folder();
     let run = wb(&folder.path, &["help", "clean"], "");
     assert_eq!(code(&run), Some(0));

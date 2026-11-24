@@ -4,7 +4,7 @@
 # writes nothing: it reads file names and asks git for the root of the checkout. The lists below are
 # held to the commands, the usage and the roles of wb by tests/completion.rs.
 
-_wb_commands="init check upgrade accept start status view answer revert prompt revision compare"
+_wb_commands="init check upgrade accept start status view answer revert clean prompt revision compare"
 _wb_roles="build fix planner review tester"
 _wb_stages=("Not broken down" "Broken down" Accepted Tested Built Reviewed Fixed "Questions open" "Not read")
 
@@ -13,9 +13,10 @@ _wb_flags_upgrade="--dry-run"
 _wb_flags_accept="--no-commit"
 _wb_flags_start="--runner --prompt --ignore-local --ignore-kept --ignore-branch --no-push --take-back --issue --change --requirements --round --checkout --branch --issue_address --change_address --classed --classed_touched --description --parts --stamp"
 _wb_flags_status="--stage"
-_wb_flags_view="--in --out"
+_wb_flags_view="--in --out --kept"
 _wb_flags_answer="--change --show --suggested"
 _wb_flags_revert="--change --round"
+_wb_flags_clean="--dry-run"
 _wb_flags_compare="--from"
 _wb_flags_prompt="--issue --change --requirements --round --checkout --branch --issue_address --change_address --runner --classed --classed_touched --description --parts --stamp"
 

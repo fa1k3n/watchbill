@@ -73,8 +73,10 @@ fn test_WB_INIT_14_yes_writes_what_the_repository_says_and_asks_nothing() {
             // The whole comments, for `wb answer` (#145), and the command that opens the change as a draft.
             r#"issue_comment_bodies: 'gh api repos/example/brake-controller/issues/{issue}/comments --paginate --jq ''.[] | .body + "\u0000"'''"#,
             r#"change_comment_bodies: 'gh api repos/example/brake-controller/issues/{change}/comments --paginate --jq ''.[] | .body + "\u0000"'''"#,
+            // The change's description alone, for the review and the fix (#153).
+            "change_text: 'gh pr view {change} --repo example/brake-controller --json body --jq .body'",
             "draft_change: 'gh pr create --repo example/brake-controller --head {branch} --draft --fill --body-file -'",
-            "issue_address: 'gh issue view {issue} --repo example/brake-controller; gh issue view {issue} --repo example/brake-controller --comments'",
+            "issue_address:'gh issue view {issue} --repo example/brake-controller; gh issue view {issue} --repo example/brake-controller --comments'",
             // The issue's text alone, for the planner (#295).
             "issue_text: 'gh issue view {issue} --repo example/brake-controller --json body --jq .body'",
             "change_address: 'gh pr view {change} --repo example/brake-controller; gh pr view {change} --repo example/brake-controller --comments'",
@@ -1134,4 +1136,19 @@ fn test_WB_INIT_60_a_github_and_a_gitlab_origin_get_issue_text_and_another_serve
         Some("glab issue view {issue} --repo https://gitlab.example.com/brakes/controller -F json | jq -r .description")
     );
     no_pattern(&["issue_text"]);
+}
+
+#[test]
+fn test_WB_PUSH_24_a_github_and_a_gitlab_origin_get_change_text_and_another_server_none() {
+    let folder = repository(Some("https://github.com/example/brake-controller.git"));
+    assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+    assert_eq!(pattern(&folder.path, "change_text").as_deref(), Some("gh pr view {change} --repo example/brake-controller --json body --jq .body"));
+    assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
+    let folder = repository(Some("https://gitlab.example.com/brakes/controller.git"));
+    assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
+    assert_eq!(
+        pattern(&folder.path, "change_text").as_deref(),
+        Some("glab mr view {change} --repo https://gitlab.example.com/brakes/controller -F json | jq -r .description")
+    );
+    no_pattern(&["change_text"]);
 }

@@ -119,6 +119,13 @@ fn bench_for(issue_54: &str) -> Bench {
         &format!("echo \"address $1\" >> {l}/calls\nif [ -f {l}/address-$1 ]; then cat {l}/address-$1; else echo \"The text of issue $1.\"; fi\nexit $(cat {l}/address.status 2>/dev/null || echo 0)\n"),
     );
     script(&log.path.join("bodies.sh"), &format!("echo \"bodies $1\" >> {l}/calls\ncat {l}/bodies-$1 2>/dev/null\nexit $(cat {l}/bodies.status 2>/dev/null || echo 0)\n"));
+    // The change's description alone, by `change_text`, and its whole comments, for the review and the fix (#153): what
+    // the test leaves in `ctext-<change>` and `cbodies-<change>`, else a line of text and no comment.
+    script(
+        &log.path.join("ctext.sh"),
+        &format!("echo \"ctext $1\" >> {l}/calls\nif [ -f {l}/ctext-$1 ]; then cat {l}/ctext-$1; else echo \"The description of change $1.\"; fi\nexit $(cat {l}/ctext.status 2>/dev/null || echo 0)\n"),
+    );
+    script(&log.path.join("cbodies.sh"), &format!("echo \"cbodies $1\" >> {l}/calls\ncat {l}/cbodies-$1 2>/dev/null\nexit $(cat {l}/cbodies.status 2>/dev/null || echo 0)\n"));
     script(&log.path.join("changes.sh"), &format!("echo \"changes $1\" >> {l}/calls\necho 174\nexit 0\n"));
     script(&log.path.join("ssh.sh"), &format!("echo ssh >> {l}/network\nexit 1\n"));
     script(&log.path.join("session.sh"), &format!("echo start >> {l}/calls\nexit 0\n"));
@@ -138,6 +145,8 @@ fn bench_for(issue_54: &str) -> Bench {
         format!("issue_address: '{}/address.sh {{issue}}'", l),
         format!("issue_text: '{}/text.sh {{issue}}'", l),
         format!("issue_comment_bodies: '{}/bodies.sh {{issue}}'", l),
+        format!("change_text: '{}/ctext.sh {{change}}'", l),
+        format!("change_comment_bodies: '{}/cbodies.sh {{change}}'", l),
         "change_address: 'server {change}'".to_string(),
         "confidentiality: public".to_string(),
         "build_files: [build]".to_string(),
@@ -5801,4 +5810,464 @@ fn test_WB_PUSH_20_take_back_pushes_nothing_and_says_the_commands() {
     let run = take_back(&bench, &["--no-push"]);
     assert_eq!(code(&run), Some(2), "{}", text_of(&run.stderr));
     assert!(text_of(&run.stderr).contains("'--take-back' is used with the role and the issue alone"), "{}", text_of(&run.stderr));
+}
+
+// ---- #153: a session in a view holds no login: wb brings in what it reads and posts what it writes ----
+
+/// The whole comments as `issue_comment_bodies` prints them: each body and a NUL byte, and a line break after it.
+fn bodies_of(comments: &[&str]) -> Vec<u8> {
+    let mut bodies = Vec::new();
+    for comment in comments {
+        bodies.extend_from_slice(comment.as_bytes());
+        bodies.extend_from_slice(b"\0\n");
+    }
+    bodies
+}
+
+/// A session that copies each file `wb` brought in to the log folder, as `in-<name>`, and notes whether it could
+/// write in the folder, and whether the view saw a file of it.
+fn reading_session(bench: &Bench) {
+    bench.session(
+        "for f in issue.md questions change.md change.comments change.diff; do [ -f /run/watchbill/in/$f ] && cat /run/watchbill/in/$f > {log}/in-$f; done\n\
+         ( echo x > /run/watchbill/in/planted ) 2>/dev/null && echo wrote > {log}/wrote\n\
+         git status --porcelain --untracked-files=all > {log}/status\n",
+    );
+}
+
+#[test]
+fn test_WB_PUSH_21_the_issue_and_the_role_s_own_questions_are_brought_in_read_only_outside_the_view() {
+    if !sandbox("test_WB_PUSH_21") {
+        return;
+    }
+    let bench = bench();
+    let comments = [
+        "[stamp] tester round 1\nrole: tester\nmodel: claude-opus-5-5",
+        "[questions] 54.tester q1\nq1: Which brake?\n<details>\n\n1. (tester) The front brake.\n\n</details>",
+        "[answers] 54.tester q1>tester\nq1: 1",
+        "[questions] 54.build q1\nq1: Which build?",
+        "[questions] 54 q1\nq1: The planner's own.",
+        "Thanks, that reads well.",
+    ];
+    fs::write(bench.at("text-54"), "Brakes: the front one.\n").unwrap();
+    fs::write(bench.at("bodies-54"), bodies_of(&comments)).unwrap();
+    reading_session(&bench);
+
+    ok(&bench.start(&["start", "tester", "54"]));
+
+    assert_eq!(bench.left("in-issue.md"), "Brakes: the front one.\n");
+    let questions = bench.left("in-questions");
+    assert!(questions.contains(comments[1]) && questions.contains(comments[2]), "{}", questions);
+    for never in ["[stamp]", "model: claude", "54.build", "The planner's own", "Thanks"] {
+        assert!(!questions.contains(never), "{}: {}", never, questions);
+    }
+    // Read-only, and not in the view's tree.
+    assert_eq!(bench.left("wrote"), "");
+    assert_eq!(bench.left("status"), "");
+    // Read by `wb` before the stamp is posted.
+    let calls = bench.calls();
+    let text = calls.iter().position(|call| call == "text 54").expect("issue_text was not run");
+    let bodies = calls.iter().position(|call| call == "bodies 54").expect("issue_comment_bodies was not run");
+    let posted = calls.iter().position(|call| call == "post issue 54").unwrap();
+    assert!(text < posted && bodies < posted, "{:?}", calls);
+    // The folder is gone after the session.
+    assert!(bench.below("out").is_empty(), "{:?}", bench.below("out"));
+}
+
+#[test]
+fn test_WB_PUSH_21_every_role_but_the_planner_gets_the_issue_s_text() {
+    if !sandbox("test_WB_PUSH_21") {
+        return;
+    }
+    for role in ["build", "review", "fix"] {
+        let bench = bench();
+        fs::write(bench.at("comments-issue-54"), "[stamp] review round 1\n").unwrap();
+        fs::write(bench.at("text-54"), "Brakes: the front one.\n").unwrap();
+        reading_session(&bench);
+        ok(&bench.start(&["start", role, "54"]));
+        assert_eq!(bench.left("in-issue.md"), "Brakes: the front one.\n", "{}", role);
+    }
+}
+
+#[test]
+fn test_WB_PUSH_21_a_failing_or_missing_issue_text_or_issue_comment_bodies_refuses_the_tester_before_posting() {
+    for (status, named) in [("text.status", "issue_text"), ("bodies.status", "issue_comment_bodies")] {
+        let bench = bench();
+        fs::write(bench.at(status), "1\n").unwrap();
+        let run = bench.start_by(&pass_through(&bench), &["start", "tester", "54"]);
+        refused_before_posting(&bench, &run, &[named]);
+    }
+    for key in ["issue_text", "issue_comment_bodies"] {
+        let bench = bench();
+        without_line(&bench, key);
+        let run = bench.start_by(&pass_through(&bench), &["start", "build", "54"]);
+        refused_before_posting(&bench, &run, &[key]);
+    }
+    let bench = bench();
+    fs::write(bench.at("text-54"), "a".repeat(1024 * 1024 + 1)).unwrap();
+    let run = bench.start_by(&pass_through(&bench), &["start", "tester", "54"]);
+    refused_before_posting(&bench, &run, &["issue_text", "1 MiB"]);
+}
+
+#[test]
+fn test_WB_PUSH_22_the_review_gets_the_change_s_description_and_the_comments_of_the_review_and_the_fix() {
+    if !sandbox("test_WB_PUSH_22") {
+        return;
+    }
+    let bench = bench();
+    let comments = [
+        "[stamp] review round 1\nrole: review",
+        "[review] 54 round 1\n1. must src/brake.c:1 returns 1.",
+        "[fix] 54 round 1\n1. fixed: Fix finding 1 of round 1",
+        "[review] 55 round 1\nAnother issue's.",
+        "Looks good to me.",
+    ];
+    fs::write(bench.at("ctext-174"), "Issue 54: the front brake.\n").unwrap();
+    fs::write(bench.at("cbodies-174"), bodies_of(&comments)).unwrap();
+    reading_session(&bench);
+
+    ok(&bench.start(&["start", "review", "54"]));
+
+    assert_eq!(bench.left("in-change.md"), "Issue 54: the front brake.\n");
+    let seen = bench.left("in-change.comments");
+    assert!(seen.contains(comments[1]) && seen.contains(comments[2]), "{}", seen);
+    for never in ["[stamp]", "Another issue's", "Looks good"] {
+        assert!(!seen.contains(never), "{}: {}", never, seen);
+    }
+    let calls = bench.calls();
+    let posted = calls.iter().position(|call| call == "post issue 54").unwrap();
+    assert!(calls.iter().position(|call| call == "ctext 174").is_some_and(|at| at < posted), "{:?}", calls);
+    assert!(calls.iter().position(|call| call == "cbodies 174").is_some_and(|at| at < posted), "{:?}", calls);
+}
+
+#[test]
+fn test_WB_PUSH_22_with_no_issue_the_questions_of_the_review_come_from_the_change() {
+    if !sandbox("test_WB_PUSH_22") {
+        return;
+    }
+    let bench = bench();
+    let comments = ["[questions] 174.review q1\nq1: Which brake?", "[questions] 174.fix q1\nq1: Not the review's."];
+    fs::write(bench.at("cbodies-174"), bodies_of(&comments)).unwrap();
+    reading_session(&bench);
+
+    ok(&bench.start(&["start", "review", "--change", "174"]));
+
+    assert_eq!(bench.left("in-issue.md"), "", "no issue, no issue's text");
+    let questions = bench.left("in-questions");
+    assert!(questions.contains(comments[0]) && !questions.contains("Not the review's"), "{}", questions);
+    assert!(!bench.calls().iter().any(|call| call.starts_with("text ")), "{:?}", bench.calls());
+}
+
+#[test]
+fn test_WB_PUSH_22_a_failing_or_missing_change_text_refuses_the_review_before_posting() {
+    let bench = bench();
+    fs::write(bench.at("ctext.status"), "1\n").unwrap();
+    let run = bench.start_by(&pass_through(&bench), &["start", "review", "54"]);
+    refused_before_posting(&bench, &run, &["change_text"]);
+    let bench = self::bench();
+    fs::write(bench.at("cbodies.status"), "1\n").unwrap();
+    let run = bench.start_by(&pass_through(&bench), &["start", "review", "54"]);
+    refused_before_posting(&bench, &run, &["change_comment_bodies"]);
+    let bench = self::bench();
+    without_line(&bench, "change_text");
+    let run = bench.start_by(&pass_through(&bench), &["start", "review", "54"]);
+    refused_before_posting(&bench, &run, &["change_text", "wb upgrade"]);
+}
+
+#[test]
+fn test_WB_PUSH_23_the_diff_holds_only_the_paths_of_the_role_s_lists() {
+    if !sandbox("test_WB_PUSH_23") {
+        return;
+    }
+    let bench = bench();
+    commit_file(&bench, "src/brake.c", "int brake(void) { return 2; }\n");
+    commit_file(&bench, "src/secret.c", "the third secret\n");
+    reading_session(&bench);
+
+    ok(&bench.start(&["start", "review", "54"]));
+
+    let diff = bench.left("in-change.diff");
+    assert!(diff.contains("src/brake.c") && diff.contains("+int brake(void) { return 2; }"), "{}", diff);
+    for never in ["secret", ".watchbill/issues/54"] {
+        assert!(!diff.contains(never), "{}: {}", never, diff);
+    }
+}
+
+#[test]
+fn test_WB_PUSH_24_without_change_text_the_fix_is_refused_naming_the_line_and_wb_upgrade() {
+    let bench = bench();
+    fs::write(bench.at("comments-issue-54"), "[stamp] review round 1\n").unwrap();
+    without_line(&bench, "change_text");
+    let run = bench.start_by(&pass_through(&bench), &["start", "fix", "54"]);
+    refused_before_posting(&bench, &run, &["change_text", "wb upgrade"]);
+}
+
+/// Two questions of the tester, in full, as the session writes them to `{questions}`.
+const TESTER_QUESTIONS: &str = "q1: Which brake?
+Why it matters: the test differs.
+
+1. (tester) The front brake.
+2. (person) Both.
+
+Suggested: 1, because it is first.
+
+q2: Which unit?
+Why it matters: the bound differs.
+";
+
+/// The comment `wb` makes of them (#295's form).
+const TESTER_POSTED: &str = "[questions] 54.tester q1 q2
+q1: Which brake?
+<details>
+
+Why it matters: the test differs.
+
+1. (tester) The front brake.
+2. (person) Both.
+
+Suggested: 1, because it is first.
+
+</details>
+
+q2: Which unit?
+<details>
+
+Why it matters: the bound differs.
+
+</details>
+";
+
+/// A session that writes `text` to the file `name` of `/run/watchbill`, and ends with `status`.
+fn writing_session(bench: &Bench, name: &str, text: &str, status: u8) {
+    fs::write(bench.at(&format!("write-{}", name)), text).unwrap();
+    bench.session(&format!("cat {{log}}/write-{name} > /run/watchbill/{name}\nexit {status}\n"));
+}
+
+#[test]
+fn test_WB_PUSH_25_the_questions_written_are_posted_once_in_one_comment_after_the_session() {
+    if !sandbox("test_WB_PUSH_25") {
+        return;
+    }
+    let bench = bench();
+    writing_session(&bench, "questions", TESTER_QUESTIONS, 0);
+
+    let run = bench.start(&["start", "tester", "54"]);
+
+    ok(&run);
+    assert_eq!(posts_on_54(&bench), 2, "{:?}", bench.calls());
+    assert_eq!(bench.posted(), TESTER_POSTED);
+    let calls = bench.calls();
+    let start = calls.iter().position(|call| call == "start").unwrap();
+    assert_eq!(calls.iter().rposition(|call| call == "post issue 54").map(|at| at > start), Some(true), "{:?}", calls);
+    let said = format!("wb start tester: will post on issue 54, by `issue_comment` of watchbill.yml:\n{}", TESTER_POSTED);
+    assert!(text_of(&run.stderr).contains(&said), "{}", text_of(&run.stderr));
+
+    // A question that stands on the issue already is not posted again.
+    let bench = crate::bench();
+    fs::write(bench.at("comments-issue-54"), "[questions] 54.tester q1\n").unwrap();
+    writing_session(&bench, "questions", TESTER_QUESTIONS, 0);
+    ok(&bench.start(&["start", "tester", "54"]));
+    assert_eq!(posts_on_54(&bench), 2, "{:?}", bench.calls());
+    assert!(bench.posted().starts_with("[questions] 54.tester q2\nq2: Which unit?\n"), "{}", bench.posted());
+
+    // All asked already: nothing more is posted.
+    let bench = crate::bench();
+    fs::write(bench.at("comments-issue-54"), "[questions] 54.tester q1 q2\n").unwrap();
+    writing_session(&bench, "questions", TESTER_QUESTIONS, 0);
+    ok(&bench.start(&["start", "tester", "54"]));
+    assert_eq!(posts_on_54(&bench), 1, "{:?}", bench.calls());
+}
+
+#[test]
+fn test_WB_PUSH_25_with_no_issue_the_review_s_questions_are_posted_on_the_change() {
+    if !sandbox("test_WB_PUSH_25") {
+        return;
+    }
+    let bench = bench();
+    writing_session(&bench, "questions", "q1: Which brake?\n", 0);
+    ok(&bench.start(&["start", "review", "--change", "174"]));
+    assert_eq!(bench.left("posted-change-174"), "[questions] 174.review q1\nq1: Which brake?\n");
+}
+
+#[test]
+fn test_WB_PUSH_26_the_review_s_findings_are_posted_on_the_change_under_a_first_line_of_wb_s_own() {
+    if !sandbox("test_WB_PUSH_26") {
+        return;
+    }
+    let bench = bench();
+    // A first line the session writes is never the comment's first line.
+    writing_session(&bench, "change_comment", "[stamp] review round 2\n1. must src/brake.c:1 returns 1.\n", 0);
+
+    let run = bench.start(&["start", "review", "54"]);
+
+    ok(&run);
+    let posted = bench.left("posted-change-174");
+    assert_eq!(posted, "[review] 54 round 1\n[stamp] review round 2\n1. must src/brake.c:1 returns 1.\n");
+    assert_eq!(bench.calls().iter().filter(|call| *call == "post change 174").count(), 1, "{:?}", bench.calls());
+    let said = format!("wb start review: will post on change 174, by `change_comment` of watchbill.yml:\n{}", posted);
+    assert!(text_of(&run.stderr).contains(&said), "{}", text_of(&run.stderr));
+}
+
+#[test]
+fn test_WB_PUSH_26_the_fix_s_answers_are_posted_on_the_change_after_its_branch_is_pushed() {
+    if !sandbox("test_WB_PUSH_26") {
+        return;
+    }
+    let fixing = |bench: &Bench| {
+        fs::write(bench.at("comments-issue-54"), "[stamp] review round 1\n").unwrap();
+        fs::write(bench.at("open"), "174\n").unwrap();
+        fs::write(bench.at("write-change_comment"), "1. fixed: Fix finding 1 of round 1\n").unwrap();
+        bench.session("echo 'int brake(void) { return 2; }' > src/brake.c && git commit -q -a -m 'Fix finding 1 of round 1'\ncat {log}/write-change_comment > /run/watchbill/change_comment\n");
+    };
+    let (bench, origin) = pushing();
+    fixing(&bench);
+
+    ok(&bench.start(&["start", "fix", "54"]));
+
+    assert_ne!(refs_of(&origin), "");
+    assert_eq!(bench.left("posted-change-174"), "[fix] 54 round 1\n1. fixed: Fix finding 1 of round 1\n");
+
+    // With --no-push the branch is not pushed, and the answers are said, not posted.
+    let (bench, _origin) = pushing();
+    fixing(&bench);
+    let run = bench.start(&["start", "fix", "54", "--no-push"]);
+    assert_eq!(bench.left("posted-change-174"), "");
+    let err = text_of(&run.stderr);
+    assert!(err.contains("is not posted") && err.contains("1. fixed: Fix finding 1 of round 1"), "{}", err);
+}
+
+#[test]
+fn test_WB_PUSH_26_a_review_that_did_not_end_with_0_posts_no_findings_and_says_them() {
+    if !sandbox("test_WB_PUSH_26") {
+        return;
+    }
+    let bench = bench();
+    writing_session(&bench, "change_comment", "1. must src/brake.c:1 returns 1.\n", 3);
+    let run = bench.start(&["start", "review", "54"]);
+    assert_eq!(code(&run), Some(1));
+    assert_eq!(bench.left("posted-change-174"), "");
+    let err = text_of(&run.stderr);
+    assert!(err.contains("is not posted") && err.contains("did not end with 0") && err.contains("1. must src/brake.c:1 returns 1."), "{}", err);
+}
+
+#[test]
+fn test_WB_PUSH_27_needs_person_is_posted_on_the_issue_whatever_the_session_ended_with() {
+    if !sandbox("test_WB_PUSH_27") {
+        return;
+    }
+    let bench = bench();
+    writing_session(&bench, "needs_person", "The CRC part of build.rs, the person's step of 3.1, is not there.\n", 1);
+    let run = bench.start(&["start", "build", "54"]);
+    assert_eq!(code(&run), Some(1));
+    assert_eq!(posts_on_54(&bench), 2, "{:?}", bench.calls());
+    let posted = bench.posted();
+    assert_eq!(posted, "[needs_person] 54.build\nThe CRC part of build.rs, the person's step of 3.1, is not there.\n");
+    assert!(text_of(&run.stderr).contains(&format!("will post on issue 54, by `issue_comment` of watchbill.yml:\n{}", posted)), "{}", text_of(&run.stderr));
+
+    // `none`, or nothing, posts nothing.
+    for written in ["none\n", "  \n"] {
+        let bench = crate::bench();
+        writing_session(&bench, "needs_person", written, 0);
+        ok(&bench.start(&["start", "build", "54"]));
+        assert_eq!(posts_on_54(&bench), 1, "{:?}: {:?}", written, bench.calls());
+    }
+}
+
+#[test]
+fn test_WB_PUSH_27_the_planner_s_needs_person_is_named_by_the_issue_alone() {
+    if !sandbox("test_WB_PUSH_27") {
+        return;
+    }
+    let bench = bench();
+    writing_session(&bench, "needs_person", "The files were not there.\n", 0);
+    ok(&bench.start(&["start", "planner", "54"]));
+    assert_eq!(bench.posted(), "[needs_person] 54\nThe files were not there.\n");
+}
+
+#[test]
+fn test_WB_PUSH_28_a_written_file_with_an_unsafe_character_is_refused_and_nothing_of_it_is_posted() {
+    if !sandbox("test_WB_PUSH_28") {
+        return;
+    }
+    for name in ["questions", "needs_person", "change_comment"] {
+        let bench = bench();
+        writing_session(&bench, name, "q1: red \u{1b}[31m here\n", 0);
+        let role = if name == "change_comment" { "review" } else { "tester" };
+        let run = bench.start(&["start", role, "54"]);
+        let err = text_of(&run.stderr);
+        assert_eq!(code(&run), Some(1), "{}: {}", name, err);
+        assert!(labelled_line(&err, &format!("wb start {}", role), "limit").is_some(), "{}: {}", name, err);
+        assert!(!err.contains('\u{1b}'), "{}: {:?}", name, err);
+        assert_eq!(posts_on_54(&bench), 1, "{}: {:?}", name, bench.calls());
+        assert_eq!(bench.left("posted-change-174"), "", "{}", name);
+    }
+}
+
+#[test]
+fn test_WB_PUSH_28_a_written_file_over_64_kib_or_a_link_is_refused() {
+    if !sandbox("test_WB_PUSH_28") {
+        return;
+    }
+    let bench = bench();
+    bench.session("head -c 65537 /dev/zero | tr '\\0' a > /run/watchbill/needs_person\n");
+    let run = bench.start(&["start", "tester", "54"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert_eq!(posts_on_54(&bench), 1, "{:?}", bench.calls());
+
+    let bench = self::bench();
+    bench.session("ln -s /etc/hostname /run/watchbill/questions\n");
+    let run = bench.start(&["start", "tester", "54"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert_eq!(posts_on_54(&bench), 1, "{:?}", bench.calls());
+}
+
+#[test]
+fn test_WB_PUSH_28_questions_that_do_not_start_with_their_name_are_refused() {
+    if !sandbox("test_WB_PUSH_28") {
+        return;
+    }
+    let bench = bench();
+    writing_session(&bench, "questions", "Which brake?\nq1: Which unit?\n", 0);
+    let run = bench.start(&["start", "tester", "54"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert_eq!(posts_on_54(&bench), 1, "{:?}", bench.calls());
+}
+
+#[test]
+fn test_WB_PUSH_29_the_folder_wb_brings_in_and_the_files_a_session_writes_are_named_in_the_prompt() {
+    if !sandbox("test_WB_PUSH_29") {
+        return;
+    }
+    let bench = bench();
+    fs::write(bench.at("comments-issue-54"), "[stamp] review round 1\n").unwrap();
+    bench.session("printf '%s' \"$3\" > {log}/prompt\n");
+    ok(&bench.start(&["start", "review", "54"]));
+    let prompt = bench.left("prompt");
+    for path in ["/run/watchbill/in/issue.md", "/run/watchbill/in/change.diff", "/run/watchbill/questions", "/run/watchbill/change_comment", "/run/watchbill/needs_person"] {
+        assert!(prompt.contains(path), "{}: {}", path, prompt);
+    }
+    assert!(!prompt.contains("address.sh") && !prompt.contains("server 174"), "{}", prompt);
+}
+
+#[test]
+fn test_WB_PUSH_30_the_new_placeholders_given_to_start_are_used_wrongly_but_where_it_prints() {
+    for option in ["--brought", "--questions", "--change_comment", "--needs_person"] {
+        let bench = bench();
+        let run = start_unsandboxed(&bench, &["start", "build", "54", option, "/tmp/elsewhere"]);
+        assert_eq!(code(&run), Some(2), "{}: {}", option, text_of(&run.stderr));
+        assert!(text_of(&run.stderr).contains(option), "{}", text_of(&run.stderr));
+        assert!(!bench.any_posted() && !bench.started());
+        let run = start_unsandboxed(&bench, &["start", "build", "54", "--prompt", option, "/tmp/elsewhere"]);
+        assert_eq!(code(&run), Some(0), "{}: {}", option, text_of(&run.stderr));
+    }
+}
+
+#[test]
+fn test_WB_ROLE_119_the_tester_s_prompt_as_handed_out_names_the_files_wb_brings_in_and_no_program_of_the_tracker() {
+    let bench = bench();
+    let run = prompt_with(&bench.repo.path, &bench.organisation(), &["tester", "54", "--round", "1"]);
+    ok(&run);
+    let prompt = text_of(&run.stdout);
+    assert!(prompt.contains("/run/watchbill/in/issue.md") && prompt.contains("/run/watchbill/questions"), "{}", prompt);
+    let words: Vec<&str> = prompt.split(|c: char| !c.is_ascii_alphanumeric()).collect();
+    assert!(!prompt.contains("address.sh") && !words.contains(&"gh") && !words.contains(&"glab"), "{}", prompt);
 }

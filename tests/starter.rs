@@ -151,6 +151,8 @@ fn bench() -> Bench {
     // The issue's text and its whole comments, which `wb start planner` brings into the view (#295).
     script(&log.path.join("address.sh"), &format!("echo \"address $1\" >> {l}/calls\necho \"The text of issue $1.\"\nexit 0\n"));
     script(&log.path.join("bodies.sh"), &format!("echo \"bodies $1\" >> {l}/calls\nexit 0\n"));
+    script(&log.path.join("ctext.sh"), &format!("echo \"ctext $1\" >> {l}/calls\necho \"The description of change $1.\"\nexit 0\n"));
+    script(&log.path.join("cbodies.sh"), &format!("echo \"cbodies $1\" >> {l}/calls\nexit 0\n"));
     git(&repo.path, &["config", "user.name", "Ada Lovelace"]);
     git(&repo.path, &["config", "user.email", "ada@example.org"]);
     git(&repo.path, &["config", "commit.gpgsign", "false"]);
@@ -167,6 +169,9 @@ fn bench() -> Bench {
         format!("issue_address: '{} {{issue}}'", at("address.sh")),
         format!("issue_comment_bodies: '{} {{issue}}'", at("bodies.sh")),
         format!("issue_text: '{} {{issue}}'", at("address.sh")),
+        // The change's description and its whole comments, which `wb start` brings in for the review and the fix (#153).
+        format!("change_text: '{} {{change}}'", at("ctext.sh")),
+        format!("change_comment_bodies: '{} {{change}}'", at("cbodies.sh")),
         "change_address: 'server {change}'".to_string(),
         "confidentiality: public".to_string(),
     ] {

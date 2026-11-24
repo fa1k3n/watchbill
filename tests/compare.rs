@@ -114,7 +114,7 @@ fn expected_diff(repo: &Folder) -> String {
     let rules = lines_of(&share().join("revision/rules.yml"));
     let build = lines_of(&share().join("revision/roles/build.md"));
     let n = build.len();
-    let mut out = String::from("changed: revision/roles/build.md\nadded: revision/roles/extra.md\nremoved: revision/models.yml\nchanged: revision/rules.yml\n\n");
+    let mut out = String::from("removed: revision/models.yml\nchanged: revision/roles/build.md\nadded: revision/roles/extra.md\nchanged: revision/rules.yml\n\n");
     out.push_str("--- a/revision/roles/build.md\n+++ b/revision/roles/build.md\n");
     out.push_str(&format!("@@ -{},3 +{},4 @@\n", n - 2, n - 2));
     for line in &build[n - 3..] {
@@ -140,7 +140,7 @@ fn test_WB_REV_28_a_changed_added_and_removed_file_is_a_line_each_in_the_order_o
     let head: Vec<&str> = out.lines().take_while(|line| !line.is_empty()).collect();
     assert_eq!(
         head,
-        ["changed: revision/roles/build.md", "added: revision/roles/extra.md", "removed: revision/models.yml", "changed: revision/rules.yml"]
+        ["removed: revision/models.yml", "changed: revision/roles/build.md", "added: revision/roles/extra.md", "changed: revision/rules.yml"]
     );
 }
 
@@ -155,7 +155,7 @@ fn test_WB_REV_28_the_unified_diff_of_a_changed_file_follows_the_lines_with_the_
     let run = from(&repo.path, PINNED, REVISION);
     assert_eq!(code(&run), Some(1));
     let out = text(&run.stdout);
-    assert!(out.starts_with("changed: revision/roles/build.md\nremoved: revision/roles/extra.md\nadded: revision/models.yml\nchanged: revision/rules.yml\n\n"), "{}", out);
+    assert!(out.starts_with("added: revision/models.yml\nchanged: revision/roles/build.md\nremoved: revision/roles/extra.md\nchanged: revision/rules.yml\n\n"), "{}", out);
     assert!(out.contains("--- a/revision/roles/build.md\n+++ b/revision/roles/build.md\n"), "{}", out);
     assert!(out.contains("-A new last line.\n"), "{}", out);
     assert!(out.contains("+# changed\n") == false && out.contains("-# changed\n"), "{}", out);

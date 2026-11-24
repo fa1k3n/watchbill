@@ -6261,6 +6261,146 @@ fn test_WB_PUSH_30_the_new_placeholders_given_to_start_are_used_wrongly_but_wher
     }
 }
 
+// ---- #153, the review of PR #310 ----
+
+#[test]
+fn test_WB_PUSH_23_an_empty_list_of_paths_brings_in_no_diff() {
+    if !sandbox("test_WB_PUSH_23") {
+        return;
+    }
+    // No `changes`, and no `reads` of the review: the view is empty, and so is the diff it is handed.
+    let file = ISSUE_54
+        .replace("changes: [src/brake.c, tests/test_brake.c, src/new.c]", "changes: []")
+        .replace("  review: [src/brake.h]\n", "  review: []\n");
+    let bench = bench_for(&file);
+    commit_file(&bench, "src/brake.c", "int brake(void) { return 2; }\n");
+    commit_file(&bench, "src/secret.c", "the third secret\n");
+    reading_session(&bench);
+
+    ok(&bench.start(&["start", "review", "54"]));
+
+    let diff = bench.left("in-change.diff");
+    for never in ["diff --git", "brake", "secret", ".watchbill/issues/54"] {
+        assert!(!diff.contains(never), "{}: {}", never, diff);
+    }
+    // Its one line says which commits it is of.
+    assert_eq!(diff.lines().count(), 1, "{}", diff);
+}
+
+#[test]
+fn test_WB_PUSH_23_the_first_line_of_the_diff_names_the_commit_it_ends_at_and_its_base() {
+    if !sandbox("test_WB_PUSH_23") {
+        return;
+    }
+    let bench = bench();
+    commit_file(&bench, "src/brake.c", "int brake(void) { return 2; }\n");
+    reading_session(&bench);
+
+    ok(&bench.start(&["start", "review", "54"]));
+
+    let diff = bench.left("in-change.diff");
+    let first = diff.lines().next().unwrap_or_default();
+    let tip = bench.git_text(&["rev-parse", "refs/heads/issue-54"]);
+    let base = bench.git_text(&["merge-base", "main", "issue-54"]);
+    assert!(first.starts_with("wb: ") && first.contains("refs/heads/issue-54"), "{}", first);
+    assert!(first.contains(tip.trim()) && first.contains(base.trim()), "{} {} {}", first, tip, base);
+    assert!(diff.lines().nth(1).is_some_and(|line| line.starts_with("diff --git")), "{}", diff);
+}
+
+#[test]
+fn test_WB_PUSH_23_the_person_s_diff_submodule_does_not_change_the_diff() {
+    if !sandbox("test_WB_PUSH_23") {
+        return;
+    }
+    let bench = bench();
+    // A submodule at a path of `changes`, whose repository the checkout does not hold.
+    let commit = bench.git_text(&["rev-parse", "HEAD"]);
+    git(&bench.repo.path, &["update-index", "--add", "--cacheinfo", &format!("160000,{},src/new.c", commit.trim())]);
+    git(&bench.repo.path, &["commit", "-q", "-m", "A submodule"]);
+    // Not checked out: an empty folder, as git leaves a submodule it was not asked to fetch.
+    fs::create_dir_all(bench.repo.path.join("src/new.c")).unwrap();
+    git(&bench.repo.path, &["config", "diff.submodule", "diff"]);
+    reading_session(&bench);
+
+    ok(&bench.start(&["start", "review", "54"]));
+
+    let diff = bench.left("in-change.diff");
+    assert!(diff.contains(&format!("+Subproject commit {}", commit.trim())), "{}", diff);
+    assert!(!diff.contains("Submodule src/new.c"), "{}", diff);
+}
+
+#[test]
+fn test_WB_PUSH_26_a_fix_that_commits_nothing_posts_its_answers() {
+    if !sandbox("test_WB_PUSH_26") {
+        return;
+    }
+    let (bench, origin) = pushing();
+    fs::write(bench.at("comments-issue-54"), "[stamp] review round 1\n").unwrap();
+    fs::write(bench.at("open"), "174\n").unwrap();
+    writing_session(&bench, "change_comment", "1. not fixed: the finding names a bound the issue sets.\n", 0);
+
+    ok(&bench.start(&["start", "fix", "54"]));
+
+    assert_eq!(refs_of(&origin), "");
+    assert_eq!(bench.left("posted-change-174"), "[fix] 54 round 1\n1. not fixed: the finding names a bound the issue sets.\n");
+}
+
+#[test]
+fn test_WB_PUSH_26_a_fix_of_a_change_with_no_issue_posts_its_answers_where_it_commits_nothing() {
+    if !sandbox("test_WB_PUSH_26") {
+        return;
+    }
+    let bench = bench();
+    fs::write(bench.at("comments-change-174"), "[stamp] review round 1\n").unwrap();
+    git(&bench.repo.path, &["checkout", "-q", "issue-99"]);
+    writing_session(&bench, "change_comment", "1. not fixed: the finding names a bound the issue sets.\n", 0);
+
+    let run = bench.start(&["start", "fix", "--change", "174", "--branch", "issue-99"]);
+
+    ok(&run);
+    assert_eq!(bench.left("posted-change-174"), "[fix] 174 round 1\n1. not fixed: the finding names a bound the issue sets.\n", "{}", text_of(&run.stderr));
+}
+
+#[test]
+fn test_WB_PUSH_26_a_fix_of_a_change_with_no_issue_that_commits_says_why_its_answers_are_held_back() {
+    if !sandbox("test_WB_PUSH_26") {
+        return;
+    }
+    let bench = bench();
+    fs::write(bench.at("comments-change-174"), "[stamp] review round 1\n").unwrap();
+    git(&bench.repo.path, &["checkout", "-q", "issue-99"]);
+    fs::write(bench.at("write-change_comment"), "1. fixed: Fix finding 1 of round 1\n").unwrap();
+    bench.session("echo 'int brake(void) { return 2; }' > src/brake.c && git commit -q -a -m 'Fix finding 1 of round 1'\ncat {log}/write-change_comment > /run/watchbill/change_comment\n");
+
+    let run = bench.start(&["start", "fix", "--change", "174", "--branch", "issue-99"]);
+
+    // The stamp alone is posted on the change.
+    assert_eq!(bench.calls().iter().filter(|call| *call == "post change 174").count(), 1, "{:?}", bench.calls());
+    assert!(bench.left("posted-change-174").starts_with("[stamp] fix round 1\n"), "{}", bench.left("posted-change-174"));
+    let err = text_of(&run.stderr);
+    let held = err.lines().find(|line| line.contains("is not posted")).unwrap_or_else(|| panic!("{}", err));
+    assert!(held.contains("there is no issue") && !held.contains("was not pushed"), "{}", held);
+    assert!(err.contains("1. fixed: Fix finding 1 of round 1"), "{}", err);
+}
+
+#[test]
+fn test_WB_PUSH_27_none_in_any_case_with_backticks_or_a_full_stop_posts_nothing() {
+    if !sandbox("test_WB_PUSH_27") {
+        return;
+    }
+    for written in ["None.\n", "`none`\n", " NONE \n", "`None`.\n", "none.\n"] {
+        let bench = bench();
+        writing_session(&bench, "needs_person", written, 0);
+        ok(&bench.start(&["start", "build", "54"]));
+        assert_eq!(posts_on_54(&bench), 1, "{:?}: {:?}", written, bench.calls());
+    }
+    // A text that only starts with it is posted.
+    let bench = bench();
+    writing_session(&bench, "needs_person", "None of the parts is there.\n", 0);
+    ok(&bench.start(&["start", "build", "54"]));
+    assert_eq!(posts_on_54(&bench), 2, "{:?}", bench.calls());
+}
+
 #[test]
 fn test_WB_ROLE_119_the_tester_s_prompt_as_handed_out_names_the_files_wb_brings_in_and_no_program_of_the_tracker() {
     let bench = bench();

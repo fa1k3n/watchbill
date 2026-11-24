@@ -95,3 +95,5 @@ What a session of the tester, the build, the review or the fix sees when `wb sta
 | WB-VIEW-114 | `wb start <role> <issue> --take-back` shall take a kept view back onto the branch its stamp names, whichever branch is checked out, as WB-VIEW-110 to WB-VIEW-112 say. Replaces WB-VIEW-50. Issue: #296. | T | Implemented |
 | WB-VIEW-115 | The branch of a view, the one its session commits on, shall have the name of the stamp's branch. Issue: #296. | T | Implemented |
 | WB-VIEW-116 | A take-back onto a branch that is checked out in another worktree of the repository, and not in the checkout, shall end with 1, naming the worktree, and take nothing. Issue: #296. | T | Implemented |
+| WB-VIEW-117 | A take-back onto a branch whose commit is behind the commit the view was made from, or has gone apart from it, shall end with 1, take nothing, and say which, not that the branch has moved on. Issue: #296. | T | Implemented |
+| WB-VIEW-118 | A take-back shall read the branch checked out again just before it moves a branch, and end with 1, moving nothing, where it changed since it was read. Issue: #296. | I | Implemented |

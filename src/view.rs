@@ -505,35 +505,67 @@ fn checked_out_elsewhere(root: &str, branch: &str) -> Result<Option<String>, Str
     Ok(None)
 }
 
-/// Why a start is guarded where the checkout is on a branch that is neither `stamped`, the stamp's branch the
-/// commits come back onto, nor the default branch (#296): the person may mean it, and `--ignore-branch` passes it.
-/// None where it is on one of them, or on none at all (the view is then refused as before). Reads only.
-pub fn other_branch(root: &str, stamped: &str) -> Option<String> {
-    let checked = checked_out(root).ok()??;
+/// How the branch checked out stands to `stamped`, the stamp's branch that the commits of the session come back onto,
+/// before a start (#296, #298).
+#[derive(Debug, PartialEq)]
+pub enum OnBranch {
+    /// The start goes on.
+    Fine,
+    /// A limit: the stamp's branch is there, and the checkout's `HEAD` is not its commit, so the view, made from `HEAD`,
+    /// would not be the branch's tree.
+    Limit(String),
+    /// A guard, passed by `--ignore-branch`: the checkout is on another branch at the same tree, or on a branch that is
+    /// neither the default branch nor the stamp's, where that is not there yet. The person may mean it.
+    Guard(String),
+}
+
+/// How the checkout at `root` stands to `stamped` (`OnBranch`). A checkout on no branch, or a name git does not take,
+/// is `Fine` here: the view refuses it, as before. Reads only.
+pub fn on_branch(root: &str, stamped: &str) -> OnBranch {
+    let (Ok(Some(checked)), Ok(full)) = (checked_out(root), branch_ref(root, stamped)) else { return OnBranch::Fine };
+    let Ok(Some(head)) = tip_of(root, "HEAD") else { return OnBranch::Fine };
+    let Ok(tip) = tip_of(root, &full) else { return OnBranch::Fine };
     let name = checked.strip_prefix("refs/heads/").unwrap_or(&checked).to_string();
-    if name == stamped {
-        return None;
+    let (shown, branch) = (crate::issue::shown(stamped), crate::issue::shown(&name));
+    if let Some(tip) = &tip {
+        if *tip != head {
+            return OnBranch::Limit(format!(
+                "the checkout is on {} at {}, and {}, the branch of the stamp that the commits of the session come back onto, is at {}: the session would run in the tree of {}, not of {}. Check out {}",
+                branch,
+                short(&head),
+                shown,
+                short(tip),
+                branch,
+                shown,
+                shown
+            ));
+        }
     }
+    if name == stamped {
+        return OnBranch::Fine;
+    }
+    // The default branch is where a breakdown starts, before the stamp's branch is there.
     let default = crate::status::default_branch(root).map(|full| {
         let short = full.strip_prefix("refs/remotes/origin/").or_else(|| full.strip_prefix("refs/heads/")).unwrap_or(&full);
         short.to_string()
     });
-    if default.as_deref() == Some(name.as_str()) {
-        return None;
+    if tip.is_none() && default.as_deref() == Some(name.as_str()) {
+        return OnBranch::Fine;
     }
-    let default = match &default {
-        Some(default) => format!("{}, the default branch", crate::issue::shown(default)),
-        None => "the default branch, which is not found".to_string(),
+    let why = match (&tip, &default) {
+        (Some(_), _) => format!("the checkout is on {}, not on {}, the branch of the stamp that the commits of the session come back onto, though both are at {}", branch, shown, short(&head)),
+        (None, Some(default)) => format!(
+            "the checkout is on {}, which is neither {}, the branch of the stamp that the commits of the session come back onto, nor {}, the default branch",
+            branch,
+            shown,
+            crate::issue::shown(default)
+        ),
+        (None, None) => format!(
+            "the checkout is on {}, which is neither {}, the branch of the stamp that the commits of the session come back onto, nor the default branch, which is not found",
+            branch, shown
+        ),
     };
-    Some(format!(
-        "the checkout is on {}, which is neither {}, the branch of the stamp that the commits of the session come back onto, nor {}. The commits would go onto {}, and {} would not move. Check out {}, or give --ignore-branch to go on",
-        crate::issue::shown(&name),
-        crate::issue::shown(stamped),
-        default,
-        crate::issue::shown(stamped),
-        crate::issue::shown(&name),
-        crate::issue::shown(stamped)
-    ))
+    OnBranch::Guard(format!("{}. The commits would go onto {}, and {} would not move. Check out {}, or give --ignore-branch to go on", why, shown, branch, shown))
 }
 
 /// Makes the view of `paths` from `HEAD` of the checkout at `root`, in a new folder below `below` named `base`.
@@ -1733,10 +1765,14 @@ fn commits(root: &str, view: &View, store: &Path, allowed: &Allowed, build_files
     };
     let onto = expected.clone().unwrap_or_else(|| view.head.clone());
     if onto != view.head && git(Path::new(root), &["merge-base", "--is-ancestor", &view.head, &onto], &[], None).is_err() {
+        // Behind the commit the view was made from, or gone apart from it: said as what it is (#298).
+        let behind = git(Path::new(root), &["merge-base", "--is-ancestor", &onto, &view.head], &[], None).is_ok();
+        let how = if behind { "is behind" } else { "has gone apart from" };
         return Err(format!(
-            "the branch {} has moved on, and its HEAD {} does not come from {}, where the view was made from, so nothing is taken back",
+            "the branch {} is at {}, which {} {}, the commit the view was made from, so nothing is taken back",
             view.branch_name(),
             short(&onto),
+            how,
             short(&view.head)
         ));
     }
@@ -1936,6 +1972,16 @@ fn commits(root: &str, view: &View, store: &Path, allowed: &Allowed, build_files
     }
     if made.is_empty() {
         return Ok(());
+    }
+    // The branch checked out is read again just before the move (#298): one changed since is not moved under.
+    let still = checked_out(&root.to_string_lossy()).map(|found| found.as_deref() == Some(view.branch.as_str()));
+    if still != Ok(here) {
+        back.after.splice(0..0, wanted.iter().take(made.len()).map(|(commit, raw, _)| (commit.clone(), raw.subject())));
+        return Err(format!(
+            "the branch checked out changed while the commits were taken, so they were made, up to {}, and not put on {}",
+            tip,
+            view.branch_name()
+        ));
     }
     if here {
         // On the branch checked out, by a fast-forward of the checkout: git refuses it where a change of the working

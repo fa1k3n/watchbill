@@ -116,10 +116,12 @@ pub const USAGE: &str = "usage:
             of the issue kept with work not taken back, from any role, stops the
             start with 1 before anything is posted; --ignore-kept goes on
             without it, and the stamp says so. The commits of the session come
-            back onto the branch of the stamp, made where it is not there; a
-            checkout on a branch that is neither it nor the default branch
-            stops the start with 1 before anything is posted, and
-            --ignore-branch goes on. --take-back, given with the role
+            back onto the branch of the stamp, made where it is not there.
+            Where it is there and HEAD is not its commit, the start ends with
+            1 before anything is posted. A checkout on another branch, but
+            the default branch before the branch of the stamp is there, stops
+            the start with 1 before anything is posted, and --ignore-branch
+            goes on. --take-back, given with the role
             and the issue alone, starts and posts nothing: it says what it will
             take, then takes back the commits of the newest view of that role
             and issue that was kept, through the checks of the end of a
@@ -1277,12 +1279,16 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         let issue = words.get("issue").unwrap_or_default();
         return said(&mut lines, err, "kept", refusal::guard_text("--ignore-kept", kept::refusal(issue, &kept_views)));
     }
-    // 1c. The branch checked out (#296): the commits come back onto the stamp's branch, whichever is checked out. A
-    // checkout on a branch that is neither it nor the default branch is said, for the person may mean that branch.
-    // Only `--ignore-branch` passes it.
-    if !words.ignore_branch {
-        if let Some(why) = value_of(&handed.values, "branch").and_then(|stamped| view::other_branch(root, stamped)) {
-            return said(&mut lines, err, "branch", refusal::guard_text("--ignore-branch", why));
+    // 1c. The branch checked out (#296, #298): the commits come back onto the stamp's branch, whichever is checked
+    // out. Where that branch is there, the view is its tree or nothing: a checkout whose `HEAD` is not its commit is a
+    // limit. A checkout on another branch is said, for the person may mean that branch; the default branch passes
+    // only where the stamp's branch is not there yet, as for a breakdown. Only `--ignore-branch` passes the guard.
+    if let Some(stamped) = value_of(&handed.values, "branch") {
+        match view::on_branch(root, stamped) {
+            view::OnBranch::Fine => {}
+            view::OnBranch::Limit(why) => return refused(&mut lines, err, "branch", &why),
+            view::OnBranch::Guard(_) if words.ignore_branch => {}
+            view::OnBranch::Guard(why) => return said(&mut lines, err, "branch", refusal::guard_text("--ignore-branch", why)),
         }
     }
     // 2. The rule table: a fix follows a review. The number of rounds is no rule for a person (#84).

@@ -75,7 +75,7 @@ fn test_WB_INIT_14_yes_writes_what_the_repository_says_and_asks_nothing() {
             r#"change_comment_bodies: 'gh api repos/example/brake-controller/issues/{change}/comments --paginate --jq ''.[] | .body + "\u0000"'''"#,
             "draft_change: 'gh pr create --repo example/brake-controller --head {branch} --draft --fill-verbose'",
             "issue_address: 'gh issue view {issue} --repo example/brake-controller; gh issue view {issue} --repo example/brake-controller --comments'",
-            // The issue's text alone, for the breakdown (#295).
+            // The issue's text alone, for the planner (#295).
             "issue_text: 'gh issue view {issue} --repo example/brake-controller --json body --jq .body'",
             "change_address: 'gh pr view {change} --repo example/brake-controller; gh pr view {change} --repo example/brake-controller --comments'",
         ])

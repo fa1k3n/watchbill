@@ -69,8 +69,8 @@ fn posted(folder: &Path, on: &str) -> Vec<String> {
     found
 }
 
-/// Two questions of the breakdown, in one comment, each changing the issue's file.
-const BREAKDOWN: &str = "[questions] 175 q1 q2
+/// Two questions of the planner, in one comment, each changing the issue's file.
+const PLANNER: &str = "[questions] 175 q1 q2
 q1: Which name does the event use for where its task came from?
 <details>
 
@@ -122,7 +122,7 @@ const STAMP: &str = "[stamp] tester round 1\nrole: tester\nmodel: claude-opus-5-
 /// Issue 175 with the questions of two roles, and a stamp between them.
 fn two_roles() -> Folder {
     let folder = set_up();
-    bodies(&folder.path, "175", &[BREAKDOWN, STAMP, TESTER]);
+    bodies(&folder.path, "175", &[PLANNER, STAMP, TESTER]);
     folder
 }
 
@@ -181,7 +181,7 @@ fn test_WB_ANSWER_1_the_questions_are_shown_one_at_a_time_in_the_order_they_were
 #[test]
 fn test_WB_ANSWER_1_a_question_that_is_answered_is_not_shown() {
     let folder = set_up();
-    bodies(&folder.path, "175", &[BREAKDOWN, "[answers] 175 q1\nq1: 2\n", TESTER]);
+    bodies(&folder.path, "175", &[PLANNER, "[answers] 175 q1\nq1: 2\n", TESTER]);
     let run = answer(&folder.path, &["175"], "\n\n");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let out = text(&run.stdout);
@@ -313,7 +313,7 @@ fn test_WB_ANSWER_5_ctrl_c_posts_nothing() {
 fn test_WB_ANSWER_6_suggested_takes_every_suggestion_and_names_the_questions_with_none() {
     let folder = set_up();
     let none = "[questions] 175.build q1\nq1: Which file holds the stub?\n<details>\n\nWhy it matters: the tests call it.\n\n1. A file of its own.\n2. The header.\n\nchanges the issue's file: yes\n\n</details>\n";
-    bodies(&folder.path, "175", &[BREAKDOWN, none, TESTER]);
+    bodies(&folder.path, "175", &[PLANNER, none, TESTER]);
     let run = answer(&folder.path, &["175", "--suggested"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert_eq!(posted(&folder.path, "175"), ["[answers] 175 q1 q2\nq1: 1\nq2: 2\n", "[answers] 175.tester q1\nq1: 1\n"]);
@@ -344,7 +344,7 @@ fn test_WB_ANSWER_7_one_question_is_answered_without_asking() {
 }
 
 #[test]
-fn test_WB_ANSWER_7_a_question_of_the_breakdown_is_named_by_its_number() {
+fn test_WB_ANSWER_7_a_question_of_the_planner_is_named_by_its_number() {
     let folder = two_roles();
     let run = answer(&folder.path, &["175", "q2", "as from the branch, for now"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
@@ -404,8 +404,8 @@ fn test_WB_ANSWER_13_the_questions_of_a_change_are_answered_on_the_change() {
 
 // ---- WB-ANSWER-15: the questions of revision 0.0.8 ----
 
-/// Questions as the breakdown and the tester of revision 0.0.8 posted them: one comment each.
-const OLD_BREAKDOWN: &str = "[question] 175.q1
+/// Questions as the planner and the tester of revision 0.0.8 posted them: one comment each.
+const OLD_PLANNER: &str = "[question] 175.q1
 
 What is unclear: which name and values does the event use?
 
@@ -432,7 +432,7 @@ Suggested: 2, because the clause is small.
 #[test]
 fn test_WB_ANSWER_15_a_question_of_revision_0_0_8_is_shown_and_answered() {
     let folder = set_up();
-    bodies(&folder.path, "175", &[OLD_BREAKDOWN, STAMP, OLD_TESTER]);
+    bodies(&folder.path, "175", &[OLD_PLANNER, STAMP, OLD_TESTER]);
     let run = answer(&folder.path, &["175"], "\n1\n");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let out = text(&run.stdout);
@@ -444,7 +444,7 @@ fn test_WB_ANSWER_15_a_question_of_revision_0_0_8_is_shown_and_answered() {
 #[test]
 fn test_WB_ANSWER_15_an_answer_of_revision_0_0_8_closes_its_question() {
     let folder = set_up();
-    bodies(&folder.path, "175", &[OLD_BREAKDOWN, OLD_TESTER, "[answer] 175.tester.q8 1"]);
+    bodies(&folder.path, "175", &[OLD_PLANNER, OLD_TESTER, "[answer] 175.tester.q8 1"]);
     let run = answer(&folder.path, &["175", "--suggested"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert_eq!(posted(&folder.path, "175"), ["[answers] 175 q1\nq1: 1\n"]);
@@ -568,7 +568,7 @@ fn test_WB_ANSWER_29_show_prints_each_open_question_in_full_and_posts_nothing() 
 #[test]
 fn test_WB_ANSWER_30_show_prints_only_the_open_questions() {
     let folder = two_roles();
-    bodies(&folder.path, "175", &[BREAKDOWN, STAMP, TESTER, "[answers] 175 q1 q2\nq1: 1\nq2: 1\n"]);
+    bodies(&folder.path, "175", &[PLANNER, STAMP, TESTER, "[answers] 175 q1 q2\nq1: 1\nq2: 1\n"]);
     let run = answer(&folder.path, &["175", "--show"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let out = text(&run.stdout);
@@ -614,7 +614,7 @@ fn test_WB_ANSWER_33_show_with_change_prints_the_open_questions_of_the_change() 
 #[test]
 fn test_WB_ANSWER_34_show_needs_no_post_pattern() {
     let folder = set_up();
-    bodies(&folder.path, "175", &[BREAKDOWN, STAMP, TESTER]);
+    bodies(&folder.path, "175", &[PLANNER, STAMP, TESTER]);
     let file = config(&folder.path);
     let kept: String = fs::read_to_string(&file).unwrap().lines().filter(|line| !line.starts_with("issue_comment:")).map(|line| format!("{}\n", line)).collect();
     fs::write(&file, kept).unwrap();
@@ -674,12 +674,12 @@ fn test_WB_ANSWER_38_a_question_named_twice_ends_with_2_and_posts_nothing() {
     let folder = two_roles();
     for args in [
         vec!["175", "q1", "1", "q1", "2"],
-        vec!["175", "q1", "1", "breakdown.q1", "2"],
+        vec!["175", "q1", "1", "planner.q1", "2"],
         vec!["175", "q1", "1", "175.q1", "1"],
         vec!["175", "--suggested", "tester.q1", "1", "tester.q1", "2"],
         // Named twice wins over a question that is not open or a number that is not a choice.
-        vec!["175", "q1", "1", "tester.q7", "1", "breakdown.q1", "2"],
-        vec!["175", "q9", "1", "breakdown.q9", "2"],
+        vec!["175", "q1", "1", "tester.q7", "1", "planner.q1", "2"],
+        vec!["175", "q9", "1", "planner.q9", "2"],
         vec!["175", "q1", "9", "q1", "2"],
     ] {
         let run = answer(&folder.path, &args, "");

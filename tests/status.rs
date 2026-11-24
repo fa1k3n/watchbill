@@ -538,12 +538,12 @@ fn test_WB_STATUS_26_without_issue_comments_it_says_so_once_on_standard_error() 
 }
 
 #[test]
-fn test_WB_STATUS_31_stamps_before_the_last_breakdown_stamp_no_longer_decide_the_step() {
+fn test_WB_STATUS_31_stamps_before_the_last_planner_stamp_no_longer_decide_the_step() {
     let folder = set_up();
     open(&folder.path, &["1", "2", "3"]);
-    let before = ["[stamp] breakdown round 1", "[stamp] tester round 1", "[stamp] build round 1", "[stamp] review round 1", "[stamp] fix round 1"];
+    let before = ["[stamp] planner round 1", "[stamp] tester round 1", "[stamp] build round 1", "[stamp] review round 1", "[stamp] fix round 1"];
     let with = |issue: &str, after: &[&str]| {
-        let all: Vec<&str> = before.iter().copied().chain(["[stamp] breakdown round 2"]).chain(after.iter().copied()).collect();
+        let all: Vec<&str> = before.iter().copied().chain(["[stamp] planner round 2"]).chain(after.iter().copied()).collect();
         comments(&folder.path, issue, &all);
     };
     with("1", &[]);
@@ -573,7 +573,7 @@ fn test_WB_ANSWER_11_a_question_of_a_questions_comment_is_open_until_an_answers_
     assert_eq!(open_of(&["[questions] 1.tester q1 q2"]), "Questions open:\n  1  1.tester.q1, 1.tester.q2\n");
     assert_eq!(open_of(&["[questions] 1.tester q1 q2", "[answers] 1.tester q1"]), "Questions open:\n  1  1.tester.q2\n");
     assert_eq!(open_of(&["[questions] 1.tester q1 q2", "[answers] 1.tester q1 q2"]), "");
-    // The breakdown names its questions with the issue alone.
+    // The planner names its questions with the issue alone.
     assert_eq!(open_of(&["[questions] 1 q1 q2", "[answers] 1 q2"]), "Questions open:\n  1  1.q1\n");
 }
 
@@ -991,12 +991,12 @@ fn test_WB_STATUS_53_an_answer_for_a_person_says_person() {
 }
 
 #[test]
-fn test_WB_STATUS_53_an_answer_of_the_breakdown_names_its_question_without_a_role_in_the_name() {
+fn test_WB_STATUS_53_an_answer_of_the_planner_names_its_question_without_a_role_in_the_name() {
     let folder = set_up();
     open(&folder.path, &["54"]);
-    comments(&folder.path, "54", &["[questions] 54 q1", "[answers] 54 q1>breakdown"]);
+    comments(&folder.path, "54", &["[questions] 54 q1", "[answers] 54 q1>planner"]);
     let (out, _) = stdout(&folder.path, &["status", "54"]);
-    assert!(out.contains("\nwaits for: breakdown (54.q1)\n"), "{}", out);
+    assert!(out.contains("\nwaits for: planner (54.q1)\n"), "{}", out);
 }
 
 #[test]

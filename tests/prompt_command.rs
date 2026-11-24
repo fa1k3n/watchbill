@@ -38,7 +38,7 @@ fn filled(role: &str, values: &[(&str, &str)]) -> String {
     }
     // A repository of `wb init --yes` has `classed: []`: the two placeholders of classed code are `none` (#227).
     text = text.replace("{classed}", "none").replace("{classed_touched}", "none");
-    // The four roles after the breakdown get the part of the issue's file after their text (#97).
+    // The four roles after the planner get the part of the issue's file after their text (#97).
     if ["tester", "build", "review", "fix"].contains(&role) {
         text = format!("{}\n{}", text, BARE_PART);
     }
@@ -1364,27 +1364,27 @@ fn test_WB_PROMPT_48_the_stamp_names_the_issue_on_the_line_issue_and_has_no_line
 }
 
 #[test]
-fn test_WB_PROMPT_49_the_breakdown_with_no_branch_there_is_given_the_pattern_filled() {
+fn test_WB_PROMPT_49_the_planner_with_no_branch_there_is_given_the_pattern_filled() {
     let folder = set_up_github();
-    // The breakdown is handed out only to a runner the organisation cleared for it (#93).
+    // The planner is handed out only to a runner the organisation cleared for it (#93).
     let (_place, organisation) = cleared(&folder.path);
 
-    let run = prompt_with(&folder.path, &organisation, &["breakdown", "42", "--runner", "claude-code"]);
+    let run = prompt_with(&folder.path, &organisation, &["planner", "42", "--runner", "claude-code"]);
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(text(&run.stdout).contains("on the branch issue-42."), "{}", text(&run.stdout));
 }
 
 #[test]
-fn test_WB_PROMPT_52_the_breakdown_is_handed_out_with_no_file_of_the_issue_to_a_cleared_runner() {
+fn test_WB_PROMPT_52_the_planner_is_handed_out_with_no_file_of_the_issue_to_a_cleared_runner() {
     let folder = set_up_github();
     let (_place, organisation) = cleared(&folder.path);
     assert!(!folder.path.join(".watchbill/issues").join("77.yml").exists());
 
-    let run = prompt_with(&folder.path, &organisation, &["breakdown", "77", "--runner", "claude-code"]);
+    let run = prompt_with(&folder.path, &organisation, &["planner", "77", "--runner", "claude-code"]);
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert!(text(&run.stdout).contains("You are the breakdown of issue 77."), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains("You are the planner of issue 77."), "{}", text(&run.stdout));
 }
 
 #[test]
@@ -1428,15 +1428,15 @@ fn test_WB_PROMPT_49_the_tester_with_two_branches_is_refused_with_both_named() {
 }
 
 #[test]
-fn test_WB_PROMPT_49_branch_given_to_the_tester_and_the_breakdown_wins() {
+fn test_WB_PROMPT_49_branch_given_to_the_tester_and_the_planner_wins() {
     let folder = set_up_github();
     branches(&folder.path, &["issue-42-a", "issue-42-b"]);
 
-    // The breakdown is handed out only to a runner the organisation cleared for it (#93).
+    // The planner is handed out only to a runner the organisation cleared for it (#93).
     let (_place, organisation) = cleared(&folder.path);
-    for role in ["tester", "breakdown"] {
+    for role in ["tester", "planner"] {
         let run = match role {
-            "breakdown" => prompt_with(&folder.path, &organisation, &[role, "42", "--branch", "mine", "--runner", "claude-code"]),
+            "planner" => prompt_with(&folder.path, &organisation, &[role, "42", "--branch", "mine", "--runner", "claude-code"]),
             _ => wb(&folder.path, &["prompt", role, "42", "--branch", "mine"], ""),
         };
 

@@ -51,7 +51,7 @@ fn script(path: &Path, body: &str) {
 }
 
 /// The organisation's file: `stand-in` starts `session.sh` of the log folder, bound writable, with the folder
-/// `ro` bound read-only and `~/.runner` bound from the home folder; it is cleared for the breakdown.
+/// `ro` bound read-only and `~/.runner` bound from the home folder; it is cleared for the planner.
 const ORG: &str = "levels: [public, internal]
 default: stand-in
 runners:
@@ -60,7 +60,7 @@ runners:
     model: a stand-in
     agreement: none
     up_to: internal
-    breakdown:
+    planner:
       up_to: public
       model: claude-opus-5-5
       effort: high
@@ -106,7 +106,7 @@ fn bench_for(issue_54: &str) -> Bench {
     let l = log.path.to_str().unwrap();
     script(&log.path.join("post.sh"), &format!("echo \"post $1 $2\" >> {l}/calls\ncat > {l}/posted-$1-$2\nexit $(cat {l}/post.status 2>/dev/null || echo 0)\n"));
     script(&log.path.join("comments.sh"), &format!("echo \"comments $1 $2\" >> {l}/calls\ncat {l}/comments-$1-$2 2>/dev/null\nexit 0\n"));
-    // The issue's text alone, by `issue_text`, and its whole comments, for the breakdown (#295): what the test leaves in
+    // The issue's text alone, by `issue_text`, and its whole comments, for the planner (#295): what the test leaves in
     // `text-<issue>` and `bodies-<issue>`, else a line of text and no comment. `issue_address` prints a line for a title.
     script(
         &log.path.join("text.sh"),
@@ -705,7 +705,7 @@ fn test_WB_VIEW_8_the_view_is_removed_when_all_was_taken_and_kept_and_named_when
 // ---- WB-VIEW-9: the stamp's line `view:` ----
 
 #[test]
-fn test_WB_VIEW_9_the_stamp_s_view_is_the_sha256_of_the_list_and_none_for_the_breakdown_and_a_role_with_no_file() {
+fn test_WB_VIEW_9_the_stamp_s_view_is_the_sha256_of_the_list_and_none_for_the_planner_and_a_role_with_no_file() {
     let bench = bench();
     let stamp = |words: &[&str]| -> String {
         let run = prompt_with(&bench.repo.path, &bench.organisation(), words);
@@ -720,8 +720,8 @@ fn test_WB_VIEW_9_the_stamp_s_view_is_the_sha256_of_the_list_and_none_for_the_br
     assert_eq!(names[time + 1], "view", "{}", build);
     let review = stamp(&["review", "54", "--change", "174", "--round", "1", "--stamp"]);
     assert_eq!(line_of(&review, "view"), Some(sha256("src/brake.c\ntests/test_brake.c\nsrc/new.c\nsrc/brake.h\n")), "{}", review);
-    let breakdown = stamp(&["breakdown", "54", "--runner", "stand-in", "--round", "1", "--stamp"]);
-    assert_eq!(line_of(&breakdown, "view").as_deref(), Some("none"), "{}", breakdown);
+    let planner = stamp(&["planner", "54", "--runner", "stand-in", "--round", "1", "--stamp"]);
+    assert_eq!(line_of(&planner, "view").as_deref(), Some("none"), "{}", planner);
     let alone = stamp(&["build", "99", "--round", "1", "--stamp"]);
     assert_eq!(line_of(&alone, "view").as_deref(), Some("none"), "{}", alone);
 }
@@ -2625,7 +2625,7 @@ const RAN: &str = "outcome: ended\nstatus: 0\nseconds: 5\n";
 fn view_line_of(bench: &Bench, role: &str, issue: &str) -> String {
     let mut words = vec![role, issue, "--round", "1", "--stamp"];
     match role {
-        "breakdown" => words.extend(["--runner", "stand-in"]),
+        "planner" => words.extend(["--runner", "stand-in"]),
         "review" | "fix" => words.extend(["--change", "174"]),
         _ => {}
     }
@@ -3856,14 +3856,14 @@ git config core.hooksPath /tmp/evil\n\
 echo done > {log}/done\n";
 
 #[test]
-fn test_WB_VIEW_73_the_breakdown_runs_in_a_view_of_every_file_of_head_with_no_history() {
+fn test_WB_VIEW_73_the_planner_runs_in_a_view_of_every_file_of_head_with_no_history() {
     if !sandbox("test_WB_VIEW_73") {
         return;
     }
     let bench = on_99();
     bench.session("pwd > {log}/pwd\ngit ls-files > {log}/files\ngit rev-list --all --count > {log}/count\ngit remote > {log}/remotes\n");
 
-    let run = bench.start(&["start", "breakdown", "99"]);
+    let run = bench.start(&["start", "planner", "99"]);
 
     ok(&run);
     assert_eq!(bench.left("pwd").trim(), bench.root());
@@ -3875,7 +3875,7 @@ fn test_WB_VIEW_73_the_breakdown_runs_in_a_view_of_every_file_of_head_with_no_hi
 }
 
 #[test]
-fn test_WB_VIEW_94_in_the_breakdown_s_view_a_build_may_write_outside_watchbill_and_it_stays_in_the_view() {
+fn test_WB_VIEW_94_in_the_planner_s_view_a_build_may_write_outside_watchbill_and_it_stays_in_the_view() {
     if !sandbox("test_WB_VIEW_94") {
         return;
     }
@@ -3886,7 +3886,7 @@ fn test_WB_VIEW_94_in_the_breakdown_s_view_a_build_may_write_outside_watchbill_a
          echo x > new.txt && echo x >> src/brake.c && echo yes > {log}/code\n",
     );
 
-    let run = bench.start(&["start", "breakdown", "99"]);
+    let run = bench.start(&["start", "planner", "99"]);
 
     assert!(bench.started(), "{}", text_of(&run.stderr));
     assert_eq!(bench.left("built"), "yes\n");
@@ -3898,7 +3898,7 @@ fn test_WB_VIEW_94_in_the_breakdown_s_view_a_build_may_write_outside_watchbill_a
 }
 
 #[test]
-fn test_WB_VIEW_95_in_the_breakdown_s_view_watchbill_is_read_only_but_for_its_issues_folder() {
+fn test_WB_VIEW_95_in_the_planner_s_view_watchbill_is_read_only_but_for_its_issues_folder() {
     if !sandbox("test_WB_VIEW_95") {
         return;
     }
@@ -3913,7 +3913,7 @@ fn test_WB_VIEW_95_in_the_breakdown_s_view_watchbill_is_read_only_but_for_its_is
          echo 'issue: x' > .watchbill/issues/99.yml && echo yes > {log}/issue\n",
     );
 
-    let run = bench.start(&["start", "breakdown", "99"]);
+    let run = bench.start(&["start", "planner", "99"]);
 
     assert!(bench.started(), "{}", text_of(&run.stderr));
     for name in ["yml", "revision", "brought", "other"] {
@@ -3926,7 +3926,7 @@ fn test_WB_VIEW_95_in_the_breakdown_s_view_watchbill_is_read_only_but_for_its_is
 }
 
 #[test]
-fn test_WB_VIEW_75_what_the_breakdown_writes_in_its_git_does_not_reach_the_checkout() {
+fn test_WB_VIEW_75_what_the_planner_writes_in_its_git_does_not_reach_the_checkout() {
     if !sandbox("test_WB_VIEW_75") {
         return;
     }
@@ -3934,7 +3934,7 @@ fn test_WB_VIEW_75_what_the_breakdown_writes_in_its_git_does_not_reach_the_check
     let head = bench.head();
     bench.session(GIT_WRITER);
 
-    ok(&bench.start(&["start", "breakdown", "99"]));
+    ok(&bench.start(&["start", "planner", "99"]));
 
     git_of_the_checkout_untouched(&bench, &head);
 }
@@ -3954,7 +3954,7 @@ fn test_WB_VIEW_75_what_a_role_with_no_issue_s_file_writes_in_its_git_does_not_r
 }
 
 #[test]
-fn test_WB_VIEW_76_the_breakdown_s_commit_of_its_issue_s_file_comes_back_onto_the_branch() {
+fn test_WB_VIEW_76_the_planner_s_commit_of_its_issue_s_file_comes_back_onto_the_branch() {
     if !sandbox("test_WB_VIEW_76") {
         return;
     }
@@ -3962,7 +3962,7 @@ fn test_WB_VIEW_76_the_breakdown_s_commit_of_its_issue_s_file_comes_back_onto_th
     let before = bench.head();
     bench.session("printf 'issue: 99\\n' > .watchbill/issues/99.yml && git add .watchbill/issues/99.yml && git commit -q -m 'The issue file of 99'\n");
 
-    let run = bench.start(&["start", "breakdown", "99"]);
+    let run = bench.start(&["start", "planner", "99"]);
 
     ok(&run);
     assert_eq!(subjects(&bench, 1), vec!["The issue file of 99"]);
@@ -3974,7 +3974,7 @@ fn test_WB_VIEW_76_the_breakdown_s_commit_of_its_issue_s_file_comes_back_onto_th
 }
 
 #[test]
-fn test_WB_VIEW_77_a_commit_of_the_breakdown_that_changes_any_other_path_is_refused_and_named() {
+fn test_WB_VIEW_77_a_commit_of_the_planner_that_changes_any_other_path_is_refused_and_named() {
     if !sandbox("test_WB_VIEW_77") {
         return;
     }
@@ -3985,7 +3985,7 @@ fn test_WB_VIEW_77_a_commit_of_the_breakdown_that_changes_any_other_path_is_refu
         "blob=$(echo evil | git hash-object -w --stdin) && git update-index --cacheinfo \"100644,$blob,src/brake.c\"\n\
          printf 'issue: 99\\n' > .watchbill/issues/99.yml && git add .watchbill/issues/99.yml && git commit -q -m 'Both'\n",
     );
-    let run = bench.start(&["start", "breakdown", "99"]);
+    let run = bench.start(&["start", "planner", "99"]);
     assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
     assert!(text_of(&run.stderr).contains("src/brake.c"), "{}", text_of(&run.stderr));
     assert_eq!(bench.head(), before);
@@ -3997,7 +3997,7 @@ fn test_WB_VIEW_77_a_commit_of_the_breakdown_that_changes_any_other_path_is_refu
         "printf 'issue: 99\\n' > .watchbill/issues/99.yml && git add .watchbill/issues/99.yml && git commit -q -m 'The file of 99'\n\
          printf 'issue: 54\\n' > .watchbill/issues/54.yml && git add .watchbill/issues/54.yml && git commit -q -m 'The file of 54'\n",
     );
-    let run = bench.start(&["start", "breakdown", "99"]);
+    let run = bench.start(&["start", "planner", "99"]);
     assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
     assert!(text_of(&run.stderr).contains(".watchbill/issues/54.yml"), "{}", text_of(&run.stderr));
     assert_eq!(subjects(&bench, 1), vec!["The file of 99"]);
@@ -4005,33 +4005,33 @@ fn test_WB_VIEW_77_a_commit_of_the_breakdown_that_changes_any_other_path_is_refu
 }
 
 #[test]
-fn test_WB_VIEW_78_a_local_change_or_an_untracked_file_anywhere_stops_the_breakdown() {
+fn test_WB_VIEW_78_a_local_change_or_an_untracked_file_anywhere_stops_the_planner() {
     // A file of the code changed, and not committed.
     let bench = on_99();
     put(&bench.repo.path, "src/secret.c", "changed here\n");
-    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "breakdown", "99"]));
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "planner", "99"]));
     assert!(err.contains("src/secret.c") && err.contains("guard"), "{}", err);
     // A file staged, and one deleted.
     let bench = on_99();
     put(&bench.repo.path, "include/a.h", "#define A 2\n");
     git(&bench.repo.path, &["add", "--", "include/a.h"]);
     fs::remove_file(bench.repo.path.join("build/Makefile")).unwrap();
-    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "breakdown", "99"]));
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "planner", "99"]));
     assert!(err.contains("include/a.h") && err.contains("build/Makefile"), "{}", err);
     // An untracked file that git does not ignore.
     let bench = on_99();
     put(&bench.repo.path, "notes.txt", "mine\n");
-    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "breakdown", "99"]));
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "planner", "99"]));
     assert!(err.contains("notes.txt"), "{}", err);
 }
 
 #[test]
-fn test_WB_VIEW_78_an_untracked_file_that_git_ignores_does_not_stop_the_breakdown() {
+fn test_WB_VIEW_78_an_untracked_file_that_git_ignores_does_not_stop_the_planner() {
     let bench = on_99();
     commit_file(&bench, ".gitignore", "*.o\n");
     put(&bench.repo.path, "src/brake.o", "an object\n");
     // The start goes on to the view, which is where no bubblewrap is.
-    let err = text_of(&start_unsandboxed(&bench, &["start", "breakdown", "99"]).stderr);
+    let err = text_of(&start_unsandboxed(&bench, &["start", "planner", "99"]).stderr);
     assert!(err.contains("bubblewrap") && !err.contains("guard") && !err.contains("brake.o"), "{}", err);
 }
 
@@ -4040,7 +4040,7 @@ fn test_WB_VIEW_79_ignore_local_passes_a_change_that_is_not_the_issue_s_file() {
     let bench = on_99();
     put(&bench.repo.path, "src/secret.c", "changed here\n");
     put(&bench.repo.path, "notes.txt", "mine\n");
-    let err = text_of(&start_unsandboxed(&bench, &["start", "breakdown", "99", "--ignore-local"]).stderr);
+    let err = text_of(&start_unsandboxed(&bench, &["start", "planner", "99", "--ignore-local"]).stderr);
     assert!(err.contains("bubblewrap") && !err.contains("guard"), "{}", err);
 }
 
@@ -4049,30 +4049,30 @@ fn test_WB_VIEW_79_no_flag_passes_a_change_to_the_issue_s_file() {
     // Untracked.
     let bench = on_99();
     put(&bench.repo.path, ".watchbill/issues/99.yml", "issue: 99\n");
-    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "breakdown", "99", "--ignore-local"]));
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "planner", "99", "--ignore-local"]));
     assert!(err.contains(".watchbill/issues/99.yml") && err.contains("cannot be overridden"), "{}", err);
     // Untracked, and ignored by the checkout.
     let bench = on_99();
     commit_file(&bench, ".gitignore", "*.yml\n");
     put(&bench.repo.path, ".watchbill/issues/99.yml", "issue: 99\n");
-    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "breakdown", "99", "--ignore-local"]));
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "planner", "99", "--ignore-local"]));
     assert!(err.contains(".watchbill/issues/99.yml") && err.contains("cannot be overridden"), "{}", err);
-    // Changed, where it is in HEAD: the breakdown of 54 again.
+    // Changed, where it is in HEAD: the planner of 54 again.
     let bench = self::bench();
     put(&bench.repo.path, ".watchbill/issues/54.yml", &format!("{}# changed\n", ISSUE_54));
-    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "breakdown", "54", "--ignore-local"]));
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "planner", "54", "--ignore-local"]));
     assert!(err.contains(".watchbill/issues/54.yml") && err.contains("cannot be overridden"), "{}", err);
 }
 
 #[test]
-fn test_WB_VIEW_79_the_stamp_of_a_breakdown_that_ignored_local_changes_says_how_many() {
+fn test_WB_VIEW_79_the_stamp_of_a_planner_that_ignored_local_changes_says_how_many() {
     if !sandbox("test_WB_VIEW_79") {
         return;
     }
     let bench = on_99();
     put(&bench.repo.path, "src/secret.c", "changed here\n");
     put(&bench.repo.path, "notes.txt", "mine\n");
-    ok(&bench.start(&["start", "breakdown", "99", "--ignore-local"]));
+    ok(&bench.start(&["start", "planner", "99", "--ignore-local"]));
     let posted = bench.left("posted-issue-99");
     assert_eq!(line_of(&posted, "local").as_deref(), Some("ignored 2"), "{}", posted);
 }
@@ -4193,7 +4193,7 @@ fn test_WB_VIEW_84_before_a_view_of_the_whole_tree_starts_it_says_how_many_files
     if !sandbox("test_WB_VIEW_84") {
         return;
     }
-    for role in ["build", "breakdown"] {
+    for role in ["build", "planner"] {
         let bench = on_99();
         let listed = bench.git_text(&["ls-tree", "-r", "-l", "HEAD"]);
         let files = listed.lines().count();
@@ -4211,19 +4211,19 @@ fn test_WB_VIEW_84_before_a_view_of_the_whole_tree_starts_it_says_how_many_files
 }
 
 #[test]
-fn test_WB_VIEW_88_take_back_takes_a_kept_view_of_the_breakdown_by_its_issue_s_file_alone() {
+fn test_WB_VIEW_88_take_back_takes_a_kept_view_of_the_planner_by_its_issue_s_file_alone() {
     let bench = bench();
-    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-breakdown-54", role: "breakdown", round: 1, commits: &[], uncommitted: &[], outcome: RAN });
+    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-planner-54", role: "planner", round: 1, commits: &[], uncommitted: &[], outcome: RAN });
     commit_in(&folder, ".watchbill/issues/54.yml", "issue: '54'\n", "The file again");
-    let run = bench.start(&["start", "breakdown", "54", "--take-back"]);
+    let run = bench.start(&["start", "planner", "54", "--take-back"]);
     assert_eq!(code(&run), Some(0), "{}", text_of(&run.stderr));
     assert_eq!(subjects(&bench, 1), vec!["The file again"]);
 
     let bench = self::bench();
     let before = bench.head();
-    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-breakdown-54", role: "breakdown", round: 1, commits: &[], uncommitted: &[], outcome: RAN });
+    let (folder, _) = keep(&bench, &Keep { session: "2026-11-22T100000Z-planner-54", role: "planner", round: 1, commits: &[], uncommitted: &[], outcome: RAN });
     commit_in(&folder, "src/brake.c", "int brake(void) { return 9; }\n", "The code");
-    let run = bench.start(&["start", "breakdown", "54", "--take-back"]);
+    let run = bench.start(&["start", "planner", "54", "--take-back"]);
     assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
     assert!(text_of(&run.stderr).contains("src/brake.c"), "{}", text_of(&run.stderr));
     assert_eq!(bench.head(), before);
@@ -4346,9 +4346,9 @@ fn test_WB_VIEW_93_take_back_refuses_where_the_stamp_s_view_and_head_differ() {
 }
 
 #[test]
-fn test_WB_PROMPT_72_the_breakdown_s_stamp_holds_the_level_after_the_view_line() {
+fn test_WB_PROMPT_72_the_planner_s_stamp_holds_the_level_after_the_view_line() {
     let bench = bench();
-    let run = prompt_with(&bench.repo.path, &bench.organisation(), &["breakdown", "54", "--runner", "stand-in", "--round", "1", "--stamp"]);
+    let run = prompt_with(&bench.repo.path, &bench.organisation(), &["planner", "54", "--runner", "stand-in", "--round", "1", "--stamp"]);
     ok(&run);
     let stamp = text_of(&run.stdout);
     let names: Vec<&str> = stamp.lines().map(|line| line.split(':').next().unwrap()).collect();
@@ -4368,7 +4368,7 @@ fn test_WB_PROMPT_72_the_posted_stamp_of_a_role_with_no_issue_s_file_holds_the_l
     assert_eq!(line_of(&posted, "level").as_deref(), Some("public"), "{}", posted);
 }
 
-// ---- #295: the breakdown reads its issue without a login, and `wb` posts its questions ----
+// ---- #295: the planner reads its issue without a login, and `wb` posts its questions ----
 
 /// The settings with the line of `key` taken out, committed so that `HEAD` has them.
 fn without_line(bench: &Bench, key: &str) {
@@ -4390,7 +4390,7 @@ fn refused_before_posting(bench: &Bench, run: &Output, named: &[&str]) {
     assert!(bench.below("views").is_empty(), "{:?}", bench.below("views"));
 }
 
-/// The issue's file of 54 as a breakdown writes it with two questions, each in full (#295).
+/// The issue's file of 54 as a planner writes it with two questions, each in full (#295).
 const TWO_QUESTIONS: &str = "issue: '54'
 from: 3f0c1d9e
 requirements: []
@@ -4408,16 +4408,16 @@ questions:
     54.q1: Which brake does the issue mean?
     Why it matters: the tests check one brake or the other.
 
-    1. (breakdown) The front brake.
-    2. (breakdown) The rear brake.
+    1. (planner) The front brake.
+    2. (planner) The rear brake.
 
     Suggested: 1, because the issue names the front brake first.
   - |
     54.q2: Is a test of the timing asked for?
     Why it matters: a test of the timing needs the clock stubbed.
 
-    1. (breakdown) No timing test.
-    2. (breakdown) A timing test, with the clock stubbed.
+    1. (planner) No timing test.
+    2. (planner) A timing test, with the clock stubbed.
 
     Suggested: 2, because the issue speaks of a deadline.
 ";
@@ -4429,8 +4429,8 @@ q1: Which brake does the issue mean?
 
 Why it matters: the tests check one brake or the other.
 
-1. (breakdown) The front brake.
-2. (breakdown) The rear brake.
+1. (planner) The front brake.
+2. (planner) The rear brake.
 
 Suggested: 1, because the issue names the front brake first.
 
@@ -4441,25 +4441,25 @@ q2: Is a test of the timing asked for?
 
 Why it matters: a test of the timing needs the clock stubbed.
 
-1. (breakdown) No timing test.
-2. (breakdown) A timing test, with the clock stubbed.
+1. (planner) No timing test.
+2. (planner) A timing test, with the clock stubbed.
 
 Suggested: 2, because the issue speaks of a deadline.
 
 </details>
 ";
 
-/// A session of the breakdown of 54 that writes `file` as the issue's file and commits it alone, then runs `after`.
-fn breakdown_writes_then(bench: &Bench, file: &str, after: &str) {
+/// A session of the planner of 54 that writes `file` as the issue's file and commits it alone, then runs `after`.
+fn planner_writes_then(bench: &Bench, file: &str, after: &str) {
     bench.session(&format!(
         "cat > .watchbill/issues/54.yml <<'YML'\n{}YML\ngit add .watchbill/issues/54.yml && git commit -q -m 'The issue file of 54'\n{}",
         file, after
     ));
 }
 
-/// A session of the breakdown of 54 that writes `file` as the issue's file and commits it alone.
-fn breakdown_writes(bench: &Bench, file: &str) {
-    breakdown_writes_then(bench, file, "");
+/// A session of the planner of 54 that writes `file` as the issue's file and commits it alone.
+fn planner_writes(bench: &Bench, file: &str) {
+    planner_writes_then(bench, file, "");
 }
 
 /// The calls that posted on issue 54.
@@ -4476,7 +4476,7 @@ fn test_WB_BUILD_135_the_issue_s_text_is_brought_into_the_view_as_issue_text_pri
     fs::write(bench.at("text-54"), "Brakes: the front one.\nA second line.\n").unwrap();
     bench.session("cat .watchbill/issue/54.md > {log}/seen\n");
 
-    let run = bench.start(&["start", "breakdown", "54"]);
+    let run = bench.start(&["start", "planner", "54"]);
 
     ok(&run);
     assert_eq!(bench.left("seen"), "Brakes: the front one.\nA second line.\n");
@@ -4490,7 +4490,7 @@ fn test_WB_BUILD_135_the_issue_s_text_is_brought_into_the_view_as_issue_text_pri
 }
 
 #[test]
-fn test_WB_PROMPT_73_the_breakdown_s_posted_stamp_holds_the_sha256_of_the_issue_s_text_before_the_parts() {
+fn test_WB_PROMPT_73_the_planner_s_posted_stamp_holds_the_sha256_of_the_issue_s_text_before_the_parts() {
     if !sandbox("test_WB_PROMPT_73") {
         return;
     }
@@ -4498,7 +4498,7 @@ fn test_WB_PROMPT_73_the_breakdown_s_posted_stamp_holds_the_sha256_of_the_issue_
     let issue = "Brakes: the front one.\n";
     fs::write(bench.at("text-54"), issue).unwrap();
 
-    ok(&bench.start(&["start", "breakdown", "54"]));
+    ok(&bench.start(&["start", "planner", "54"]));
 
     let posted = bench.posted();
     assert_eq!(line_of(&posted, "issue_text"), Some(sha256(issue)), "{}", posted);
@@ -4510,9 +4510,9 @@ fn test_WB_PROMPT_73_the_breakdown_s_posted_stamp_holds_the_sha256_of_the_issue_
 }
 
 #[test]
-fn test_WB_ROLE_104_the_breakdown_s_prompt_as_handed_out_names_the_issue_s_file_and_no_program_of_the_tracker() {
+fn test_WB_ROLE_104_the_planner_s_prompt_as_handed_out_names_the_issue_s_file_and_no_program_of_the_tracker() {
     let bench = bench();
-    let run = prompt_with(&bench.repo.path, &bench.organisation(), &["breakdown", "54", "--runner", "stand-in", "--round", "1"]);
+    let run = prompt_with(&bench.repo.path, &bench.organisation(), &["planner", "54", "--runner", "stand-in", "--round", "1"]);
     ok(&run);
     let prompt = text_of(&run.stdout);
     assert!(prompt.contains(".watchbill/issue/54.md"), "{}", prompt);
@@ -4527,9 +4527,9 @@ fn test_WB_BUILD_136_the_questions_and_answers_come_in_whole_and_no_stamp_or_oth
     }
     let bench = bench();
     let comments = [
-        "[stamp] breakdown round 1\nrole: breakdown\nmodel: claude-opus-5-5",
-        "[questions] 54 q1\nq1: Which brake?\n<details>\n\n1. (breakdown) The front brake.\n\nSuggested: 1, because it is first.\n\n</details>",
-        "[answers] 54 q1>breakdown\nq1: 1",
+        "[stamp] planner round 1\nrole: planner\nmodel: claude-opus-5-5",
+        "[questions] 54 q1\nq1: Which brake?\n<details>\n\n1. (planner) The front brake.\n\nSuggested: 1, because it is first.\n\n</details>",
+        "[answers] 54 q1>planner\nq1: 1",
         "[answers] 54.tester q1>tester\nq1: 2",
         "Thanks, that reads well.",
     ];
@@ -4542,7 +4542,7 @@ fn test_WB_BUILD_136_the_questions_and_answers_come_in_whole_and_no_stamp_or_oth
     fs::write(bench.at("bodies-54"), bodies).unwrap();
     bench.session("cat .watchbill/issue/54.md > {log}/text\ncat .watchbill/issue/54.questions > {log}/questions\n");
 
-    ok(&bench.start(&["start", "breakdown", "54"]));
+    ok(&bench.start(&["start", "planner", "54"]));
 
     let text = bench.left("text");
     assert!(text.contains("The front brake holds the car."), "{}", text);
@@ -4562,17 +4562,17 @@ fn test_WB_BUILD_137_a_failing_issue_text_or_issue_comment_bodies_is_refused_as_
     for (status, named) in [("text.status", "issue_text"), ("bodies.status", "issue_comment_bodies")] {
         let bench = on_99();
         fs::write(bench.at(status), "1\n").unwrap();
-        let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "99"]);
+        let run = bench.start_by(&pass_through(&bench), &["start", "planner", "99"]);
         refused_before_posting(&bench, &run, &[named]);
     }
 }
 
 #[test]
-fn test_WB_BUILD_137_without_issue_text_or_issue_comment_bodies_the_breakdown_is_refused_naming_it() {
+fn test_WB_BUILD_137_without_issue_text_or_issue_comment_bodies_the_planner_is_refused_naming_it() {
     for key in ["issue_text", "issue_comment_bodies"] {
         let bench = on_99();
         without_line(&bench, key);
-        let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "99"]);
+        let run = bench.start_by(&pass_through(&bench), &["start", "planner", "99"]);
         refused_before_posting(&bench, &run, &[key]);
     }
 }
@@ -4582,7 +4582,7 @@ fn test_WB_BUILD_138_more_than_1_mib_from_issue_text_or_issue_comment_bodies_is_
     for (file, named) in [("text-99", "issue_text"), ("bodies-99", "issue_comment_bodies")] {
         let bench = on_99();
         fs::write(bench.at(file), "a".repeat(1024 * 1024 + 1)).unwrap();
-        let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "99"]);
+        let run = bench.start_by(&pass_through(&bench), &["start", "planner", "99"]);
         refused_before_posting(&bench, &run, &[named, "1 MiB"]);
     }
 }
@@ -4591,7 +4591,7 @@ fn test_WB_BUILD_138_more_than_1_mib_from_issue_text_or_issue_comment_bodies_is_
 fn test_WB_BUILD_143_a_head_that_holds_watchbill_issue_is_refused_naming_it() {
     let bench = on_99();
     commit_file(&bench, ".watchbill/issue/99.md", "planted\n");
-    let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "99"]);
+    let run = bench.start_by(&pass_through(&bench), &["start", "planner", "99"]);
     refused_before_posting(&bench, &run, &[".watchbill/issue"]);
 }
 
@@ -4601,16 +4601,16 @@ fn test_WB_BUILD_139_the_new_questions_of_the_file_are_posted_in_one_comment_by_
         return;
     }
     let bench = bench();
-    breakdown_writes(&bench, TWO_QUESTIONS);
-    ok(&bench.start(&["start", "breakdown", "54"]));
+    planner_writes(&bench, TWO_QUESTIONS);
+    ok(&bench.start(&["start", "planner", "54"]));
     assert_eq!(posts_on_54(&bench), 2, "{:?}", bench.calls());
     assert_eq!(bench.posted(), TWO_POSTED);
 
     // A question that stands on the issue already is not posted again.
     let bench = crate::bench();
-    fs::write(bench.at("comments-issue-54"), "[stamp] breakdown round 1\n[questions] 54 q1\n").unwrap();
-    breakdown_writes(&bench, TWO_QUESTIONS);
-    ok(&bench.start(&["start", "breakdown", "54"]));
+    fs::write(bench.at("comments-issue-54"), "[stamp] planner round 1\n[questions] 54 q1\n").unwrap();
+    planner_writes(&bench, TWO_QUESTIONS);
+    ok(&bench.start(&["start", "planner", "54"]));
     assert_eq!(posts_on_54(&bench), 2, "{:?}", bench.calls());
     let q2 = TWO_POSTED.split_once("q2: ").unwrap().1;
     assert_eq!(bench.posted(), format!("[questions] 54 q2\nq2: {}", q2));
@@ -4622,11 +4622,11 @@ fn test_WB_BUILD_140_the_comment_of_questions_is_said_before_it_is_posted() {
         return;
     }
     let bench = bench();
-    breakdown_writes(&bench, TWO_QUESTIONS);
-    let run = bench.start(&["start", "breakdown", "54"]);
+    planner_writes(&bench, TWO_QUESTIONS);
+    let run = bench.start(&["start", "planner", "54"]);
     ok(&run);
     let err = text_of(&run.stderr);
-    let said = format!("wb start breakdown: will post on issue 54, by `issue_comment` of watchbill.yml:\n{}", TWO_POSTED);
+    let said = format!("wb start planner: will post on issue 54, by `issue_comment` of watchbill.yml:\n{}", TWO_POSTED);
     assert!(err.contains(&said), "{}", err);
 }
 
@@ -4637,15 +4637,15 @@ fn test_WB_BUILD_141_a_file_with_no_question_or_none_new_posts_nothing_after_the
     }
     let bench = bench();
     let none = TWO_QUESTIONS.split_once("questions:\n").unwrap().0.to_string() + "questions: []\n";
-    breakdown_writes(&bench, &none);
-    ok(&bench.start(&["start", "breakdown", "54"]));
+    planner_writes(&bench, &none);
+    ok(&bench.start(&["start", "planner", "54"]));
     assert_eq!(posts_on_54(&bench), 1, "{:?}", bench.calls());
-    assert!(bench.posted().starts_with("[stamp] breakdown"), "{}", bench.posted());
+    assert!(bench.posted().starts_with("[stamp] planner"), "{}", bench.posted());
 
     let bench = crate::bench();
     fs::write(bench.at("comments-issue-54"), "[questions] 54 q1 q2\n").unwrap();
-    breakdown_writes(&bench, TWO_QUESTIONS);
-    ok(&bench.start(&["start", "breakdown", "54"]));
+    planner_writes(&bench, TWO_QUESTIONS);
+    ok(&bench.start(&["start", "planner", "54"]));
     assert_eq!(posts_on_54(&bench), 1, "{:?}", bench.calls());
     // The questions on the issue were read, after the session, and found to be all of them.
     let calls = bench.calls();
@@ -4660,8 +4660,8 @@ fn test_WB_BUILD_142_questions_that_cannot_be_posted_end_with_1_as_a_limit_sayin
     }
     let bench = bench();
     // The stamp is posted; the comment of questions is not.
-    breakdown_writes_then(&bench, TWO_QUESTIONS, "echo 1 > {log}/post.status\n");
-    let run = bench.start(&["start", "breakdown", "54"]);
+    planner_writes_then(&bench, TWO_QUESTIONS, "echo 1 > {log}/post.status\n");
+    let run = bench.start(&["start", "planner", "54"]);
     assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
     let err = text_of(&run.stderr);
     assert!(err.contains("limit:") && err.contains("not posted"), "{}", err);
@@ -4670,13 +4670,13 @@ fn test_WB_BUILD_142_questions_that_cannot_be_posted_end_with_1_as_a_limit_sayin
 }
 
 #[test]
-fn test_WB_ANSWER_46_wb_answer_suggested_takes_the_suggestions_of_the_questions_the_breakdown_s_start_posted() {
+fn test_WB_ANSWER_46_wb_answer_suggested_takes_the_suggestions_of_the_questions_the_planner_s_start_posted() {
     if !sandbox("test_WB_ANSWER_46") {
         return;
     }
     let bench = bench();
-    breakdown_writes(&bench, TWO_QUESTIONS);
-    ok(&bench.start(&["start", "breakdown", "54"]));
+    planner_writes(&bench, TWO_QUESTIONS);
+    ok(&bench.start(&["start", "planner", "54"]));
     let mut bodies = bench.posted().into_bytes();
     bodies.push(0);
     fs::write(bench.at("bodies-54"), bodies).unwrap();
@@ -4685,12 +4685,12 @@ fn test_WB_ANSWER_46_wb_answer_suggested_takes_the_suggestions_of_the_questions_
 
     assert_eq!(code(&run), Some(0), "{}", text_of(&run.stderr));
     let answers = bench.posted();
-    assert!(answers.starts_with("[answers] 54 q1>breakdown q2>breakdown\n"), "{}", answers);
+    assert!(answers.starts_with("[answers] 54 q1>planner q2>planner\n"), "{}", answers);
     assert!(answers.contains("q1: 1\n") && answers.contains("q2: 2"), "{}", answers);
 }
 
 #[test]
-fn test_WB_VIEW_96_a_path_the_breakdown_left_uncommitted_beside_its_file_is_not_said_and_does_not_keep_the_view() {
+fn test_WB_VIEW_96_a_path_the_planner_left_uncommitted_beside_its_file_is_not_said_and_does_not_keep_the_view() {
     if !sandbox("test_WB_VIEW_96") {
         return;
     }
@@ -4699,7 +4699,7 @@ fn test_WB_VIEW_96_a_path_the_breakdown_left_uncommitted_beside_its_file_is_not_
         "echo lock > Cargo.lock && echo x >> src/brake.c && echo yes > {log}/wrote\n\
          printf 'issue: 99\\n' > .watchbill/issues/99.yml && git add .watchbill/issues/99.yml && git commit -q -m 'The issue file of 99'\n",
     );
-    let run = bench.start(&["start", "breakdown", "99"]);
+    let run = bench.start(&["start", "planner", "99"]);
     ok(&run);
     assert_eq!(bench.left("wrote"), "yes\n");
     assert!(!text_of(&run.stderr).contains("left uncommitted"), "{}", text_of(&run.stderr));
@@ -4708,21 +4708,21 @@ fn test_WB_VIEW_96_a_path_the_breakdown_left_uncommitted_beside_its_file_is_not_
     // Its issue's file, left uncommitted, is said, and keeps the view.
     let bench = on_99();
     bench.session("echo lock > Cargo.lock\nprintf 'issue: 99\\n' > .watchbill/issues/99.yml\n");
-    let run = bench.start(&["start", "breakdown", "99"]);
+    let run = bench.start(&["start", "planner", "99"]);
     let err = text_of(&run.stderr);
     assert!(err.contains("left uncommitted") && err.contains(".watchbill/issues/99.yml") && !err.contains("Cargo.lock"), "{}", err);
     assert_eq!(bench.below("views").len(), 1, "{:?}", bench.below("views"));
 }
 
 #[test]
-fn test_WB_VIEW_77_a_commit_of_cargo_lock_by_the_breakdown_is_refused_at_the_take_back() {
+fn test_WB_VIEW_77_a_commit_of_cargo_lock_by_the_planner_is_refused_at_the_take_back() {
     if !sandbox("test_WB_VIEW_77") {
         return;
     }
     let bench = on_99();
     let before = bench.head();
     bench.session("echo lock > Cargo.lock && git add Cargo.lock && git commit -q -m 'The lock'\n");
-    let run = bench.start(&["start", "breakdown", "99"]);
+    let run = bench.start(&["start", "planner", "99"]);
     assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
     assert!(text_of(&run.stderr).contains("Cargo.lock"), "{}", text_of(&run.stderr));
     assert_eq!(bench.head(), before);
@@ -4730,12 +4730,12 @@ fn test_WB_VIEW_77_a_commit_of_cargo_lock_by_the_breakdown_is_refused_at_the_tak
 
 // ---- The review of #297: only the comments at the end are cut, and nothing raw leaves the sandbox ----
 
-/// The breakdown of 99 started with the stand-in for bubblewrap, its session copying the issue's text it was given.
+/// The planner of 99 started with the stand-in for bubblewrap, its session copying the issue's text it was given.
 fn text_brought(bench: &Bench, text: &[u8], bodies: &str) -> (Output, Vec<u8>) {
     fs::write(bench.at("text-99"), text).unwrap();
     fs::write(bench.at("bodies-99"), bodies).unwrap();
     bench.session("cat \"$VIEW/.watchbill/issue/99.md\" > {log}/text\n");
-    let run = bench.start_by(&pass_through(bench), &["start", "breakdown", "99"]);
+    let run = bench.start_by(&pass_through(bench), &["start", "planner", "99"]);
     let brought = fs::read(bench.at("text")).unwrap_or_default();
     (run, brought)
 }
@@ -4771,10 +4771,10 @@ fn sha256_bytes(bytes: &[u8]) -> String {
 }
 
 #[test]
-fn test_WB_BUILD_147_without_issue_text_the_breakdown_is_refused_naming_it_and_wb_upgrade() {
+fn test_WB_BUILD_147_without_issue_text_the_planner_is_refused_naming_it_and_wb_upgrade() {
     let bench = on_99();
     without_line(&bench, "issue_text");
-    let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "99"]);
+    let run = bench.start_by(&pass_through(&bench), &["start", "planner", "99"]);
     refused_before_posting(&bench, &run, &["`issue_text`", "`wb upgrade` adds the line `issue_text`"]);
 }
 
@@ -4790,8 +4790,8 @@ fn test_WB_BUILD_145_a_question_with_an_escape_or_a_bidi_control_is_not_posted_a
     }
     for (odd, raw, escaped) in [("\\e]0;pwned\\a", '\u{1b}', "\\u{1b}"), ("\\u202E", '\u{202e}', "\\u{202e}")] {
         let bench = bench();
-        breakdown_writes(&bench, &odd_question(odd));
-        let run = bench.start(&["start", "breakdown", "54"]);
+        planner_writes(&bench, &odd_question(odd));
+        let run = bench.start(&["start", "planner", "54"]);
         assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
         let err = text_of(&run.stderr);
         assert!(err.contains("limit:") && err.contains("not posted") && err.contains(escaped), "{}", err);
@@ -4811,7 +4811,7 @@ fn test_WB_BUILD_146_the_questions_are_read_from_the_commit_taken_back_not_the_w
     git(&bench.repo.path, &["reset", "-q", "--hard", "HEAD~1"]);
     let mut err = Vec::new();
 
-    let posted = watchbill::brought::post_questions("wb start breakdown", &bench.root(), "54", &commit, &mut err);
+    let posted = watchbill::brought::post_questions("wb start planner", &bench.root(), "54", &commit, &mut err);
 
     assert_eq!(posted, Ok(()), "{}", text_of(&err));
     assert_eq!(posts_on_54(&bench), 1, "{:?}", bench.calls());
@@ -4827,10 +4827,10 @@ fn on_main() -> Bench {
     bench
 }
 
-/// A breakdown of 7 that commits its issue's file in the view and notes the view's branch: in bubblewrap the
+/// A planner of 7 that commits its issue's file in the view and notes the view's branch: in bubblewrap the
 /// session is in the view, and under the stand-in `pass_through` the view is `$VIEW`. `before` runs first, in the
 /// checkout under the stand-in.
-fn breakdown_7(bench: &Bench, before: &str) {
+fn planner_7(bench: &Bench, before: &str) {
     bench.session(&format!(
         "{}cd \"${{VIEW:-.}}\" && git symbolic-ref HEAD > {{log}}/branch && printf 'issue: 7\\n' > .watchbill/issues/7.yml && git add .watchbill/issues/7.yml && git -c commit.gpgsign=false commit -q -m 'The issue file of 7'\n",
         before
@@ -4843,14 +4843,14 @@ fn tree_of(bench: &Bench) -> String {
 }
 
 #[test]
-fn test_WB_VIEW_110_with_main_checked_out_the_breakdown_s_commit_makes_the_issue_s_branch_and_main_is_not_moved() {
+fn test_WB_VIEW_110_with_main_checked_out_the_planner_s_commit_makes_the_issue_s_branch_and_main_is_not_moved() {
     let bench = on_main();
     // `wb status` reads the issue's title by `issue_address` as `HEAD` has it: the bench's stand-in prints one (#295).
     let main = bench.head();
     let tree = tree_of(&bench);
-    breakdown_7(&bench, "");
+    planner_7(&bench, "");
 
-    let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "7"]);
+    let run = bench.start_by(&pass_through(&bench), &["start", "planner", "7"]);
 
     ok(&run);
     assert_eq!(bench.git_text(&["log", "-1", "--format=%s", "issue-7"]).trim(), "The issue file of 7");
@@ -4866,15 +4866,15 @@ fn test_WB_VIEW_110_with_main_checked_out_the_breakdown_s_commit_makes_the_issue
 }
 
 #[test]
-fn test_WB_VIEW_110_in_bubblewrap_the_breakdown_with_main_checked_out_makes_the_issue_s_branch() {
+fn test_WB_VIEW_110_in_bubblewrap_the_planner_with_main_checked_out_makes_the_issue_s_branch() {
     if !sandbox("test_WB_VIEW_110") {
         return;
     }
     let bench = on_main();
     let main = bench.head();
-    breakdown_7(&bench, "");
+    planner_7(&bench, "");
 
-    let run = bench.start(&["start", "breakdown", "7"]);
+    let run = bench.start(&["start", "planner", "7"]);
 
     ok(&run);
     assert_eq!(bench.git_text(&["log", "-1", "--format=%s", "issue-7"]).trim(), "The issue file of 7");
@@ -4893,9 +4893,9 @@ fn test_WB_VIEW_111_with_the_issue_s_branch_there_and_main_checked_out_the_commi
     put(&bench.repo.path, "build/out.o", "ignored\n");
     fs::write(bench.repo.path.join(".git/info/exclude"), "build/out.o\n").unwrap();
     let tree = tree_of(&bench);
-    breakdown_7(&bench, "");
+    planner_7(&bench, "");
 
-    let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "7", "--ignore-branch"]);
+    let run = bench.start_by(&pass_through(&bench), &["start", "planner", "7", "--ignore-branch"]);
 
     ok(&run);
     assert_eq!(bench.git_text(&["log", "-1", "--format=%s", "issue-7"]), "The issue file of 7\n");
@@ -4913,9 +4913,9 @@ fn test_WB_VIEW_112_with_the_issue_s_branch_checked_out_the_commit_comes_by_a_fa
     let bench = on_main();
     git(&bench.repo.path, &["checkout", "-q", "-b", "issue-7"]);
     let before = bench.head();
-    breakdown_7(&bench, "");
+    planner_7(&bench, "");
 
-    let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "7"]);
+    let run = bench.start_by(&pass_through(&bench), &["start", "planner", "7"]);
 
     ok(&run);
     assert_eq!(subjects(&bench, 1), vec!["The issue file of 7"]);
@@ -4931,11 +4931,11 @@ fn test_WB_VIEW_113_a_branch_made_or_moved_between_the_start_and_the_take_back_i
     // Made while the session runs, where it was not there when the view was made.
     let bench = on_main();
     let main = bench.head();
-    breakdown_7(&bench, "git branch issue-7 HEAD~1 && ");
-    let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "7"]);
+    planner_7(&bench, "git branch issue-7 HEAD~1 && ");
+    let run = bench.start_by(&pass_through(&bench), &["start", "planner", "7"]);
     assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
     let err = text_of(&run.stderr);
-    assert!(labelled_line(&err, "wb start breakdown", "limit").is_some_and(|line| line.contains("issue-7")), "{}", err);
+    assert!(labelled_line(&err, "wb start planner", "limit").is_some_and(|line| line.contains("issue-7")), "{}", err);
     assert_eq!(bench.git_text(&["rev-parse", "issue-7"]), bench.git_text(&["rev-parse", "main~1"]));
     assert_eq!(bench.head(), main);
     assert_eq!(bench.below("views").len(), 1, "the view is kept");
@@ -4944,11 +4944,11 @@ fn test_WB_VIEW_113_a_branch_made_or_moved_between_the_start_and_the_take_back_i
     let bench = on_main();
     let main = bench.head();
     git(&bench.repo.path, &["branch", "issue-7"]);
-    breakdown_7(&bench, "git branch -f issue-7 HEAD~1 && ");
-    let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "7", "--ignore-branch"]);
+    planner_7(&bench, "git branch -f issue-7 HEAD~1 && ");
+    let run = bench.start_by(&pass_through(&bench), &["start", "planner", "7", "--ignore-branch"]);
     assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
     let err = text_of(&run.stderr);
-    assert!(labelled_line(&err, "wb start breakdown", "limit").is_some_and(|line| line.contains("issue-7") && line.contains("moved")), "{}", err);
+    assert!(labelled_line(&err, "wb start planner", "limit").is_some_and(|line| line.contains("issue-7") && line.contains("moved")), "{}", err);
     assert_eq!(bench.git_text(&["rev-parse", "issue-7"]), bench.git_text(&["rev-parse", "main~1"]));
     assert_eq!(bench.head(), main);
     assert_eq!(bench.below("views").len(), 1, "the view is kept");
@@ -4957,11 +4957,11 @@ fn test_WB_VIEW_113_a_branch_made_or_moved_between_the_start_and_the_take_back_i
     let bench = on_main();
     let main = bench.head();
     git(&bench.repo.path, &["branch", "issue-7"]);
-    breakdown_7(&bench, "git branch -D issue-7 > /dev/null && ");
-    let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "7", "--ignore-branch"]);
+    planner_7(&bench, "git branch -D issue-7 > /dev/null && ");
+    let run = bench.start_by(&pass_through(&bench), &["start", "planner", "7", "--ignore-branch"]);
     assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
     let err = text_of(&run.stderr);
-    assert!(labelled_line(&err, "wb start breakdown", "limit").is_some_and(|line| line.contains("issue-7") && line.contains("deleted")), "{}", err);
+    assert!(labelled_line(&err, "wb start planner", "limit").is_some_and(|line| line.contains("issue-7") && line.contains("deleted")), "{}", err);
     assert!(bench.git_text(&["branch", "--list", "issue-7"]).is_empty());
     assert_eq!(bench.head(), main);
     assert_eq!(bench.below("views").len(), 1, "the view is kept");
@@ -4970,8 +4970,8 @@ fn test_WB_VIEW_113_a_branch_made_or_moved_between_the_start_and_the_take_back_i
 #[test]
 fn test_WB_VIEW_115_the_view_s_branch_has_the_name_of_the_stamp_s_branch() {
     let bench = on_main();
-    breakdown_7(&bench, "");
-    ok(&bench.start_by(&pass_through(&bench), &["start", "breakdown", "7"]));
+    planner_7(&bench, "");
+    ok(&bench.start_by(&pass_through(&bench), &["start", "planner", "7"]));
     assert_eq!(bench.left("branch"), "refs/heads/issue-7\n");
     assert_eq!(line_of(&bench.left("posted-issue-7"), "branch").as_deref(), Some("issue-7"));
 }
@@ -4983,14 +4983,14 @@ fn test_WB_VIEW_116_a_branch_checked_out_in_another_worktree_is_refused_and_not_
     let tree = other.path.join("tree");
     git(&bench.repo.path, &["worktree", "add", "-q", "-b", "issue-7", tree.to_str().unwrap()]);
     let before = bench.git_text(&["rev-parse", "issue-7"]);
-    breakdown_7(&bench, "");
+    planner_7(&bench, "");
 
-    let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "7", "--ignore-branch"]);
+    let run = bench.start_by(&pass_through(&bench), &["start", "planner", "7", "--ignore-branch"]);
 
     assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
     let err = text_of(&run.stderr);
     let shown = fs::canonicalize(&tree).unwrap();
-    assert!(labelled_line(&err, "wb start breakdown", "limit").is_some_and(|line| line.contains(shown.to_str().unwrap())), "{}", err);
+    assert!(labelled_line(&err, "wb start planner", "limit").is_some_and(|line| line.contains(shown.to_str().unwrap())), "{}", err);
     assert_eq!(bench.git_text(&["rev-parse", "issue-7"]), before);
     assert!(!tree.join(".watchbill/issues/7.yml").exists());
     git(&bench.repo.path, &["worktree", "remove", "--force", tree.to_str().unwrap()]);
@@ -5006,7 +5006,7 @@ fn test_WB_BUILD_150_a_checkout_on_another_branch_is_refused_as_a_guard_naming_i
     assert!(labelled_line(&err, "wb start build", "limit").is_none(), "{}", err);
 
     // On the issue's branch, or on the default branch, there is no such guard.
-    for (branch, words) in [("issue-54", ["start", "build", "54"]), ("main", ["start", "breakdown", "7"])] {
+    for (branch, words) in [("issue-54", ["start", "build", "54"]), ("main", ["start", "planner", "7"])] {
         let bench = self::bench();
         git(&bench.repo.path, &["checkout", "-q", branch]);
         let run = start_unsandboxed(&bench, &words);
@@ -5070,8 +5070,8 @@ fn test_WB_BUILD_152_where_main_checked_out_has_moved_past_the_issue_s_branch_th
 fn test_WB_BUILD_150_on_main_with_the_issue_s_branch_there_at_the_same_commit_the_guard_stops_the_start() {
     let bench = on_main();
     git(&bench.repo.path, &["branch", "issue-7"]);
-    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "breakdown", "7"]));
-    let line = labelled_line(&err, "wb start breakdown", "guard").unwrap_or_else(|| panic!("no guard: {}", err));
+    let err = guarded(&bench, &start_unsandboxed(&bench, &["start", "planner", "7"]));
+    let line = labelled_line(&err, "wb start planner", "guard").unwrap_or_else(|| panic!("no guard: {}", err));
     assert!(line.contains("main") && line.contains("issue-7") && line.contains("--ignore-branch"), "{}", err);
 }
 

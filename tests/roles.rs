@@ -8,8 +8,8 @@
 use std::fs;
 use std::path::PathBuf;
 
-// The roles with a prompt. The breakdown has one from revision 0.0.5 (#75).
-const ROLES: [&str; 5] = ["breakdown", "tester", "build", "review", "fix"];
+// The roles with a prompt. The planner has one from revision 0.0.5 (#75).
+const ROLES: [&str; 5] = ["planner", "tester", "build", "review", "fix"];
 
 // The four parts of a prompt, as the headings that start them, in order.
 const PARTS: [&str; 4] = ["## What you produce", "## What you read", "## What you never do", "## How you end"];
@@ -227,7 +227,7 @@ fn test_WB_ROLE_2_how_you_end_gives_the_fields_of_the_last_message_in_one_form()
         assert!(body.contains(sentence), "{}", role);
         let found = fields(body.split_once(sentence).unwrap().1);
         assert!(found.len() >= 3, "{}", role);
-        // From revision 0.0.8 `asked` follows `needs_person` in the four roles after the breakdown (#113, WB-ROLE-72).
+        // From revision 0.0.8 `asked` follows `needs_person` in the four roles after the planner (#113, WB-ROLE-72).
         assert!(found.iter().any(|name| name == "needs_person"), "{}: {:?}", role, found);
     }
 }
@@ -362,8 +362,8 @@ fn test_WB_ROLE_18_every_prompt_names_its_checkout_its_branch_and_where_its_issu
         // Said before the first part, where the role is named.
         let opening = split_parts(&prompt(role)).remove(0);
         assert!(opening.contains("You work in the checkout {checkout}, on the branch {branch}."), "{}", role);
-        // The breakdown reads the issue as the program brought it in (#295), the other roles at its address.
-        let read = if role == "breakdown" { "The issue {issue}, as a person wrote it, in `.watchbill/issue/{issue}.md`," } else { "The issue {issue}, at {issue_address}," };
+        // The planner reads the issue as the program brought it in (#295), the other roles at its address.
+        let read = if role == "planner" { "The issue {issue}, as a person wrote it, in `.watchbill/issue/{issue}.md`," } else { "The issue {issue}, at {issue_address}," };
         assert!(part(role, "## What you read").contains(read), "{}", role);
     }
 }
@@ -667,25 +667,25 @@ fn test_WB_ROLE_38_the_session_reads_its_stamp_and_says_where_its_own_word_diffe
         assert!(text.contains("Read the stamp of your own session on the issue, where it is given"), "{}: {}", role, text);
         assert!(text.contains("Where your own word differs from it, say so under `model` and `effort`."), "{}: {}", role, text);
     }
-    // The breakdown's stamp is not in its view (#295): a person holds its word against the stamp.
-    let text = after_fields("breakdown");
+    // The planner's stamp is not in its view (#295): a person holds its word against the stamp.
+    let text = after_fields("planner");
     assert!(text.contains("A person holds them against the stamp."), "{}", text);
 }
 
-// The breakdown: it reads the issue and the code, and writes the issue's file (#75).
+// The planner: it reads the issue and the code, and writes the issue's file (#75).
 
-/// The point of a part of the breakdown's prompt that starts with `start`.
-fn breakdown_point(heading: &str, start: &str) -> String {
-    let body = part("breakdown", heading);
+/// The point of a part of the planner's prompt that starts with `start`.
+fn planner_point(heading: &str, start: &str) -> String {
+    let body = part("planner", heading);
     let point = body.split('\n').find(|line| line.starts_with(start));
     point.unwrap_or_else(|| panic!("no point that starts with {:?}: {}", start, body)).to_string()
 }
 
 #[test]
-fn test_WB_ROLE_48_the_breakdown_reads_the_issue_in_the_file_the_program_brought_in_and_the_code_in_the_checkout() {
-    let issue = breakdown_point("## What you read", "- The issue {issue}, as a person wrote it, in `.watchbill/issue/{issue}.md`,");
+fn test_WB_ROLE_48_the_planner_reads_the_issue_in_the_file_the_program_brought_in_and_the_code_in_the_checkout() {
+    let issue = planner_point("## What you read", "- The issue {issue}, as a person wrote it, in `.watchbill/issue/{issue}.md`,");
     assert!(issue.contains("The program read both from the tracker before your session"), "{}", issue);
-    let code = breakdown_point("## What you read", "- The code in {checkout}:");
+    let code = planner_point("## What you read", "- The code in {checkout}:");
     for what in ["the source", "the tests and the helpers those tests use", "the settings of the project's checks"] {
         assert!(code.contains(what), "{}: {}", what, code);
     }
@@ -693,9 +693,9 @@ fn test_WB_ROLE_48_the_breakdown_reads_the_issue_in_the_file_the_program_brought
 }
 
 #[test]
-fn test_WB_ROLE_49_the_breakdown_writes_the_issue_s_file_in_its_form() {
-    let body = part("breakdown", "## What you produce");
-    let point = breakdown_point("## What you produce", "- The issue's file, `.watchbill/issues/{issue}.yml`,");
+fn test_WB_ROLE_49_the_planner_writes_the_issue_s_file_in_its_form() {
+    let body = part("planner", "## What you produce");
+    let point = planner_point("## What you produce", "- The issue's file, `.watchbill/issues/{issue}.yml`,");
     assert!(point.contains("every key there and in this order"), "{}", point);
     // The form, as a block of YAML, with each key at the start of a line in the order the program holds it to.
     let form = body.split_once("```yaml\n").expect("the form").1.split_once("```").expect("the end of the form").0;
@@ -717,58 +717,58 @@ fn test_WB_ROLE_49_the_breakdown_writes_the_issue_s_file_in_its_form() {
 }
 
 #[test]
-fn test_WB_ROLE_50_the_breakdown_commits_the_file_alone_on_the_branch() {
-    let point = breakdown_point("## What you produce", "- Commit the file alone, on the branch {branch},");
+fn test_WB_ROLE_50_the_planner_commits_the_file_alone_on_the_branch() {
+    let point = planner_point("## What you produce", "- Commit the file alone, on the branch {branch},");
     assert!(point.contains("The commit holds that file and nothing else."), "{}", point);
-    let end = part("breakdown", "## How you end");
+    let end = part("planner", "## How you end");
     assert!(end.contains("Stop when the issue's file is committed alone on {branch}"), "{}", end);
 }
 
 #[test]
-fn test_WB_ROLE_51_the_breakdown_never_changes_the_issue_the_code_or_a_test() {
-    let point = breakdown_point("## What you never do", "- You never change the issue, the code or a test.");
+fn test_WB_ROLE_51_the_planner_never_changes_the_issue_the_code_or_a_test() {
+    let point = planner_point("## What you never do", "- You never change the issue, the code or a test.");
     assert!(point.contains("not its text, its title or what is written under it"), "{}", point);
     assert!(point.contains("A helper a test uses is part of that test."), "{}", point);
 }
 
 #[test]
-fn test_WB_ROLE_52_the_breakdown_puts_what_the_issue_leaves_open_under_questions_and_does_not_answer_it() {
-    let point = breakdown_point("## What you produce", "- What the issue leaves open goes under `questions`");
+fn test_WB_ROLE_52_the_planner_puts_what_the_issue_leaves_open_under_questions_and_does_not_answer_it() {
+    let point = planner_point("## What you produce", "- What the issue leaves open goes under `questions`");
     assert!(point.contains("You do not answer it"), "{}", point);
     assert!(point.contains("A person answers"), "{}", point);
-    let never = breakdown_point("## What you never do", "- You never answer what the issue leaves open.");
+    let never = planner_point("## What you never do", "- You never answer what the issue leaves open.");
     assert!(never.contains("`questions`"), "{}", never);
 }
 
 #[test]
-fn test_WB_ROLE_53_the_breakdown_finds_the_guards_among_the_existing_tests() {
-    let point = breakdown_point("## What you produce", "- Find the guards among the existing tests.");
+fn test_WB_ROLE_53_the_planner_finds_the_guards_among_the_existing_tests() {
+    let point = planner_point("## What you produce", "- Find the guards among the existing tests.");
     assert!(point.contains("name that test under `guard` of the requirement"), "{}", point);
     assert!(point.contains("Name no test you have not found in the code."), "{}", point);
 }
 
 #[test]
-fn test_WB_ROLE_54_the_breakdown_lists_for_each_role_what_it_may_read_as_narrow_as_the_work_allows() {
-    let point = breakdown_point("## What you produce", "- `reads`: for each role,");
+fn test_WB_ROLE_54_the_planner_lists_for_each_role_what_it_may_read_as_narrow_as_the_work_allows() {
+    let point = planner_point("## What you produce", "- `reads`: for each role,");
     assert!(point.contains("what it may read beside the paths of `changes`"), "{}", point);
     assert!(point.contains("as narrow as the work allows"), "{}", point);
 }
 
 #[test]
-fn test_WB_ROLE_55_the_breakdown_reads_the_settings_of_the_checks_so_that_what_a_check_needs_is_in_the_issue() {
-    let point = breakdown_point("## What you produce", "- Read the settings of the project's checks,");
+fn test_WB_ROLE_55_the_planner_reads_the_settings_of_the_checks_so_that_what_a_check_needs_is_in_the_issue() {
+    let point = planner_point("## What you produce", "- Read the settings of the project's checks,");
     assert!(point.contains("such as a built page or a generated file"), "{}", point);
     assert!(point.contains("is in the issue"), "{}", point);
 }
 
 #[test]
-fn test_WB_ROLE_56_the_first_line_of_the_breakdown_says_the_program_cleared_the_runner_and_the_session_does_not_judge_it() {
-    let text = prompt("breakdown");
+fn test_WB_ROLE_56_the_first_line_of_the_planner_says_the_program_cleared_the_runner_and_the_session_does_not_judge_it() {
+    let text = prompt("planner");
     let first: Vec<&str> = text.split('\n').take(2).collect();
     assert_eq!(first.get(1).copied(), Some(""), "{:?}", first);
     let line = first.first().copied().unwrap_or_default();
     assert!(line.starts_with("You read more of the code than any other role, and all that you read goes to the model that answers you."), "{:?}", first);
-    assert!(line.contains("The program handed you this prompt only after the organisation's file cleared your runner for the breakdown at this repository's level; your stamp names the runner, the model and the effort."), "{:?}", first);
+    assert!(line.contains("The program handed you this prompt only after the organisation's file cleared your runner for the planner at this repository's level; your stamp names the runner, the model and the effort."), "{:?}", first);
     assert!(line.contains("Do not judge the clearance yourself, and do not stop for it."), "{:?}", first);
 }
 
@@ -783,14 +783,14 @@ fn test_WB_ROLE_93_no_role_text_asks_the_session_to_check_a_clearance_of_its_run
 }
 
 #[test]
-fn test_WB_ROLE_57_the_last_message_of_the_breakdown_has_its_fields_in_order() {
-    let found = fields(&part("breakdown", "## How you end"));
+fn test_WB_ROLE_57_the_last_message_of_the_planner_has_its_fields_in_order() {
+    let found = fields(&part("planner", "## How you end"));
     assert_eq!(found, ["model", "effort", "file", "requirements", "questions", "asked", "needs_person"], "{:?}", found);
-    let requirements = field_line("breakdown", "requirements");
+    let requirements = field_line("planner", "requirements");
     assert!(requirements.contains("how many requirements the file holds"), "{}", requirements);
-    let questions = field_line("breakdown", "questions");
+    let questions = field_line("planner", "questions");
     assert!(questions.contains("how many questions the file holds"), "{}", questions);
-    let file = field_line("breakdown", "file");
+    let file = field_line("planner", "file");
     assert!(file.contains("the commit that holds it"), "{}", file);
 }
 
@@ -812,12 +812,12 @@ fn test_WB_ROLE_68_the_fix_reads_a_finding_by_its_number_and_its_level() {
     assert!(body.contains("A finding starts with its number and its level: `<n>. must` or `<n>. note`."), "{}", body);
 }
 
-// The breakdown asks its questions on the issue, and a second session folds the answers in (#95). From
+// The planner asks its questions on the issue, and a second session folds the answers in (#95). From
 // revision 0.0.9 it asks in one comment for the session, and a person answers with `wb answer` (#145).
 
 #[test]
 fn test_WB_ROLE_62_a_second_fresh_session_folds_the_answers_into_the_file_and_commits_it_alone() {
-    let point = breakdown_point("## What you produce", "- A second session, a fresh one, folds the answers in.");
+    let point = planner_point("## What you produce", "- A second session, a fresh one, folds the answers in.");
     for what in [
         "you read the questions and answers in `.watchbill/issue/{issue}.questions`",
         "take each answer of a person as part of the issue",
@@ -831,18 +831,18 @@ fn test_WB_ROLE_62_a_second_fresh_session_folds_the_answers_into_the_file_and_co
 }
 
 #[test]
-fn test_WB_ROLE_63_the_last_message_of_the_breakdown_names_the_comments_it_posted() {
-    let found = fields(&part("breakdown", "## How you end"));
+fn test_WB_ROLE_63_the_last_message_of_the_planner_names_the_comments_it_posted() {
+    let found = fields(&part("planner", "## How you end"));
     let at = found.iter().position(|name| name == "asked").expect("no field asked");
     assert_eq!(found[at - 1], "questions", "{:?}", found);
-    // The program posts the breakdown's questions (#295): the field names the new ones.
-    let asked = field_line("breakdown", "asked");
+    // The program posts the planner's questions (#295): the field names the new ones.
+    let asked = field_line("planner", "asked");
     assert!(asked.contains("the new questions of the file") && asked.contains("which the program posts"), "{}", asked);
-    let questions = field_line("breakdown", "questions");
+    let questions = field_line("planner", "questions");
     assert!(questions.contains("open"), "{}", questions);
 }
 
-// The prompts after the second run (#98). From revision 0.0.9 the breakdown alone pushes: the tester, the
+// The prompts after the second run (#98). From revision 0.0.9 the planner alone pushes: the tester, the
 // build and the fix run in a view with no remote (#126), and a person pushes their commits (#145).
 
 /// The line of a part of a role's prompt that starts with "Stop when".
@@ -852,20 +852,20 @@ fn stop_line(role: &str) -> String {
     stop.unwrap_or_else(|| panic!("{}: no line that starts with Stop when", role))
 }
 
-// The breakdown runs in a view with no remote too (#202), and pushes nothing.
+// The planner runs in a view with no remote too (#202), and pushes nothing.
 
 #[test]
-fn test_WB_ROLE_102_the_breakdown_commits_on_the_branch_and_pushes_nothing() {
-    let body = part("breakdown", "## What you produce");
+fn test_WB_ROLE_102_the_planner_commits_on_the_branch_and_pushes_nothing() {
+    let body = part("planner", "## What you produce");
     let point = body.split('\n').find(|line| line.contains("You push nothing and open no change: a person pushes the branch."));
     let point = point.unwrap_or_else(|| panic!("no point says that a person pushes: {}", body));
     assert!(point.to_lowercase().contains("commit") && point.contains("{branch}"), "{}", point);
-    let never = part("breakdown", "## What you never do");
+    let never = part("planner", "## What you never do");
     assert!(never.contains("- You never push, and never open a change."), "{}", never);
-    let stop = stop_line("breakdown");
+    let stop = stop_line("planner");
     assert!(stop.contains("committed alone on {branch}"), "{}", stop);
     assert!(!stop.contains("push"), "{}", stop);
-    for line in prompt("breakdown").split('\n') {
+    for line in prompt("planner").split('\n') {
         let lower = line.to_lowercase();
         let allowed = ["how work is pushed and posted here", "you push nothing", "you never push", "a person pushes"];
         let rest = allowed.iter().fold(lower.clone(), |text, phrase| text.replace(phrase, ""));
@@ -874,8 +874,8 @@ fn test_WB_ROLE_102_the_breakdown_commits_on_the_branch_and_pushes_nothing() {
 }
 
 #[test]
-fn test_WB_ROLE_103_the_last_message_of_the_breakdown_names_the_commit_on_the_branch() {
-    let file = field_line("breakdown", "file");
+fn test_WB_ROLE_103_the_last_message_of_the_planner_names_the_commit_on_the_branch() {
+    let file = field_line("planner", "file");
     assert!(file.contains("the commit that holds it, on {branch}"), "{}", file);
     assert!(!file.contains("push"), "{}", file);
 }
@@ -937,7 +937,7 @@ fn test_WB_ROLE_90_the_message_of_the_build_s_last_commit_is_the_description_of_
 
 #[test]
 fn test_WB_ROLE_65_a_requirement_is_what_the_change_must_do_and_a_test_or_a_reading_of_the_code_can_show() {
-    let point = breakdown_point("## What you produce", "- A requirement is what the change must do,");
+    let point = planner_point("## What you produce", "- A requirement is what the change must do,");
     assert!(point.contains("and that a test or a reading of the code can show"), "{}", point);
     assert!(point.contains("A clause that no test can show stays a requirement and says so in its text"), "{}", point);
     assert!(point.contains("so that the review knows to read for it"), "{}", point);
@@ -945,24 +945,24 @@ fn test_WB_ROLE_65_a_requirement_is_what_the_change_must_do_and_a_test_or_a_read
 
 #[test]
 fn test_WB_ROLE_65_how_an_existing_test_changes_goes_under_existing_tests_changed_never_as_a_requirement() {
-    let point = breakdown_point("## What you produce", "- A requirement is what the change must do,");
+    let point = planner_point("## What you produce", "- A requirement is what the change must do,");
     assert!(point.contains("How an existing test changes goes under `existing_tests_changed`, with the reason, and never as a requirement."), "{}", point);
-    let list = breakdown_point("## What you produce", "- `existing_tests_changed`:");
+    let list = planner_point("## What you produce", "- `existing_tests_changed`:");
     assert!(list.contains("by name, and the reason"), "{}", list);
 }
 
 #[test]
-fn test_WB_ROLE_78_the_breakdown_s_lists_must_pass_the_check_of_needs() {
-    let point = breakdown_point("## What you produce", "- Your lists must pass the check of `needs`.");
+fn test_WB_ROLE_78_the_planner_s_lists_must_pass_the_check_of_needs() {
+    let point = planner_point("## What you produce", "- Your lists must pass the check of `needs`.");
     assert!(point.contains("`wb accept` runs it for each path of `changes` and of the tester's and the build's `reads`"), "{}", point);
     assert!(point.contains("in neither that role's `reads` nor `changes`"), "{}", point);
 }
 
 #[test]
-fn test_WB_ROLE_78_the_breakdown_runs_the_command_itself_before_it_commits_the_issue_s_file() {
-    let point = breakdown_point("## What you produce", "- Your lists must pass the check of `needs`.");
+fn test_WB_ROLE_78_the_planner_runs_the_command_itself_before_it_commits_the_issue_s_file() {
+    let point = planner_point("## What you produce", "- Your lists must pass the check of `needs`.");
     assert!(point.contains("Run the command yourself, for each of those paths, before you commit the issue's file"), "{}", point);
-    let read = breakdown_point("## What you read", "- The settings of Watchbill in `.watchbill/`");
+    let read = planner_point("## What you read", "- The settings of Watchbill in `.watchbill/`");
     assert!(read.contains("`needs`") && read.contains("`build_files`"), "{}", read);
 }
 
@@ -1031,13 +1031,13 @@ fn test_WB_ROLE_79_the_tester_and_the_build_say_that_with_no_file_they_work_from
 
 // Every role asks on the issue, plainly and with a suggested answer (#113).
 
-// The roles after the breakdown, which ask what only a person can settle under `needs_person`.
+// The roles after the planner, which ask what only a person can settle under `needs_person`.
 const ASKERS: [&str; 4] = ["tester", "build", "review", "fix"];
 
-/// The name of a question of the role, up to its number: `{issue}.q` for the breakdown (#95),
+/// The name of a question of the role, up to its number: `{issue}.q` for the planner (#95),
 /// `{issue}.<role>.q` for the others.
 fn question_name(role: &str) -> String {
-    if role == "breakdown" {
+    if role == "planner" {
         "{issue}.q".to_string()
     } else {
         format!("{{issue}}.{}.q", role)
@@ -1056,10 +1056,10 @@ fn asking_point(role: &str) -> String {
     line_of(role, "- The points of `needs_person` are also posted on the issue, in one comment for the session,")
 }
 
-/// The first words of a role's comments of questions and answers: `{issue}` for the breakdown, which keeps the
+/// The first words of a role's comments of questions and answers: `{issue}` for the planner, which keeps the
 /// names #95 gave its questions, and `{issue}.<role>` for the others (#145).
 fn questions_of(role: &str) -> String {
-    if role == "breakdown" {
+    if role == "planner" {
         "{issue}".to_string()
     } else {
         format!("{{issue}}.{}", role)
@@ -1085,8 +1085,8 @@ fn test_WB_ANSWER_43_the_four_post_their_questions_in_one_comment_whose_first_li
 }
 
 #[test]
-fn test_WB_ANSWER_43_the_program_posts_the_breakdown_s_questions_in_one_comment_whose_first_line_names_them() {
-    let point = breakdown_point("## What you produce", "- You post nothing on the issue.");
+fn test_WB_ANSWER_43_the_program_posts_the_planner_s_questions_in_one_comment_whose_first_line_names_them() {
+    let point = planner_point("## What you produce", "- You post nothing on the issue.");
     assert!(point.contains("After your session the program posts the new questions on the issue, in one comment."), "{}", point);
     assert!(point.contains("Its first line is `[questions] {issue}` and the name of each question it holds, as `[questions] {issue} q1 q2`."), "{}", point);
     assert!(point.contains("a question named `{issue}.q<n>` under `questions` is `q<n>` in the comment"), "{}", point);
@@ -1127,15 +1127,15 @@ fn test_WB_ROLE_98_each_choice_starts_with_the_role_that_acts_on_it_in_brackets(
     for role in ROLES {
         let point = line_of(role, "  - The choices, numbered from 1, where there are any.");
         assert!(point.contains("Each starts with the role that acts on it, in brackets: `1. (tester) Narrow the requirement.`"), "{}: {}", role, point);
-        assert!(point.contains("The words are the roles of the revision (`breakdown`, `tester`, `build`, `review`, `fix`) and `person` for a person's own step"), "{}: {}", role, point);
+        assert!(point.contains("The words are the roles of the revision (`planner`, `tester`, `build`, `review`, `fix`) and `person` for a person's own step"), "{}: {}", role, point);
     }
     for role in ASKERS {
         let point = line_of(role, "  - The choices, numbered from 1, where there are any.");
         assert!(point.contains("A choice that changes the issue's file is `(person)`."), "{}: {}", role, point);
     }
-    // A second breakdown folds every answer of the breakdown into the file.
-    let point = line_of("breakdown", "  - The choices, numbered from 1, where there are any.");
-    assert!(point.contains("Each is `(breakdown)`, as a second breakdown folds every answer into the issue's file"), "{}", point);
+    // A second planner folds every answer of the planner into the file.
+    let point = line_of("planner", "  - The choices, numbered from 1, where there are any.");
+    assert!(point.contains("Each is `(planner)`, as a second planner folds every answer into the issue's file"), "{}", point);
 }
 
 #[test]
@@ -1159,8 +1159,8 @@ fn test_WB_ROLE_83_a_question_is_never_posted_twice() {
         let text = prompt(role);
         assert!(text.contains("You post no question twice: a question that stands on the issue already is not posted again."), "{}", role);
     }
-    // The breakdown posts nothing; the program posts its questions (#295).
-    assert!(prompt("breakdown").contains("The program posts no question twice: a question that stands on the issue already is not posted again."));
+    // The planner posts nothing; the program posts its questions (#295).
+    assert!(prompt("planner").contains("The program posts no question twice: a question that stands on the issue already is not posted again."));
 }
 
 #[test]
@@ -1307,8 +1307,8 @@ fn test_WB_ROLE_76_every_role_gives_its_model_and_effort_from_its_stamp() {
         let text = after_fields(role);
         let stamp = format!("Your model and effort are in your stamp on the issue: the latest comment whose first line starts with `[stamp] {}`.", role);
         assert!(text.contains(&stamp), "{}: {}", role, text);
-        if role == "breakdown" {
-            // The breakdown's stamp is not brought into its view (#295): it gives its own word.
+        if role == "planner" {
+            // The planner's stamp is not brought into its view (#295): it gives its own word.
             assert!(text.contains("That stamp is not in your view"), "{}", text);
             assert!(text.contains("give `model` and `effort` in your last message as your session says of itself"), "{}", text);
             assert!(!text.contains("Read the stamp of your own session on the issue"), "{}", text);
@@ -1322,8 +1322,8 @@ fn test_WB_ROLE_76_every_role_gives_its_model_and_effort_from_its_stamp() {
 // that path only.
 
 #[test]
-fn test_WB_ROLE_92_the_breakdown_says_a_new_folder_in_changes_ends_with_a_slash_and_a_file_never_does() {
-    let body = part("breakdown", "## What you produce");
+fn test_WB_ROLE_92_the_planner_says_a_new_folder_in_changes_ends_with_a_slash_and_a_file_never_does() {
+    let body = part("planner", "## What you produce");
     let found = body.split('\n').any(|line| {
         let lower = line.to_lowercase();
         lower.contains("`changes`")
@@ -1364,16 +1364,16 @@ fn test_WB_ROLE_96_the_review_does_not_ask_the_session_to_find_which_code_is_cla
 
 #[test]
 fn test_WB_ROLE_97_no_other_role_speaks_of_classed_code() {
-    for role in ["breakdown", "tester", "build", "fix"] {
+    for role in ["planner", "tester", "build", "fix"] {
         assert!(!prompt(role).to_lowercase().contains("classed"), "{} speaks of classed code", role);
     }
 }
 
-// The breakdown reads its issue without a login, its view is writable, and the program posts its questions (#295).
+// The planner reads its issue without a login, its view is writable, and the program posts its questions (#295).
 
 #[test]
-fn test_WB_ROLE_104_the_breakdown_s_prompt_holds_no_issue_address_and_names_no_program_of_a_tracker() {
-    let text = prompt("breakdown");
+fn test_WB_ROLE_104_the_planner_s_prompt_holds_no_issue_address_and_names_no_program_of_a_tracker() {
+    let text = prompt("planner");
     assert!(!text.contains("{issue_address}"), "{}", text);
     let words: Vec<&str> = text.split(|c: char| !c.is_ascii_alphanumeric()).collect();
     for program in ["gh", "glab"] {
@@ -1382,16 +1382,16 @@ fn test_WB_ROLE_104_the_breakdown_s_prompt_holds_no_issue_address_and_names_no_p
 }
 
 #[test]
-fn test_WB_ROLE_105_the_breakdown_has_no_login_needs_none_and_posts_nothing() {
-    let point = breakdown_point("## What you read", "- The issue {issue}, as a person wrote it,");
+fn test_WB_ROLE_105_the_planner_has_no_login_needs_none_and_posts_nothing() {
+    let point = planner_point("## What you read", "- The issue {issue}, as a person wrote it,");
     assert!(point.contains("You have no login to the tracker and need none: you run no program of the tracker, and you post nothing on it."), "{}", point);
-    let produce = breakdown_point("## What you produce", "- You post nothing on the issue.");
+    let produce = planner_point("## What you produce", "- You post nothing on the issue.");
     assert!(produce.contains("Each question goes in full into the issue's file, under `questions`"), "{}", produce);
 }
 
 #[test]
 fn test_WB_ROLE_106_each_question_goes_in_full_into_the_issue_s_file_in_the_form_shown() {
-    let body = part("breakdown", "## What you produce");
+    let body = part("planner", "## What you produce");
     let form = body.split_once("```yaml\n").expect("the form").1.split_once("```").expect("the end of the form").0;
     let lines: Vec<&str> = form.split('\n').collect();
     let at = lines.iter().position(|line| *line == "questions:").unwrap_or_else(|| panic!("{}", form));
@@ -1406,26 +1406,26 @@ fn test_WB_ROLE_106_each_question_goes_in_full_into_the_issue_s_file_in_the_form
     ] {
         assert!(question.contains(&line), "{}: {}", line, form);
     }
-    let point = breakdown_point("## What you produce", "- You post nothing on the issue.");
+    let point = planner_point("## What you produce", "- You post nothing on the issue.");
     assert!(point.contains("After your session the program posts the new questions on the issue"), "{}", point);
 }
 
 #[test]
-fn test_WB_ROLE_107_the_breakdown_s_view_is_writable_but_for_watchbill_and_only_its_file_comes_back() {
-    let point = breakdown_point("## What you read", "- Your view of the checkout is writable,");
+fn test_WB_ROLE_107_the_planner_s_view_is_writable_but_for_watchbill_and_only_its_file_comes_back() {
+    let point = planner_point("## What you read", "- Your view of the checkout is writable,");
     assert!(point.contains("but for `.watchbill/` other than `.watchbill/issues/`"), "{}", point);
     assert!(point.contains("only your issue's file comes back"), "{}", point);
 }
 
 #[test]
 fn test_WB_ROLE_108_the_program_puts_the_commit_on_the_branch_and_makes_it_where_it_is_not_there() {
-    let point = breakdown_point("## What you produce", "- Commit the file alone, on the branch {branch},");
+    let point = planner_point("## What you produce", "- Commit the file alone, on the branch {branch},");
     assert!(point.contains("the program puts your commit on {branch}, and makes that branch where it is not there"), "{}", point);
 }
 
 #[test]
 fn test_WB_ROLE_109_from_is_the_sha256_of_the_issue_s_text_the_program_brought_in() {
-    let body = part("breakdown", "## What you produce");
+    let body = part("planner", "## What you produce");
     let form = body.split_once("```yaml\n").expect("the form").1;
     let from = form.split('\n').find(|line| line.starts_with("from:")).unwrap_or_else(|| panic!("{}", form));
     assert!(from.contains("the SHA-256 of .watchbill/issue/{issue}.md"), "{}", from);

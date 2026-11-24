@@ -1,4 +1,4 @@
-//! The organisation clears a runner for the breakdown up to a level (#93): `wb prompt breakdown --runner`,
+//! The organisation clears a runner for the planner up to a level (#93): `wb prompt planner --runner`,
 //! the organisation's file and the repository's level. The organisation's file of a test is given to
 //! `watchbill::prompt` in the test process, so that no test reads the real `/etc`.
 
@@ -46,8 +46,8 @@ fn with(level: Option<&str>, organisation: &str) -> (Folder, Folder, PathBuf) {
     (folder, place, path)
 }
 
-fn breakdown(folder: &Path, organisation: &Path, extra: &[&str]) -> Output {
-    let mut args = vec!["breakdown", "42"];
+fn planner(folder: &Path, organisation: &Path, extra: &[&str]) -> Output {
+    let mut args = vec!["planner", "42"];
     args.extend(REST);
     args.extend(extra);
     prompt_with(folder, organisation, &args)
@@ -64,60 +64,60 @@ fn refused(run: &Output, named: &[&str]) {
 }
 
 #[test]
-fn test_WB_CONF_18_a_runner_cleared_for_the_breakdown_up_to_the_repository_s_level_gets_the_prompt() {
+fn test_WB_CONF_18_a_runner_cleared_for_the_planner_up_to_the_repository_s_level_gets_the_prompt() {
     let (folder, _place, path) = ready();
 
-    let run = breakdown(&folder.path, &path, &["--runner", "claude-code"]);
+    let run = planner(&folder.path, &path, &["--runner", "claude-code"]);
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert!(text(&run.stdout).contains("You are the breakdown of issue 42."), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains("You are the planner of issue 42."), "{}", text(&run.stdout));
 }
 
 #[test]
-fn test_WB_CONF_20_the_stamp_of_the_breakdown_names_the_runner_and_the_model_and_effort_of_its_breakdown() {
+fn test_WB_CONF_20_the_stamp_of_the_planner_names_the_runner_and_the_model_and_effort_of_its_planner() {
     let (folder, _place, path) = ready();
 
-    let run = breakdown(&folder.path, &path, &["--runner", "claude-code", "--stamp"]);
+    let run = planner(&folder.path, &path, &["--runner", "claude-code", "--stamp"]);
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let out = text(&run.stdout);
     let lines: Vec<&str> = out.lines().collect();
-    assert_eq!(&lines[..4], &["role: breakdown", "model: claude-opus-5-5", "effort: high", "runner: claude-code"], "{}", out);
+    assert_eq!(&lines[..4], &["role: planner", "model: claude-opus-5-5", "effort: high", "runner: claude-code"], "{}", out);
 }
 
 #[test]
-fn test_WB_CONF_22_parts_of_the_breakdown_add_the_level_in_force_and_the_runner() {
+fn test_WB_CONF_22_parts_of_the_planner_add_the_level_in_force_and_the_runner() {
     let (folder, _place, path) = ready();
 
-    let run = breakdown(&folder.path, &path, &["--runner", "claude-code", "--parts"]);
+    let run = planner(&folder.path, &path, &["--runner", "claude-code", "--parts"]);
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let out = text(&run.stdout);
     let lines: Vec<&str> = out.lines().collect();
-    assert!(lines[0].ends_with("  .watchbill/revision/roles/breakdown.md"), "{}", out);
+    assert!(lines[0].ends_with("  .watchbill/revision/roles/planner.md"), "{}", out);
     assert_eq!(&lines[lines.len() - 2..], &["level: public", "runner: claude-code"], "{}", out);
 }
 
 #[test]
-fn test_WB_CONF_19_a_repository_above_the_breakdown_s_up_to_is_refused_with_both_levels_and_the_runner() {
+fn test_WB_CONF_19_a_repository_above_the_planner_s_up_to_is_refused_with_both_levels_and_the_runner() {
     let (folder, _place, path) = with(Some("internal"), ORGANISATION);
 
     for extra in [&[][..], &["--stamp"], &["--parts"]] {
         let mut args = vec!["--runner", "claude-code"];
         args.extend(extra);
-        let run = breakdown(&folder.path, &path, &args);
+        let run = planner(&folder.path, &path, &args);
         refused(&run, &["internal", "public", "claude-code"]);
     }
 }
 
 #[test]
-fn test_WB_CONF_18_a_runner_with_no_breakdown_is_refused() {
-    let file = ORGANISATION.replace("    breakdown:\n      up_to: public\n      model: claude-opus-5-5\n      effort: high\n", "");
+fn test_WB_CONF_18_a_runner_with_no_planner_is_refused() {
+    let file = ORGANISATION.replace("    planner:\n      up_to: public\n      model: claude-opus-5-5\n      effort: high\n", "");
     let (folder, _place, path) = with(Some("public"), &file);
 
-    let run = breakdown(&folder.path, &path, &["--runner", "claude-code"]);
+    let run = planner(&folder.path, &path, &["--runner", "claude-code"]);
 
-    refused(&run, &["claude-code", "breakdown"]);
+    refused(&run, &["claude-code", "planner"]);
 }
 
 #[test]
@@ -128,18 +128,18 @@ fn test_WB_CONF_10_a_runner_the_file_does_not_name_is_refused_with_the_names_it_
     );
     let (folder, _place, path) = with(Some("public"), &file);
 
-    let run = breakdown(&folder.path, &path, &["--runner", "elsewhere"]);
+    let run = planner(&folder.path, &path, &["--runner", "elsewhere"]);
 
     refused(&run, &["elsewhere", "claude-code", "local-llm"]);
 }
 
 #[test]
-fn test_WB_CONF_19_no_organisation_s_file_refuses_the_breakdown_and_names_the_path() {
+fn test_WB_CONF_19_no_organisation_s_file_refuses_the_planner_and_names_the_path() {
     let folder = set_up();
     let place = folder_named("organisation");
     let path = place.path.join("not-there").join("organisation.yml");
 
-    let run = breakdown(&folder.path, &path, &["--runner", "claude-code"]);
+    let run = planner(&folder.path, &path, &["--runner", "claude-code"]);
 
     refused(&run, &[path.to_str().unwrap()]);
 }
@@ -156,10 +156,10 @@ fn test_WB_CONF_1_the_organisation_s_file_is_a_fixed_path_and_no_environment_var
 }
 
 #[test]
-fn test_WB_CONF_17_the_breakdown_with_no_runner_is_refused_with_2_and_the_usage() {
+fn test_WB_CONF_17_the_planner_with_no_runner_is_refused_with_2_and_the_usage() {
     let folder = set_up();
 
-    let run = wb(&folder.path, &["prompt", "breakdown", "42"], "");
+    let run = wb(&folder.path, &["prompt", "planner", "42"], "");
 
     assert_eq!(code(&run), Some(2));
     assert_eq!(text(&run.stdout), "");
@@ -170,12 +170,12 @@ fn test_WB_CONF_17_the_breakdown_with_no_runner_is_refused_with_2_and_the_usage(
 #[test]
 fn test_WB_CONF_4_with_no_confidentiality_line_the_most_restrictive_level_applies() {
     let (folder, _place, path) = with(None, ORGANISATION);
-    let run = breakdown(&folder.path, &path, &["--runner", "claude-code"]);
+    let run = planner(&folder.path, &path, &["--runner", "claude-code"]);
     refused(&run, &["confidential", "public", "claude-code"]);
 
     let file = ORGANISATION.replace("    up_to: internal\n", "    up_to: confidential\n").replace("      up_to: public\n", "      up_to: confidential\n");
     let (folder, _place, path) = with(None, &file);
-    let run = breakdown(&folder.path, &path, &["--runner", "claude-code"]);
+    let run = planner(&folder.path, &path, &["--runner", "claude-code"]);
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
 }
 
@@ -183,7 +183,7 @@ fn test_WB_CONF_4_with_no_confidentiality_line_the_most_restrictive_level_applie
 fn test_WB_CONF_5_a_repository_s_level_not_on_the_list_is_refused_by_name() {
     let (folder, _place, path) = with(Some("secret"), ORGANISATION);
 
-    let run = breakdown(&folder.path, &path, &["--runner", "claude-code"]);
+    let run = planner(&folder.path, &path, &["--runner", "claude-code"]);
 
     refused(&run, &["secret", "confidentiality", "public, internal, confidential"]);
 }
@@ -197,17 +197,17 @@ fn test_WB_CONF_6_levels_or_runners_in_the_repository_s_settings_are_refused() {
         fs::write(config(&folder.path), yml).unwrap();
         commit_config(&folder.path);
 
-        let run = breakdown(&folder.path, &path, &["--runner", "claude-code"]);
+        let run = planner(&folder.path, &path, &["--runner", "claude-code"]);
 
         let key = line.split(':').next().unwrap();
         refused(&run, &["watchbill.yml", key, "organisation"]);
     }
 }
 
-/// The breakdown refused for an organisation's file of the given text, with each of `named` said.
+/// The planner refused for an organisation's file of the given text, with each of `named` said.
 fn file_refused(file: &str, named: &[&str]) {
     let (folder, _place, path) = with(Some("public"), file);
-    let run = breakdown(&folder.path, &path, &["--runner", "claude-code"]);
+    let run = planner(&folder.path, &path, &["--runner", "claude-code"]);
     let mut all = vec![path.to_str().unwrap()];
     all.extend(named);
     refused(&run, &all);
@@ -242,10 +242,10 @@ fn test_WB_CONF_11_an_up_to_that_is_not_a_level_is_refused_with_the_place() {
 }
 
 #[test]
-fn test_WB_CONF_15_a_breakdown_up_to_above_the_runner_s_up_to_is_refused_with_the_place() {
+fn test_WB_CONF_15_a_planner_up_to_above_the_runner_s_up_to_is_refused_with_the_place() {
     file_refused(
         &ORGANISATION.replace("      up_to: public\n", "      up_to: confidential\n"),
-        &["runners.claude-code.breakdown.up_to", "confidential", "internal"],
+        &["runners.claude-code.planner.up_to", "confidential", "internal"],
     );
 }
 
@@ -254,21 +254,21 @@ fn test_WB_CONF_16_a_model_that_is_not_exact_is_refused_with_the_place() {
     for model in ["claude-opus", "claude-opus-latest", "Claude-Opus-5"] {
         file_refused(
             &ORGANISATION.replace("model: claude-opus-5-5", &format!("model: {}", model)),
-            &["runners.claude-code.breakdown.model", model],
+            &["runners.claude-code.planner.model", model],
         );
     }
 }
 
 #[test]
 fn test_WB_CONF_16_an_effort_that_is_not_known_is_refused_with_the_place() {
-    file_refused(&ORGANISATION.replace("effort: high", "effort: huge"), &["runners.claude-code.breakdown.effort", "huge"]);
+    file_refused(&ORGANISATION.replace("effort: high", "effort: huge"), &["runners.claude-code.planner.effort", "huge"]);
 }
 
 #[test]
-fn test_WB_CONF_15_a_breakdown_lacking_a_field_is_refused_with_the_place() {
+fn test_WB_CONF_15_a_planner_lacking_a_field_is_refused_with_the_place() {
     for line in ["      up_to: public\n", "      model: claude-opus-5-5\n", "      effort: high\n"] {
         let key = line.trim().split(':').next().unwrap();
-        file_refused(&ORGANISATION.replace(line, ""), &["runners.claude-code.breakdown", key]);
+        file_refused(&ORGANISATION.replace(line, ""), &["runners.claude-code.planner", key]);
     }
 }
 
@@ -279,7 +279,7 @@ fn test_WB_CONF_11_a_key_not_known_at_any_depth_is_refused_with_the_place() {
     let runner = ORGANISATION.replace("    up_to: internal\n", "    up_to: internal\n    region: eu\n");
     file_refused(&runner, &["runners.claude-code.region"]);
     let deep = ORGANISATION.replace("      effort: high\n", "      effort: high\n      region: eu\n");
-    file_refused(&deep, &["runners.claude-code.breakdown.region"]);
+    file_refused(&deep, &["runners.claude-code.planner.region"]);
 }
 
 #[test]
@@ -298,7 +298,7 @@ fn test_WB_CONF_23_a_runner_that_is_empty_given_twice_or_not_one_line_is_used_wr
         &["--runner", " claude-code"],
         &["--runner"],
     ] {
-        let run = breakdown(&folder.path, &path, extra);
+        let run = planner(&folder.path, &path, extra);
         assert_eq!(code(&run), Some(2), "{:?}: {}", extra, text(&run.stderr));
         assert_eq!(text(&run.stdout), "");
         assert!(text(&run.stderr).contains("--runner") && text(&run.stderr).ends_with(USAGE), "{}", text(&run.stderr));
@@ -334,7 +334,7 @@ fn test_WB_CONF_21_the_four_other_roles_take_a_runner_without_a_check_and_the_st
 }
 
 #[test]
-fn test_WB_CONF_18_wb_prompt_breakdown_writes_nothing() {
+fn test_WB_CONF_18_wb_prompt_planner_writes_nothing() {
     let (folder, place, path) = ready();
     let listing = |root: &Path| -> Vec<(PathBuf, Vec<u8>)> {
         let mut all = Vec::new();
@@ -355,7 +355,7 @@ fn test_WB_CONF_18_wb_prompt_breakdown_writes_nothing() {
     let before = (listing(&folder.path), listing(&place.path));
 
     for extra in [&["--runner", "claude-code"][..], &["--runner", "claude-code", "--stamp"], &["--runner", "elsewhere"]] {
-        breakdown(&folder.path, &path, extra);
+        planner(&folder.path, &path, extra);
     }
 
     assert_eq!((listing(&folder.path), listing(&place.path)), before);

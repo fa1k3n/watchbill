@@ -608,17 +608,17 @@ fn test_WB_CHECK_13_only_the_project_text_differing_does_not_say_the_revision_is
 }
 
 #[test]
-fn test_WB_CHECK_16_breakdown_none_names_watchbill_yml_once_and_the_last_line_says_it_does_not_fit() {
+fn test_WB_CHECK_16_planner_none_names_watchbill_yml_once_and_the_last_line_says_it_does_not_fit() {
     let folder = set_up();
     let mut yml = read(&config(&folder.path));
-    yml.push_str("breakdown: none\n");
+    yml.push_str("planner: none\n");
     put(&folder.path, ".watchbill/watchbill.yml", &yml);
 
     let run = wb(&folder.path, &["check"], "");
 
     assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
     let out = text(&run.stdout);
-    let line = out.lines().find(|line| line.contains("breakdown: none")).expect("the fault is named");
+    let line = out.lines().find(|line| line.contains("planner: none")).expect("the fault is named");
     assert_eq!(line.matches("watchbill.yml").count(), 1, "{}", out);
     let last = out.lines().last().unwrap();
     assert!(last.contains("watchbill.yml does not fit the revision"), "{}", out);
@@ -707,14 +707,14 @@ fn test_WB_CHECK_14_the_refusal_of_assemble_is_the_line_that_check_prints() {
 fn test_WB_CHECK_16_a_fault_the_loader_gives_names_watchbill_yml_once() {
     let folder = set_up();
     let mut yml = read(&config(&folder.path));
-    yml.push_str("breakdown: other\n");
+    yml.push_str("planner: other\n");
     put(&folder.path, ".watchbill/watchbill.yml", &yml);
 
     let run = wb(&folder.path, &["check"], "");
 
     assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
     let out = text(&run.stdout);
-    let line = out.lines().find(|line| line.contains("breakdown")).expect("the fault is named");
+    let line = out.lines().find(|line| line.contains("planner")).expect("the fault is named");
     assert_eq!(line.matches("watchbill.yml").count(), 1, "{}", out);
     assert!(!out.lines().last().unwrap().contains("not at the revision"), "{}", out);
 }
@@ -723,7 +723,7 @@ fn test_WB_CHECK_16_a_fault_the_loader_gives_names_watchbill_yml_once() {
 fn test_WB_CHECK_16_settings_and_the_project_text_differing_say_so_and_not_that_the_revision_is_not_held() {
     let folder = set_up();
     let mut yml = read(&config(&folder.path));
-    yml.push_str("breakdown: none\n");
+    yml.push_str("planner: none\n");
     put(&folder.path, ".watchbill/watchbill.yml", &yml);
     put(&folder.path, ".watchbill/project/all.md", "Use {task}.\n");
 

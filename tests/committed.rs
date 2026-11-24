@@ -1,4 +1,4 @@
-//! No role after the breakdown until the issue's file and its acceptance are committed (#97), run as a
+//! No role after the planner until the issue's file and its acceptance are committed (#97), run as a
 //! person runs it, in a repository made for the test.
 
 // A test is named after the requirement it covers, and the ID has capitals.
@@ -172,20 +172,20 @@ fn test_WB_TASK_13_an_acceptance_changed_in_the_working_tree_after_its_commit_is
 }
 
 #[test]
-fn test_WB_TASK_13_the_breakdown_is_never_asked_for_an_acceptance() {
+fn test_WB_TASK_13_the_planner_is_never_asked_for_an_acceptance() {
     let folder = set_up();
-    // The breakdown is handed out only to a runner the organisation cleared for it (#93).
+    // The planner is handed out only to a runner the organisation cleared for it (#93).
     let (_place, organisation) = cleared(&folder.path);
-    let breakdown = |folder: &Path| {
-        let mut args = vec!["breakdown", "54"];
+    let planner = |folder: &Path| {
+        let mut args = vec!["planner", "54"];
         args.extend(REST);
         args.extend(["--runner", "claude-code"]);
         prompt_with(folder, &organisation, &args)
     };
-    let run = breakdown(&folder.path);
+    let run = planner(&folder.path);
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     put(&folder.path, YML, GOOD);
-    let run = breakdown(&folder.path);
+    let run = planner(&folder.path);
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
 }
 
@@ -211,44 +211,44 @@ fn test_WB_TASK_17_an_issue_with_no_file_is_handed_out_to_each_role_and_no_file_
 }
 
 #[test]
-fn test_WB_TASK_17_where_breakdown_is_not_written_no_file_is_needed() {
-    // Was test_WB_TASK_14_where_breakdown_is_not_written_the_file_is_needed.
+fn test_WB_TASK_17_where_planner_is_not_written_no_file_is_needed() {
+    // Was test_WB_TASK_14_where_planner_is_not_written_the_file_is_needed.
     let folder = set_up();
     let before = read(&config(&folder.path));
-    assert!(!before.contains("breakdown"));
+    assert!(!before.contains("planner"));
     let run = prompt(&folder.path, "build", &[]);
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
 }
 
-// test_WB_PROMPT_50_breakdown_none_means_no_file_is_needed_where_the_rule_table_lacks_the_breakdown is
+// test_WB_PROMPT_50_planner_none_means_no_file_is_needed_where_the_rule_table_lacks_the_planner is
 // removed with `issue::file_needed`, which it called (#116). WB-PROMPT-50 is replaced by WB-TASK-17.
 
 #[test]
-fn test_WB_TASK_18_a_breakdown_that_is_not_none_is_refused_by_its_name() {
-    // Was test_WB_TASK_14_a_breakdown_that_is_not_none_is_refused_by_its_name: any value is refused now.
+fn test_WB_TASK_18_a_planner_that_is_not_none_is_refused_by_its_name() {
+    // Was test_WB_TASK_14_a_planner_that_is_not_none_is_refused_by_its_name: any value is refused now.
     let folder = set_up();
     let mut yml = read(&config(&folder.path));
-    yml.push_str("breakdown: sometimes\n");
+    yml.push_str("planner: sometimes\n");
     put(&folder.path, ".watchbill/watchbill.yml", &yml);
     commit_config(&folder.path);
     let run = prompt(&folder.path, "build", &[]);
-    refused(&run, "breakdown: sometimes");
+    refused(&run, "planner: sometimes");
     assert!(text(&run.stderr).contains("Remove the line"), "{}", text(&run.stderr));
 }
 
 #[test]
-fn test_WB_TASK_18_breakdown_none_is_refused_for_each_role() {
-    // Was test_WB_TASK_15_breakdown_none_is_refused_when_the_rule_table_holds_the_breakdown: refused
+fn test_WB_TASK_18_planner_none_is_refused_for_each_role() {
+    // Was test_WB_TASK_15_planner_none_is_refused_when_the_rule_table_holds_the_planner: refused
     // whatever the rule table holds.
     let folder = set_up();
     commit(&folder.path, &[".watchbill"]);
     let mut yml = read(&config(&folder.path));
-    yml.push_str("breakdown: none\n");
+    yml.push_str("planner: none\n");
     put(&folder.path, ".watchbill/watchbill.yml", &yml);
     commit_config(&folder.path);
     for role in ROLES {
         let run = prompt(&folder.path, role, &[]);
-        refused(&run, "breakdown: none");
+        refused(&run, "planner: none");
         assert!(text(&run.stderr).contains("Remove the line"), "{}", text(&run.stderr));
     }
 }
@@ -267,19 +267,19 @@ fn test_WB_TASK_16_wb_accept_says_that_the_acceptance_is_committed_alone_with_th
 }
 
 #[test]
-fn test_WB_TASK_18_wb_check_refuses_breakdown_none_and_any_other_value() {
-    // Was test_WB_TASK_15_wb_check_refuses_breakdown_none_when_the_rule_table_holds_the_breakdown.
+fn test_WB_TASK_18_wb_check_refuses_planner_none_and_any_other_value() {
+    // Was test_WB_TASK_15_wb_check_refuses_planner_none_when_the_rule_table_holds_the_planner.
     let folder = set_up();
     assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
     let mut yml = read(&config(&folder.path));
-    yml.push_str("breakdown: none\n");
+    yml.push_str("planner: none\n");
     put(&folder.path, ".watchbill/watchbill.yml", &yml);
     commit_config(&folder.path);
     let run = wb(&folder.path, &["check"], "");
     assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
     let said = text(&run.stdout) + &text(&run.stderr);
-    assert!(said.contains("breakdown: none") && said.contains("Remove the line"), "{}", said);
-    let mut other = read(&config(&folder.path)).replace("breakdown: none", "breakdown: sometimes");
+    assert!(said.contains("planner: none") && said.contains("Remove the line"), "{}", said);
+    let mut other = read(&config(&folder.path)).replace("planner: none", "planner: sometimes");
     other.push('\n');
     put(&folder.path, ".watchbill/watchbill.yml", &other);
     assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(1));
@@ -287,7 +287,7 @@ fn test_WB_TASK_18_wb_check_refuses_breakdown_none_and_any_other_value() {
 
 #[test]
 fn test_WB_TASK_17_with_no_file_requirements_is_the_numbered_requirements_of_the_issue_in_derive() {
-    // Was test_WB_PROMPT_51_with_breakdown_none_and_no_file_requirements_is_the_numbered_requirements_of_the_issue.
+    // Was test_WB_PROMPT_51_with_planner_none_and_no_file_requirements_is_the_numbered_requirements_of_the_issue.
     // Since #116 no line of `watchbill.yml` is needed for it.
     let folder = set_up();
     let root = folder.path.to_str().unwrap();

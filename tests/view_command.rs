@@ -674,7 +674,7 @@ fn test_WB_VIEW_31_view_writes_nothing_in_the_repository_or_the_state_folder_and
         &["view", "54", "review", "--out"][..],
         &["view", "54", "src/brake.c"][..],
         &["view", "54", "src/brake.o"][..],
-        &["view", "54", "breakdown"][..],
+        &["view", "54", "planner"][..],
         &["view", "99", "build"][..],
     ] {
         let run = Command::new(env!("CARGO_BIN_EXE_wb"))
@@ -693,7 +693,7 @@ fn test_WB_VIEW_31_view_writes_nothing_in_the_repository_or_the_state_folder_and
     assert_eq!(bench.left("network"), "");
 }
 
-// ---- WB-VIEW-85 to 87: no accepted, committed file, and the breakdown (#202) ----
+// ---- WB-VIEW-85 to 87: no accepted, committed file, and the planner (#202) ----
 
 #[test]
 fn test_WB_VIEW_86_an_issue_with_no_file_ends_with_1_saying_the_role_would_run_in_a_view_of_the_whole_tree() {
@@ -727,9 +727,9 @@ fn test_WB_VIEW_87_an_issue_s_file_not_accepted_or_not_committed_ends_with_1() {
 }
 
 #[test]
-fn test_WB_VIEW_85_the_breakdown_runs_in_a_writable_view_of_the_whole_tree_with_watchbill_read_only_but_its_issues_folder() {
+fn test_WB_VIEW_85_the_planner_runs_in_a_writable_view_of_the_whole_tree_with_watchbill_read_only_but_its_issues_folder() {
     let bench = bench();
-    let run = bench.view(&["54", "breakdown"]);
+    let run = bench.view(&["54", "planner"]);
 
     assert_eq!(code(&run), Some(1));
     assert_eq!(text(&run.stdout), "");

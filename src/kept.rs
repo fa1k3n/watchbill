@@ -296,6 +296,31 @@ fn kept_all(root: &str, state: &Path, issue: Option<&str>, look: bool) -> Vec<Ke
     found
 }
 
+/// The roles whose work comes back as commits (#300): a round of another role is held to no commit.
+pub const COMMIT_ROLES: [&str; 3] = ["tester", "build", "fix"];
+
+/// The rounds of `issue` that are known to have brought nothing back (#300): of a role of `COMMIT_ROLES`, each of
+/// whose starts on this machine ended, has a file `back` that can be read, and has no line `taken:` in it, however
+/// many takes-back it holds. A round with a start that runs, with none that left a `back`, or with no start at all
+/// is not known to have brought nothing. Each round once, oldest first, as its role and its number.
+pub fn empty_rounds(state: &Path, issue: &str) -> Vec<(String, u64)> {
+    let mut rounds: Vec<(String, u64, bool)> = Vec::new();
+    for session in sessions(state, Some(issue)) {
+        let Some(number) = session.round.as_deref().and_then(|round| round.parse::<u64>().ok()) else { continue };
+        if !COMMIT_ROLES.contains(&session.role.as_str()) {
+            continue;
+        }
+        // Only a start that ended and left a `back` without a commit taken speaks for its round.
+        let empty = session.running().is_none() && small(&session.folder.join("back")).is_some_and(|back| !back.lines().any(|line| line.starts_with("taken: ")));
+        match rounds.iter_mut().find(|(role, round, _)| *role == session.role && *round == number) {
+            Some(found) => found.2 &= empty,
+            None => rounds.push((session.role.clone(), number, empty)),
+        }
+    }
+    rounds.reverse();
+    rounds.into_iter().filter(|round| round.2).map(|(role, number, _)| (role, number)).collect()
+}
+
 /// A session of an issue that was cut off: its `outcome` says `running` and its `wb` is not alive.
 pub struct CutOff {
     pub role: String,
@@ -319,8 +344,19 @@ impl Kept {
 
     /// The line of `wb status`.
     pub fn line(&self) -> String {
-        let mut parts = vec![format!("kept: {} round {}", self.role, self.round)];
+        format!("kept: {} round {}, {}", self.role, self.round, self.holds(true))
+    }
+
+    /// The same without the role and the round, and with no count of commits where none was not taken (#300).
+    pub fn detail(&self) -> String {
+        self.holds(false)
+    }
+
+    /// What the view holds and where it is, as the line of `wb status` says it after the role and the round.
+    fn holds(&self, zero: bool) -> String {
+        let mut parts = Vec::new();
         match (self.count(), &self.unread) {
+            (0, None) if !zero => {}
             (_, Some(why)) => parts.push(format!("not read: {}", why)),
             (1, None) => parts.push("1 commit not taken".to_string()),
             (n, None) if self.more > 0 => parts.push(format!("{} commits not taken and {} more", n, self.more)),

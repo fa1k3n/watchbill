@@ -142,7 +142,7 @@ pub fn code(run: &Output) -> Option<i32> {
     run.status.code()
 }
 
-/// An issue's file with no requirement, as a breakdown might leave it.
+/// An issue's file with no requirement, as a planner might leave it.
 pub const BARE_ISSUE: &str = "issue: '{issue}'
 from: 3f0c1d9e
 requirements: []
@@ -271,7 +271,7 @@ pub fn start_in(folder: &Path, organisation: &Path, terminal: bool, state: Optio
     Output { status: std::process::ExitStatus::from_raw(status << 8), stdout: out, stderr: err }
 }
 
-/// An organisation's file that clears the runner `claude-code` for the breakdown up to `public`.
+/// An organisation's file that clears the runner `claude-code` for the planner up to `public`.
 pub const ORGANISATION: &str = "levels: [public, internal, confidential]
 runners:
   claude-code:
@@ -279,14 +279,14 @@ runners:
     model: Anthropic, under the organisation's agreement
     agreement: EU, no retention, no training
     up_to: internal
-    breakdown:
+    planner:
       up_to: public
       model: claude-opus-5-5
       effort: high
 ";
 
 /// Writes `ORGANISATION` in a folder of its own, and gives `.watchbill/watchbill.yml` of the repository
-/// the level `public`, so that the breakdown is handed out to `claude-code`. The folder is kept by the caller.
+/// the level `public`, so that the planner is handed out to `claude-code`. The folder is kept by the caller.
 pub fn cleared(repository: &Path) -> (Folder, PathBuf) {
     let place = folder_named("organisation");
     let path = place.path.join("organisation.yml");

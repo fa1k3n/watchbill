@@ -37,8 +37,8 @@ added_requirement_goes_to: [tester, build]
 # For each role: the step and what it produces, what it may read, what it may do,
 # the roles the same team member may not also hold on one change, and the prompt file.
 roles:
-  breakdown:
-    step: Read the issue and the code, and write the issue's file. The breakdown comes before the tester. No other role of the issue is started until a person has accepted the issue's file.
+  planner:
+    step: Read the issue and the code, and write the issue's file. The planner comes before the tester. No other role of the issue is started until a person has accepted the issue's file.
     produces: The issue's file, committed alone on the branch of the issue, with what the issue leaves open under its questions and not answered.
     reads:
       - The issue with its comments, the answers of a person among them.
@@ -50,7 +50,7 @@ roles:
       - Commit the issue's file alone on the branch of the issue.
       - Post its questions on the issue, in one comment per session.
     may_not_also_hold: [tester, build, review, fix, officer]
-    prompt: roles/breakdown.md
+    prompt: roles/planner.md
 
   tester:
     step: Write the tests from the requirement, before the code exists.
@@ -64,7 +64,7 @@ roles:
       - Commit the tests.
       - Run the tests against a stand-in that gives a wrong answer, in a scratch copy it never commits.
       - Post its questions on the issue, in one comment per session.
-    may_not_also_hold: [breakdown, build, review, fix, officer]
+    may_not_also_hold: [planner, build, review, fix, officer]
     prompt: roles/tester.md
 
   build:
@@ -80,7 +80,7 @@ roles:
       - Run the checks of the project.
       - Commit its work on the branch of the issue.
       - Post its questions on the issue, in one comment per session.
-    may_not_also_hold: [breakdown, tester, review, fix, officer]
+    may_not_also_hold: [planner, tester, review, fix, officer]
     prompt: roles/build.md
 
   review:
@@ -97,7 +97,7 @@ roles:
       - Break the code in a scratch copy it never commits, to see a test fail on its own.
       - Post its findings on the change.
       - Post its questions on the issue, in one comment per session.
-    may_not_also_hold: [breakdown, tester, build, fix, officer]
+    may_not_also_hold: [planner, tester, build, fix, officer]
     prompt: roles/review.md
 
   fix:
@@ -112,7 +112,7 @@ roles:
       - Add a test beside a weak one, written first.
       - Post its answers on the change.
       - Post its questions on the issue, in one comment per session.
-    may_not_also_hold: [breakdown, tester, build, review, officer]
+    may_not_also_hold: [planner, tester, build, review, officer]
     prompt: roles/fix.md
 
   officer:
@@ -124,5 +124,5 @@ roles:
     may:
       - Propose a handover to the program.
       - Assign an issue through its own account, once the program has checked the handover.
-    may_not_also_hold: [breakdown, tester, build, review, fix]
+    may_not_also_hold: [planner, tester, build, review, fix]
     prompt: none

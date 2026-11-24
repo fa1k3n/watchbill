@@ -1,5 +1,5 @@
 //! Confidentiality (`docs/revision.md`, point 11): the organisation's file, the level of a repository,
-//! and whether a runner is cleared for the breakdown of a repository at its level (#93).
+//! and whether a runner is cleared for the planner of a repository at its level (#93).
 //!
 //! The organisation's file is read from one path, fixed in `wb`. No option and no environment variable
 //! changes it: a team cannot clear a runner for itself. A test gives its own path to `crate::prompt`.
@@ -12,16 +12,16 @@ use crate::yamlfile::{self, Document, Part, YamlError};
 /// The organisation's file. It is laid out by the organisation's own means, outside every repository.
 pub const ORGANISATION_FILE: &str = "/etc/watchbill/organisation.yml";
 
-const RUNNER_FIELDS: [&str; 7] = ["tools", "model", "agreement", "up_to", "breakdown", "start", "binds"];
+const RUNNER_FIELDS: [&str; 7] = ["tools", "model", "agreement", "up_to", "planner", "start", "binds"];
 const RUNNER_NEEDS: [&str; 4] = ["tools", "model", "agreement", "up_to"];
-const BREAKDOWN_FIELDS: [&str; 3] = ["up_to", "model", "effort"];
+const PLANNER_FIELDS: [&str; 3] = ["up_to", "model", "effort"];
 
 /// The placeholders of a runner's `start` (#84): what `wb start <role>` fills in each word.
 pub const START_PLACEHOLDERS: [&str; 3] = ["model", "effort", "prompt"];
 
-/// What a runner is cleared for in the breakdown: the highest level and the model and effort it runs with.
+/// What a runner is cleared for in the planner: the highest level and the model and effort it runs with.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Breakdown {
+pub struct Planner {
     pub up_to: String,
     pub model: String,
     pub effort: String,
@@ -35,7 +35,7 @@ pub struct Runner {
     pub model: String,
     pub agreement: String,
     pub up_to: String,
-    pub breakdown: Option<Breakdown>,
+    pub planner: Option<Planner>,
     /// The command that starts a session on this runner, as a list of words with `{model}`, `{effort}` and
     /// `{prompt}` to fill (#84). `None` when the runner has none: `wb start <role>` then starts nothing on it.
     pub start: Option<Vec<String>>,
@@ -100,18 +100,18 @@ fn read_runner(doc: &Document, name: &str, levels: &[String]) -> Result<Runner, 
     let model = doc.text(&with(&place, "model"))?;
     let agreement = doc.text(&with(&place, "agreement"))?;
     let up_to = level(doc, &with(&place, "up_to"), levels)?;
-    let mut breakdown = None;
-    let inner = with(&place, "breakdown");
+    let mut planner = None;
+    let inner = with(&place, "planner");
     if doc.has(&inner) {
-        doc.only(&inner, &BREAKDOWN_FIELDS)?;
-        doc.need(&inner, &BREAKDOWN_FIELDS)?;
+        doc.only(&inner, &PLANNER_FIELDS)?;
+        doc.need(&inner, &PLANNER_FIELDS)?;
         let cleared = level(doc, &with(&inner, "up_to"), levels)?;
         let rank = |name: &str| levels.iter().position(|level| level == name);
         if rank(&cleared) > rank(&up_to) {
             return Err(doc.fail(
                 &with(&inner, "up_to"),
                 &format!(
-                    "the breakdown is cleared up to `{}`, above `{}`, the highest level the runner may be given at all",
+                    "the planner is cleared up to `{}`, above `{}`, the highest level the runner may be given at all",
                     cleared, up_to
                 ),
                 false,
@@ -136,7 +136,7 @@ fn read_runner(doc: &Document, name: &str, levels: &[String]) -> Result<Runner, 
                 false,
             ));
         }
-        breakdown = Some(Breakdown { up_to: cleared, model, effort });
+        planner = Some(Planner { up_to: cleared, model, effort });
     }
     let mut start = None;
     let words = with(&place, "start");
@@ -148,7 +148,7 @@ fn read_runner(doc: &Document, name: &str, levels: &[String]) -> Result<Runner, 
     if doc.has(&list) {
         binds = read_binds(doc, &list)?;
     }
-    Ok(Runner { name: name.to_string(), tools, model, agreement, up_to, breakdown, start, binds })
+    Ok(Runner { name: name.to_string(), tools, model, agreement, up_to, planner, start, binds })
 }
 
 /// A runner's `binds` (#126): a list, each a path, read-only, or `{writable: <path>}`. A path starts with `/`,
@@ -313,7 +313,7 @@ pub fn repository_level(root: &Path, organisation: &Organisation) -> Result<Stri
     Ok(level)
 }
 
-/// What the breakdown is handed out with: the level in force, and the model and effort of the runner's breakdown.
+/// What the planner is handed out with: the level in force, and the model and effort of the runner's planner.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cleared {
     pub level: String,
@@ -321,10 +321,10 @@ pub struct Cleared {
     pub effort: String,
 }
 
-/// Whether `runner` is cleared for the breakdown of the repository at `root`, by the organisation's file at
-/// `organisation`: the file is there, names the runner, the runner has `breakdown`, and the repository's
-/// level is no higher than the breakdown's `up_to`. The refusal names the file, the runner, or both levels.
-pub fn clear_breakdown(organisation: &Path, root: &Path, runner: &str) -> Result<Cleared, String> {
+/// Whether `runner` is cleared for the planner of the repository at `root`, by the organisation's file at
+/// `organisation`: the file is there, names the runner, the runner has `planner`, and the repository's
+/// level is no higher than the planner's `up_to`. The refusal names the file, the runner, or both levels.
+pub fn clear_planner(organisation: &Path, root: &Path, runner: &str) -> Result<Cleared, String> {
     let found = read(organisation)?;
     let level = repository_level(root, &found)?;
     let shown = organisation.display();
@@ -333,17 +333,17 @@ pub fn clear_breakdown(organisation: &Path, root: &Path, runner: &str) -> Result
         let have = if names.is_empty() { "It names none.".to_string() } else { format!("Its runners are: {}.", names.join(", ")) };
         return Err(format!("the organisation's file {} names no runner '{}'. {}", shown, runner.escape_debug(), have));
     };
-    let Some(breakdown) = &named.breakdown else {
+    let Some(planner) = &named.planner else {
         return Err(format!(
-            "the runner '{}' is not cleared for the breakdown: it has no `breakdown` in the organisation's file {}. No prompt is handed out.",
+            "the runner '{}' is not cleared for the planner: it has no `planner` in the organisation's file {}. No prompt is handed out.",
             runner, shown
         ));
     };
-    if found.rank(&level) > found.rank(&breakdown.up_to) {
+    if found.rank(&level) > found.rank(&planner.up_to) {
         return Err(format!(
-            "the repository's level is `{}`, and the organisation's file {} clears the runner '{}' for the breakdown up to `{}` only. No prompt is handed out.",
-            level, shown, runner, breakdown.up_to
+            "the repository's level is `{}`, and the organisation's file {} clears the runner '{}' for the planner up to `{}` only. No prompt is handed out.",
+            level, shown, runner, planner.up_to
         ));
     }
-    Ok(Cleared { level, model: breakdown.model.clone(), effort: breakdown.effort.clone() })
+    Ok(Cleared { level, model: planner.model.clone(), effort: planner.effort.clone() })
 }

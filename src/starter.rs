@@ -15,7 +15,7 @@ use std::process::{Command, Stdio};
 use crate::yamlfile::{self, Part};
 
 /// The roles whose stamps count the rounds of their own role. The fix counts the review's.
-const ROUNDS_OF_THEIR_OWN: [&str; 4] = ["breakdown", "tester", "build", "review"];
+const ROUNDS_OF_THEIR_OWN: [&str; 4] = ["planner", "tester", "build", "review"];
 
 /// The longest word, with its closing zero byte, that Linux hands a program (`MAX_ARG_STRLEN`).
 pub const LONGEST_WORD: usize = 128 * 1024;
@@ -320,15 +320,15 @@ fn role_and_round(start: &str, line: &str) -> Option<(String, u64)> {
 }
 
 /// Which of the lines of `text` are taken back (#142), one flag to a line: see `counted`. A marker is not
-/// taken back itself in this list: it is what took the others back. A `[revert] breakdown` counts for nothing:
-/// the breakdown is taken back with git, and `wb revert` refuses it, so one posted by hand is not read.
+/// taken back itself in this list: it is what took the others back. A `[revert] planner` counts for nothing:
+/// the planner is taken back with git, and `wb revert` refuses it, so one posted by hand is not read.
 pub fn taken_back(text: &str) -> Vec<bool> {
     let lines: Vec<&str> = text.lines().map(|line| line.trim_end_matches('\r')).collect();
     let mut kept: Vec<usize> = Vec::new();
     let mut gone = vec![false; lines.len()];
     for (at, line) in lines.iter().enumerate() {
         match role_and_round("[revert] ", line) {
-            Some((role, n)) if role != "breakdown" => {
+            Some((role, n)) if role != "planner" => {
                 if let Some(held) = kept.iter().rposition(|held| role_and_round("[stamp] ", lines[*held]) == Some((role.clone(), n))) {
                     for dropped in kept.drain(held..) {
                         gone[dropped] = true;
@@ -344,14 +344,14 @@ pub fn taken_back(text: &str) -> Vec<bool> {
 /// The first lines of comments that still count (#142), one to a line. A line `[revert] <role> round <n>` takes
 /// back the last `[stamp] <role> round <n>` before it and every line after that stamp, up to the marker: stamps,
 /// questions and answers, whatever their role. The marker goes too. A marker with no such stamp before it counts
-/// for nothing. A marker is read only as the whole of a first line, as a stamp is. A marker of the breakdown is
+/// for nothing. A marker is read only as the whole of a first line, as a stamp is. A marker of the planner is
 /// not read (`taken_back`).
 pub fn counted(text: &str) -> Vec<String> {
     let gone = taken_back(text);
     text.lines()
         .map(|line| line.trim_end_matches('\r'))
         .zip(gone)
-        .filter(|(line, gone)| !gone && role_and_round("[revert] ", line).map_or(true, |(role, _)| role == "breakdown"))
+        .filter(|(line, gone)| !gone && role_and_round("[revert] ", line).map_or(true, |(role, _)| role == "planner"))
         .map(|(line, _)| line.to_string())
         .collect()
 }
@@ -380,7 +380,7 @@ impl Ci {
             Ci::Green => None,
             Ci::Pending => Some(format!("the CI of change {} is pending: wait for it to end, then start the review again.", change)),
             Ci::Red => Some(format!(
-                "the CI of change {} is red, so no review is started: the change goes to a person. The CI builds the whole tree and runs every test after a change built in a view, so the lists or the stubs of the breakdown may be wrong.",
+                "the CI of change {} is red, so no review is started: the change goes to a person. The CI builds the whole tree and runs every test after a change built in a view, so the lists or the stubs of the planner may be wrong.",
                 change
             )),
         }

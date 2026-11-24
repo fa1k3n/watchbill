@@ -1,11 +1,11 @@
-//! The breakdown reads its issue without a login (#295). Its session runs in a sandbox with no login to the tracker
+//! The planner reads its issue without a login (#295). Its session runs in a sandbox with no login to the tracker
 //! (#202), so `wb` reads the issue for it, as the person and outside the sandbox, and brings it into the view; after
-//! the session `wb` posts the breakdown's questions from the issue's file that came back.
+//! the session `wb` posts the planner's questions from the issue's file that came back.
 //!
 //! - **The issue's text** is what `issue_text` prints, the issue's text alone, whole and byte for byte:
 //!   `.watchbill/issue/<issue>.md`. Nothing is cut from it (the second look at #297): no rule can tell the end of an
 //!   issue's text from a tracker's lines around a comment. Its SHA-256 goes in the stamp, as
-//!   `issue_text:`, and the breakdown writes it under `from`.
+//!   `issue_text:`, and the planner writes it under `from`.
 //! - **Its questions and answers** are the comments whose first line is `[questions] <issue>` or `[answers] <issue>`,
 //!   or a form of revision 0.0.8, whole and in order: `.watchbill/issue/<issue>.questions`. A stamp and any other
 //!   comment are not brought in.
@@ -25,7 +25,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{answer, bounded, prompt, starter};
 
-/// Where `wb` brings the issue into the breakdown's view, from its root.
+/// Where `wb` brings the issue into the planner's view, from its root.
 pub const FOLDER: &str = ".watchbill/issue";
 
 /// What was brought in: the SHA-256 of the issue's text, for the stamp.
@@ -39,18 +39,18 @@ fn pattern(root: &str, key: &str) -> Result<String, String> {
     match prompt::pattern_of(root, key) {
         Ok(Some(line)) => Ok(line),
         Ok(None) if key == "issue_text" => Err(
-            "watchbill.yml has no `issue_text`, the pattern that prints the issue's text alone, and the breakdown's session has no login: wb reads the issue for it. `wb upgrade` adds the line `issue_text`; or add it by hand (see the README)"
+            "watchbill.yml has no `issue_text`, the pattern that prints the issue's text alone, and the planner's session has no login: wb reads the issue for it. `wb upgrade` adds the line `issue_text`; or add it by hand (see the README)"
                 .to_string(),
         ),
         Ok(None) => Err(format!(
-            "watchbill.yml has no `{}`, and the breakdown's session has no login: wb reads the issue for it by `issue_text` and `issue_comment_bodies`. Add the line (see the README)",
+            "watchbill.yml has no `{}`, and the planner's session has no login: wb reads the issue for it by `issue_text` and `issue_comment_bodies`. Add the line (see the README)",
             key
         )),
         Err(why) => Err(why.to_string()),
     }
 }
 
-/// Whether the first line of a comment is a question or an answer of the breakdown of `issue`: `[questions] <issue>`
+/// Whether the first line of a comment is a question or an answer of the planner of `issue`: `[questions] <issue>`
 /// or `[answers] <issue>` with the names after it, or `[question] <issue>.q<n>`, `[answer] <issue>.q<n>` and
 /// `[answer] <issue> suggested` of revision 0.0.8.
 fn asked_or_answered(issue: &str, first: &str) -> bool {
@@ -85,7 +85,7 @@ pub fn bring_in(root: &str, issue: &str, view: &Path) -> Result<Brought, String>
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         _ => {
             return Err(format!(
-                "HEAD holds {}, and that is where wb brings the issue into the breakdown's view. Take it out of the branch",
+                "HEAD holds {}, and that is where wb brings the issue into the planner's view. Take it out of the branch",
                 FOLDER
             ))
         }
@@ -198,7 +198,7 @@ fn file_in(root: &str, commit: &str, issue: &str) -> Result<Vec<u8>, String> {
 }
 
 /// Posts the questions of the issue's file of `issue`, as `commit` holds it, the last commit taken back from the
-/// breakdown's view, that the issue does not hold yet (#295): by `issue_comment`, after it is said on `err`. A file
+/// planner's view, that the issue does not hold yet (#295): by `issue_comment`, after it is said on `err`. A file
 /// with no new question posts nothing. The error says why nothing was posted; it holds nothing raw.
 pub fn post_questions(name: &str, root: &str, issue: &str, commit: &str, err: &mut dyn Write) -> Result<(), String> {
     let path = Path::new(root).join(crate::issue::FOLDER).join(format!("{}.yml", issue));
@@ -240,11 +240,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_WB_BUILD_136_only_the_breakdown_s_questions_and_answers_of_the_issue_are_kept() {
-        for first in ["[questions] 54 q1", "[answers] 54 q1>breakdown", "[question] 54.q3", "[answer] 54.q3 2", "[answer] 54 suggested"] {
+    fn test_WB_BUILD_136_only_the_planner_s_questions_and_answers_of_the_issue_are_kept() {
+        for first in ["[questions] 54 q1", "[answers] 54 q1>planner", "[question] 54.q3", "[answer] 54.q3 2", "[answer] 54 suggested"] {
             assert!(asked_or_answered("54", first), "{}", first);
         }
-        for first in ["[stamp] breakdown round 1", "[questions] 54.tester q1", "[answers] 541 q1", "[question] 54.tester.q1", "[questions] 5 q1", "Thanks"] {
+        for first in ["[stamp] planner round 1", "[questions] 54.tester q1", "[answers] 541 q1", "[question] 54.tester.q1", "[questions] 5 q1", "Thanks"] {
             assert!(!asked_or_answered("54", first), "{}", first);
         }
     }

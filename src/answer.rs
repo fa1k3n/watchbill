@@ -2,7 +2,7 @@
 //! answers posted in one comment per role.
 //!
 //! - **A question** is asked in one comment per session, whose first line is `[questions] <issue>.<role> q1 q2 …`
-//!   (`[questions] <issue> …` for the breakdown, whose questions are `<issue>.q<n>`, #95). Each question is then
+//!   (`[questions] <issue> …` for the planner, whose questions are `<issue>.q<n>`, #95). Each question is then
 //!   a line `q<n>: <what is unclear>`, with the rest below it: why it matters, the choices numbered from 1, a line
 //!   `Suggested: …` and a line `changes the issue's file: yes` or `no`. A question of revision 0.0.8 is a comment
 //!   of its own whose first line is `[question] <name>`, and is read the same way.
@@ -12,7 +12,7 @@
 //!   and the first line of an answer names it after each question: `[answers] 54.build q3>tester q4>person`. An answer
 //!   in words, or a choice with no role, asks which role acts (the asking role by Enter); a pair and `--suggested`
 //!   take the role of the choice, and the asking role where it has none. The file is said to be changed only for
-//!   `person` (to a question of the breakdown, with the message of the breakdown); a question whose choices name no role (0.10.0 and before) is answered with no role, and its line
+//!   `person` (to a question of the planner, with the message of the planner); a question whose choices name no role (0.10.0 and before) is answered with no role, and its line
 //!   `changes the issue's file:` is read as before. The first lines of 0.10.0, `q3` alone, close and name no role.
 //! - **Which count:** `open_names` decides from first lines alone, so that `wb status` and `wb answer` agree. What a
 //!   `[revert]` marker took back counts for nothing (`starter::taken_back`).
@@ -55,7 +55,7 @@ pub enum Suggestion {
 /// A question as it stands on the issue.
 #[derive(Clone, Debug)]
 pub struct Question {
-    /// The part of its name before `q<n>`: `<issue>` for the breakdown, `<issue>.<role>` for the others.
+    /// The part of its name before `q<n>`: `<issue>` for the planner, `<issue>.<role>` for the others.
     pub prefix: String,
     pub number: u64,
     /// What is unclear, from its line `q<n>: …`; empty for a question of revision 0.0.8.
@@ -84,14 +84,14 @@ impl Question {
         !self.roles.is_empty() || self.comment_roled
     }
 
-    /// Its role, or `breakdown` for a name with no role.
+    /// Its role, or `planner` for a name with no role.
     pub fn role(&self) -> String {
-        self.prefix.split_once('.').map_or("breakdown".to_string(), |(_, role)| role.to_string())
+        self.prefix.split_once('.').map_or("planner".to_string(), |(_, role)| role.to_string())
     }
 }
 
 /// The roles of the revision, and `person` for a person's own step (#226).
-const ROLES: [&str; 6] = ["breakdown", "tester", "build", "review", "fix", "person"];
+const ROLES: [&str; 6] = ["planner", "tester", "build", "review", "fix", "person"];
 
 /// The role in brackets that starts the text of a choice: `(tester) Narrow it.`
 fn role_of_choice(text: &str) -> Option<String> {
@@ -458,12 +458,12 @@ fn show(question: &Question, at: usize, of: usize) -> String {
     text
 }
 
-/// The whole name a word gives a question: `tester.q1`, `q1` or `breakdown.q1` for the breakdown, or the whole name.
+/// The whole name a word gives a question: `tester.q1`, `q1` or `planner.q1` for the planner, or the whole name.
 /// It looks at no comment, so that two words for one question are known before anything is read.
 pub fn whole_name(on: &str, word: &str) -> String {
     if word.starts_with(&format!("{}.", on)) && split_name(on, word).is_some() {
         word.to_string()
-    } else if let Some(rest) = word.strip_prefix("breakdown.") {
+    } else if let Some(rest) = word.strip_prefix("planner.") {
         format!("{}.{}", on, rest)
     } else {
         format!("{}.{}", on, word)
@@ -662,8 +662,8 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
                 changing.join(", "),
                 value
             ),
-            (On::Issue(_), "breakdown") => format!(
-                "the answer to {} changes the issue's file: start `wb start breakdown {}` again to fold it into {}, and accept the file with `wb accept {}`. wb answer does not change the file.",
+            (On::Issue(_), "planner") => format!(
+                "the answer to {} changes the issue's file: start `wb start planner {}` again to fold it into {}, and accept the file with `wb accept {}`. wb answer does not change the file.",
                 changing.join(", "),
                 value,
                 file,

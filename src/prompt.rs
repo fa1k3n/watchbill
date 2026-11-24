@@ -430,7 +430,7 @@ pub fn require_role(root: &Path, role: &str) -> Result<(), PromptError> {
     refuse(format!("the revision has no role '{}'. Its roles are: {}", role, names.join(", ")))
 }
 
-/// The text `requirements` has until the breakdown of an issue gives the IDs (#64).
+/// The text `requirements` has until the planner of an issue gives the IDs (#64).
 fn default_requirements(issue: &str) -> String {
     format!("the numbered requirements of issue {}", issue)
 }
@@ -540,7 +540,7 @@ impl From<PromptError> for Derive {
 /// The values a prompt gets without being given them (#72), added to those given after them: a value
 /// given is never replaced. From the repository root come `checkout` and, with the patterns of
 /// `watchbill.yml` (read through the loader), the addresses and the branch. `requirements` has its
-/// default text. The breakdown takes the branch from the pattern, as it makes the branch; any other
+/// default text. The planner takes the branch from the pattern, as it makes the branch; any other
 /// role takes the one local branch that starts with it and a `-`, or is the pattern. None, or more
 /// than one, is refused with the names found. A review or a fix of a change with no issue (#116) takes
 /// the branch checked out, when it can be the change's, and is used wrongly otherwise.
@@ -663,7 +663,7 @@ pub fn derive_with(
         if let Some(found) = pattern("branch")? {
             plain("issue", issue)?;
             let start = found.replace("{issue}", issue);
-            if role == "breakdown" {
+            if role == "planner" {
                 values.push(("branch", start));
             } else {
                 let names: Vec<String> = local_branches(root)?
@@ -900,7 +900,7 @@ pub struct Stamp<'a> {
 }
 
 /// `stamp` with the line `issue_text: <hash>` before its parts (#295): the SHA-256 of the issue's text that
-/// `wb start breakdown` brought into the view.
+/// `wb start planner` brought into the view.
 pub fn with_issue_text(stamp: &str, hash: &str) -> String {
     let line = format!("issue_text: {}\n", hash);
     match stamp.find("\npart: ") {

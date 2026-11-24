@@ -235,6 +235,14 @@ fn kept_of(root: &str, state: &Path, session: &Session, look: bool) -> Option<Ke
                             }
                         }
                         more = left.more;
+                        // The paths the view holds now, beside those `back` names (#176): one written after a take-back
+                        // is named by no line of `back`.
+                        for path in &left.uncommitted {
+                            let path = crate::issue::shown(path);
+                            if !uncommitted.contains(&path) {
+                                uncommitted.push(path);
+                            }
+                        }
                     }
                     // Not read: what `back` names stays, and nothing is said of what the view may hold besides.
                     Err(why) => unread = Some(crate::issue::shown(&why)),
@@ -344,6 +352,9 @@ pub struct Entry {
     /// Whether the view was read: the lines of its start name it, and what it holds was read.
     pub read: bool,
 }
+
+/// The most commits and the most paths that a named removal says.
+const MOST_SAID: usize = 20;
 
 /// The lines of `back` as words: why the view was kept.
 fn why_of(session: &Session, back: Option<&str>, work: bool) -> String {
@@ -476,12 +487,46 @@ impl Entry {
         String::new()
     }
 
-    /// The lines of `wb view --kept` for the view.
-    pub fn lines(&self) -> Vec<String> {
-        let mut lines = vec![
-            format!("{}: {} round {}, issue {}", crate::issue::shown(&self.folder.display().to_string()), crate::issue::shown(&self.role), self.round, self.issue),
-            format!("  why: {}", self.why),
-        ];
+    /// The line of `wb view --kept` for the view, one to a line: the folder, the role, the round, the issue, and how
+    /// many commits are not taken and how many paths are uncommitted, or `not read`. The words are fixed, so that a
+    /// script can read them.
+    pub fn line(&self) -> String {
+        let head = format!("{} {} round {} issue {}", crate::issue::shown(&self.folder.display().to_string()), crate::issue::shown(&self.role), self.round, self.issue);
+        let (commits, paths) = match &self.work {
+            Some(kept) if kept.unread.is_some() => return format!("{} not read", head),
+            Some(kept) => (kept.commits.len() + kept.more, kept.uncommitted.len()),
+            None if !self.read => return format!("{} not read", head),
+            None => (0, 0),
+        };
+        format!("{} {} commits not taken {} paths uncommitted", head, commits, paths)
+    }
+
+    /// What `wb clean` says of what a named removal loses, below the line `Removing <folder>`: each commit with its
+    /// short name and subject, and each path, 20 of each at most, then `and <k> more commits` or `and <k> more paths`.
+    pub fn lost(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        let Some(kept) = &self.work else { return lines };
+        for (commit, subject) in kept.commits.iter().take(MOST_SAID) {
+            lines.push(format!("  commit {} {}", commit, crate::issue::shown(subject)));
+        }
+        let more = (kept.commits.len() + kept.more).saturating_sub(MOST_SAID);
+        if more > 0 {
+            lines.push(format!("  and {} more commits", more));
+        }
+        for path in kept.uncommitted.iter().take(MOST_SAID) {
+            lines.push(format!("  uncommitted {}", path));
+        }
+        let more = kept.uncommitted.len().saturating_sub(MOST_SAID);
+        if more > 0 {
+            lines.push(format!("  and {} more paths", more));
+        }
+        lines
+    }
+
+    /// The lines that `wb view --kept -v` adds below the line of the view: why it was kept, each commit not taken (the
+    /// first 200, then `and <k> more`), each path left uncommitted, and why it was not read.
+    pub fn details(&self) -> Vec<String> {
+        let mut lines = vec![format!("  why: {}", self.why)];
         if let Some(kept) = &self.work {
             for (commit, subject) in &kept.commits {
                 lines.push(format!("  commit {} {}", commit, crate::issue::shown(subject)));

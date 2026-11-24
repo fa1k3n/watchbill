@@ -197,10 +197,11 @@ const USAGE: &str = "usage:
             roles of the pinned revision that start starts, one to a line and
             nothing else. With -v (--verbose) each line adds whether the role
             runs in a view or in the whole tree, and whether the
-            organisation's file clears a runner for it. --show-origin prints as
-            prompt does. Ends with
-            the session: 0 when it ended with 0, else 1; 1 when it is refused,
-            2 when it was used wrongly or the repository is not set up
+            organisation's file clears a runner for it, for the planner a
+            runner with start and planner up to the level of the repository.
+            --show-origin prints as prompt does. Ends with the session: 0 when
+            it ended with 0, else 1; 1 when it is refused, 2 when it was used
+            wrongly or the repository is not set up
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes nothing
   compare   say what changed between two revisions, each named by its version

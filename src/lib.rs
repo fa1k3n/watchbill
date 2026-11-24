@@ -224,10 +224,11 @@ pub const USAGE: &str = "usage:
             roles of the pinned revision that start starts, one to a line and
             nothing else. With -v (--verbose) each line adds whether the role
             runs in a view or in the whole tree, and whether the
-            organisation's file clears a runner for it. --show-origin prints as
-            prompt does. Ends with
-            the session: 0 when it ended with 0, else 1; 1 when it is refused,
-            2 when it was used wrongly or the repository is not set up
+            organisation's file clears a runner for it, for the planner a
+            runner with start and planner up to the level of the repository.
+            --show-origin prints as prompt does. Ends with the session: 0 when
+            it ended with 0, else 1; 1 when it is refused, 2 when it was used
+            wrongly or the repository is not set up
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes nothing
   compare   say what changed between two revisions, each named by its version
@@ -745,8 +746,8 @@ fn run_start_word(parser: &mut Parser, folder: Option<&Path>, machine: &Machine,
 /// `wb start --list [-v | --verbose]` (#291): the roles of the pinned revision that `wb start` starts a session of,
 /// in the order of `STARTED`, one to a line and nothing else. With `-v` each line holds two words more: whether the
 /// role runs in a view of its lists (`view`) or of the whole tree (`tree`, #202), and whether the organisation's file
-/// clears a runner for it (`cleared`, else `not-cleared`): for the planner a runner with `planner` up to the level of
-/// the repository, for the others a runner with `start`. It reads the manifest and the organisation's file, writes
+/// clears a runner for it (`cleared`, else `not-cleared`): for the planner one runner with both `start` and `planner`
+/// up to the level of the repository, as `wb start planner` needs, for the others a runner with `start`. It reads the manifest and the organisation's file, writes
 /// nothing and asks nothing of the network. `given` is what the first word was: (`--list`, `--verbose`).
 fn run_list(given: (bool, bool), parser: &mut Parser, folder: Option<&Path>, machine: &Machine, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let name = "wb start";
@@ -813,7 +814,10 @@ fn run_list(given: (bool, bool), parser: &mut Parser, folder: Option<&Path>, mac
         let view = if issue::ROLES.contains(&role) { "view" } else { "tree" };
         let cleared = organisation.as_ref().is_some_and(|found| {
             found.runners.iter().any(|runner| match (role, &runner.planner, &level) {
-                ("planner", Some(planner), Some(level)) => matches!((found.rank(level), found.rank(&planner.up_to)), (Some(held), Some(up_to)) if held <= up_to),
+                // A session of the planner needs one runner that has `start` and is cleared for it up to the level.
+                ("planner", Some(planner), Some(level)) => {
+                    runner.start.is_some() && matches!((found.rank(level), found.rank(&planner.up_to)), (Some(held), Some(up_to)) if held <= up_to)
+                }
                 ("planner", _, _) => false,
                 _ => runner.start.is_some(),
             })
@@ -1363,22 +1367,22 @@ fn placeholder_source(name: &str, words: &Words, handed: &Handed) -> String {
     if prompt::NAMED_BY_WB.contains(&name) {
         return "named by wb".to_string();
     }
-    let given = value_of(&handed.values, name);
     match name {
         "checkout" => "the root of the repository".to_string(),
         "requirements" => match &handed.file {
             Some(file) => format!("the issue's file {}", file.path),
             None => "the default text, as no issue's file is used".to_string(),
         },
-        "issue_address" | "change_address" if given.is_none() => "none, as the change has no issue".to_string(),
+        "issue" | "issue_address" if words.alone() => "none: the change has no issue".to_string(),
         "issue_address" | "change_address" => format!("the pattern {} of watchbill.yml (HEAD)", name),
         "branch" if words.alone() => "the branch checked out".to_string(),
+        "branch" if words.role == "planner" => "the pattern branch of watchbill.yml (HEAD)".to_string(),
         "branch" => "the pattern branch of watchbill.yml (HEAD) and the branches of the repository".to_string(),
         "round" => "worked out from the comments on the issue or the change".to_string(),
         "change" => "worked out from the branch of the issue".to_string(),
         "classed" => "classed: of watchbill.yml (HEAD)".to_string(),
         "classed_touched" => "the diff of the change's branch, and classed: of watchbill.yml (HEAD)".to_string(),
-        _ => "the command line".to_string(),
+        _ => "given on the command line".to_string(),
     }
 }
 

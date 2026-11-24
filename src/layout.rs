@@ -13,11 +13,12 @@ pub struct Command {
 pub const GROUPS: [&str; 5] = ["set up", "work", "see", "take back", "plumbing"];
 
 /// The commands of the layout, in the order of `wb help` within each group.
-pub const COMMANDS: [Command; 16] = [
+pub const COMMANDS: [Command; 17] = [
     Command { name: "init", group: "set up", summary: "set Watchbill up in this repository" },
     Command { name: "check", group: "set up", summary: "say whether the repository is at its revision" },
     Command { name: "doctor", group: "set up", summary: "say what on this machine Watchbill needs" },
     Command { name: "upgrade", group: "set up", summary: "pin the repository to the installed revision" },
+    Command { name: "plan", group: "work", summary: "take a job in, as the text of its plan" },
     Command { name: "accept", group: "work", summary: "accept the file of an issue" },
     Command { name: "start", group: "work", summary: "start a session of one role" },
     Command { name: "run", group: "work", summary: "run the whole flow of an issue" },

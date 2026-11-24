@@ -11,7 +11,8 @@ The words `wb` and its documents use, one line each, and how they are like git. 
 - **Runner:** the tool and model a session runs with, named and cleared in the organisation's file. Its `start` is the command.
 - **Level:** how confidential code is. The organisation's to set.
 - **Classed code:** paths that need a person as verifier.
-- **Job:** the text of what is to be built, stored in git under the hash of its content; its name is a ref. An issue is the tracker's thing a job may come from. Decided, built from 0.12.0 ([revision.md](revision.md), point 15). Until then `wb` takes an issue.
+- **Job:** the text of what is to be built, stored in git under the hash of its content; its name is a ref under `refs/watchbill/`. An issue is the tracker's thing a job may come from. `wb plan add` takes one in (#234); the rest of point 15 is built in 0.12.0 ([revision.md](revision.md)). Until then the other commands take an issue.
+- **Source:** one text of a job, each under its own hash. A job may have several.
 - **Issue's file:** `.watchbill/issues/<issue>.yml`: the requirements, the interface, `changes` and each role's `reads`.
 - **Acceptance:** a person's word that the issue's file is right.
 - **`changes` and `reads`:** the paths a role may change, and the paths it may read.
@@ -42,6 +43,7 @@ The words `wb` and its documents use, one line each, and how they are like git. 
 | `compare a b` | `git diff a b` | revisions only |
 | `revision` | `git rev-parse HEAD` | |
 | `prompt` | `git cat-file -p` | fills the placeholders |
+| `plan add` | `git hash-object -w`, `git update-ref` | the text is a blob, the name a ref under `refs/watchbill/` |
 | `accept` | `git tag -s` | a person's word, committed |
 | `start` | `git worktree add`, then run | makes a view, no history |
 | `run` (planned for 0.12.0, #183) | `git rebase` | stops at gates, no `--continue` |
@@ -64,7 +66,7 @@ The words `wb` and its documents use, one line each, and how they are like git. 
 | the organisation's file | `/etc/gitconfig` | a team cannot override it |
 | view | worktree | no object store, no remote |
 | stamp | commit trailer | lives at the tracker |
-| job (decided, point 15) | blob, its name a branch | its ref is under `refs/watchbill/` |
+| job (point 15) | blob, its name a branch | its ref is under `refs/watchbill/` |
 | acceptance (decided, point 15) | signed tag | checked against the project's keys |
 | adapter (not built) | remote | declarative, for each tool |
 | `--ignore-local` | `--force` | waives one named guard only |

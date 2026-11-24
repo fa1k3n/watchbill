@@ -59,6 +59,9 @@ pub struct Organisation {
     pub levels: Vec<String>,
     pub runners: Vec<Runner>,
     pub default: Option<String>,
+    /// Whether `wb plan add --hash-only` may keep a job's hash and source without its text (#234): `jobs: hash_only:
+    /// allowed`. With no `jobs`, it may not.
+    pub hash_only: bool,
 }
 
 impl Organisation {
@@ -247,7 +250,7 @@ pub fn read(path: &Path) -> Result<Organisation, String> {
 }
 
 fn read_document(doc: &Document) -> Result<Organisation, YamlError> {
-    doc.only(&[], &["levels", "runners", "default"])?;
+    doc.only(&[], &["levels", "runners", "default", "jobs"])?;
     doc.need(&[], &["levels", "runners"])?;
     let levels = doc.texts(&at(&["levels"]), false)?;
     for (index, name) in levels.iter().enumerate() {
@@ -275,7 +278,21 @@ fn read_document(doc: &Document) -> Result<Organisation, YamlError> {
         }
         default = Some(name);
     }
-    Ok(Organisation { levels, runners, default })
+    // What `wb plan add` may do with a job (#234): only `hash_only`, which is `allowed` or `refused`.
+    let mut hash_only = false;
+    let jobs = at(&["jobs"]);
+    if doc.has(&jobs) {
+        doc.table(&jobs)?;
+        doc.only(&jobs, &["hash_only"])?;
+        doc.need(&jobs, &["hash_only"])?;
+        let place = at(&["jobs", "hash_only"]);
+        hash_only = match doc.text(&place)?.as_str() {
+            "allowed" => true,
+            "refused" => false,
+            other => return Err(doc.fail(&place, &format!("`{}` is not `allowed` or `refused`", other), false)),
+        };
+    }
+    Ok(Organisation { levels, runners, default, hash_only })
 }
 
 /// The level of the repository at `root`: the line `confidentiality:` of `.watchbill/watchbill.yml`, and

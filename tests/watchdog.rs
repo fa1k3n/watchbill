@@ -410,6 +410,12 @@ fn test_WB_RULE_58_a_role_or_a_key_that_is_not_known_or_a_value_that_is_no_whole
 }
 
 #[test]
+fn test_WB_RULE_58_the_page_of_check_says_a_role_or_a_key_it_does_not_know_is_refused() {
+    let page = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join("packaging/man/wb-check.1"));
+    assert!(page.contains("a role or a key it does not know"), "wb-check.1 does not say it");
+}
+
+#[test]
 fn test_WB_RULE_59_start_refuses_a_higher_limit_with_1_naming_the_key_before_anything_is_posted() {
     let bench = bench_with(&limits(30, 241));
     let mut err = Vec::new();
@@ -512,10 +518,35 @@ fn test_WB_BUILD_157_a_fifo_or_a_link_to_dev_zero_in_the_view_does_not_make_the_
     assert!(found.quiet.starts_with("quiet: 1\n"), "{}", found.quiet);
 }
 
+/// A session that makes `tests/test_brake.c` a tree of 25000 entries, a chain of 50 folders with 500 entries each,
+/// and then writes `src/brake.c` now and then. The tree is the last path of the list but one, and is walked first.
+const COMB: &str = "rm -f tests/test_brake.c && mkdir tests/test_brake.c\nd=tests/test_brake.c\ni=0\nwhile [ $i -lt 50 ]; do d=$d/d; mkdir $d && (cd $d && seq 499 | xargs touch); i=$((i+1)); done\ni=0\nwhile [ $i -lt 18 ]; do echo \"int step$i;\" > src/brake.c; sleep 0.3; i=$((i+1)); done\nrm -rf tests/test_brake.c\necho $$ > {log}/pid\n";
+
+#[test]
+fn test_WB_BUILD_157_a_tree_of_25000_entries_is_read_to_the_bound_and_every_listed_path_is_still_looked_at() {
+    // What a look reads and holds is bounded by the entries read: each path of the list is looked at first, so a big
+    // tree under one of them does not hide another, and the look ends fast.
+    let found = watched(COMB, &limits(2, 30), &[], 60);
+    assert_eq!(found.status, 0, "{}", found.said);
+    assert!(found.took < std::time::Duration::from_secs(30), "{:?}", found.took);
+    assert!(found.quiet_lines().is_empty(), "the writes to src/brake.c were not seen: {}", found.said);
+}
+
+#[test]
+fn test_WB_BUILD_157_a_link_in_any_part_of_a_listed_path_is_not_followed() {
+    // `src` is made a link to a folder outside the view whose `brake.c` changes: the look does not leave the view, so
+    // nothing it sees changes, and the quiet is said.
+    let session = "mkdir {log}/outside && cp src/brake.c {log}/outside/brake.c\nrm -rf src && ln -s {log}/outside src\ni=0\nwhile [ $i -lt 18 ]; do echo \"int step$i;\" > {log}/outside/brake.c; sleep 0.3; i=$((i+1)); done\necho $$ > {log}/pid\n";
+    let found = watched(session, &limits(2, 30), &[], 60);
+    assert_ne!(found.status, -2, "wb did not end: {}", found.said);
+    assert!(found.took < std::time::Duration::from_secs(30), "{:?}", found.took);
+    assert!(found.quiet.starts_with("quiet: 2\n"), "a change outside the view was seen through the link: {}\n{}", found.quiet, found.said);
+}
+
 #[test]
 fn test_WB_BUILD_158_a_build_without_debug_assertions_ignores_the_test_minute() {
     if cfg!(debug_assertions) {
-        eprintln!("skipped: only a build without debug assertions, as the RPM's, shows that WB_TEST_MINUTE is ignored");
+        eprintln!("WB-BUILD-158 is not tested by a debug build: only a release run tests it (cargo test --release, or the RPM's %check)");
         return;
     }
     // With a minute of one second, a quiet of 1 would be said within 3 seconds. `wb` as installed counts real minutes.
@@ -694,6 +725,20 @@ fn test_WB_STATUS_86_the_quiet_is_from_the_newest_of_the_start_the_commit_of_the
 }
 
 #[test]
+fn test_WB_STATUS_86_a_time_after_now_in_the_view_is_not_read() {
+    let bench = bench();
+    let (_place, mut child) = running_wb();
+    let at = now();
+    let (view, _) = running_session(&bench, child.id(), Some(at - 600));
+    touch(&view.join("src/brake.c"), at + 3600);
+    let run = status_within(&bench, &["status", "54"], 20);
+    let _ = child.kill();
+    let _ = child.wait();
+    let out = text(&run.expect("wb status did not end").stdout);
+    assert_eq!(running_line(&out), vec!["running: build round 2, 10m, quiet not read"], "{}", out);
+}
+
+#[test]
 fn test_WB_STATUS_86_a_session_whose_outcome_says_no_since_is_shown_without_times() {
     let bench = bench();
     let (_place, mut child) = running_wb();
@@ -730,6 +775,72 @@ fn test_WB_STATUS_87_a_fifo_or_a_link_to_dev_zero_in_a_running_view_does_not_mak
     let _ = child.wait();
     let out = text(&run.expect("wb status did not end in 15 seconds").stdout);
     assert_eq!(running_line(&out), vec!["running: build round 2, 10m, quiet not read"], "{}", out);
+}
+
+/// A chain of `depth` folders under `at`, each with `width` entries (the next folder among them), every entry dated
+/// `seconds` since 1970.
+fn comb(at: &Path, depth: usize, width: usize, seconds: u64) {
+    let time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds);
+    let mut folders = vec![at.to_path_buf()];
+    let mut here = at.to_path_buf();
+    fs::create_dir_all(&here).unwrap();
+    for _ in 0..depth {
+        here = here.join("d");
+        fs::create_dir(&here).unwrap();
+        for n in 1..width {
+            fs::File::create(here.join(n.to_string())).unwrap().set_modified(time).unwrap();
+        }
+        folders.push(here.clone());
+    }
+    for folder in folders.iter().rev() {
+        fs::File::open(folder).unwrap().set_modified(time).unwrap();
+    }
+}
+
+#[test]
+fn test_WB_STATUS_87_a_tree_of_25000_entries_in_a_running_view_is_read_to_the_bound_and_every_listed_path_is_looked_at() {
+    let bench = bench();
+    let (_place, mut child) = running_wb();
+    let at = now();
+    let (view, session) = running_session(&bench, child.id(), Some(at - 3600));
+    fs::write(session.join("view"), "src/brake.c\ntests\n").unwrap();
+    comb(&view.join("tests"), 50, 500, at - 3 * 3600);
+    touch(&view.join("src/brake.c"), at - (12 * 60 + 20));
+    let began = std::time::Instant::now();
+    let run = status_within(&bench, &["status", "54"], 20);
+    let took = began.elapsed();
+    let _ = child.kill();
+    let _ = child.wait();
+    let out = text(&run.expect("wb status did not end in 20 seconds").stdout);
+    assert!(took < std::time::Duration::from_secs(10), "{:?}", took);
+    assert_eq!(running_line(&out), vec!["running: build round 2, 1h00m, quiet 12m"], "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_87_a_link_in_any_part_of_a_listed_path_of_a_running_view_is_not_followed() {
+    let bench = bench();
+    let (_place, mut child) = running_wb();
+    let at = now();
+    let (view, session) = running_session(&bench, child.id(), Some(at - 600));
+    let outside = folder_named("outside");
+    put(&outside.path, "brake.c", "int brake(void) { return 3; }\n");
+    fs::remove_dir_all(view.join("src")).unwrap();
+    std::os::unix::fs::symlink(&outside.path, view.join("src")).unwrap();
+    let run = status_within(&bench, &["status", "54"], 20);
+    // A link to `/`, with a folder of the system under it listed: the look does not leave the view, and ends at once.
+    fs::remove_file(view.join("src")).unwrap();
+    std::os::unix::fs::symlink("/", view.join("src")).unwrap();
+    fs::write(session.join("view"), "src/brake.c\nsrc/usr\n").unwrap();
+    let began = std::time::Instant::now();
+    let root = status_within(&bench, &["status", "54"], 20);
+    let took = began.elapsed();
+    let _ = child.kill();
+    let _ = child.wait();
+    let out = text(&run.expect("wb status did not end").stdout);
+    assert_eq!(running_line(&out), vec!["running: build round 2, 10m, quiet 10m"], "{}", out);
+    let out = text(&root.expect("wb status did not end").stdout);
+    assert_eq!(running_line(&out), vec!["running: build round 2, 10m, quiet 10m"], "{}", out);
+    assert!(took < std::time::Duration::from_secs(10), "{:?}", took);
 }
 
 #[test]

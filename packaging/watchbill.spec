@@ -74,6 +74,7 @@ install -m 0644 packaging/man/wb-status.1 %{buildroot}%{_mandir}/man1/wb-status.
 install -m 0644 packaging/man/wb-view.1 %{buildroot}%{_mandir}/man1/wb-view.1
 install -m 0644 packaging/man/wb-answer.1 %{buildroot}%{_mandir}/man1/wb-answer.1
 install -m 0644 packaging/man/wb-revert.1 %{buildroot}%{_mandir}/man1/wb-revert.1
+install -m 0644 packaging/man/wb-clean.1 %{buildroot}%{_mandir}/man1/wb-clean.1
 install -m 0644 packaging/man/wb-prompt.1 %{buildroot}%{_mandir}/man1/wb-prompt.1
 install -m 0644 packaging/man/wb-revision.1 %{buildroot}%{_mandir}/man1/wb-revision.1
 install -m 0644 packaging/man/wb-compare.1 %{buildroot}%{_mandir}/man1/wb-compare.1

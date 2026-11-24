@@ -235,6 +235,14 @@ fn kept_of(root: &str, state: &Path, session: &Session, look: bool) -> Option<Ke
                             }
                         }
                         more = left.more;
+                        // The paths the view holds now, beside those `back` names (#176): one written after a take-back
+                        // is named by no line of `back`.
+                        for path in &left.uncommitted {
+                            let path = crate::issue::shown(path);
+                            if !uncommitted.contains(&path) {
+                                uncommitted.push(path);
+                            }
+                        }
                     }
                     // Not read: what `back` names stays, and nothing is said of what the view may hold besides.
                     Err(why) => unread = Some(crate::issue::shown(&why)),
@@ -324,6 +332,222 @@ fn kept_all(root: &str, state: &Path, issue: Option<&str>, look: bool) -> Vec<Ke
     found
 }
 
+/// A view kept on this machine for this repository, as `wb view --kept` lists it and `wb clean` chooses among them
+/// (#176). Every view that a start of this repository left is one, with or without work in it.
+pub struct Entry {
+    pub folder: PathBuf,
+    pub role: String,
+    pub round: String,
+    pub issue: String,
+    /// Why it was kept, in words, from the file `back` of its session.
+    pub why: String,
+    /// What is left in it, where something is, or where it could not be read (`unread`).
+    pub work: Option<Kept>,
+    /// Whether the session's `wb` is alive: the view is the session's own, and is not read.
+    pub runs: bool,
+    /// Whether the session's `outcome` says that it ended (and not `running`, nor missing).
+    pub ended: bool,
+    /// Whether the session was cut off: its `outcome` says `running` and its `wb` is gone.
+    pub cut_off: bool,
+    /// Whether the view was read: the lines of its start name it, and what it holds was read.
+    pub read: bool,
+}
+
+/// The most commits and the most paths that a named removal says.
+const MOST_SAID: usize = 20;
+
+/// The lines of `back` as words: why the view was kept.
+fn why_of(session: &Session, back: Option<&str>, work: bool) -> String {
+    let Some(back) = back else {
+        return if session.cut_off() { "its session was cut off".to_string() } else { "its session left no `back`".to_string() };
+    };
+    let mut parts: Vec<String> = Vec::new();
+    for line in back.lines() {
+        if let Some(why) = line.strip_prefix("failed: ") {
+            parts.push(format!("a take-back failed: {}", why));
+        } else if let Some(rest) = line.strip_prefix("refused: ") {
+            parts.push(format!("a commit was refused: {}", rest.split_once(' ').map_or(rest, |(_, why)| why)));
+        }
+    }
+    if back.lines().any(|line| line.starts_with("not taken: ")) {
+        parts.push("commits were not taken".to_string());
+    }
+    if back.lines().any(|line| line.starts_with("uncommitted: ")) {
+        parts.push("paths were left uncommitted".to_string());
+    }
+    if parts.is_empty() {
+        parts.push(if work { "work was left in it".to_string() } else { "nothing is left in it".to_string() });
+    }
+    crate::issue::shown(&parts.join("; "))
+}
+
+/// What is left in a view that `kept_of` found nothing in, read as it stands: a path written in it after its session
+/// ended is left in it, which the lines of `back` do not say. Where it cannot be read, it is `unread`.
+fn read_again(root: &str, session: &Session, place: &Place) -> Option<Kept> {
+    let made = |commits, more, uncommitted, unread| Kept { role: session.role.clone(), round: session.round(), folder: place.view.folder.clone(), commits, more, uncommitted, unread };
+    match view::work_left(root, &place.view, &taken_of(&session.folder)) {
+        Ok(left) if left.commits.is_empty() && left.uncommitted.is_empty() => None,
+        Ok(left) => {
+            let commits = left.commits.into_iter().map(|(commit, subject)| (view::short(&commit).to_string(), subject)).collect();
+            Some(made(commits, left.more, left.uncommitted.iter().map(|path| crate::issue::shown(path)).collect(), None))
+        }
+        Err(why) => Some(made(Vec::new(), 0, Vec::new(), Some(crate::issue::shown(&why)))),
+    }
+}
+
+/// The views kept on this machine for the repository at `root`, oldest first, each once: the views of a session whose
+/// checkout commit is one of this repository's, whether or not anything is left in them. A session that runs has its
+/// view named, and not read.
+pub fn entries(root: &str, state: &Path) -> Vec<Entry> {
+    let mut found: Vec<Entry> = Vec::new();
+    for session in sessions(state, None) {
+        let running = session.running() == Some(true);
+        let kept = if running { None } else { kept_of(root, state, &session, true) };
+        // A view that `kept_of` finds nothing in is read once more as it stands: a path written in it after its
+        // session ended is left in it, which the lines of `back` do not say.
+        let kept = match (kept, &session.place) {
+            (None, Some(place)) if !running => read_again(root, &session, place),
+            (kept, _) => kept,
+        };
+        let folder = match (&kept, &session.place) {
+            (Some(kept), _) => kept.folder.clone(),
+            (None, Some(place)) => place.view.folder.clone(),
+            (None, None) => continue,
+        };
+        if found.iter().any(|one| one.folder == folder) {
+            continue;
+        }
+        if let Some(place) = &session.place {
+            if !view::in_repository(root, &place.view.head) {
+                continue;
+            }
+        }
+        let outcome = small(&session.folder.join("outcome"));
+        let ended = outcome.as_deref().is_some_and(|outcome| outcome.lines().next().is_some_and(|first| first != "outcome: running"));
+        let back = small(&session.folder.join("back"));
+        let back = back.as_deref().map(section);
+        let read = !running && session.place.is_some() && kept.as_ref().map_or(true, |kept| kept.unread.is_none());
+        let why = if running { "its session runs".to_string() } else { why_of(&session, back.as_deref(), kept.is_some()) };
+        let issue = session.place.as_ref().map(|place| place.issue.clone()).unwrap_or_else(|| session.rest.clone());
+        found.push(Entry {
+            folder,
+            role: session.role.clone(),
+            round: session.round(),
+            issue: crate::issue::shown(&issue),
+            why,
+            work: kept,
+            runs: running,
+            ended,
+            cut_off: session.cut_off(),
+            read,
+        });
+    }
+    found.reverse();
+    found
+}
+
+/// Whether `wb clean` removes the view without being told to: its session ended, it was read, and nothing is left
+/// in it. This is the one place that says so: a job whose change is merged is done (#282) is added here.
+pub fn removable(entry: &Entry) -> bool {
+    entry.read && entry.ended && !entry.runs && !entry.cut_off && entry.work.is_none()
+}
+
+/// Why a view that is named is not removed, where it is not: its session runs, or it was not read. A view with work
+/// in it is removed where it is named.
+pub fn not_removable_named(entry: &Entry) -> Option<String> {
+    if entry.runs {
+        return Some("its session still runs, and its view is the session's own".to_string());
+    }
+    if !entry.read {
+        let why = entry.work.as_ref().and_then(|kept| kept.unread.clone()).unwrap_or_else(|| "its session left no file `folder`".to_string());
+        return Some(format!("it was not read, and what it holds is not known: {}", why));
+    }
+    None
+}
+
+impl Entry {
+    /// What is left in the view, in words: what keeps `wb clean` from removing it, or what a named removal loses.
+    /// Empty where nothing is.
+    pub fn left(&self) -> String {
+        if let Some(kept) = &self.work {
+            let parts = kept.parts(false);
+            if !parts.is_empty() {
+                return parts.join(", ");
+            }
+        }
+        if self.cut_off {
+            return "its session was cut off".to_string();
+        }
+        if !self.read {
+            return "it was not read".to_string();
+        }
+        if !self.ended {
+            return "its session left no outcome".to_string();
+        }
+        String::new()
+    }
+
+    /// The line of `wb view --kept` for the view, one to a line: the folder, the role, the round, the issue, and how
+    /// many commits are not taken and how many paths are uncommitted, or `not read`. The words are fixed, so that a
+    /// script can read them.
+    pub fn line(&self) -> String {
+        let head = format!("{} {} round {} issue {}", crate::issue::shown(&self.folder.display().to_string()), crate::issue::shown(&self.role), self.round, self.issue);
+        let (commits, paths) = match &self.work {
+            Some(kept) if kept.unread.is_some() => return format!("{} not read", head),
+            Some(kept) => (kept.commits.len() + kept.more, kept.uncommitted.len()),
+            None if !self.read => return format!("{} not read", head),
+            None => (0, 0),
+        };
+        format!("{} {} commits not taken {} paths uncommitted", head, commits, paths)
+    }
+
+    /// What `wb clean` says of what a named removal loses, below the line `Removing <folder>`: each commit with its
+    /// short name and subject, and each path, 20 of each at most, then `and <k> more commits` or `and <k> more paths`.
+    pub fn lost(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        let Some(kept) = &self.work else { return lines };
+        for (commit, subject) in kept.commits.iter().take(MOST_SAID) {
+            lines.push(format!("  commit {} {}", commit, crate::issue::shown(subject)));
+        }
+        let more = (kept.commits.len() + kept.more).saturating_sub(MOST_SAID);
+        if more > 0 {
+            lines.push(format!("  and {} more commits", more));
+        }
+        for path in kept.uncommitted.iter().take(MOST_SAID) {
+            lines.push(format!("  uncommitted {}", path));
+        }
+        let more = kept.uncommitted.len().saturating_sub(MOST_SAID);
+        if more > 0 {
+            lines.push(format!("  and {} more paths", more));
+        }
+        lines
+    }
+
+    /// The lines that `wb view --kept -v` adds below the line of the view: why it was kept, each commit not taken (the
+    /// first 200, then `and <k> more`), each path left uncommitted, and why it was not read.
+    pub fn details(&self) -> Vec<String> {
+        let mut lines = vec![format!("  why: {}", self.why)];
+        if let Some(kept) = &self.work {
+            for (commit, subject) in &kept.commits {
+                lines.push(format!("  commit {} {}", commit, crate::issue::shown(subject)));
+            }
+            if kept.more > 0 {
+                lines.push(format!("  and {} more", kept.more));
+            }
+            for path in &kept.uncommitted {
+                lines.push(format!("  uncommitted {}", path));
+            }
+            if let Some(why) = &kept.unread {
+                lines.push(format!("  not read: {}", why));
+            }
+        }
+        if self.work.is_none() && !self.read {
+            lines.push("  not read: its session left no file `folder`".to_string());
+        }
+        lines
+    }
+}
+
 /// The roles whose work comes back as commits (#300): a round of another role is held to no commit.
 pub const COMMIT_ROLES: [&str; 3] = ["tester", "build", "fix"];
 
@@ -391,6 +615,13 @@ impl Kept {
 
     /// What the view holds and where it is, as the line of `wb status` says it after the role and the round.
     fn holds(&self, zero: bool) -> String {
+        let mut parts = self.parts(zero);
+        parts.push(crate::issue::shown(&self.folder.display().to_string()));
+        parts.join(", ")
+    }
+
+    /// What the view holds, as `holds` says it and without where it is.
+    fn parts(&self, zero: bool) -> Vec<String> {
         let mut parts = Vec::new();
         match (self.count(), &self.unread) {
             (_, Some(why)) => parts.push(format!("not read: {}", why)),
@@ -408,8 +639,7 @@ impl Kept {
             let n = self.uncommitted.len();
             parts.push(format!("{} {} uncommitted", n, if n == 1 { "path" } else { "paths" }));
         }
-        parts.push(crate::issue::shown(&self.folder.display().to_string()));
-        parts.join(", ")
+        parts
     }
 }
 

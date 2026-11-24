@@ -816,6 +816,37 @@ fn test_WB_VIEW_133_with_no_state_folder_nothing_is_kept_and_it_ends_with_0() {
     assert_eq!((code(&run), out_of(&run)), (Some(0), String::new()), "{}", err_of(&run));
 }
 
+// ---- WB-CMD-40: -q leaves out the lines of a view kept, and says each view it removes (#285) ----
+
+#[test]
+fn test_WB_CMD_40_clean_q_leaves_out_a_keeping_line_and_says_a_removing_line() {
+    let bench = bench();
+    let (kept, _) = keep(&bench, &Keep { commits: &["Not taken"], ..Keep::new("2026-11-22T100000Z-tester-54") });
+    let (gone, _) = done(&bench, "2026-11-22T100001Z-build-55");
+
+    let run = wb_in(&bench, &["clean", "-q"]);
+
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    let out = out_of(&run);
+    assert!(out.contains(&format!("Removing {}", gone.display())), "{}", out);
+    assert!(!out.contains("Keeping"), "{}", out);
+    assert!(kept.exists() && !gone.exists());
+}
+
+#[test]
+fn test_WB_CMD_40_clean_q_with_dry_run_says_what_would_be_removed() {
+    let bench = bench();
+    let (kept, _) = keep(&bench, &Keep { commits: &["Not taken"], ..Keep::new("2026-11-22T100000Z-tester-54") });
+    let (gone, _) = done(&bench, "2026-11-22T100001Z-build-55");
+
+    let run = wb_in(&bench, &["clean", "-n", "-q"]);
+
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    let out = out_of(&run);
+    assert!(out.contains(&format!("Would remove {}", gone.display())) && !out.contains("Keeping"), "{}", out);
+    assert!(kept.exists() && gone.exists());
+}
+
 // ---- WB-VIEW-134: the usage, the help, the man pages, the completion and the README name them ----
 
 fn root() -> PathBuf {

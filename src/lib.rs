@@ -44,6 +44,11 @@ pub const USAGE: &str = "usage:
   wb plan add [<name>] (-F <file> | -m <text>... | --from <adapter> <number>)
             [--source <address>] [--level <level>] [--hash-only]
             -F is --file and -m is --message
+            or list
+            or show <name>
+            or edit <name>
+            or accept <name> [--no-commit]
+            or remove <name>
   wb accept <issue> [--no-commit]
   wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [--ignore-kept]
             [--ignore-branch] [--no-push] [the options of prompt]
@@ -118,7 +123,39 @@ pub const USAGE: &str = "usage:
             file allows it with jobs: hash_only: allowed. It says what it will
             write first, asks nothing of the network unless --from runs a
             pattern, and only queues: it runs no prompt and starts no session.
-            Ends with 0 when the job is taken in or nothing changes, 1 when it
+            wb plan add ends with 0 when the job is taken in or nothing
+            changes, 1 when it is refused, 2 when it was used wrongly or the
+            repository is not set up. wb plan list prints each plan once, by
+            its first name, one to a line, and nothing else; a plan removed is
+            not listed, and a ref under refs/watchbill/ that is not a job is
+            passed over and said on standard error. wb plan show <name> prints
+            the plan's names, each source with its hash, where it came from,
+            whether its text is kept, its level, who added it and when, then
+            the issue's file .watchbill/issues/<name>.yml, read where wb
+            status reads it (the issue's branch, else the working tree), and
+            says which, and its state: not planned, not accepted, not accepted
+            (edited after the acceptance), not accepted (a source added after
+            the acceptance), not accepted (planned again after the
+            acceptance), or accepted by whom and when; the planner's stamps
+            are read whole by issue_comment_bodies. A source or a [stamp]
+            planner of the same second as the acceptance or later voids it,
+            and no prompt of the issue is handed out until wb plan accept
+            again; a stamp that a [revert] took back counts for nothing. wb
+            plan edit <name> opens the issue's file in the editor git would
+            use (GIT_EDITOR, core.editor, VISUAL, EDITOR), on the issue's
+            branch, from the file as HEAD has it, and commits it alone with
+            the message Edit the issue's file (<name>); where nothing changed
+            it commits nothing, and where the editor fails, the file no longer
+            holds its form or names another issue, it commits nothing and
+            leaves the edit. wb plan accept <name> [--no-commit] accepts the
+            issue's file as wb accept does. wb plan remove <name> adds a
+            commit with the marker removed after the plan's, moves every name
+            of it there, and rewrites nothing; the name stays taken. It is
+            refused while a branch of any of its names holds work the default
+            branch does not, or this machine keeps a view of it with work not
+            taken back. A name with / has no issue's file until point 15, and
+            show, edit, accept and remove of a name that is no plan are
+            refused. Ends with 0 when it is done or nothing changes, 1 when it
             is refused, 2 when it was used wrongly or the repository is not
             set up
   prompt    print the prompt of a role on standard output and nothing else: the
@@ -193,21 +230,25 @@ pub const USAGE: &str = "usage:
             will be written, and write .watchbill/issues/<issue>.accepted with
             the SHA-256 of the file, the git user.name and user.email, and the
             time in UTC. An acceptance that is there is never written over.
-            Then commit it alone, on the issue's branch, with nothing else:
-            it refuses first when the checkout is not on that branch or the
-            issue's file is not committed as it is. --no-commit only writes
-            it and says the commit. Ends with 0 when it is accepted, 1 when it
-            is refused, 2 when it was used wrongly or the repository is not
-            set up
+            Then commit it alone, on the issue's branch, with nothing else: it
+            refuses first when the checkout is not on that branch or the
+            issue's file is not committed as it is. --no-commit only writes it
+            and says the commit. Where a plan of the name is there (wb plan)
+            and is not accepted, it ends with 2 and names wb plan accept
+            <name>. Ends with 0 when it is accepted, 1 when it is refused, 2
+            when it was used wrongly or the repository is not set up
   status    list the issues in the flow under headings, as git status lists
-            files: each issue under the last step it has done (Not broken
-            down, Broken down, Accepted, Tested, Built, Reviewed, Fixed), and
-            last the issues that have a question no [answers] or [answer] line
-            has closed. An issue is in the flow when its branch, local or at
+            files: each issue under the last step it has done (Not planned,
+            Planned, Accepted, Tested, Built, Reviewed, Fixed), and last the
+            issues that have a question no [answers] or [answer] line has
+            closed. An issue is in the flow when its branch, local or at
             origin, holds a commit that the default branch of origin does not:
             git alone says which, and fetches nothing. Its line shows the
             branch, the open change as #<n> (change_of_branch) and how many
-            commits are not pushed. The comments come from issue_comments.
+            commits are not pushed. The comments come from issue_comments, and
+            for an accepted issue with a [stamp] planner the whole comments
+            from issue_comment_bodies: an acceptance that a source or a
+            planner round after it voided puts the issue under Planned.
             <issue> prints that issue, in the flow or not, with its title
             (issue_address) and what it was worked out from; --stage <heading>
             prints that heading only, whatever its case. For one issue it also
@@ -215,13 +256,13 @@ pub const USAGE: &str = "usage:
             <folder> for each view kept with work not taken back, and cut off:
             <role> round <n>, <folder> for each session whose wb ended before
             it did. With no issue it says on standard error how many such
-            views are kept on this machine. A view of over 200 commits is
-            said as the first 200 and 'and <k> more', and each view is
-            read within 20 seconds. Ends with 0 when
-            every issue could be read, 1 when a pattern failed for one (it is
-            listed under Not read), 2 when it was used wrongly or the
-            repository is not set up. Writes nothing but a temporary repository
-            in $TMPDIR, removed after, where it reads a kept view
+            views are kept on this machine. A view of over 200 commits is said
+            as the first 200 and 'and <k> more', and each view is read within
+            20 seconds. Ends with 0 when every issue could be read, 1 when a
+            pattern failed for one (it is listed under Not read), 2 when it
+            was used wrongly or the repository is not set up. Writes nothing
+            but a temporary repository in $TMPDIR, removed after, where it
+            reads a kept view
   view      show what a session of a role will see, before it starts. wb view
             <issue> <role> prints the paths of its view, one to a line, the
             list the start makes the view from, and nothing else. --in
@@ -982,6 +1023,18 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
         Err(prompt::Derive::Used(why)) => return Err(used(err, name, &why)),
         Err(prompt::Derive::Refused(why)) => return Err(refused(err, &why)),
     };
+    // A planner round after the acceptance voids it (#290), as `wb status` reads it: from the stamps read for the
+    // round where they were read, else by `issue_comments`; the times by `issue_comment_bodies`.
+    if let (Some(file), Some(issue)) = (&file, words.get("issue")) {
+        let planner = worked.stamps.as_ref().filter(|stamps| stamps.key == "issue_comments").map(|stamps| stamps.count("planner") > 0);
+        match issue::planner_gate(Path::new(&root), issue, file, planner) {
+            Ok(None) => {}
+            Ok(Some(said)) => {
+                let _ = writeln!(err, "{}: {}.", name, said);
+            }
+            Err(why) => return Err(refused(err, &why)),
+        }
+    }
     // What was worked out is said first, so that a person sees it (#84).
     if !worked.said.is_empty() {
         let _ = writeln!(err, "{}: {}", name, worked.said.join(", "));
@@ -1997,16 +2050,62 @@ pub fn plan(args: &[OsString], folder: &Path, organisation: &Path, input: &mut d
     refusal::ended(code, err)
 }
 
-/// `wb plan <subcommand>` (#290): the subcommand is the word after `plan`. Only `add` is built (#234).
+/// The subcommands of `wb plan` (#290), in the order the usage gives them.
+const PLAN_SUBCOMMANDS: &str = "add, list, show, edit, accept, remove";
+
+/// `wb plan list`, `show`, `edit`, `accept` and `remove` (#290): the words after the subcommand, a name for all but
+/// `list`, and `--no-commit` for `accept`.
+fn run_plan_of(sub: &str, parser: &mut Parser, folder: Option<&Path>, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let name = format!("wb plan {}", sub);
+    let mut given: Option<String> = None;
+    let mut commit = true;
+    loop {
+        let found = match next(parser) {
+            Ok(None) => break,
+            Ok(Some(found)) => found,
+            Err(refused) => return used(err, &name, &format!("'{}' is not known", refused)),
+        };
+        match found {
+            Word::Long(option) if option == "no-commit" && sub == "accept" && commit => commit = false,
+            Word::Value(value) if sub != "list" && given.is_none() => given = Some(word(value.as_bytes())),
+            found => return used(err, &name, &format!("'{}' is not known", named(found, parser).escape_debug())),
+        }
+    }
+    if sub != "list" && given.is_none() {
+        return used(err, &name, "the name of a plan is needed: wb plan list lists them");
+    }
+    let root = match root_for(&name, folder, err) {
+        Ok(root) => root,
+        Err(code) => return code,
+    };
+    if !Path::new(&root).join(init::CONFIG_FOLDER).join(init::CONFIG_FILE).is_file() {
+        let _ = writeln!(err, "{}: {}/{} is not there. Watchbill is not set up in this repository: wb init sets it up.", name, init::CONFIG_FOLDER, init::CONFIG_FILE);
+        return 2;
+    }
+    let plan_name = given.unwrap_or_default();
+    match sub {
+        "list" => plan::list(&root, out, err),
+        "show" => plan::show(&root, &plan_name, out, err),
+        "edit" => plan::edit(&root, &plan_name, out, err),
+        "accept" => plan::accept(&root, &plan_name, commit, out, err),
+        _ => plan::remove(&root, &plan_name, sessions::state_folder().as_deref(), out, err),
+    }
+}
+
+/// `wb plan <subcommand>` (#290): the subcommand is the word after `plan`.
 fn run_plan(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, input: &mut dyn BufRead, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     match next(parser) {
         Ok(Some(Word::Value(value))) if value == "add" => {}
-        Ok(None) => return used(err, "wb plan", "a subcommand is needed: add"),
+        Ok(Some(Word::Value(value))) if ["list", "show", "edit", "accept", "remove"].contains(&value.to_string_lossy().as_ref()) => {
+            let sub = value.to_string_lossy().to_string();
+            return run_plan_of(&sub, parser, folder, out, err);
+        }
+        Ok(None) => return used(err, "wb plan", &format!("a subcommand is needed: {}", PLAN_SUBCOMMANDS)),
         Ok(Some(found)) => {
             let given = named(found, parser);
-            return used(err, "wb plan", &format!("'{}' is not a subcommand of plan: add", given.escape_debug()));
+            return used(err, "wb plan", &format!("'{}' is not a subcommand of plan: {}", given.escape_debug(), PLAN_SUBCOMMANDS));
         }
-        Err(given) => return used(err, "wb plan", &format!("'{}' is not a subcommand of plan: add", given.escape_debug())),
+        Err(given) => return used(err, "wb plan", &format!("'{}' is not a subcommand of plan: {}", given.escape_debug(), PLAN_SUBCOMMANDS)),
     }
     let name = "wb plan add";
     let ways = "the text is given by exactly one of -F <file>, -m <text> and --from <adapter> <number>";
@@ -2137,7 +2236,11 @@ fn run_accept(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
             let _ = writeln!(err, "wb accept: this folder is not in a git repository. Watchbill is set up in one.");
             2
         }
-        Ok(Some(root)) => issue::accept(&root, &issue, commit, out, err),
+        // A plan not accepted is accepted with `wb plan accept` (#290); a name with no plan is accepted as before (#282).
+        Ok(Some(root)) => match plan::accept_word(&root, &issue, err) {
+            Some(code) => code,
+            None => issue::accept(&root, &issue, commit, out, err),
+        },
     }
 }
 
@@ -2479,6 +2582,8 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
         }
         Err(why) => return refused(err, &why.replace(not_started, "wb start refuses it, so no session of it runs.")),
     };
+    // A planner round after the acceptance is not read here: `wb view` runs no pattern (WB-VIEW-31); `wb start` and
+    // `wb prompt` hold it (#290).
     if let Err(why) = issue::committed(Path::new(&root), issue) {
         return refused(err, &why.replace(not_started, "wb start refuses it, so no session of it runs."));
     }

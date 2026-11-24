@@ -24,7 +24,7 @@ use std::io::Write;
 use crate::{answer, issue, prompt, starter};
 
 /// The headings of the steps, in the order of the flow.
-pub const STEPS: [&str; 7] = ["Not broken down", "Broken down", "Accepted", "Tested", "Built", "Reviewed", "Fixed"];
+pub const STEPS: [&str; 7] = ["Not planned", "Planned", "Accepted", "Tested", "Built", "Reviewed", "Fixed"];
 
 /// The heading after the steps, that lists the questions no person has answered.
 pub const QUESTIONS: &str = "Questions open";
@@ -151,7 +151,7 @@ fn upstream_gone(root: &str) -> Option<Vec<String>> {
 /// The refs of the branches in the flow: those whose tip holds a commit that the default branch does not, less
 /// the branches of an issue that are done (their upstream is gone, or their whole change is on the default
 /// branch). `Err` when git could not list the refs.
-fn in_flow(root: &str, default: &str, pattern: &str) -> Result<Vec<String>, String> {
+pub(crate) fn in_flow(root: &str, default: &str, pattern: &str) -> Result<Vec<String>, String> {
     let fail = || "git could not list the branches, so no issue is read".to_string();
     let listed = git(root, &["for-each-ref", "--no-merged", default, "--format=%(refname)", "refs/heads", "refs/remotes/origin"]).ok_or_else(fail)?;
     let gone = upstream_gone(root).ok_or_else(fail)?;
@@ -186,8 +186,9 @@ fn issue_of(pattern: &str, name: &str) -> Option<String> {
     (!digits.is_empty() && (after.is_empty() || after.starts_with('-'))).then_some(digits)
 }
 
-/// The issue's file and whether its acceptance holds, on the first branch of the issue that has them.
-fn on_branches(root: &str, number: &str, pattern: &str, all: &[Branch], from: &mut Vec<String>) -> (bool, bool) {
+/// The issue's file and, where its acceptance holds, the text of the acceptance, on the first branch of the issue that
+/// has them.
+fn on_branches(root: &str, number: &str, pattern: &str, all: &[Branch], from: &mut Vec<String>) -> (bool, Option<String>) {
     let file = format!("{}/{}.yml", issue::FOLDER, number);
     let accepted = format!("{}/{}.accepted", issue::FOLDER, number);
     let mine: Vec<&Branch> = all.iter().filter(|branch| is_of(pattern, number, &branch.name)).collect();
@@ -202,19 +203,70 @@ fn on_branches(root: &str, number: &str, pattern: &str, all: &[Branch], from: &m
         };
         has_file = true;
         let hash = crate::manifest::hash_bytes(&bytes);
-        let held = git(root, &["show", &format!("{}:{}", branch.full, accepted)])
-            .map(|text| String::from_utf8_lossy(&text).lines().find_map(|line| line.strip_prefix("sha256: ").map(str::to_string)) == Some(hash.clone()))
-            .unwrap_or(false);
+        let body = git(root, &["show", &format!("{}:{}", branch.full, accepted)]).map(|text| String::from_utf8_lossy(&text).to_string());
+        let held = body.as_deref().is_some_and(|text| text.lines().find_map(|line| line.strip_prefix("sha256: ")) == Some(hash.as_str()));
         from.push(if held {
             format!("{}: {} and {}, which holds for it", branch.full, file, accepted)
         } else {
             format!("{}: {}, and {} is not there or does not hold for it", branch.full, file, accepted)
         });
         if held {
-            return (true, true);
+            return (true, body);
         }
     }
-    (has_file, false)
+    (has_file, None)
+}
+
+/// Where `wb status` reads the issue's file of `number` (#290, for `wb plan show`): the first branch of the issue, by
+/// `pattern`, local before `origin`, whose acceptance holds for its file, else the first that holds the file. Its ref,
+/// the file, and the text of the acceptance on it, where there is one.
+pub(crate) fn file_of_issue(root: &str, number: &str, pattern: &str) -> Option<(String, Vec<u8>, Option<String>)> {
+    let file = format!("{}/{}.yml", issue::FOLDER, number);
+    let accepted = format!("{}/{}.accepted", issue::FOLDER, number);
+    let mut first = None;
+    for branch in branches(root).iter().filter(|branch| is_of(pattern, number, &branch.name)) {
+        let Some(bytes) = git(root, &["show", &format!("{}:{}", branch.full, file)]) else {
+            continue;
+        };
+        let hash = crate::manifest::hash_bytes(&bytes);
+        let body = git(root, &["show", &format!("{}:{}", branch.full, accepted)]).map(|text| String::from_utf8_lossy(&text).to_string());
+        if body.as_deref().is_some_and(|text| text.lines().find_map(|line| line.strip_prefix("sha256: ")) == Some(hash.as_str())) {
+            return Some((branch.full.clone(), bytes, body));
+        }
+        if first.is_none() {
+            first = Some((branch.full.clone(), bytes, body));
+        }
+    }
+    first
+}
+
+/// Whether a line of the comments' first lines is a `[stamp] planner` that still counts.
+fn has_planner(lines: &[String]) -> bool {
+    starter::stamps_in(&lines.join("\n")).iter().any(|(role, _)| role == "planner")
+}
+
+/// Whether the acceptance `body` of the issue `number` is void (#290): a source of its plan added after it, or, where
+/// `planner` says a `[stamp] planner` counts, one whose time, read whole by `issue_comment_bodies`, is not before it.
+/// What decided it is said in `from`.
+fn voided(root: &str, number: &str, body: &str, planner: bool, from: &mut Vec<String>) -> Result<bool, String> {
+    if crate::plan::sources_after_acceptance(root, number, body) {
+        from.push(format!("{}{}: a source added after the acceptance", crate::plan::PREFIX, number));
+        return Ok(true);
+    }
+    if !planner {
+        return Ok(false);
+    }
+    match crate::plan::planned_again(root, number, &crate::plan::accepted_time(body))? {
+        None => {
+            from.push("no `issue_comment_bodies`: the times of the planner's stamps were not read".to_string());
+            Ok(false)
+        }
+        Some(true) => {
+            from.push("a [stamp] planner not before the acceptance: planned again after it".to_string());
+            Ok(true)
+        }
+        Some(false) => Ok(false),
+    }
 }
 
 /// Reads one issue, or says why it could not be read.
@@ -232,7 +284,12 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
     let stamps = starter::stamps_in(&lines.join("\n"));
     // What a `[revert]` marker took back (#142) counts for no step and no question.
     let counted = starter::counted(&lines.join("\n"));
-    let (file, accepted) = on_branches(root, number, pattern, all, &mut from);
+    let (file, acceptance) = on_branches(root, number, pattern, all, &mut from);
+    // An acceptance is void after a source added to the plan, or a planner round, later than it (#290).
+    let accepted = match acceptance {
+        None => false,
+        Some(body) => !voided(root, number, &body, comments.is_some() && has_planner(&lines), &mut from)?,
+    };
     // The branch that is shown: the first of the issue's branches in the flow, a local one before one at `origin`.
     let shown = all.iter().find(|branch| is_of(pattern, number, &branch.name) && flow.contains(&branch.full));
     let (mut changes, mut unpushed) = (Vec::new(), 0);
@@ -278,8 +335,8 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
         _ if has("build") => "Built",
         _ if has("tester") => "Tested",
         _ if accepted => "Accepted",
-        _ if file => "Broken down",
-        _ => "Not broken down",
+        _ if file => "Planned",
+        _ => "Not planned",
     };
     let gone = starter::taken_back(&lines.join("\n"));
     for (line, gone) in lines.iter().zip(gone) {

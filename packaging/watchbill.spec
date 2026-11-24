@@ -75,6 +75,7 @@ install -m 0644 packaging/man/wb-answer.1 %{buildroot}%{_mandir}/man1/wb-answer.
 install -m 0644 packaging/man/wb-revert.1 %{buildroot}%{_mandir}/man1/wb-revert.1
 install -m 0644 packaging/man/wb-prompt.1 %{buildroot}%{_mandir}/man1/wb-prompt.1
 install -m 0644 packaging/man/wb-revision.1 %{buildroot}%{_mandir}/man1/wb-revision.1
+install -m 0644 packaging/man/wb-compare.1 %{buildroot}%{_mandir}/man1/wb-compare.1
 mkdir -p %{buildroot}%{_datadir}/watchbill
 cp -a share/watchbill/. %{buildroot}%{_datadir}/watchbill/
 

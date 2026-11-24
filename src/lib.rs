@@ -10,6 +10,7 @@ pub mod answer;
 pub mod bounded;
 pub mod brought;
 pub mod check;
+pub mod compare;
 pub mod confidentiality;
 pub mod detect;
 pub mod init;
@@ -52,6 +53,7 @@ pub const USAGE: &str = "usage:
             [--change_address <text>] [--classed <text>]
             [--classed_touched <text>] [--runner <name>] [--parts] [--stamp]
   wb revision
+  wb compare [--from <path>] <revision> <revision>
   wb --version
 
   init      set Watchbill up in the git repository of this folder: propose what
@@ -132,6 +134,13 @@ pub const USAGE: &str = "usage:
             2 when it was used wrongly or the repository is not set up
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes nothing
+  compare   say what changed between two revisions, each named by its version
+            or its hash: one line for each file added, removed or changed, then
+            a unified diff of each changed file. The installed revision is one;
+            the other is that of the repository at --from, the root of a
+            repository pinned to it. Ends with 0 when they are the same, 1 when
+            they differ or the files of a revision are refused, 2 when a
+            revision is not found or it was used wrongly. Writes nothing
   accept    accept the issue's file .watchbill/issues/<issue>.yml: read it,
             hold it to its form, refuse it while it holds a question, say what
             will be written, and write .watchbill/issues/<issue>.accepted with
@@ -378,6 +387,7 @@ fn run_command(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, 
         // `wb <role>` was the form before `wb start <role>` (#175).
         _ if STARTED.contains(&command.as_str()) => old_form(args, err),
         "revision" => run_revision(&mut parser, Path::new(manifest::PACKAGE_FOLDER), out, err),
+        "compare" => run_compare(&mut parser, Path::new(manifest::PACKAGE_FOLDER), out, err),
         // A command of the layout that left `layout::PLANNED` and has no arm yet is refused, not run as another.
         other => {
             let _ = writeln!(err, "wb: the command '{}' has no arm in the dispatch", other);
@@ -388,8 +398,8 @@ fn run_command(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, 
 
 /// The commands of the layout that are built, each with an arm in `run`. A test holds that it is the
 /// layout without `layout::PLANNED`, so a piece that builds a command adds it here with its arm.
-pub const ARMS: [&str; 11] =
-    ["init", "check", "upgrade", "accept", "start", "status", "view", "answer", "revert", "prompt", "revision"];
+pub const ARMS: [&str; 12] =
+    ["init", "check", "upgrade", "accept", "start", "status", "view", "answer", "revert", "prompt", "revision", "compare"];
 
 /// `wb help`, and `wb help <command>`. `--help` and `-h` are this command too, and read the words after them.
 /// A word after the command is refused with 2.
@@ -2371,4 +2381,34 @@ fn run_revision(parser: &mut Parser, base: &Path, out: &mut dyn Write, err: &mut
             0
         }
     }
+}
+
+/// `wb compare [--from <path>] <revision> <revision>` (#179): what changed between two revisions. It writes
+/// nothing. `package` is the folder that holds the installed `revision/`.
+fn run_compare(parser: &mut Parser, package: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let mut from: Option<std::path::PathBuf> = None;
+    let mut names: Vec<String> = Vec::new();
+    loop {
+        let found = match next(parser) {
+            Ok(None) => break,
+            Ok(Some(found)) => found,
+            Err(refused) => return used(err, "wb compare", &format!("'{}' is not known", refused)),
+        };
+        match found {
+            Word::Value(value) if names.len() < 2 => names.push(word(value.as_bytes())),
+            Word::Long(option) if option == "from" && from.is_none() => match parser.value() {
+                Ok(value) if !value.is_empty() => from = Some(std::path::PathBuf::from(value)),
+                _ => return used(err, "wb compare", "'--from' needs the path of a repository"),
+            },
+            Word::Long(option) if option == "from" => return used(err, "wb compare", "'--from' is given twice"),
+            found => {
+                let refused = named(found, parser);
+                return used(err, "wb compare", &format!("'{}' is not known", refused));
+            }
+        }
+    }
+    if names.len() != 2 {
+        return used(err, "wb compare", "two revisions are needed, each a version or a hash");
+    }
+    compare::compare(package, VERSION, from.as_deref(), &names[0], &names[1], out, err)
 }

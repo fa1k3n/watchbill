@@ -504,7 +504,7 @@ const PATTERNS: [&str; 3] = ["issue_address", "change_address", "branch"];
 /// Refuses a `watchbill.yml` that still holds the words from before revision 0.0.6, when the issue was
 /// called the task (#78): the key `task_address`, and `{task}` in a pattern. Each is named, with what to
 /// write in its place. A pattern that is not a text is left to the loader, where it is used. The key
-/// `planner`, from before revision 0.0.8, is refused by name too (#116).
+/// `breakdown`, from before revision 0.0.8, is refused by name too (#116).
 fn old_words(document: &crate::yamlfile::Document) -> Result<(), PromptError> {
     let old = [crate::yamlfile::Part::from("task_address")];
     if document.has(&old) {
@@ -518,8 +518,8 @@ fn old_words(document: &crate::yamlfile::Document) -> Result<(), PromptError> {
             return refuse(document.fail(&place, why, false).to_string());
         }
     }
-    // `planner:` is from before revision 0.0.8, when a role needed the issue's file (#116).
-    crate::issue::no_planner(document).map_err(PromptError)
+    // `breakdown:` is from before revision 0.0.8, when a role needed the issue's file (#116).
+    crate::issue::no_breakdown(document).map_err(PromptError)
 }
 
 /// Why a derivation is refused. `Used` is a value the caller gave that is not plain, named by its

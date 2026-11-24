@@ -274,8 +274,8 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
                     found.push(about_config(&why));
                     settings += 1;
                 }
-                // The key `planner` is refused by name, as `wb prompt` refuses it (#116).
-                if let Err(why) = crate::issue::no_planner(&document) {
+                // The key `breakdown` is refused by name, as `wb prompt` refuses it (#116).
+                if let Err(why) = crate::issue::no_breakdown(&document) {
                     found.push(about_config(&why));
                     settings += 1;
                 }

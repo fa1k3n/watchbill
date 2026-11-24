@@ -1,4 +1,4 @@
-//! A person starts a role alone (#116): an issue with no file is handed out, `planner:` in
+//! A person starts a role alone (#116): an issue with no file is handed out, `breakdown:` in
 //! `watchbill.yml` is refused by name, and a review or a fix of a change takes no issue. Run as a person
 //! runs it, in a repository made for the test.
 
@@ -113,17 +113,17 @@ fn test_WB_TASK_17_with_no_file_an_issue_that_is_no_name_of_a_file_is_handed_out
     assert!(said.contains("a/b"), "{}", said);
 }
 
-// ---- WB-TASK-18: the key `planner` is refused by name ----
+// ---- WB-TASK-18: the key `breakdown` is refused by name ----
 
 #[test]
-fn test_WB_TASK_18_wb_check_refuses_the_key_planner_names_its_line_and_says_to_remove_it() {
+fn test_WB_TASK_18_wb_check_refuses_the_key_breakdown_names_its_line_and_says_to_remove_it() {
     for value in ["none", "other", "[a, b]"] {
         let folder = set_up();
-        let line = add_line(&folder.path, &format!("planner: {}\n", value));
+        let line = add_line(&folder.path, &format!("breakdown: {}\n", value));
         let run = wb(&folder.path, &["check"], "");
         assert_eq!(code(&run), Some(1), "{}: {}", value, text(&run.stdout));
         let out = text(&run.stdout);
-        let said = out.lines().find(|said| said.contains("planner")).unwrap_or_else(|| panic!("{}: {}", value, out));
+        let said = out.lines().find(|said| said.contains("breakdown")).unwrap_or_else(|| panic!("{}: {}", value, out));
         assert!(said.contains(&format!("line {}", line)), "{}: {}", value, said);
         assert!(said.contains("Remove the line"), "{}: {}", value, said);
         assert!(!said.contains("rule table"), "{}: {}", value, said);
@@ -131,9 +131,9 @@ fn test_WB_TASK_18_wb_check_refuses_the_key_planner_names_its_line_and_says_to_r
 }
 
 #[test]
-fn test_WB_TASK_18_wb_prompt_refuses_the_key_planner_with_1_and_prints_nothing() {
+fn test_WB_TASK_18_wb_prompt_refuses_the_key_breakdown_with_1_and_prints_nothing() {
     let folder = set_up();
-    let line = add_line(&folder.path, "planner: none\n");
+    let line = add_line(&folder.path, "breakdown: none\n");
     for role in ROLES {
         for extra in [&[][..], &["--parts"], &["--stamp"]] {
             let mut args = vec![role, "54", "--change", "34", "--round", "1"];
@@ -148,15 +148,15 @@ fn test_WB_TASK_18_wb_prompt_refuses_the_key_planner_with_1_and_prints_nothing()
 }
 
 #[test]
-fn test_WB_TASK_18_the_derivation_of_wb_prompt_refuses_the_key_planner_by_itself() {
+fn test_WB_TASK_18_the_derivation_of_wb_prompt_refuses_the_key_breakdown_by_itself() {
     let folder = set_up();
-    add_line(&folder.path, "planner: none\n");
+    add_line(&folder.path, "breakdown: none\n");
     let root = folder.path.to_str().unwrap();
     let given = [("issue", "54".to_string()), ("branch", "issue-54".to_string())];
     match watchbill::prompt::derive(root, "build", &given) {
         Err(watchbill::prompt::Derive::Refused(why)) => {
             let why = why.to_string();
-            assert!(why.contains("planner") && why.contains("Remove the line"), "{}", why);
+            assert!(why.contains("breakdown") && why.contains("Remove the line"), "{}", why);
         }
         other => panic!("not refused: {:?}", other),
     }

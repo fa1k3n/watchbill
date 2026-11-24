@@ -283,7 +283,8 @@ fn test_WB_CMD_39_q_given_twice_or_with_a_value_ends_with_2_and_the_usage() {
             args.extend(twice);
             let run = wb(&folder.path, &args, "");
             assert_eq!(code(&run), Some(2), "{:?}", args);
-            assert!(err_of(&run).contains("'--quiet' is given twice"), "{:?}: {}", args, err_of(&run));
+            let said = if twice[0] == twice[1] { format!("'{}' is given twice", twice[0]) } else { "'-q' and '--quiet' are both given".to_string() };
+            assert!(err_of(&run).contains(&said), "{:?}: {}", args, err_of(&run));
             assert!(err_of(&run).contains("usage:"), "{:?}", args);
         }
         let mut args: Vec<&str> = words.to_vec();
@@ -328,7 +329,7 @@ fn test_WB_CMD_40_init_q_leaves_out_what_it_wrote_and_says_what_it_will_write() 
     assert_eq!(code(&quiet), Some(0), "{}", err_of(&quiet));
     assert!(out_of(&plain).contains("Wrote ") && out_of(&plain).contains("Keep them under version control"), "{}", out_of(&plain));
     assert!(out_of(&quiet).contains("About to write"), "{}", out_of(&quiet));
-    assert!(!out_of(&quiet).contains("Wrote ") && !out_of(&quiet).contains("Keep them"), "{}", out_of(&quiet));
+    assert!(!out_of(&quiet).contains("Wrote ") && out_of(&quiet).contains("Keep them under version control"), "{}", out_of(&quiet));
     assert!(config(&again.path).exists());
 }
 
@@ -356,7 +357,8 @@ fn test_WB_CMD_40_upgrade_q_says_each_write_first_and_leaves_out_what_follows() 
     assert_eq!(code(&run), Some(0), "{}{}", out_of(&run), err_of(&run));
     let out = out_of(&run);
     assert!(out.contains("It writes these, in this order:") && out.split_whitespace().collect::<Vec<_>>().join(" ").contains("add .watchbill/revision/roles/fix.md"), "{}", out);
-    assert!(!out.contains("Written.") && !out.contains("The check of wb check") && !out.contains("Nothing is committed"), "{}", out);
+    assert!(!out.contains("Written.") && !out.contains("The check of wb check"), "{}", out);
+    assert!(out.contains("Nothing is committed.") && out.contains("(#186)") && out.contains("git add --all"), "{}", out);
     assert!(folder.path.join(".watchbill/revision/roles/fix.md").exists());
 }
 
@@ -401,14 +403,15 @@ fn test_WB_CMD_40_accept_q_says_what_it_will_write_and_leaves_out_the_rest() {
 }
 
 #[test]
-fn test_WB_CMD_40_accept_n_q_leaves_out_the_hint_to_commit() {
+fn test_WB_CMD_40_accept_n_q_keeps_the_command_to_commit_the_acceptance() {
     let folder = on_the_branch();
 
     let run = wb(&folder.path, &["accept", "-n", "-q", "54"], "");
 
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
     assert!(out_of(&run).contains("will write"), "{}", out_of(&run));
-    assert!(!out_of(&run).contains("commit the acceptance alone"), "{}", out_of(&run));
+    assert!(out_of(&run).contains("commit the acceptance alone") && out_of(&run).contains("git commit"), "{}", out_of(&run));
+    assert!(!out_of(&run).contains("is accepted."), "{}", out_of(&run));
 }
 
 #[test]
@@ -546,17 +549,37 @@ fn roff(flag: &str) -> String {
 fn test_WB_CMD_43_each_man_page_names_q_and_quiet_and_n_where_the_usage_does() {
     for command in built() {
         let text = fs::read_to_string(root().join(format!("packaging/man/wb-{}.1", command))).unwrap();
-        assert!(text.contains(&roff("-q")) && text.contains(&roff("--quiet")), "wb-{}.1", command);
-        let options: Vec<&str> = text.lines().filter(|line| line.starts_with(".B ")).collect();
-        assert!(options.iter().any(|line| line.contains(&roff("--quiet")) && line.contains(&roff("-q"))), "wb-{}.1: {:?}", command, options);
-        if WITH_N.contains(&command.as_str()) {
-            assert!(text.contains(&roff("-n")), "wb-{}.1", command);
+        // The option line is `.B \-q, \-\-quiet`: the short form as a word of its own, not inside the long one.
+        assert!(text.lines().any(|line| line == ".B \\-q, \\-\\-quiet"), "wb-{}.1", command);
+        let synopsis = section(&text, "SYNOPSIS").join(" ");
+        assert!(words_of_roff(&synopsis).contains(&"-q".to_string()), "wb-{}.1: {}", command, synopsis);
+    }
+    for (command, long) in [("upgrade", "--dry-run"), ("accept", "--no-commit"), ("plan", "--no-commit")] {
+        let text = fs::read_to_string(root().join(format!("packaging/man/wb-{}.1", command))).unwrap();
+        let line = format!(".B {}, \\-n", roff(long));
+        assert!(text.lines().any(|found| found == line), "wb-{}.1 lacks {}", command, line);
+        assert!(words_of_roff(&section(&text, "SYNOPSIS").join(" ")).contains(&"-n".to_string()), "wb-{}.1", command);
+    }
+}
+
+/// The lines of a section of a page, up to the next `.SH`.
+fn section(text: &str, name: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut inside = false;
+    for line in text.lines() {
+        if let Some(heading) = line.strip_prefix(".SH ") {
+            inside = heading == name;
+        } else if inside {
+            found.push(line.to_string());
         }
     }
-    let upgrade = fs::read_to_string(root().join("packaging/man/wb-upgrade.1")).unwrap();
-    assert!(upgrade.lines().any(|line| line.starts_with(".B ") && line.contains(&roff("--dry-run")) && line.contains(&roff("-n"))));
-    let accept = fs::read_to_string(root().join("packaging/man/wb-accept.1")).unwrap();
-    assert!(accept.lines().any(|line| line.starts_with(".B ") && line.contains(&roff("--no-commit")) && line.contains(&roff("-n"))));
+    found
+}
+
+/// The words of a text of roff, with the escapes out and the brackets and bars apart: `\-q` is the word `-q`.
+fn words_of_roff(text: &str) -> Vec<String> {
+    let plain = text.replace("\\&", "").replace("\\fB", " ").replace("\\fR", " ").replace("\\-", "-");
+    plain.split(|c: char| c.is_whitespace() || "[]()|,".contains(c)).filter(|word| !word.is_empty()).map(String::from).collect()
 }
 
 fn completion() -> String {
@@ -620,4 +643,194 @@ fn test_WB_CMD_44_a_single_dash_word_is_completed_from_the_short_forms() {
     let text = completion();
     assert!(text.contains("_wb_short_$command"), "the completion does not read the short forms of the command");
     assert!(text.lines().any(|line| line.contains("$cur == -*")), "{}", text);
+}
+
+// ---- WB-CMD-39: -q is taken among the options, before or after the role or the subcommand ----
+
+#[test]
+fn test_WB_CMD_39_q_before_the_role_or_the_subcommand_is_taken() {
+    let bench = bench();
+    let (status, out, err) = bench.plan(&["add", "54", "-m", "The brakes hold."]);
+    assert_eq!(status, 0, "{}{}", out, err);
+
+    let before = wb(&bench.repo.path, &["start", "-q", "--list"], "");
+    let after = wb(&bench.repo.path, &["start", "--list", "-q"], "");
+    assert_eq!(code(&before), Some(0), "{}", err_of(&before));
+    assert_eq!(out_of(&before), out_of(&after));
+    assert!(out_of(&before).lines().any(|line| line == "build"), "{}", out_of(&before));
+
+    let plain = wb(&bench.repo.path, &["plan", "list"], "");
+    let early = wb(&bench.repo.path, &["plan", "-q", "list"], "");
+    assert_eq!(code(&early), Some(0), "{}", err_of(&early));
+    assert_eq!(out_of(&early), out_of(&plain));
+
+    // A role given after -q is the role: the start goes on to its own checks, and none of them is about -q.
+    let run = wb(&bench.repo.path, &["start", "-q", "build", "54"], "");
+    assert!(!err_of(&run).contains("not a role") && !err_of(&run).contains("'-q'"), "{}", err_of(&run));
+    let twice = wb(&bench.repo.path, &["start", "-q", "build", "54", "-q"], "");
+    assert_eq!(code(&twice), Some(2));
+    assert!(err_of(&twice).contains("'-q' is given twice"), "{}", err_of(&twice));
+    let twice = wb(&bench.repo.path, &["plan", "-q", "list", "--quiet"], "");
+    assert_eq!(code(&twice), Some(2));
+    assert!(err_of(&twice).contains("'-q' and '--quiet' are both given"), "{}", err_of(&twice));
+}
+
+// ---- WB-CMD-38: a repeated --no-commit or -n of wb accept ends with 2, as in the others ----
+
+#[test]
+fn test_WB_CMD_38_accept_refuses_a_repeated_no_commit_or_n() {
+    let folder = on_the_branch();
+    for args in [&["accept", "-n", "-n", "54"][..], &["accept", "--no-commit", "-n", "54"][..], &["accept", "--no-commit", "--no-commit", "54"][..]] {
+        let run = wb(&folder.path, args, "");
+        assert_eq!(code(&run), Some(2), "{:?}", args);
+        assert!(err_of(&run).contains("is given twice"), "{:?}: {}", args, err_of(&run));
+    }
+    assert!(!folder.path.join(ACCEPTED).exists());
+}
+
+// ---- WB-CMD-40: the lines -q leaves out of wb answer, wb plan edit, wb start and wb revert ----
+
+const QUESTION: &str = "[questions] 175.tester q1
+q1: Is a clause with no test left without one?
+<details>
+
+Why it matters: nothing fails if the clause breaks.
+
+1. Let the tester read the two files of tests.
+2. Leave the clause without a test.
+
+Suggested: 1, because the clause needs a check.
+
+changes the issue's file: no
+
+</details>
+";
+
+/// A set-up repository with stand-in patterns that post into `.tracker/`, and one open question on issue 175.
+fn asked() -> Folder {
+    let folder = set_up();
+    let patterns = "issue_comment_bodies: \"cat .tracker/{issue}.bodies\"\nissue_comment: \"sh .tracker/post.sh {issue}\"\n";
+    let mut yml = read(&config(&folder.path));
+    yml.push_str(patterns);
+    fs::write(config(&folder.path), yml).unwrap();
+    put(&folder.path, ".git/info/exclude", ".tracker/\n");
+    put(&folder.path, ".tracker/post.sh", "cat > \".tracker/posted-$1\"\n");
+    put(&folder.path, ".tracker/175.bodies", &format!("{}\0", QUESTION));
+    git(&folder.path, &["add", "--", ".watchbill"]);
+    git(&folder.path, &["commit", "-q", "-m", "Patterns"]);
+    folder
+}
+
+#[test]
+fn test_WB_CMD_40_answer_q_says_what_it_will_post_and_leaves_out_that_it_is_posted() {
+    let folder = asked();
+
+    let plain = wb(&folder.path, &["answer", "175", "--suggested"], "");
+    fs::remove_file(folder.path.join(".tracker/posted-175")).unwrap();
+    let quiet = wb(&folder.path, &["answer", "175", "--suggested", "-q"], "");
+
+    assert_eq!(code(&plain), Some(0), "{}", err_of(&plain));
+    assert!(err_of(&plain).contains("wb answer: posted."), "{}", err_of(&plain));
+    assert_eq!(code(&quiet), Some(0), "{}", err_of(&quiet));
+    assert!(err_of(&quiet).contains("will post on"), "{}", err_of(&quiet));
+    assert!(!err_of(&quiet).contains("wb answer: posted."), "{}", err_of(&quiet));
+    assert!(folder.path.join(".tracker/posted-175").exists());
+}
+
+#[test]
+fn test_WB_CMD_40_answer_q_leaves_out_that_there_is_no_open_question() {
+    let folder = asked();
+    put(&folder.path, ".tracker/175.bodies", "[stamp] tester round 1\0");
+
+    let plain = wb(&folder.path, &["answer", "175"], "");
+    let quiet = wb(&folder.path, &["answer", "175", "-q"], "");
+
+    assert!(err_of(&plain).contains("there is no open question"), "{}", err_of(&plain));
+    assert_eq!(code(&quiet), Some(0));
+    assert_eq!(err_of(&quiet), "");
+}
+
+/// `wb` with the editor `editor` (run by the shell with the file as its argument, as git runs it).
+fn editing(folder: &Path, editor: &str, args: &[&str]) -> Output {
+    let base: Vec<(String, String)> = env().into_iter().filter(|(name, _)| name != "VISUAL" && name != "EDITOR").collect();
+    Command::new(env!("CARGO_BIN_EXE_wb"))
+        .args(args)
+        .current_dir(folder)
+        .env_clear()
+        .envs(base)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_EDITOR", editor)
+        .stdin(Stdio::null())
+        .output()
+        .expect("wb could not be started")
+}
+
+fn planned_bench() -> Bench {
+    let bench = bench();
+    let (status, out, err) = bench.plan(&["add", "54", "-m", "The brakes hold."]);
+    assert_eq!(status, 0, "{}{}", out, err);
+    bench.planned();
+    bench
+}
+
+#[test]
+fn test_WB_CMD_40_plan_edit_q_leaves_out_that_nothing_changed() {
+    let bench = planned_bench();
+
+    let plain = editing(&bench.repo.path, "true", &["plan", "edit", "54"]);
+    let quiet = editing(&bench.repo.path, "true", &["plan", "edit", "54", "-q"]);
+
+    assert_eq!(code(&plain), Some(0), "{}", err_of(&plain));
+    assert!(out_of(&plain).contains("nothing changed in"), "{}", out_of(&plain));
+    assert_eq!(code(&quiet), Some(0), "{}", err_of(&quiet));
+    assert!(out_of(&quiet).contains("opens "), "{}", out_of(&quiet));
+    assert!(!out_of(&quiet).contains("nothing changed"), "{}", out_of(&quiet));
+}
+
+const CHANGE: &str = "sed -i 's/^  none$/  none, changed/'";
+
+#[test]
+fn test_WB_CMD_40_plan_edit_q_says_what_it_will_commit_and_leaves_out_that_it_is_committed() {
+    let bench = planned_bench();
+    let before = count(&bench.repo.path);
+
+    let run = editing(&bench.repo.path, CHANGE, &["plan", "edit", "54", "-q"]);
+
+    assert_eq!(code(&run), Some(0), "{}{}", out_of(&run), err_of(&run));
+    assert!(out_of(&run).contains("will commit"), "{}", out_of(&run));
+    assert!(!out_of(&run).contains("committed .watchbill"), "{}", out_of(&run));
+    assert_eq!(count(&bench.repo.path), before + 1);
+}
+
+#[test]
+fn test_WB_CMD_40_plan_edit_q_keeps_that_an_acceptance_before_holds_no_longer() {
+    let bench = planned_bench();
+    let run = wb(&bench.repo.path, &["plan", "accept", "54"], "");
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+
+    let run = editing(&bench.repo.path, CHANGE, &["plan", "edit", "54", "-q"]);
+
+    assert_eq!(code(&run), Some(0), "{}{}", out_of(&run), err_of(&run));
+    assert!(out_of(&run).contains("acceptance") && out_of(&run).contains("no longer"), "{}", out_of(&run));
+    assert!(!out_of(&run).contains("committed .watchbill"), "{}", out_of(&run));
+}
+
+#[test]
+fn test_WB_CMD_40_revert_says_nothing_that_only_confirms() {
+    // The closing line says that the commits stay and that taking them back is git's: a person has to know it.
+    let source = fs::read_to_string(root().join("src/revert.rs")).unwrap();
+    assert!(!source.contains("refusal::inform"), "wb revert says nothing that only confirms");
+    assert!(source.contains("Taking commits back is git's"));
+}
+
+// ---- WB-CMD-42 and 44: wb init names -y ----
+
+#[test]
+fn test_WB_CMD_42_init_takes_y_and_the_usage_names_it() {
+    assert!(help("init").contains("[--yes | -y]"), "{}", help("init"));
+    let folder = repository(None);
+    let run = wb(&folder.path, &["init", "-y"], "");
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    assert!(config(&folder.path).exists());
+    assert!(usage_shorts("init").contains("-y"));
 }

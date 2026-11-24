@@ -3301,6 +3301,21 @@ fn test_WB_BUILD_78_take_back_puts_the_commit_of_a_kept_view_on_the_branch_and_s
 }
 
 #[test]
+fn test_WB_CMD_40_take_back_q_leaves_out_how_to_see_the_commit_and_keeps_what_is_not_pushed() {
+    let bench = bench();
+    let (folder, _) = kept_tester(&bench);
+    commit_in(&folder, "src/brake.c", "int brake(void) { return 8; }\n", "The tests of 54");
+    let run = take_back(&bench, &["-q"]);
+    let err = text_of(&run.stderr);
+    assert_eq!(code(&run), Some(0), "{}", err);
+    assert!(err.contains("will take back") && err.contains("The tests of 54"), "{}", err);
+    assert!(!err.contains("git show --stat"), "{}", err);
+    // What is not pushed, and the command to push it, are said together, and stay.
+    assert!(err.contains("nothing is pushed") && err.contains("to push the branch, run"), "{}", err);
+    assert_eq!(subjects(&bench, 1), vec!["The tests of 54"]);
+}
+
+#[test]
 fn test_WB_BUILD_79_take_back_with_no_kept_view_of_the_role_and_issue_ends_with_1_saying_so() {
     let bench = bench();
     let run = take_back(&bench, &[]);

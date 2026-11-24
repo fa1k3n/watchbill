@@ -299,26 +299,35 @@ fn kept_all(root: &str, state: &Path, issue: Option<&str>, look: bool) -> Vec<Ke
 /// The roles whose work comes back as commits (#300): a round of another role is held to no commit.
 pub const COMMIT_ROLES: [&str; 3] = ["tester", "build", "fix"];
 
-/// The rounds of `issue` that are known to have brought nothing back (#300): of a role of `COMMIT_ROLES`, each of
-/// whose starts on this machine ended, has a file `back` that can be read, and has no line `taken:` in it, however
-/// many takes-back it holds. A round with a start that runs, with none that left a `back`, or with no start at all
-/// is not known to have brought nothing. Each round once, oldest first, as its role and its number.
-pub fn empty_rounds(state: &Path, issue: &str) -> Vec<(String, u64)> {
-    let mut rounds: Vec<(String, u64, bool)> = Vec::new();
-    for session in sessions(state, Some(issue)) {
-        let Some(number) = session.round.as_deref().and_then(|round| round.parse::<u64>().ok()) else { continue };
-        if !COMMIT_ROLES.contains(&session.role.as_str()) {
-            continue;
-        }
-        // Only a start that ended and left a `back` without a commit taken speaks for its round.
-        let empty = session.running().is_none() && small(&session.folder.join("back")).is_some_and(|back| !back.lines().any(|line| line.starts_with("taken: ")));
-        match rounds.iter_mut().find(|(role, round, _)| *role == session.role && *round == number) {
-            Some(found) => found.2 &= empty,
-            None => rounds.push((session.role.clone(), number, empty)),
-        }
+/// The folders of the lines of the starts, read once (#300): `wb status` asks it for each issue.
+pub struct Starts(Vec<Session>);
+
+impl Starts {
+    pub fn read(state: &Path) -> Starts {
+        Starts(sessions(state, None))
     }
-    rounds.reverse();
-    rounds.into_iter().filter(|round| round.2).map(|(role, number, _)| (role, number)).collect()
+
+    /// The rounds of `issue` that are known to have brought nothing back: of a role of `COMMIT_ROLES`, each of
+    /// whose starts on this machine ended, has a file `back` that can be read, and has no line `taken:` in it,
+    /// however many takes-back it holds. A round with a start that runs, with none that left a `back`, or with no
+    /// start at all is not known to have brought nothing. Each round once, oldest first, as its role and number.
+    pub fn empty_rounds(&self, issue: &str) -> Vec<(String, u64)> {
+        let mut rounds: Vec<(String, u64, bool)> = Vec::new();
+        for session in self.0.iter().filter(|session| session.is_for(issue)) {
+            let Some(number) = session.round.as_deref().and_then(|round| round.parse::<u64>().ok()) else { continue };
+            if !COMMIT_ROLES.contains(&session.role.as_str()) {
+                continue;
+            }
+            // Only a start that ended and left a `back` without a commit taken speaks for its round.
+            let empty = session.running().is_none() && small(&session.folder.join("back")).is_some_and(|back| !back.lines().any(|line| line.starts_with("taken: ")));
+            match rounds.iter_mut().find(|(role, round, _)| *role == session.role && *round == number) {
+                Some(found) => found.2 &= empty,
+                None => rounds.push((session.role.clone(), number, empty)),
+            }
+        }
+        rounds.reverse();
+        rounds.into_iter().filter(|round| round.2).map(|(role, number, _)| (role, number)).collect()
+    }
 }
 
 /// A session of an issue that was cut off: its `outcome` says `running` and its `wb` is not alive.

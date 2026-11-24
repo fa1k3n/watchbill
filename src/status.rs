@@ -218,7 +218,7 @@ fn on_branches(root: &str, number: &str, pattern: &str, all: &[Branch], from: &m
 }
 
 /// Reads one issue, or says why it could not be read.
-fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flow: &[String], default: &str, with_title: bool, state: Option<&std::path::Path>) -> Result<Found, String> {
+fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flow: &[String], default: &str, with_title: bool, starts: Option<&crate::kept::Starts>) -> Result<Found, String> {
     let (comments, pattern) = (patterns.comments.as_deref(), patterns.branch.as_str());
     let mut from = Vec::new();
     let mut lines = Vec::new();
@@ -267,7 +267,9 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
     let since = stamps.iter().rposition(|(name, _)| name == "planner").map_or(0, |at| at + 1);
     // A round of a role whose work is commits counts only where something of it came back (#300): the round that the
     // start on this machine recorded as bringing nothing back is left out. A round not recorded counts by its stamp.
-    let empty = state.map(|state| crate::kept::empty_rounds(state, number)).unwrap_or_default();
+    let mut empty = starts.map(|starts| starts.empty_rounds(number)).unwrap_or_default();
+    // Only a round whose stamp still counts is said: not one before the last planner, nor one a `[revert]` took back.
+    empty.retain(|round| stamps[since..].iter().any(|(role, number)| *role == round.0 && *number == round.1));
     let stamps: Vec<(String, u64)> = stamps[since..].iter().filter(|(role, round)| !empty.iter().any(|(name, number)| name == role && number == round)).cloned().collect();
     let has = |role: &str| stamps.iter().any(|(name, _)| name == role);
     let step = match stamps.last().map(|(name, _)| name.as_str()) {
@@ -378,8 +380,10 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
 
     let mut failed: Vec<(String, String)> = Vec::new();
     let mut read: Vec<Found> = Vec::new();
+    // The folders of the starts are read once for every issue (#300).
+    let starts = state.map(crate::kept::Starts::read);
     for number in issues {
-        match read_issue(root, &number, &patterns, &all, &flow, &default, only.is_some(), state) {
+        match read_issue(root, &number, &patterns, &all, &flow, &default, only.is_some(), starts.as_ref()) {
             Ok(found) => read.push(found),
             Err(why) => failed.push((issue::shown(&number), issue::shown(&why))),
         }
@@ -434,7 +438,9 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
                         line
                     })
                     .collect();
-                lines.extend(kept.iter().map(|kept| kept.line()));
+                // A view named beside its round is not named again on a `kept:` line.
+                let named = |view: &crate::kept::Kept| read.first().is_some_and(|found| found.empty.iter().any(|(role, round)| view.role == *role && view.round == round.to_string()));
+                lines.extend(kept.iter().filter(|view| !named(view)).map(|kept| kept.line()));
                 lines.extend(crate::kept::cut_off(state, number).iter().map(|cut| cut.line()));
                 if !lines.is_empty() {
                     sections.push(lines.iter().map(|line| format!("{}\n", line)).collect());

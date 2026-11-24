@@ -3206,7 +3206,7 @@ fn test_WB_STATUS_68_status_leaves_nothing_in_the_temporary_folder() {
     let mut command = Command::new(env!("CARGO_BIN_EXE_wb"));
     command.args(["status", "54"]).current_dir(&bench.repo.path).env_clear().envs(env()).env("XDG_STATE_HOME", &bench.state.path).env("TMPDIR", &temporary.path);
     let (run, _) = bounded(command, 10).expect("status did not end");
-    assert!(text_of(&run.stdout).contains("kept: tester round 2, 1 commit not taken, 1 paths uncommitted"), "{}", text_of(&run.stdout));
+    assert!(text_of(&run.stdout).contains("kept: tester round 2, 1 commit not taken, 1 path uncommitted"), "{}", text_of(&run.stdout));
     assert_eq!(fs::read_dir(&temporary.path).unwrap().count(), 0);
 }
 
@@ -5095,6 +5095,133 @@ fn test_WB_VIEW_117_a_take_back_onto_a_branch_behind_the_commit_the_view_was_mad
     assert!(line.contains("issue-54") && line.contains("behind") && !line.contains("moved on"), "{}", err);
     assert_eq!(bench.git_text(&["rev-parse", "issue-54"]), before);
     assert!(folder.exists());
+}
+
+// ---- #277: a commit taken back is not named again as not taken when its view is kept ----
+
+fn git_text_in(folder: &Path, args: &[&str]) -> String {
+    let out = Command::new("git").args(args).current_dir(folder).output().unwrap();
+    text_of(&out.stdout)
+}
+
+/// A kept view of the build for 54 with one commit, `A taken commit`, and a path left uncommitted; taken back once.
+/// The commit comes onto the branch, and the view is kept for the path.
+fn taken_once(bench: &Bench) -> (PathBuf, PathBuf) {
+    let (folder, session) = keep(bench, &Keep { session: "2026-11-22T100000Z-build-54", role: "build", round: 1, commits: &[], uncommitted: &[], outcome: RAN });
+    commit_in(&folder, "src/new.c", "int taken;\n", "A taken commit");
+    put(&folder, "left.txt", "uncommitted\n");
+    let run = bench.start(&["start", "build", "54", "--take-back"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert_eq!(subjects(bench, 1), vec!["A taken commit"]);
+    assert!(folder.exists());
+    (folder, session)
+}
+
+#[test]
+fn test_WB_VIEW_119_a_take_back_writes_for_each_commit_taken_a_line_took_with_the_view_s_commit_and_the_branch_s() {
+    let bench = bench();
+    let (folder, session) = taken_once(&bench);
+    let back = read(&session.join("back"));
+    let from = git_text_in(&folder, &["rev-parse", "HEAD"]);
+    let onto = bench.git_text(&["rev-parse", "HEAD"]);
+    let took: Vec<&str> = back.lines().filter(|line| line.starts_with("took: ")).collect();
+    assert_eq!(took, vec![format!("took: {} {}", from.trim(), onto.trim())], "{}", back);
+    // The line `taken:` is as it was.
+    assert!(back.lines().any(|line| line.starts_with("taken: ") && line.contains("A taken commit")), "{}", back);
+}
+
+#[test]
+fn test_WB_VIEW_120_a_commit_taken_is_not_named_again_as_not_taken_by_status_the_guard_or_a_take_back() {
+    let bench = bench();
+    let (_folder, _) = taken_once(&bench);
+    let out = text_of(&wb_state(&bench, &["status", "54"]).stdout);
+    assert!(!out.contains("not taken") && !out.contains("A taken commit"), "{}", out);
+    let err = text_of(&bench.start(&["start", "build", "54"]).stderr);
+    assert!(err.contains("left.txt") && !err.contains("A taken commit"), "{}", err);
+    let before = bench.head();
+    let run = bench.start(&["start", "build", "54", "--take-back"]);
+    let err = text_of(&run.stderr);
+    assert_eq!(code(&run), Some(1), "{}", err);
+    assert!(!err.contains("A taken commit") && !err.contains("moved on"), "{}", err);
+    assert_eq!(bench.head(), before);
+}
+
+#[test]
+fn test_WB_VIEW_121_a_kept_view_whose_commits_were_all_taken_is_named_as_work_left_uncommitted() {
+    let bench = bench();
+    let (folder, _) = taken_once(&bench);
+    let out = text_of(&wb_state(&bench, &["status", "54"]).stdout);
+    assert!(out.lines().any(|line| line == format!("kept: build round 1, 1 path left uncommitted, {}", folder.display())), "{}", out);
+    let err = text_of(&bench.start(&["start", "build", "54"]).stderr);
+    assert!(err.contains("work left uncommitted: left.txt") && !err.contains("\n    uncommitted:"), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_122_a_take_back_of_a_view_with_only_uncommitted_work_left_takes_nothing_and_says_why() {
+    let bench = bench();
+    let (folder, _) = taken_once(&bench);
+    let before = bench.head();
+    let run = bench.start(&["start", "build", "54", "--take-back"]);
+    let err = text_of(&run.stderr);
+    assert_eq!(code(&run), Some(1), "{}", err);
+    assert!(err.contains("every commit of the view was taken before") && err.contains("left.txt"), "{}", err);
+    assert_eq!(bench.head(), before);
+    assert!(folder.exists());
+}
+
+#[test]
+fn test_WB_VIEW_123_a_commit_made_in_the_view_after_a_take_back_is_named_and_taken_by_the_next_one_and_the_one_taken_is_not() {
+    let bench = bench();
+    let (folder, _) = taken_once(&bench);
+    commit_in(&folder, "tests/test_brake.c", "int second;\n", "A second commit");
+    let out = text_of(&wb_state(&bench, &["status", "54"]).stdout);
+    assert!(out.contains("kept: build round 1, 1 commit not taken, 1 path uncommitted"), "{}", out);
+    let err = text_of(&bench.start(&["start", "build", "54"]).stderr);
+    assert!(err.contains("A second commit") && !err.contains("A taken commit") && !err.contains("work left uncommitted"), "{}", err);
+    let run = bench.start(&["start", "build", "54", "--take-back"]);
+    let err = text_of(&run.stderr);
+    assert_eq!(code(&run), Some(1), "{}", err);
+    assert_eq!(subjects(&bench, 2), vec!["A second commit", "A taken commit"], "{}", err);
+    assert!(!err.contains("moved on") && !err.contains("taken before"), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_120_after_a_take_back_that_took_and_a_later_one_that_failed_the_commit_taken_is_not_named() {
+    let bench = bench();
+    let (folder, _) = taken_once(&bench);
+    // A second commit that changes the path the first one did: the next take-back is refused, as the branch has moved on.
+    commit_in(&folder, "src/new.c", "int second;\n", "A second commit");
+    let run = bench.start(&["start", "build", "54", "--take-back"]);
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    assert_eq!(subjects(&bench, 1), vec!["A taken commit"]);
+    let out = text_of(&wb_state(&bench, &["status", "54"]).stdout);
+    assert!(out.contains("kept: build round 1, 1 commit not taken,"), "{}", out);
+    let err = text_of(&bench.start(&["start", "build", "54"]).stderr);
+    assert!(err.contains("A second commit") && !err.contains("A taken commit"), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_124_a_view_with_no_line_took_lists_every_commit_as_before() {
+    let bench = bench();
+    let (folder, session) = keep(&bench, &Keep { session: "2026-11-22T100000Z-build-54", role: "build", round: 1, commits: &["One"], uncommitted: &[], outcome: RAN });
+    assert!(!session.join("back").exists());
+    commit_in(&folder, "src/new.c", "int two;\n", "Two");
+    let out = text_of(&wb_state(&bench, &["status", "54"]).stdout);
+    assert!(out.contains("kept: build round 1, 2 commits not taken,"), "{}", out);
+}
+
+#[test]
+fn test_WB_VIEW_121_a_kept_view_that_cannot_be_read_is_not_said_to_hold_only_uncommitted_work() {
+    let bench = bench();
+    let (folder, _) = taken_once(&bench);
+    fifo_for_head(&folder);
+    let run = wb_state_bounded(&bench, &["status", "54"], 30).expect("wb status did not end in 30 seconds");
+    let out = text_of(&run.stdout);
+    let line = out.lines().find(|line| line.starts_with("kept: build round 1, not read: ")).unwrap_or_else(|| panic!("{}", out));
+    assert!(!line.contains("left uncommitted"), "{}", line);
+    let run = bench.start(&["start", "build", "54"]);
+    let err = text_of(&run.stderr);
+    assert!(err.contains("not read: ") && err.contains("uncommitted: left.txt") && !err.contains("work left uncommitted"), "{}", err);
 }
 
 // ---- #151: wb pushes the branch and opens the change after a session; the session holds no login ----

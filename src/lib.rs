@@ -1720,7 +1720,8 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
     };
     // What will be taken, said first: the view, its role and round, each commit with its subject.
     let shown_view = issue::shown(&kept.view.folder.display().to_string());
-    let (commits, more, left) = match view::work_left(&root, &kept.view) {
+    let taken = kept::taken_of(&kept.session);
+    let (commits, more, left) = match view::work_left(&root, &kept.view, &taken) {
         Ok(found) => (found.commits, found.more, found.uncommitted),
         Err(why) => return refuse(err, &format!("the view {} was not read, and nothing is taken back: {}", shown_view, issue::shown(&why))),
     };
@@ -1735,7 +1736,7 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
         let _ = writeln!(err, "{}:   {} {}", name, view::short(commit), subject);
     }
     if commits.is_empty() {
-        let _ = writeln!(err, "{}:   no commit", name);
+        let _ = writeln!(err, "{}:   no commit{}", name, if taken.is_empty() { "" } else { ": every commit of the view was taken before" });
     }
     if total > commits.len() {
         let _ = writeln!(err, "{}:   and {} more", name, total - commits.len());
@@ -1744,7 +1745,7 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
         let _ = writeln!(err, "{}:   uncommitted, and not taken: {}", name, issue::shown(path));
     }
     let list = kept.session.join("back");
-    let back = view::take_back_later_of(name, &root, &kept.view, &allowed, &build_files, total, Some(&list), err);
+    let back = view::take_back_later_of(name, &root, &kept.view, &allowed, &build_files, total, &taken, Some(&list), err);
     let still = view::tidy(name, &kept.view, &back, err);
     let written = sessions::append_back(&kept.session, &format!("take-back\n{}", back.text(still.as_deref())));
     if let Err(error) = &written {

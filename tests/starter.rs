@@ -166,6 +166,7 @@ fn bench() -> Bench {
         format!("change_of_branch: '{} {{branch}}'", at("changes.sh")),
         format!("issue_address: '{} {{issue}}'", at("address.sh")),
         format!("issue_comment_bodies: '{} {{issue}}'", at("bodies.sh")),
+        format!("issue_text: '{} {{issue}}'", at("address.sh")),
         "change_address: 'server {change}'".to_string(),
         "confidentiality: public".to_string(),
     ] {

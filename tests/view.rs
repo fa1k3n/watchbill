@@ -106,7 +106,13 @@ fn bench_for(issue_54: &str) -> Bench {
     let l = log.path.to_str().unwrap();
     script(&log.path.join("post.sh"), &format!("echo \"post $1 $2\" >> {l}/calls\ncat > {l}/posted-$1-$2\nexit $(cat {l}/post.status 2>/dev/null || echo 0)\n"));
     script(&log.path.join("comments.sh"), &format!("echo \"comments $1 $2\" >> {l}/calls\ncat {l}/comments-$1-$2 2>/dev/null\nexit 0\n"));
-    // The issue's text and its whole comments, for the breakdown (#295): what the test leaves in `address-<issue>` and
+    // The issue's text alone, by `issue_text`, and its whole comments, for the breakdown (#295): what the test leaves in
+    // `text-<issue>` and `bodies-<issue>`, else a line of text and no comment. `issue_address` prints a line for a title.
+    script(
+        &log.path.join("text.sh"),
+        &format!("echo \"text $1\" >> {l}/calls\nif [ -f {l}/text-$1 ]; then cat {l}/text-$1; else echo \"The text of issue $1.\"; fi\nexit $(cat {l}/text.status 2>/dev/null || echo 0)\n"),
+    );
+    // What the test leaves in `address-<issue>` and
     // `bodies-<issue>`, else a line of text and no comment.
     script(
         &log.path.join("address.sh"),
@@ -130,6 +136,7 @@ fn bench_for(issue_54: &str) -> Bench {
         format!("change_comments: '{}/comments.sh change {{change}}'", l),
         format!("change_of_branch: '{}/changes.sh {{branch}}'", l),
         format!("issue_address: '{}/address.sh {{issue}}'", l),
+        format!("issue_text: '{}/text.sh {{issue}}'", l),
         format!("issue_comment_bodies: '{}/bodies.sh {{issue}}'", l),
         "change_address: 'server {change}'".to_string(),
         "confidentiality: public".to_string(),
@@ -4461,12 +4468,12 @@ fn posts_on_54(bench: &Bench) -> usize {
 }
 
 #[test]
-fn test_WB_BUILD_135_the_issue_s_text_is_brought_into_the_view_as_issue_address_printed_it() {
+fn test_WB_BUILD_135_the_issue_s_text_is_brought_into_the_view_as_issue_text_printed_it() {
     if !sandbox("test_WB_BUILD_135") {
         return;
     }
     let bench = bench();
-    fs::write(bench.at("address-54"), "Brakes: the front one.\nA second line.\n").unwrap();
+    fs::write(bench.at("text-54"), "Brakes: the front one.\nA second line.\n").unwrap();
     bench.session("cat .watchbill/issue/54.md > {log}/seen\n");
 
     let run = bench.start(&["start", "breakdown", "54"]);
@@ -4475,7 +4482,7 @@ fn test_WB_BUILD_135_the_issue_s_text_is_brought_into_the_view_as_issue_address_
     assert_eq!(bench.left("seen"), "Brakes: the front one.\nA second line.\n");
     // Run by `wb`, before the stamp is posted and the session started.
     let calls = bench.calls();
-    let address = calls.iter().position(|call| call == "address 54").expect("issue_address was not run");
+    let address = calls.iter().position(|call| call == "text 54").expect("issue_text was not run");
     let posted = calls.iter().position(|call| call == "post issue 54").unwrap();
     assert!(address < posted, "{:?}", calls);
     // It is not taken back: the checkout has no such folder.
@@ -4489,7 +4496,7 @@ fn test_WB_PROMPT_73_the_breakdown_s_posted_stamp_holds_the_sha256_of_the_issue_
     }
     let bench = bench();
     let issue = "Brakes: the front one.\n";
-    fs::write(bench.at("address-54"), issue).unwrap();
+    fs::write(bench.at("text-54"), issue).unwrap();
 
     ok(&bench.start(&["start", "breakdown", "54"]));
 
@@ -4526,14 +4533,12 @@ fn test_WB_BUILD_136_the_questions_and_answers_come_in_whole_and_no_stamp_or_oth
         "[answers] 54.tester q1>tester\nq1: 2",
         "Thanks, that reads well.",
     ];
-    let mut address = String::from("title:\tBrakes\n--\nThe front brake holds the car.\n");
     let mut bodies = Vec::new();
     for comment in comments {
-        address.push_str(&format!("author:\tada\n--\n{}\n--\n", comment));
         bodies.extend_from_slice(comment.as_bytes());
         bodies.extend_from_slice(b"\0\n");
     }
-    fs::write(bench.at("address-54"), address).unwrap();
+    fs::write(bench.at("text-54"), "The front brake holds the car.\n").unwrap();
     fs::write(bench.at("bodies-54"), bodies).unwrap();
     bench.session("cat .watchbill/issue/54.md > {log}/text\ncat .watchbill/issue/54.questions > {log}/questions\n");
 
@@ -4553,8 +4558,8 @@ fn test_WB_BUILD_136_the_questions_and_answers_come_in_whole_and_no_stamp_or_oth
 }
 
 #[test]
-fn test_WB_BUILD_137_a_failing_issue_address_or_issue_comment_bodies_is_refused_as_a_limit_naming_it() {
-    for (status, named) in [("address.status", "issue_address"), ("bodies.status", "issue_comment_bodies")] {
+fn test_WB_BUILD_137_a_failing_issue_text_or_issue_comment_bodies_is_refused_as_a_limit_naming_it() {
+    for (status, named) in [("text.status", "issue_text"), ("bodies.status", "issue_comment_bodies")] {
         let bench = on_99();
         fs::write(bench.at(status), "1\n").unwrap();
         let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "99"]);
@@ -4563,8 +4568,8 @@ fn test_WB_BUILD_137_a_failing_issue_address_or_issue_comment_bodies_is_refused_
 }
 
 #[test]
-fn test_WB_BUILD_137_without_issue_address_or_issue_comment_bodies_the_breakdown_is_refused_naming_it() {
-    for key in ["issue_address", "issue_comment_bodies"] {
+fn test_WB_BUILD_137_without_issue_text_or_issue_comment_bodies_the_breakdown_is_refused_naming_it() {
+    for key in ["issue_text", "issue_comment_bodies"] {
         let bench = on_99();
         without_line(&bench, key);
         let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "99"]);
@@ -4573,8 +4578,8 @@ fn test_WB_BUILD_137_without_issue_address_or_issue_comment_bodies_the_breakdown
 }
 
 #[test]
-fn test_WB_BUILD_138_more_than_1_mib_from_issue_address_or_issue_comment_bodies_is_refused_naming_it() {
-    for (file, named) in [("address-99", "issue_address"), ("bodies-99", "issue_comment_bodies")] {
+fn test_WB_BUILD_138_more_than_1_mib_from_issue_text_or_issue_comment_bodies_is_refused_naming_it() {
+    for (file, named) in [("text-99", "issue_text"), ("bodies-99", "issue_comment_bodies")] {
         let bench = on_99();
         fs::write(bench.at(file), "a".repeat(1024 * 1024 + 1)).unwrap();
         let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "99"]);
@@ -4726,38 +4731,51 @@ fn test_WB_VIEW_77_a_commit_of_cargo_lock_by_the_breakdown_is_refused_at_the_tak
 // ---- The review of #297: only the comments at the end are cut, and nothing raw leaves the sandbox ----
 
 /// The breakdown of 99 started with the stand-in for bubblewrap, its session copying the issue's text it was given.
-fn text_brought(bench: &Bench, address: &str, bodies: &str) -> (Output, String) {
-    fs::write(bench.at("address-99"), address).unwrap();
+fn text_brought(bench: &Bench, text: &[u8], bodies: &str) -> (Output, Vec<u8>) {
+    fs::write(bench.at("text-99"), text).unwrap();
     fs::write(bench.at("bodies-99"), bodies).unwrap();
     bench.session("cat \"$VIEW/.watchbill/issue/99.md\" > {log}/text\n");
     let run = bench.start_by(&pass_through(bench), &["start", "breakdown", "99"]);
-    let text = bench.left("text");
-    (run, text)
+    let brought = fs::read(bench.at("text")).unwrap_or_default();
+    (run, brought)
 }
 
 #[test]
-fn test_WB_BUILD_144_a_comment_found_only_in_the_issue_s_own_text_cuts_nothing_and_is_said() {
-    // The pattern prints the text alone; a comment of one word is in it.
-    let bench = on_99();
-    let (run, text) = text_brought(&bench, "Do not delete the log.\n", "not\0");
-    assert!(bench.started(), "{}", text_of(&run.stderr));
-    assert_eq!(text, "Do not delete the log.\n");
-    assert!(text_of(&run.stderr).contains("no comment is taken out of the issue's text"), "{}", text_of(&run.stderr));
+fn test_WB_BUILD_144_the_issue_s_text_arrives_whole_byte_for_byte_whatever_the_comments() {
+    // The cases of the second look at #297: comments that end the text, are pieces of it, or are all of it, and an
+    // issue whose last lines look like a tracker's.
+    let cases: [(&str, &[u8], &str); 7] = [
+        ("A", b"Release the brake. Never", "Never\0"),
+        ("B", b"Do not delete the log.", "log\0"),
+        ("C", b"Do not delete the log.", "Do not\0delete the log.\0"),
+        ("D", b"Do not delete the log.", "Do not delete the log.\0"),
+        ("E", b"Do it.\nlevel:\tASIL-D\nnote:\tnever on Fridays\n", "ok\0"),
+        ("F", b"Build it:\n```\nmake\n```\n", "ok\0"),
+        ("bytes", b"Line one.\r\n\xff\xfe not UTF-8 --\n", "--\0Line one.\0"),
+    ];
+    for (case, text, bodies) in cases {
+        let bench = on_99();
+        let (run, brought) = text_brought(&bench, text, bodies);
+        assert!(bench.started(), "{}: {}", case, text_of(&run.stderr));
+        assert_eq!(brought, text.to_vec(), "{}", case);
+        assert_eq!(line_of(&bench.left("posted-issue-99"), "issue_text"), Some(sha256_bytes(text)), "{}", case);
+    }
+}
+
+/// The SHA-256 of bytes, by `sha256sum`.
+fn sha256_bytes(bytes: &[u8]) -> String {
+    let mut child = Command::new("sha256sum").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
+    std::io::Write::write_all(&mut child.stdin.take().unwrap(), bytes).unwrap();
+    let out = child.wait_with_output().unwrap();
+    text_of(&out.stdout).split_whitespace().next().unwrap().to_string()
 }
 
 #[test]
-fn test_WB_BUILD_144_the_comments_at_the_end_are_cut_and_the_text_is_left_whole() {
+fn test_WB_BUILD_147_without_issue_text_the_breakdown_is_refused_naming_it_and_wb_upgrade() {
     let bench = on_99();
-    let address = "The front brake: do not let it lock.\nauthor:\tada\n--\nnot\n--\nauthor:\tbob\nedited:\tfalse\n--\n[stamp] breakdown round 1\nrole: breakdown\n--\n";
-    let (run, text) = text_brought(&bench, address, "not\0[stamp] breakdown round 1\nrole: breakdown\0\n");
-    assert!(bench.started(), "{}", text_of(&run.stderr));
-    assert_eq!(text, "The front brake: do not let it lock.\n");
-    assert!(!text_of(&run.stderr).contains("no comment is taken out"), "{}", text_of(&run.stderr));
-
-    // A comment that is not at the end stops the cut: what is before it stays.
-    let bench = on_99();
-    let (_, text) = text_brought(&bench, "The text.\n--\nnot\n--\nThe last comment.\n--\n", "not, as rendered\0The last comment.\0");
-    assert_eq!(text, "The text.\n--\nnot\n");
+    without_line(&bench, "issue_text");
+    let run = bench.start_by(&pass_through(&bench), &["start", "breakdown", "99"]);
+    refused_before_posting(&bench, &run, &["`issue_text`", "`wb upgrade` adds the line `issue_text`"]);
 }
 
 /// The issue's file of 54 with one question whose line holds `odd`, as YAML writes it in double quotes.
@@ -4798,6 +4816,8 @@ fn test_WB_BUILD_146_the_questions_are_read_from_the_commit_taken_back_not_the_w
     assert_eq!(posted, Ok(()), "{}", text_of(&err));
     assert_eq!(posts_on_54(&bench), 1, "{:?}", bench.calls());
     assert_eq!(bench.posted(), TWO_POSTED);
+}
+
 // ---- #296: a take-back goes onto the stamp's branch, never onto the branch checked out ----
 
 /// The bench with `main` checked out, where no branch of issue 7 is.
@@ -4825,10 +4845,7 @@ fn tree_of(bench: &Bench) -> String {
 #[test]
 fn test_WB_VIEW_110_with_main_checked_out_the_breakdown_s_commit_makes_the_issue_s_branch_and_main_is_not_moved() {
     let bench = on_main();
-    // `wb status` reads the issue's title by `issue_address` as `HEAD` has it: a stand-in that prints one.
-    let yml = read(&config(&bench.repo.path)).replace("issue_address: 'tracker {issue}'", "issue_address: 'echo {issue}'");
-    fs::write(config(&bench.repo.path), yml).unwrap();
-    git(&bench.repo.path, &["commit", "-q", "-a", "-m", "A tracker that answers"]);
+    // `wb status` reads the issue's title by `issue_address` as `HEAD` has it: the bench's stand-in prints one (#295).
     let main = bench.head();
     let tree = tree_of(&bench);
     breakdown_7(&bench, "");

@@ -1447,12 +1447,7 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     // person and outside the sandbox, and brought into its view before anything is posted. The stamp holds the hash.
     let brought = match (role, value_of(&handed.values, "issue")) {
         ("breakdown", Some(issue)) => match brought::bring_in(root, issue, &prepared.view.folder) {
-            Ok(found) => {
-                for note in &found.notes {
-                    let _ = writeln!(err, "{}: {}", name, note);
-                }
-                Some(found)
-            }
+            Ok(found) => Some(found),
             Err(why) => {
                 discard(&prepared);
                 return refused(&mut lines, err, "issue", &why);

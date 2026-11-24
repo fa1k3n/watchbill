@@ -2,9 +2,9 @@
 //! (#202), so `wb` reads the issue for it, as the person and outside the sandbox, and brings it into the view; after
 //! the session `wb` posts the breakdown's questions from the issue's file that came back.
 //!
-//! - **The issue's text** is what `issue_address` prints, with the comments at its end taken out: from the last
-//!   comment that `issue_comment_bodies` prints back, each only where it ends the text left, and none where the last
-//!   does not (`without_comments`). The issue's own text is never searched: `.watchbill/issue/<issue>.md`. Its SHA-256 goes in the stamp, as
+//! - **The issue's text** is what `issue_text` prints, the issue's text alone, whole and byte for byte:
+//!   `.watchbill/issue/<issue>.md`. Nothing is cut from it (the second look at #297): no rule can tell the end of an
+//!   issue's text from a tracker's lines around a comment. Its SHA-256 goes in the stamp, as
 //!   `issue_text:`, and the breakdown writes it under `from`.
 //! - **Its questions and answers** are the comments whose first line is `[questions] <issue>` or `[answers] <issue>`,
 //!   or a form of revision 0.0.8, whole and in order: `.watchbill/issue/<issue>.questions`. A stamp and any other
@@ -28,20 +28,22 @@ use crate::{answer, bounded, prompt, starter};
 /// Where `wb` brings the issue into the breakdown's view, from its root.
 pub const FOLDER: &str = ".watchbill/issue";
 
-/// What was brought in: the SHA-256 of the issue's text, for the stamp, and what `wb` says of it.
+/// What was brought in: the SHA-256 of the issue's text, for the stamp.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Brought {
     pub hash: String,
-    /// Said on standard error before the session, one to a line.
-    pub notes: Vec<String>,
 }
 
 /// The line of the pattern `key`, or why there is none.
 fn pattern(root: &str, key: &str) -> Result<String, String> {
     match prompt::pattern_of(root, key) {
         Ok(Some(line)) => Ok(line),
+        Ok(None) if key == "issue_text" => Err(
+            "watchbill.yml has no `issue_text`, the pattern that prints the issue's text alone, and the breakdown's session has no login: wb reads the issue for it. `wb upgrade` adds the line `issue_text`; or add it by hand (see the README)"
+                .to_string(),
+        ),
         Ok(None) => Err(format!(
-            "watchbill.yml has no `{}`, and the breakdown's session has no login: wb reads the issue for it by `issue_address` and `issue_comment_bodies`. Add the line (see the README)",
+            "watchbill.yml has no `{}`, and the breakdown's session has no login: wb reads the issue for it by `issue_text` and `issue_comment_bodies`. Add the line (see the README)",
             key
         )),
         Err(why) => Err(why.to_string()),
@@ -62,68 +64,18 @@ fn asked_or_answered(issue: &str, first: &str) -> bool {
     }
 }
 
-/// Whether a line is one a tracker prints around a comment, and no word of the issue: blank, with no letter or digit
-/// (`--`), or a field `<field>:<tab><value>` (`author:\tada`), as `gh` prints them.
-fn around(line: &str) -> bool {
-    let line = line.trim_end_matches(['\n', '\r']);
-    if !line.chars().any(char::is_alphanumeric) {
-        return true;
-    }
-    let field = |key: &str| !key.is_empty() && key.chars().all(|c| c.is_ascii_lowercase() || c == '_');
-    match line.split_once(':') {
-        Some((key, rest)) => field(key) && (rest.is_empty() || rest.starts_with('\t')),
-        None => false,
-    }
-}
-
-/// `text` with the comments at its end taken out (#295, the review of #297). Going from the last of `bodies` back,
-/// each is taken out only where it ends the text left, but for the lines a tracker prints around it (`around`); the
-/// first that does not stops it, and what is before it stays. Where something was taken out, the lines around a
-/// comment left at the end go too. The issue's own text is never searched. The second value says whether the last
-/// comment did not end the text, so that nothing was taken out.
-fn without_comments(text: &str, bodies: &[String]) -> (String, bool) {
-    let mut end = text.len();
-    let mut cut = false;
-    let mut last_missing = false;
-    for body in bodies.iter().rev() {
-        let body = body.trim_end();
-        if !body.chars().any(char::is_alphanumeric) {
-            continue;
-        }
-        let left = &text[..end];
-        match left.rfind(body).filter(|at| left[at + body.len()..].split_inclusive('\n').all(around)) {
-            Some(at) => {
-                end = at;
-                cut = true;
-            }
-            None => {
-                last_missing = !cut;
-                break;
-            }
-        }
-    }
-    if !cut {
-        return (text.to_string(), last_missing);
-    }
-    let mut lines: Vec<&str> = text[..end].split_inclusive('\n').collect();
-    while lines.last().is_some_and(|line| around(line)) {
-        lines.pop();
-    }
-    (lines.concat(), false)
-}
-
 /// Writes a new file of the view, never over a file that is there: a link in its place is not followed (`O_EXCL`).
-fn write_new(path: &Path, text: &str) -> Result<(), String> {
+fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
         .open(path)
         .map_err(|error| format!("{} could not be written in the view: {}", path.display(), error))?;
-    file.write_all(text.as_bytes()).map_err(|error| format!("{} could not be written in the view: {}", path.display(), error))
+    file.write_all(bytes).map_err(|error| format!("{} could not be written in the view: {}", path.display(), error))
 }
 
-/// Reads the issue `issue` by `issue_address` and its comments by `issue_comment_bodies`, as the person, in the root
+/// Reads the issue's text of `issue` by `issue_text` and its comments by `issue_comment_bodies`, as the person, in the root
 /// of the checkout, each through the cap of a text file, and writes the issue's text and its questions and answers
 /// into `.watchbill/issue/` of the view at `view`. Refused, with nothing written, where `HEAD` holds that folder, a
 /// pattern is not there, fails, or prints more than the cap.
@@ -138,19 +90,11 @@ pub fn bring_in(root: &str, issue: &str, view: &Path) -> Result<Brought, String>
             ))
         }
     }
-    let address = pattern(root, "issue_address")?;
+    let address = pattern(root, "issue_text")?;
     let comments = pattern(root, "issue_comment_bodies")?;
-    let text = starter::run_capped(root, "issue_address", &address.replace("{issue}", issue), bounded::TEXT_CAP)?;
+    let text = starter::run_capped(root, "issue_text", &address.replace("{issue}", issue), bounded::TEXT_CAP)?;
     let printed = starter::run_capped(root, "issue_comment_bodies", &comments.replace("{issue}", issue), bounded::TEXT_CAP)?;
     let bodies = answer::split_bodies(&printed);
-    let (text, last_missing) = without_comments(&String::from_utf8_lossy(&text), &bodies);
-    let mut notes = Vec::new();
-    if last_missing {
-        notes.push(
-            "the last comment that `issue_comment_bodies` prints does not end what `issue_address` printed, so no comment is taken out of the issue's text: the breakdown reads it as it was printed"
-                .to_string(),
-        );
-    }
     let kept: Vec<&str> = bodies
         .iter()
         .filter(|body| asked_or_answered(issue, body.split('\n').next().unwrap_or_default().trim_end_matches('\r')))
@@ -161,10 +105,11 @@ pub fn bring_in(root: &str, issue: &str, view: &Path) -> Result<Brought, String>
         questions.push('\n');
     }
     fs::DirBuilder::new().mode(0o700).create(&folder).map_err(|error| format!("{} could not be made in the view: {}", FOLDER, error))?;
+    // The issue's text as `issue_text` printed it, byte for byte.
     write_new(&folder.join(format!("{}.md", issue)), &text)?;
-    write_new(&folder.join(format!("{}.questions", issue)), &questions)?;
-    let hash = Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{:02x}", byte)).collect();
-    Ok(Brought { hash, notes })
+    write_new(&folder.join(format!("{}.questions", issue)), questions.as_bytes())?;
+    let hash = Sha256::digest(&text).iter().map(|byte| format!("{:02x}", byte)).collect();
+    Ok(Brought { hash })
 }
 
 /// One question of the issue's file: its number and the line of what is unclear, then the rest as it was written.
@@ -293,15 +238,6 @@ fn pattern_to_post(root: &str, key: &str) -> Result<String, String> {
 #[allow(non_snake_case)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_WB_BUILD_144_only_the_comments_at_the_end_are_taken_out_from_the_last_back() {
-        let text = "ok\nThe text.\n--\nok\n--\nA stamp\n--\n";
-        let bodies = vec!["ok".to_string(), "A stamp\n".to_string()];
-        assert_eq!(without_comments(text, &bodies), ("ok\nThe text.\n".to_string(), false));
-        // A comment that does not end the text is never looked for in it.
-        assert_eq!(without_comments("Do not delete the log.\n", &["not".to_string()]), ("Do not delete the log.\n".to_string(), true));
-    }
 
     #[test]
     fn test_WB_BUILD_136_only_the_breakdown_s_questions_and_answers_of_the_issue_are_kept() {

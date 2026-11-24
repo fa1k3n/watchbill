@@ -54,6 +54,7 @@ pub const USAGE: &str = "usage:
   wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [--ignore-kept]
             [--ignore-branch] [--no-push] [the options of prompt]
             or <role> <issue> --take-back
+            or --list [-v | --verbose]
   wb status [<issue>] [--stage <heading>]
   wb view <issue> (<role> [--in | --out] | <path>)
             or --kept [-v | --verbose]
@@ -67,7 +68,7 @@ pub const USAGE: &str = "usage:
             [--classed_touched <text>] [--description <text>]
             [--brought <text>] [--questions <text>]
             [--change_comment <text>] [--needs_person <text>]
-            [--runner <name>] [--parts] [--stamp]
+            [--runner <name>] [--parts] [--stamp] [--show-origin]
   wb revision
   wb compare [--from <path>] <revision> <revision>
   wb --version
@@ -173,6 +174,12 @@ pub const USAGE: &str = "usage:
             role, its model and effort, the runner, the version and revision,
             the issue, the change, the round, the branch, the checkout, the
             time, and each part as --parts gives it. Not with --parts.
+            --show-origin prints the whole prompt as it is, and before each
+            part a line that says its kind (revision, issue, project), its
+            path, where it was read from and its hash, the hash of its part
+            line of the stamp. Below that line stands one line for each
+            placeholder the part holds, and where its value came from. Not
+            with --parts or --stamp.
             --runner names the runner the prompt is handed to. The planner
             needs it, and is handed out only to a runner that
             /etc/watchbill/organisation.yml clears for the planner up to the
@@ -214,9 +221,15 @@ pub const USAGE: &str = "usage:
             take, then takes back the commits of the newest view of that role
             and issue that was kept, through the checks of the end of a
             session; 0 when all of it is taken and the view removed, 1 when
-            anything is refused or left. Ends with
-            the session: 0 when it ended with 0, else 1; 1 when it is refused,
-            2 when it was used wrongly or the repository is not set up
+            anything is refused or left. --list, given alone, prints the
+            roles of the pinned revision that start starts, one to a line and
+            nothing else. With -v (--verbose) each line adds whether the role
+            runs in a view or in the whole tree, and whether the
+            organisation's file clears a runner for it, for the planner a
+            runner with start and planner up to the level of the repository.
+            --show-origin prints as prompt does. Ends with the session: 0 when
+            it ended with 0, else 1; 1 when it is refused, 2 when it was used
+            wrongly or the repository is not set up
   revision  print the version of the package, the hash of its revision and the
             manifest: the hash of every file the revision holds. Writes nothing
   compare   say what changed between two revisions, each named by its version
@@ -727,6 +740,9 @@ fn start_words(args: &[OsString], folder: &Path, machine: &Machine, out: &mut dy
 fn run_start_word(parser: &mut Parser, folder: Option<&Path>, machine: &Machine, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let roles = STARTED.join(", ");
     match next(parser) {
+        Ok(Some(Word::Long(option))) if option == "list" => run_list((true, false), parser, folder, machine, out, err),
+        Ok(Some(Word::Long(option))) if option == "verbose" => run_list((false, true), parser, folder, machine, out, err),
+        Ok(Some(Word::Short('v'))) => run_list((false, true), parser, folder, machine, out, err),
         Ok(Some(Word::Value(value))) if value.to_str().is_some_and(|role| STARTED.contains(&role)) => {
             let role = word(value.as_bytes());
             run_start(&role, parser, folder, machine, out, err)
@@ -738,6 +754,91 @@ fn run_start_word(parser: &mut Parser, folder: Option<&Path>, machine: &Machine,
         }
         Err(given) => used(err, "wb start", &format!("'{}' is not a role of the revision: {}", given.escape_debug(), roles)),
     }
+}
+
+/// `wb start --list [-v | --verbose]` (#291): the roles of the pinned revision that `wb start` starts a session of,
+/// in the order of `STARTED`, one to a line and nothing else. With `-v` each line holds two words more: whether the
+/// role runs in a view of its lists (`view`) or of the whole tree (`tree`, #202), and whether the organisation's file
+/// clears a runner for it (`cleared`, else `not-cleared`): for the planner one runner with both `start` and `planner`
+/// up to the level of the repository, as `wb start planner` needs, for the others a runner with `start`. It reads the manifest and the organisation's file, writes
+/// nothing and asks nothing of the network. `given` is what the first word was: (`--list`, `--verbose`).
+fn run_list(given: (bool, bool), parser: &mut Parser, folder: Option<&Path>, machine: &Machine, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let name = "wb start";
+    let (mut list, mut verbose) = given;
+    loop {
+        match next(parser) {
+            Ok(None) => break,
+            Ok(Some(Word::Long(option))) if option == "list" || option == "verbose" => {
+                let flag = if option == "list" { &mut list } else { &mut verbose };
+                if *flag {
+                    return used(err, name, &format!("'--{}' is given twice", option));
+                }
+                *flag = true;
+            }
+            Ok(Some(Word::Short('v'))) => {
+                if verbose {
+                    return used(err, name, "'-v' is given twice");
+                }
+                verbose = true;
+            }
+            Ok(Some(found)) => {
+                let given = named(found, parser);
+                return used(err, name, &format!("'{}' is not taken with --list", given.escape_debug()));
+            }
+            Err(given) => return used(err, name, &format!("'{}' is not taken with --list", given.escape_debug())),
+        }
+    }
+    if !list {
+        return used(err, name, "'-v' and '--verbose' are taken only with --list");
+    }
+    let found_root = match folder {
+        None => init::repository_root(None),
+        Some(folder) => init::repository_root_of(folder),
+    };
+    let root = match found_root {
+        Err(why) => {
+            let _ = writeln!(err, "{}: {}.", name, why);
+            return 2;
+        }
+        Ok(None) => {
+            let _ = writeln!(err, "{}: this folder is not in a git repository. Watchbill is set up in one.", name);
+            return 2;
+        }
+        Ok(Some(root)) => root,
+    };
+    let have = match prompt::role_names(Path::new(&root)) {
+        Ok(have) => have,
+        Err(why) => {
+            let _ = writeln!(err, "{}: {}. Watchbill is not set up here: run wb init.", name, why);
+            return 2;
+        }
+    };
+    let roles: Vec<&str> = STARTED.iter().copied().filter(|role| have.iter().any(|one| one == role)).collect();
+    // The organisation's file is read for `-v` alone. One that is not there, or does not hold, clears no runner.
+    let organisation = if verbose { confidentiality::read(machine.organisation).ok() } else { None };
+    let level = organisation.as_ref().and_then(|found| confidentiality::repository_level(Path::new(&root), found).ok());
+    let width = roles.iter().map(|role| role.len()).max().unwrap_or(0);
+    let mut lines = String::new();
+    for role in roles {
+        if !verbose {
+            lines.push_str(&format!("{}\n", role));
+            continue;
+        }
+        let view = if issue::ROLES.contains(&role) { "view" } else { "tree" };
+        let cleared = organisation.as_ref().is_some_and(|found| {
+            found.runners.iter().any(|runner| match (role, &runner.planner, &level) {
+                // A session of the planner needs one runner that has `start` and is cleared for it up to the level.
+                ("planner", Some(planner), Some(level)) => {
+                    runner.start.is_some() && matches!((found.rank(level), found.rank(&planner.up_to)), (Some(held), Some(up_to)) if held <= up_to)
+                }
+                ("planner", _, _) => false,
+                _ => runner.start.is_some(),
+            })
+        });
+        lines.push_str(&format!("{:width$} {} {}\n", role, view, if cleared { "cleared" } else { "not-cleared" }, width = width));
+    }
+    let _ = out.write_all(lines.as_bytes());
+    0
 }
 
 /// A word as a shell takes it back as one word: as it is where it holds only plain characters, else in single quotes.
@@ -779,6 +880,8 @@ struct Words {
     values: Vec<(&'static str, String)>,
     parts: bool,
     stamp: bool,
+    /// `--show-origin`: print the prompt with a line before each part that says where it comes from (#291).
+    show_origin: bool,
     /// `--prompt` of `wb start <role>`: print the prompt, as `wb prompt` does.
     print: bool,
     runner: Option<String>,
@@ -803,7 +906,7 @@ impl Words {
 
     /// Only what `wb prompt` does: print, and post and start nothing.
     fn prints(&self) -> bool {
-        self.print || self.stamp || self.parts
+        self.print || self.stamp || self.parts || self.show_origin
     }
 
     /// A review or a fix of a change with no issue (#116).
@@ -821,7 +924,7 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
     let mut issue_word: Option<String> = None;
     let mut values: Vec<(&'static str, String)> = Vec::new();
     let (mut parts, mut stamp, mut print, mut ignore_local, mut ignore_kept, mut take_back) = (false, false, false, false, false, false);
-    let (mut ignore_branch, mut no_push) = (false, false);
+    let (mut ignore_branch, mut no_push, mut show_origin) = (false, false, false);
     let mut runner: Option<String> = None;
     loop {
         let found = match next(parser) {
@@ -830,10 +933,11 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
             Err(refused) => return Err(used(err, name, &format!("'{}' is not known", refused))),
         };
         match found {
-            Word::Long(option) if option == "parts" || option == "stamp" || (starter && (option == "prompt" || option == "ignore-local" || option == "ignore-kept" || option == "ignore-branch" || option == "take-back" || option == "no-push")) => {
+            Word::Long(option) if option == "parts" || option == "stamp" || option == "show-origin" || (starter && (option == "prompt" || option == "ignore-local" || option == "ignore-kept" || option == "ignore-branch" || option == "take-back" || option == "no-push")) => {
                 let flag = match option.as_str() {
                     "parts" => &mut parts,
                     "stamp" => &mut stamp,
+                    "show-origin" => &mut show_origin,
                     "ignore-local" => &mut ignore_local,
                     "ignore-kept" => &mut ignore_kept,
                     "ignore-branch" => &mut ignore_branch,
@@ -900,8 +1004,12 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
     if stamp && parts {
         return Err(used(err, name, "'--stamp' and '--parts' are not used together"));
     }
+    if show_origin && (stamp || parts) {
+        let other = if stamp { "--stamp" } else { "--parts" };
+        return Err(used(err, name, &format!("'--show-origin' and '{}' are not used together", other)));
+    }
     // A session that `wb start <role>` starts takes the organisation's default runner, when none is given (#84).
-    let prints = !starter || print || stamp || parts;
+    let prints = !starter || print || stamp || parts || show_origin;
     if role == "planner" && runner.is_none() && prints {
         return Err(used(
             err,
@@ -930,7 +1038,7 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
             return Err(used(err, name, &why));
         }
     }
-    Ok(Words { role, values, parts, stamp, print, runner, ignore_local, ignore_kept, take_back, ignore_branch, no_push })
+    Ok(Words { role, values, parts, stamp, show_origin, print, runner, ignore_local, ignore_kept, take_back, ignore_branch, no_push })
 }
 
 /// A prompt handed out: the values it was filled with, what was put together, and what was read for it.
@@ -1256,10 +1364,64 @@ fn print(name: &str, words: &Words, handed: &Handed, out: &mut dyn Write, err: &
             lines.push_str(&format!("level: {}\nrunner: {}\n", cleared.level, runner));
         }
         let _ = out.write_all(lines.as_bytes());
+    } else if words.show_origin {
+        let _ = out.write_all(show_origin(words, handed).as_bytes());
     } else {
         let _ = out.write_all(handed.found.text.as_bytes());
     }
     0
+}
+
+/// Where the value of a placeholder in a prompt came from (#291).
+fn placeholder_source(name: &str, words: &Words, handed: &Handed) -> String {
+    if words.get(name).is_some() {
+        return "given on the command line".to_string();
+    }
+    if prompt::NAMED_BY_WB.contains(&name) {
+        return "named by wb".to_string();
+    }
+    match name {
+        "checkout" => "the root of the repository".to_string(),
+        "requirements" => match &handed.file {
+            Some(file) => format!("the issue's file {}", file.path),
+            None => "the default text, as no issue's file is used".to_string(),
+        },
+        "issue" | "issue_address" if words.alone() => "none: the change has no issue".to_string(),
+        "issue_address" | "change_address" => format!("the pattern {} of watchbill.yml (HEAD)", name),
+        "branch" if words.alone() => "the branch checked out".to_string(),
+        "branch" if words.role == "planner" => "the pattern branch of watchbill.yml (HEAD)".to_string(),
+        "branch" => "the pattern branch of watchbill.yml (HEAD) and the branches of the repository".to_string(),
+        "round" => "worked out from the comments on the issue or the change".to_string(),
+        "change" => "worked out from the branch of the issue".to_string(),
+        "classed" => "classed: of watchbill.yml (HEAD)".to_string(),
+        "classed_touched" => "the diff of the change's branch, and classed: of watchbill.yml (HEAD)".to_string(),
+        _ => "given on the command line".to_string(),
+    }
+}
+
+/// The prompt with, before each part, one line that says its kind, its path, where it was read from and its hash (the
+/// hash of its `part:` line), and below it one line for each placeholder the part holds, `{name}` and where its value
+/// came from (#291). The lines of the parts, put one after the other, are the prompt.
+fn show_origin(words: &Words, handed: &Handed) -> String {
+    let mut shown = String::new();
+    for segment in &handed.found.segments {
+        match &segment.part {
+            Some(part) => {
+                let source = match segment.kind {
+                    "project" => "  (HEAD)",
+                    "issue" => "  (accepted)",
+                    _ => "",
+                };
+                shown.push_str(&format!("# {}  {}{}  {}\n", segment.kind, part.path, source, part.hash));
+            }
+            None => shown.push_str("# wb  the line between the revision's text and the project's\n"),
+        }
+        for name in &segment.used {
+            shown.push_str(&format!("# {{{}}}  {}\n", name, placeholder_source(name, words, handed)));
+        }
+        shown.push_str(&segment.text);
+    }
+    shown
 }
 
 /// `wb prompt <role> [--<placeholder> X]... [--runner <name>] [--parts]`: the prompt of a role, filled from

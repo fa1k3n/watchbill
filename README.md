@@ -9,7 +9,7 @@
 
 A harness for AI agents in embedded software development, deployed at a fixed revision onto a project that already exists.
 
-**Status: 0.10.0. Built: `wb init`, `wb check`, `wb upgrade`, `wb prompt`, `wb accept`, `wb status`, `wb view`, `wb answer`, `wb revert`, `wb revision` and `wb start`, which starts a session of a role at a person's terminal. For an issue with an accepted file the session runs in a view: only the files its work needs, and none of the history. A person starts each role. Nothing hands work from one role to the next yet. A command that is planned is marked with its release.**
+**Status: 0.10.0. Built: `wb init`, `wb check`, `wb upgrade`, `wb prompt`, `wb accept`, `wb status`, `wb view`, `wb answer`, `wb revert`, `wb clean`, `wb revision` and `wb start`, which starts a session of a role at a person's terminal. For an issue with an accepted file the session runs in a view: only the files its work needs, and none of the history. A person starts each role. Nothing hands work from one role to the next yet. A command that is planned is marked with its release.**
 
 ## What Watchbill is for
 
@@ -91,7 +91,7 @@ At 0.12.0. An issue that changes a verdict changes its row.
 | set up | `init`, `check`, `doctor` (planned for 0.12.0, #178), `upgrade` |
 | work | `plan` ([Taking a job in](#taking-a-job-in)), `accept`, `start`, `run` (planned for 0.12.0, #183) |
 | see | `status`, `view` ([Seeing a view first](#seeing-a-view-first)), `log` (planned for 0.12.0, #177), `answer` |
-| take back | `revert`, `clean` (planned for 0.12.0, #176) |
+| take back | `revert`, `clean` ([Taking away what is done](#taking-away-what-is-done)) |
 | plumbing | `prompt`, `revision`, `compare` |
 
 After 0.0.9 the releases are 0.10.0, 0.11.0, 0.12.0 and 1.0.0. A man page for each command is planned for 0.11.0.
@@ -438,6 +438,27 @@ wb view 54 src/brake.c        # in or out, for each role, and why
 - **Ignored** is asked of git in the checkout: the `.gitignore` files of the working tree and `.git/info/exclude`. The person's global file is not read.
 - **No list of paths.** An issue with no file, or one not accepted or not committed, ends with 1: with no file, `wb view` says that the role would run in a view of every file of `HEAD`, with `.watchbill/` read-only; otherwise it gives the reason `wb prompt` gives. `wb view <issue> planner` ends with 1, saying that the planner runs in a view of every file of `HEAD`, writable, with `.watchbill/` read-only but for `.watchbill/issues/`.
 - **It only reads.** It makes no view, runs no pattern of `watchbill.yml`, posts nothing, writes nothing, not in the state folder either, and asks nothing of the network. `watchbill.yml` is read as `HEAD` has it (#186): where the working tree's file differs, `wb view` says so in one line on standard error and goes on with the file of `HEAD` (#254); a file missing from the working tree but in `HEAD` counts as differing; where it is not in `HEAD`, it ends with 2. A word that is not known, or a path that starts with `/`, holds `..` or names the root, ends with 2.
+
+- **`wb view --kept`** lists the views kept on this machine for this repository (#176), one to a line, and takes no other word but `-v`. A kept view is the folder a session left, with work in it that was not taken back, or with nothing left. For each view whose session does not run it prints `<folder> <role> round <n> issue <issue> <k> commits not taken <m> paths uncommitted`, or `<folder> <role> round <n> issue <issue> not read` where git could not read the view within its bound, and nothing else, so that a script can read it. The words are fixed. **`-v`** (`--verbose`, as `git branch -v`) adds below each line, indented: `why:` it was kept (read from the `back` of its session: a commit refused, commits not taken, paths left uncommitted, a take-back that failed, a session cut off, or that nothing is left in it), `commit <short> <subject>` for each commit not taken back (the first 200, then `and <k> more`), `uncommitted <path>` for each path left, and `not read: <why>`. It reads only the state folder of this machine and the objects of a view, and writes nothing. The files that a commit changes are the commit's own: they are not listed. A view of another repository on the same machine is not listed.
+
+### Taking away what is done
+
+`wb clean` is a new command (#176): none of the others takes away what `wb` left on the machine. `wb status` and `wb view --kept` show it; `wb start <role> <issue> --take-back` takes one role's work back and removes only that view; `wb revert` is about the comments of an issue. In the trial of 0.0.9 every view was kept, and a person removed them by hand with `rm -rf`.
+
+```
+wb clean -n               # Would remove <folder> ... / Keeping <folder>: <what is left>
+wb clean                  # Removing <folder> ..., then removes
+wb clean <view>           # removes that view with its work
+```
+
+- **What it removes without being told:** a view of this repository whose session ended, that git could read, and that holds no commit not taken back and no path left uncommitted. A commit that a take-back took (`took:` in the `back` of its session, #277) is taken. The choice is one function (`kept::removable`), so that a later piece can widen it: a job whose change is merged is done (#282).
+- **What "work left" is:** the first-parent commits from the commit the view was made with to its `HEAD`, and the paths that are not committed, as `wb status` reads them (#222, #277). A commit on another branch of the view, a stash, or a commit that the session reset away is not seen, and the view is removed with it. The session's `wb` is known to be alive by its process ID and its start time, which is read on this machine: a view of a `wb` that runs on another host that shares the state folder, or under another name than `wb`, reads as cut off. The state folder is per machine and per person (`XDG_STATE_HOME`).
+- **What it says first:** on standard output, `Removing <folder>` for each view it will remove and `Keeping <folder>: <what is left>` for each view it keeps, all of them before the first removal. The words are those of `git clean`. `--dry-run` (`-n`) says `Would remove` and removes nothing.
+- **A view with work left** is kept unless it is named: `wb clean <view>`, with the name of its folder or its whole path as `wb view --kept` prints it, removes it with its work, and says first each commit (its short name and subject) and each path it loses, 20 of each at most and then `and <k> more commits` or `and <k> more paths`. Naming it is the waiver; there is no `--force`. Only a view of the listing is taken: a path elsewhere, `..` or a link is refused.
+- **Never removed:** a view that git could not read (a FIFO for an object, a view that is not as `wb` made it), and a view whose session runs, named or not. A view whose session was cut off is kept unless it is named. `wb clean` never removes the checkout, a branch or the lines of a session, and it removes only a folder directly below the folder of the views.
+- **Not built here:** the worktrees of sessions out of sight (#140) moved to 0.13.0, so `wb clean` handles kept views only.
+- **A session that is starting:** `wb start` writes `outcome: running`, with its process ID and start time, before it writes the file `folder` and before it posts the stamp, so a view is never without the mark of a `wb` that is alive, and a view named to `wb clean` while its session starts is not removed.
+- **The exit status:** 0 it is done or there is nothing to remove; 1 a named view is not removed (not a view of this repository, not read, its session runs, or it could not be removed), written as `wb clean: limit: …`; 2 it was used wrongly or this folder is not in a git repository.
 
 ### What still leaks
 

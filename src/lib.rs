@@ -50,8 +50,10 @@ pub const USAGE: &str = "usage:
             or <role> <issue> --take-back
   wb status [<issue>] [--stage <heading>]
   wb view <issue> (<role> [--in | --out] | <path>)
+            or --kept [-v | --verbose]
   wb answer (<issue> | --change <n>) [--show | [--suggested] [<question> <answer>]...]
   wb revert (<issue> | --change <n>) <role> [--round <n>]
+  wb clean [--dry-run | -n] [<view>]
   wb prompt <role> [<issue>] [--issue <text>] [--change <text>]
             [--requirements <text>] [--round <text>] [--checkout <text>]
             [--branch <text>] [--issue_address <text>]
@@ -227,6 +229,13 @@ pub const USAGE: &str = "usage:
             same for what the view leaves out. A folder is a path from the
             root, with or without a closing /. The level and the line view:
             are in wb prompt <role> <issue> --stamp.
+            wb view --kept takes no other word but -v. It lists the views
+            kept on this machine for this repository whose session does not
+            run, one to a line: the folder, the role, round <n>, issue
+            <issue>, and <k> commits not taken <m> paths uncommitted, or not
+            read where git could not read the view. -v (--verbose) adds below
+            each line why it was kept, each commit not taken, each path left
+            uncommitted, and why a view was not read. It writes nothing.
             wb view <issue> <path> says for each role whether the path, from
             the root, is in its view: in, with the list and the line of the
             issue's file that hold it, or out, and why. A path named as a role
@@ -248,6 +257,22 @@ pub const USAGE: &str = "usage:
             back with git, not by a marker. Ends with 0 when the marker is
             posted, 1 when it was refused or the posting failed, 2 when it was
             used wrongly or the repository is not set up
+  clean     remove the views kept on this machine for this repository that
+            have nothing left in them: those whose session ended and that hold
+            no commit not taken back (a commit a take-back took is taken) and
+            no path left uncommitted. It says first, on standard output,
+            Removing <folder> for each view it will remove and Keeping
+            <folder>: <what is left> for each it keeps, then removes.
+            --dry-run (-n) says Would remove and removes nothing. <view>, the
+            name of the folder of a view or its whole path, as wb view --kept
+            prints it, removes that view although work is left in it, and says
+            first each commit (20 at most) and each path (20 at most) it
+            loses. Naming a view is the one waiver of the work left in it. A view that git could not read, or whose session runs, is
+            never removed, named or not. It never removes the checkout, a
+            branch or the lines of a session.
+            Ends with 0 when it is done or there is nothing to remove, 1 when
+            a named view is not removed, 2 when it was used wrongly or this
+            folder is not in a git repository
   answer    answer the open questions of an issue: wb answer <issue> reads
             the whole comments by issue_comment_bodies of watchbill.yml, shows
             each open question in full, one at a time, and asks: Enter takes
@@ -413,6 +438,7 @@ fn run_command(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, 
         "status" => run_status(&mut parser, out, err),
         "view" => run_view(&mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), out, err),
         "revert" => run_revert(&mut parser, err),
+        "clean" => run_clean(&mut parser, out, err),
         "answer" => run_answer(&mut parser, input, out, err),
         "start" => {
             use std::io::IsTerminal;
@@ -442,8 +468,8 @@ fn run_command(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, 
 
 /// The commands of the layout that are built, each with an arm in `run`. A test holds that it is the
 /// layout without `layout::PLANNED`, so a piece that builds a command adds it here with its arm.
-pub const ARMS: [&str; 13] =
-    ["init", "check", "upgrade", "plan", "accept", "start", "status", "view", "answer", "revert", "prompt", "revision", "compare"];
+pub const ARMS: [&str; 14] =
+    ["init", "check", "upgrade", "plan", "accept", "start", "status", "view", "answer", "revert", "clean", "prompt", "revision", "compare"];
 
 /// `wb help`, and `wb help <command>`. `--help` and `-h` are this command too, and read the words after them.
 /// A word after the command is refused with 2.
@@ -1547,6 +1573,9 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         Err(why) => return not_posted(&mut lines, err, why),
     };
     lines.open(Some(stamp), err);
+    // `outcome` says `running` first (#222), before `folder` is written (#176): a view is never without the mark of a
+    // `wb` that is alive, so a `wb clean` that is told its name does not take the view of a session that is starting.
+    lines.running(err);
     if let Some(paths) = &paths {
         lines.write("view", &view::list(paths), err);
     }
@@ -1575,8 +1604,6 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     let began = std::time::Instant::now();
     // The signals stay held until the commits are taken back and `back` and `outcome` are written (#221).
     let _held = interrupt::hold();
-    // `outcome` says `running` first (#222): a `wb` that is ended before its session leaves it so.
-    lines.running(err);
     // A view of the whole tree (#202) is said: what it holds, and for a role with no issue's file what it is not.
     if let Some(size) = &prepared.size {
         let _ = writeln!(err, "{}: the view holds the whole tree of HEAD: {} files, {} bytes", name, size.files, size.bytes);
@@ -2111,6 +2138,129 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     }
 }
 
+/// The repository root of `folder`, or of the folder `wb` runs in: for a command that says its own refusal.
+fn root_for(name: &str, folder: Option<&Path>, err: &mut dyn Write) -> Result<String, i32> {
+    let found = match folder {
+        None => init::repository_root(None),
+        Some(folder) => init::repository_root_of(folder),
+    };
+    match found {
+        Err(why) => {
+            let _ = writeln!(err, "{}: {}.", name, why);
+            Err(2)
+        }
+        Ok(None) => {
+            let _ = writeln!(err, "{}: this folder is not in a git repository. Watchbill is set up in one.", name);
+            Err(2)
+        }
+        Ok(Some(root)) => Ok(root),
+    }
+}
+
+/// `wb view --kept` (#176): the views kept on this machine for this repository, each with why it was kept and what
+/// is left in it. Only the state folder and the objects of a view are read.
+fn run_view_kept(folder: Option<&Path>, verbose: bool, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let root = match root_for("wb view", folder, err) {
+        Ok(root) => root,
+        Err(code) => return code,
+    };
+    let Some(state) = sessions::state_folder() else { return 0 };
+    for entry in kept::entries(&root, &state).iter().filter(|entry| !entry.runs) {
+        let _ = writeln!(out, "{}", entry.line());
+        if verbose {
+            for line in entry.details() {
+                let _ = writeln!(out, "{}", line);
+            }
+        }
+    }
+    0
+}
+
+/// `wb clean [--dry-run | -n] [<view>]` (#176): removes the views kept on this machine for this repository that have
+/// nothing left in them, saying first which. A view that is named is removed with what is left in it.
+fn run_clean(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let name = "wb clean";
+    let mut dry = false;
+    let mut view: Option<String> = None;
+    loop {
+        let found = match next(parser) {
+            Ok(None) => break,
+            Ok(Some(found)) => found,
+            Err(refused) => return used(err, name, &format!("'{}' is not known", refused)),
+        };
+        match found {
+            Word::Short('n') => {
+                if dry {
+                    return used(err, name, "'--dry-run' is given twice");
+                }
+                dry = true;
+            }
+            Word::Long(option) if option == "dry-run" => {
+                if dry {
+                    return used(err, name, "'--dry-run' is given twice");
+                }
+                dry = true;
+            }
+            Word::Value(value) if view.is_none() => view = Some(word(value.as_bytes())),
+            found => {
+                let refused = named(found, parser);
+                return used(err, name, &format!("'{}' is not known", refused));
+            }
+        }
+    }
+    let root = match root_for(name, None, err) {
+        Ok(root) => root,
+        Err(code) => return code,
+    };
+    let Some(state) = sessions::state_folder() else { return 0 };
+    let entries = kept::entries(&root, &state);
+    let say = if dry { "Would remove" } else { "Removing" };
+    // What is to be removed, and the lines that say so first.
+    let mut chosen: Vec<&kept::Entry> = Vec::new();
+    let mut lines: Vec<String> = Vec::new();
+    match &view {
+        Some(given) => {
+            let found = entries.iter().find(|entry| entry.folder.as_os_str() == given.as_str() || entry.folder.file_name().is_some_and(|last| last == given.as_str()));
+            let Some(entry) = found else {
+                return refusal::limit(err, name, format_args!("'{}' is not a view kept on this machine for this repository; `wb view --kept` lists them.", issue::shown(given)));
+            };
+            if let Some(why) = kept::not_removable_named(entry) {
+                return refusal::limit(err, name, format_args!("{} is not removed: {}.", issue::shown(&entry.folder.display().to_string()), issue::shown(&why)));
+            }
+            let left = entry.left();
+            let folder = issue::shown(&entry.folder.display().to_string());
+            lines.push(if left.is_empty() { format!("{} {}", say, folder) } else { format!("{} {}: {}", say, folder, left) });
+            lines.extend(entry.lost());
+            chosen.push(entry);
+        }
+        None => {
+            for entry in entries.iter().filter(|entry| !entry.runs) {
+                let folder = issue::shown(&entry.folder.display().to_string());
+                if kept::removable(entry) {
+                    lines.push(format!("{} {}", say, folder));
+                    chosen.push(entry);
+                } else {
+                    lines.push(format!("Keeping {}: {}", folder, entry.left()));
+                }
+            }
+        }
+    }
+    for line in &lines {
+        let _ = writeln!(out, "{}", line);
+    }
+    let _ = out.flush();
+    if dry {
+        return 0;
+    }
+    let mut code = 0;
+    for entry in chosen {
+        if let Err(error) = view::remove(&entry.folder) {
+            code = refusal::limit(err, name, format_args!("{} could not be removed: {}.", issue::shown(&entry.folder.display().to_string()), error));
+        }
+    }
+    code
+}
+
 /// `wb view`, with the words after `view`, in the repository of `folder`, with the organisation's file at
 /// `organisation`: `run` gives the folder it runs in and the path fixed in `wb`; this is so that a test can give
 /// its own, as `prompt` does.
@@ -2126,7 +2276,7 @@ pub fn view_command(args: &[OsString], folder: &Path, organisation: &Path, out: 
 fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let name = "wb view";
     let mut words: Vec<String> = Vec::new();
-    let (mut inside, mut outside) = (false, false);
+    let (mut inside, mut outside, mut kept, mut verbose) = (false, false, false, false);
     loop {
         let found = match next(parser) {
             Ok(None) => break,
@@ -2134,6 +2284,24 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
             Err(refused) => return used(err, name, &format!("'{}' is not known", refused)),
         };
         match found {
+            Word::Long(option) if option == "verbose" => {
+                if verbose {
+                    return used(err, name, "'--verbose' is given twice");
+                }
+                verbose = true;
+            }
+            Word::Short('v') => {
+                if verbose {
+                    return used(err, name, "'--verbose' is given twice");
+                }
+                verbose = true;
+            }
+            Word::Long(option) if option == "kept" => {
+                if kept {
+                    return used(err, name, "'--kept' is given twice");
+                }
+                kept = true;
+            }
             Word::Long(option) if option == "in" || option == "out" => {
                 let flag = if option == "in" { &mut inside } else { &mut outside };
                 if *flag {
@@ -2148,6 +2316,15 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
                 return used(err, name, &format!("'{}' is not known", refused));
             }
         }
+    }
+    if kept {
+        if inside || outside || !words.is_empty() {
+            return used(err, name, "'--kept' takes no other word but '-v'");
+        }
+        return run_view_kept(folder, verbose, out, err);
+    }
+    if verbose {
+        return used(err, name, "'--verbose' goes with '--kept'");
     }
     if inside && outside {
         return used(err, name, "'--in' and '--out' are not used together");

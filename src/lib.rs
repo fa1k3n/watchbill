@@ -39,7 +39,8 @@ pub const USAGE: &str = "usage:
   wb check
   wb upgrade [--dry-run]
   wb accept <issue> [--no-commit]
-  wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [--ignore-kept] [the options of prompt]
+  wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [--ignore-kept]
+            [--ignore-branch] [the options of prompt]
             or <role> <issue> --take-back
   wb status [<issue>] [--stage <heading>]
   wb view <issue> (<role> [--in | --out] | <path>)
@@ -115,7 +116,13 @@ pub const USAGE: &str = "usage:
             --parts print as prompt does, and post and start nothing. A view
             of the issue kept with work not taken back, from any role, stops the
             start with 1 before anything is posted; --ignore-kept goes on
-            without it, and the stamp says so. --take-back, given with the role
+            without it, and the stamp says so. The commits of the session come
+            back onto the branch of the stamp, made where it is not there.
+            Where it is there and HEAD is not its commit, the start ends with
+            1 before anything is posted. A checkout on another branch, but
+            the default branch before the branch of the stamp is there, stops
+            the start with 1 before anything is posted, and --ignore-branch
+            goes on. --take-back, given with the role
             and the issue alone, starts and posts nothing: it says what it will
             take, then takes back the commits of the newest view of that role
             and issue that was kept, through the checks of the end of a
@@ -645,6 +652,9 @@ struct Words {
     ignore_kept: bool,
     /// `--take-back` of `wb start <role> <issue>`: take back the kept view of that role and issue (#223).
     take_back: bool,
+    /// `--ignore-branch` of `wb start <role>`: a checkout on a branch that is neither the stamp's nor the default
+    /// branch does not stop the start (#296).
+    ignore_branch: bool,
 }
 
 impl Words {
@@ -672,6 +682,7 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
     let mut issue_word: Option<String> = None;
     let mut values: Vec<(&'static str, String)> = Vec::new();
     let (mut parts, mut stamp, mut print, mut ignore_local, mut ignore_kept, mut take_back) = (false, false, false, false, false, false);
+    let mut ignore_branch = false;
     let mut runner: Option<String> = None;
     loop {
         let found = match next(parser) {
@@ -680,12 +691,13 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
             Err(refused) => return Err(used(err, name, &format!("'{}' is not known", refused))),
         };
         match found {
-            Word::Long(option) if option == "parts" || option == "stamp" || (starter && (option == "prompt" || option == "ignore-local" || option == "ignore-kept" || option == "take-back")) => {
+            Word::Long(option) if option == "parts" || option == "stamp" || (starter && (option == "prompt" || option == "ignore-local" || option == "ignore-kept" || option == "ignore-branch" || option == "take-back")) => {
                 let flag = match option.as_str() {
                     "parts" => &mut parts,
                     "stamp" => &mut stamp,
                     "ignore-local" => &mut ignore_local,
                     "ignore-kept" => &mut ignore_kept,
+                    "ignore-branch" => &mut ignore_branch,
                     "take-back" => &mut take_back,
                     _ => &mut print,
                 };
@@ -778,7 +790,7 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
             return Err(used(err, name, &why));
         }
     }
-    Ok(Words { role, values, parts, stamp, print, runner, ignore_local, ignore_kept, take_back })
+    Ok(Words { role, values, parts, stamp, print, runner, ignore_local, ignore_kept, take_back, ignore_branch })
 }
 
 /// A prompt handed out: the values it was filled with, what was put together, and what was read for it.
@@ -1268,6 +1280,18 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         let issue = words.get("issue").unwrap_or_default();
         return said(&mut lines, err, "kept", refusal::guard_text("--ignore-kept", kept::refusal(issue, &kept_views)));
     }
+    // 1c. The branch checked out (#296, #298): the commits come back onto the stamp's branch, whichever is checked
+    // out. Where that branch is there, the view is its tree or nothing: a checkout whose `HEAD` is not its commit is a
+    // limit. A checkout on another branch is said, for the person may mean that branch; the default branch passes
+    // only where the stamp's branch is not there yet, as for a breakdown. Only `--ignore-branch` passes the guard.
+    if let Some(stamped) = value_of(&handed.values, "branch") {
+        match view::on_branch(root, stamped) {
+            view::OnBranch::Fine => {}
+            view::OnBranch::Limit(why) => return refused(&mut lines, err, "branch", &why),
+            view::OnBranch::Guard(_) if words.ignore_branch => {}
+            view::OnBranch::Guard(why) => return said(&mut lines, err, "branch", refusal::guard_text("--ignore-branch", why)),
+        }
+    }
     // 2. The rule table: a fix follows a review. The number of rounds is no rule for a person (#84).
     if role == "fix" {
         let stamps = match &handed.stamps {
@@ -1404,7 +1428,9 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         (_, Some(_)) => view::Layout::Listed,
         (_, None) => view::Layout::Whole,
     };
-    let prepared = match prepare_view(root, role, words.get("issue"), paths.as_deref(), &chosen.binds, machine) {
+    // The commits come back onto the stamp's branch (#296), or onto the branch checked out where it names none.
+    let onto = value_of(&handed.values, "branch");
+    let prepared = match prepare_view(root, role, words.get("issue"), paths.as_deref(), onto, &chosen.binds, machine) {
         Ok(found) => found,
         Err(why) => return refused(&mut lines, err, "view", &why),
     };
@@ -1544,7 +1570,7 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     // What the session committed in its view comes back onto the branch, as far as it keeps to what may come back.
     let allowed = allowed_of(role, handed.file.as_ref(), words.get("issue"));
     let list = lines.file("back");
-    let back = view::take_back(name, root, &prepared.view, &allowed, &prepared.build_files, list.as_deref(), err);
+    let back = view::take_back(name, root, &prepared.view, prepared.at.as_deref(), &allowed, &prepared.build_files, list.as_deref(), err);
     let kept = view::tidy(name, &prepared.view, &back, err);
     lines.write("back", &back.text(kept.as_deref()), err);
     if back.refused_any() {
@@ -1576,7 +1602,7 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
 /// will take is said first. Ends with 0 when all of the view was taken and it is removed, 1 when anything was refused
 /// or left, 2 when it is used wrongly.
 fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, state: Option<&Path>, err: &mut dyn Write) -> i32 {
-    let others = words.print || words.stamp || words.parts || words.runner.is_some() || words.ignore_local || words.ignore_kept || words.values.iter().any(|(given, _)| *given != "issue");
+    let others = words.print || words.stamp || words.parts || words.runner.is_some() || words.ignore_local || words.ignore_kept || words.ignore_branch || words.values.iter().any(|(given, _)| *given != "issue");
     if others {
         return used(err, name, "'--take-back' is used with the role and the issue alone: it starts and posts nothing");
     }
@@ -1721,6 +1747,8 @@ struct Prepared {
     binds: Vec<(std::path::PathBuf, bool)>,
     build_files: Vec<String>,
     size: Option<view::Size>,
+    /// The commit of the branch the commits go back onto, as the view was made, or none where it was not there (#296).
+    at: Option<String>,
 }
 
 /// Makes sure of what a session in a view needs, and makes the view (#126): the runner's binds, each from the
@@ -1732,6 +1760,7 @@ fn prepare_view(
     role: &str,
     issue: Option<&str>,
     paths: Option<&[String]>,
+    onto: Option<&str>,
     binds: &[confidentiality::Bind],
     machine: &Machine,
 ) -> Result<Prepared, String> {
@@ -1787,11 +1816,11 @@ fn prepare_view(
     let time = now().map(|seconds| prompt::utc(seconds).replace(':', ""))?;
     let base = format!("{}-{}-{}", time, role, issue.unwrap_or("none"));
     let below = state.join("watchbill").join("views");
-    let (made, size) = match paths {
-        Some(paths) => (view::make(root, paths, &below, &base)?, None),
-        None => view::make_whole(root, &below, &base).map(|(made, size)| (made, Some(size)))?,
+    let (made, size, at) = match paths {
+        Some(paths) => view::make_onto(root, paths, &below, &base, onto).map(|(made, at)| (made, None, at))?,
+        None => view::make_whole_onto(root, &below, &base, onto).map(|(made, size, at)| (made, Some(size), at))?,
     };
-    Ok(Prepared { view: made, binds: resolved, build_files, size })
+    Ok(Prepared { view: made, binds: resolved, build_files, size, at })
 }
 
 /// `wb accept <issue>`: accepts the issue's file (`issue::accept`).

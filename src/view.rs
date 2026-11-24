@@ -426,7 +426,7 @@ fn remove(folder: &Path) -> std::io::Result<()> {
 }
 
 /// A view made: its folder, the one commit it was made with, the commit of the checkout it was made from, and
-/// the branch of the checkout its commits go back to.
+/// the branch its commits go back to: the stamp's branch, or the one checked out where the stamp names none (#296).
 #[derive(Clone, Debug)]
 pub struct View {
     pub folder: PathBuf,
@@ -456,11 +456,131 @@ pub fn branch_of(root: &str) -> Result<(String, String), String> {
     Ok((branch, head))
 }
 
+/// The ref of the branch named `name`, as `refs/heads/<name>`, where git takes it as the name of a branch.
+fn branch_ref(root: &str, name: &str) -> Result<String, String> {
+    let full = format!("refs/heads/{}", name);
+    let fine = !name.starts_with('-') && run_git_status(Some(Path::new(root)), &[], &["check-ref-format", &full], &[], None)?.code == 0;
+    if !fine {
+        return Err(format!("the branch '{}' that the commits of the view go back onto is not a name git takes for a branch", name.escape_debug()));
+    }
+    Ok(full)
+}
+
+/// The commit the branch `branch` (`refs/heads/<name>`) of the checkout names, or none where it is not there.
+fn tip_of(root: &str, branch: &str) -> Result<Option<String>, String> {
+    let ran = run_git_status(Some(Path::new(root)), &[], &["rev-parse", "--verify", "-q", &format!("{}^{{commit}}", branch)], &[], None)?;
+    match ran.code {
+        0 => Ok(Some(line(&ran.stdout))),
+        1 => Ok(None),
+        _ => Err(ran.said),
+    }
+}
+
+/// The branch checked out in the checkout at `root`, as `refs/heads/<name>`, or none where `HEAD` names none.
+fn checked_out(root: &str) -> Result<Option<String>, String> {
+    let ran = run_git_status(Some(Path::new(root)), &[], &["symbolic-ref", "-q", "HEAD"], &[], None)?;
+    match ran.code {
+        0 => Ok(Some(line(&ran.stdout))),
+        1 => Ok(None),
+        _ => Err(ran.said),
+    }
+}
+
+/// The worktree of the repository, other than the checkout at `root`, that has `branch` checked out, if any.
+fn checked_out_elsewhere(root: &str, branch: &str) -> Result<Option<String>, String> {
+    let listed = git(Path::new(root), &["worktree", "list", "--porcelain", "-z"], &[], None)?;
+    let here = fs::canonicalize(root).ok();
+    let mut tree: Option<String> = None;
+    for entry in listed.split(|byte| *byte == 0).map(|entry| String::from_utf8_lossy(entry).to_string()) {
+        if let Some(path) = entry.strip_prefix("worktree ") {
+            tree = Some(path.to_string());
+        } else if entry.strip_prefix("branch ") == Some(branch) {
+            if let Some(path) = &tree {
+                if fs::canonicalize(path).ok() != here {
+                    return Ok(Some(path.clone()));
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// How the branch checked out stands to `stamped`, the stamp's branch that the commits of the session come back onto,
+/// before a start (#296, #298).
+#[derive(Debug, PartialEq)]
+pub enum OnBranch {
+    /// The start goes on.
+    Fine,
+    /// A limit: the stamp's branch is there, and the checkout's `HEAD` is not its commit, so the view, made from `HEAD`,
+    /// would not be the branch's tree.
+    Limit(String),
+    /// A guard, passed by `--ignore-branch`: the checkout is on another branch at the same tree, or on a branch that is
+    /// neither the default branch nor the stamp's, where that is not there yet. The person may mean it.
+    Guard(String),
+}
+
+/// How the checkout at `root` stands to `stamped` (`OnBranch`). A checkout on no branch, or a name git does not take,
+/// is `Fine` here: the view refuses it, as before. Reads only.
+pub fn on_branch(root: &str, stamped: &str) -> OnBranch {
+    let (Ok(Some(checked)), Ok(full)) = (checked_out(root), branch_ref(root, stamped)) else { return OnBranch::Fine };
+    let Ok(Some(head)) = tip_of(root, "HEAD") else { return OnBranch::Fine };
+    let Ok(tip) = tip_of(root, &full) else { return OnBranch::Fine };
+    let name = checked.strip_prefix("refs/heads/").unwrap_or(&checked).to_string();
+    let (shown, branch) = (crate::issue::shown(stamped), crate::issue::shown(&name));
+    if let Some(tip) = &tip {
+        if *tip != head {
+            return OnBranch::Limit(format!(
+                "the checkout is on {} at {}, and {}, the branch of the stamp that the commits of the session come back onto, is at {}: the session would run in the tree of {}, not of {}. Check out {}",
+                branch,
+                short(&head),
+                shown,
+                short(tip),
+                branch,
+                shown,
+                shown
+            ));
+        }
+    }
+    if name == stamped {
+        return OnBranch::Fine;
+    }
+    // The default branch is where a breakdown starts, before the stamp's branch is there.
+    let default = crate::status::default_branch(root).map(|full| {
+        let short = full.strip_prefix("refs/remotes/origin/").or_else(|| full.strip_prefix("refs/heads/")).unwrap_or(&full);
+        short.to_string()
+    });
+    if tip.is_none() && default.as_deref() == Some(name.as_str()) {
+        return OnBranch::Fine;
+    }
+    let why = match (&tip, &default) {
+        (Some(_), _) => format!("the checkout is on {}, not on {}, the branch of the stamp that the commits of the session come back onto, though both are at {}", branch, shown, short(&head)),
+        (None, Some(default)) => format!(
+            "the checkout is on {}, which is neither {}, the branch of the stamp that the commits of the session come back onto, nor {}, the default branch",
+            branch,
+            shown,
+            crate::issue::shown(default)
+        ),
+        (None, None) => format!(
+            "the checkout is on {}, which is neither {}, the branch of the stamp that the commits of the session come back onto, nor the default branch, which is not found",
+            branch, shown
+        ),
+    };
+    OnBranch::Guard(format!("{}. The commits would go onto {}, and {} would not move. Check out {}, or give --ignore-branch to go on", why, shown, branch, shown))
+}
+
 /// Makes the view of `paths` from `HEAD` of the checkout at `root`, in a new folder below `below` named `base`.
 /// A path that is not in `HEAD` is not made: the session may make it. A folder that cannot be made, or a git that
 /// fails, is the error, and nothing is left.
 pub fn make(root: &str, paths: &[String], below: &Path, base: &str) -> Result<View, String> {
-    make_of(root, Some(paths), below, base).map(|(view, _)| view)
+    make_onto(root, paths, below, base, None).map(|(view, _)| view)
+}
+
+/// The same, with its commits to go back onto the branch `onto`, by its name, where one is given (#296): the
+/// stamp's branch, which need not be the one checked out, nor be there yet. The view's own branch has its name.
+/// Besides the view, the commit of that branch as the view is made, or none where it is not there: the take-back
+/// at the end of the session finds it so, or takes nothing.
+pub fn make_onto(root: &str, paths: &[String], below: &Path, base: &str, onto: Option<&str>) -> Result<(View, Option<String>), String> {
+    make_of(root, Some(paths), below, base, onto).map(|(view, _, at)| (view, at))
 }
 
 /// How much a view of the whole tree holds: its files and their bytes.
@@ -475,9 +595,14 @@ pub struct Size {
 /// never one `git show` for each. `.watchbill/` and `.watchbill/issues/` are folders of the view, made where they
 /// are not there, as the sandbox binds over them; one of them that is anything else, a link above all, is the error.
 pub fn make_whole(root: &str, below: &Path, base: &str) -> Result<(View, Size), String> {
-    let (view, size) = make_of(root, None, below, base)?;
+    make_whole_onto(root, below, base, None).map(|(view, size, _)| (view, size))
+}
+
+/// The same, with its commits to go back onto the branch `onto`, as `make_onto` says, and the commit of that branch.
+pub fn make_whole_onto(root: &str, below: &Path, base: &str, onto: Option<&str>) -> Result<(View, Size, Option<String>), String> {
+    let (view, size, at) = make_of(root, None, below, base, onto)?;
     match bind_points(&view.folder) {
-        Ok(()) => Ok((view, size)),
+        Ok(()) => Ok((view, size, at)),
         Err(why) => {
             let _ = remove(&view.folder);
             Err(format!("the view could not be made: {}", why))
@@ -502,11 +627,16 @@ fn bind_points(folder: &Path) -> Result<(), String> {
 }
 
 /// The work of `make` and `make_whole`: the listed paths, or every file of `HEAD` where `paths` is none.
-fn make_of(root: &str, paths: Option<&[String]>, below: &Path, base: &str) -> Result<(View, Size), String> {
-    let (branch, head) = branch_of(root)?;
+fn make_of(root: &str, paths: Option<&[String]>, below: &Path, base: &str, onto: Option<&str>) -> Result<(View, Size, Option<String>), String> {
+    let (checked, head) = branch_of(root)?;
+    let branch = match onto {
+        Some(name) => branch_ref(root, name)?,
+        None => checked,
+    };
+    let at = tip_of(root, &branch)?;
     let folder = new_folder(below, base)?;
     match fill(Path::new(root), paths, &folder, &branch, &head) {
-        Ok((commit, size)) => Ok((View { folder, base: commit, head, branch }, size)),
+        Ok((commit, size)) => Ok((View { folder, base: commit, head, branch }, size, at)),
         Err(why) => {
             let _ = remove(&folder);
             Err(format!("the view could not be made: {}", why))
@@ -1376,9 +1506,29 @@ pub(crate) fn short(commit: &str) -> &str {
 
 /// Takes the work of the session back from `view` to the checkout at `root`: each commit, in order, while it
 /// keeps to what is `allowed`, then the paths left uncommitted. A commit that does not is refused, and none after it is
-/// taken. What is said goes to `err`, after `name`; `list` is where the whole list of paths left is written.
-pub fn take_back(name: &str, root: &str, view: &View, allowed: &Allowed, build_files: &[String], list: Option<&Path>, err: &mut dyn Write) -> Back {
-    take_back_in(name, root, view, allowed, build_files, list, None, err)
+/// taken. What is said goes to `err`, after `name`; `list` is where the whole list of paths left is written. `at` is
+/// the commit of the view's branch when the view was made, or none where it was not there, as `make_onto` gave it:
+/// the branch is found so, or nothing is taken (#296).
+#[allow(clippy::too_many_arguments)]
+pub fn take_back(name: &str, root: &str, view: &View, at: Option<&str>, allowed: &Allowed, build_files: &[String], list: Option<&Path>, err: &mut dyn Write) -> Back {
+    take_back_in(name, root, view, allowed, build_files, list, Taken::AtTheEnd(at.map(str::to_string)), err)
+}
+
+/// When a take-back is made, and what it finds the branch at.
+enum Taken {
+    /// At the end of the session: the branch is as the view was made with it, at this commit or not there.
+    AtTheEnd(Option<String>),
+    /// After the session (#223), the number of commits that was said.
+    Later(usize),
+}
+
+impl Taken {
+    fn later(&self) -> Option<usize> {
+        match self {
+            Taken::Later(count) => Some(*count),
+            Taken::AtTheEnd(_) => None,
+        }
+    }
 }
 
 /// The time a whole take-back may take, besides the 60 seconds of each git run.
@@ -1397,11 +1547,11 @@ pub fn take_back_later(name: &str, root: &str, view: &View, changes: &[String], 
 pub fn take_back_later_of(name: &str, root: &str, view: &View, allowed: &Allowed, build_files: &[String], expected: usize, list: Option<&Path>, err: &mut dyn Write) -> Back {
     let _bound = bounded(std::time::Duration::from_secs(60));
     let _deadline = deadline(TAKE_BACK_DEADLINE, "take-back");
-    take_back_in(name, root, view, allowed, build_files, list, Some(expected), err)
+    take_back_in(name, root, view, allowed, build_files, list, Taken::Later(expected), err)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn take_back_in(name: &str, root: &str, view: &View, allowed: &Allowed, build_files: &[String], list: Option<&Path>, later: Option<usize>, err: &mut dyn Write) -> Back {
+fn take_back_in(name: &str, root: &str, view: &View, allowed: &Allowed, build_files: &[String], list: Option<&Path>, taken: Taken, err: &mut dyn Write) -> Back {
     let mut back = Back::default();
     let store = match Store::new(view) {
         Ok(store) => store,
@@ -1410,7 +1560,7 @@ fn take_back_in(name: &str, root: &str, view: &View, allowed: &Allowed, build_fi
             return said(name, view, back, list, err);
         }
     };
-    if let Err(why) = commits(root, view, &store.path, allowed, build_files, later, &mut back) {
+    if let Err(why) = commits(root, view, &store.path, allowed, build_files, &taken, &mut back) {
         back.failed = Some(why);
     }
     match uncommitted(root, &store.path, &view.folder, &view.head, &mut back.notes) {
@@ -1603,32 +1753,36 @@ impl Drop for Store {
 
 /// Takes the commits of the view back onto the branch, as far as they keep to the lists. The error is why none
 /// could be taken.
-fn commits(root: &str, view: &View, store: &Path, allowed: &Allowed, build_files: &[String], later: Option<usize>, back: &mut Back) -> Result<(), String> {
+fn commits(root: &str, view: &View, store: &Path, allowed: &Allowed, build_files: &[String], taken: &Taken, back: &mut Back) -> Result<(), String> {
+    let later = taken.later();
     let head = head_of(&view.folder.join(".git"))?;
     if head == view.base {
         return Ok(());
     }
-    // After the session (#223): the branch is the view's, and its `HEAD` the commit the view was made from or a
-    // descendant of it. The commits then go on top of `HEAD` as it is now, once their paths are seen to be untouched.
+    // The commits go onto the stamp's branch, whichever branch is checked out (#296). At the end of a session it is
+    // as it was when the view was made; after the session (#223) it is as it is now. Where it is not there, it is
+    // made at the commit the view was made from. Where it is there, its commit is that one or a descendant of it, and
+    // the commits go on top of it once their paths are seen to be untouched.
+    let expected = match taken {
+        Taken::AtTheEnd(at) => at.clone(),
+        Taken::Later(_) => tip_of(root, &view.branch)?,
+    };
+    let onto = expected.clone().unwrap_or_else(|| view.head.clone());
+    if onto != view.head && git(Path::new(root), &["merge-base", "--is-ancestor", &view.head, &onto], &[], None).is_err() {
+        // Behind the commit the view was made from, or gone apart from it: said as what it is (#298).
+        let behind = git(Path::new(root), &["merge-base", "--is-ancestor", &onto, &view.head], &[], None).is_ok();
+        let how = if behind { "is behind" } else { "has gone apart from" };
+        return Err(format!(
+            "the branch {} is at {}, which {} {}, the commit the view was made from, so nothing is taken back",
+            view.branch_name(),
+            short(&onto),
+            how,
+            short(&view.head)
+        ));
+    }
     let moved;
-    let (view, origin) = if later.is_some() {
-        let (branch, now) = branch_of(root)?;
-        if branch != view.branch {
-            return Err(format!(
-                "the checkout is on {}, not on {}, the branch of the view's stamp, so nothing is taken back",
-                crate::issue::shown(branch.strip_prefix("refs/heads/").unwrap_or(&branch)),
-                view.branch_name()
-            ));
-        }
-        if now != view.head && git(Path::new(root), &["merge-base", "--is-ancestor", &view.head, &now], &[], None).is_err() {
-            return Err(format!(
-                "the branch {} has moved on, and its HEAD {} does not come from {}, where the view was made from, so nothing is taken back",
-                view.branch_name(),
-                short(&now),
-                short(&view.head)
-            ));
-        }
-        moved = View { head: now, ..view.clone() };
+    let (view, origin) = if onto != view.head {
+        moved = View { head: onto, ..view.clone() };
         (&moved, Some(view.head.clone()))
     } else {
         (view, None)
@@ -1717,12 +1871,51 @@ fn commits(root: &str, view: &View, store: &Path, allowed: &Allowed, build_files
             ));
         }
     }
-    // The checkout is where the view was made from, or nothing is taken.
-    match branch_of(root) {
-        Ok((branch, now)) if branch == view.branch && now == view.head => {}
-        _ => {
-            back.after.splice(0..0, wanted.iter().map(|(commit, raw, _)| (commit.clone(), raw.subject())));
-            return Err(format!("the checkout is no longer at {} on {}, where the view was made from, so nothing is taken back", short(&view.head), view.branch_name()));
+    // The branch is where it was found, or nothing is taken: made, moved or deleted since, it is not written over.
+    // One that another worktree has checked out is not moved under its files.
+    let not_taken = |back: &mut Back| {
+        back.after.splice(0..0, wanted.iter().map(|(commit, raw, _)| (commit.clone(), raw.subject())));
+    };
+    let since = if later.is_some() { "since the take-back began" } else { "since the view was made" };
+    let now = match tip_of(root, &view.branch) {
+        Ok(now) => now,
+        Err(why) => {
+            not_taken(back);
+            return Err(format!("the branch {} could not be read, so nothing is taken back: {}", view.branch_name(), why));
+        }
+    };
+    if now != expected {
+        not_taken(back);
+        let how = match (&expected, &now) {
+            (None, Some(now)) => format!("was made, at {}, {}", short(now), since),
+            (Some(was), None) => format!("was at {} and is deleted {}", short(was), since),
+            (Some(was), Some(now)) => format!("has moved from {} to {} {}", short(was), short(now), since),
+            (None, None) => String::new(),
+        };
+        return Err(format!("the branch {} {}, so nothing is taken back", view.branch_name(), how));
+    }
+    let here = match checked_out(root) {
+        Ok(found) => found.as_deref() == Some(view.branch.as_str()),
+        Err(why) => {
+            not_taken(back);
+            return Err(format!("the branch checked out could not be read, so nothing is taken back: {}", why));
+        }
+    };
+    if !here {
+        match checked_out_elsewhere(root, &view.branch) {
+            Ok(None) => {}
+            Ok(Some(tree)) => {
+                not_taken(back);
+                return Err(format!(
+                    "the branch {} is checked out in the worktree {}, and moving it would leave its files behind, so nothing is taken back",
+                    view.branch_name(),
+                    crate::issue::shown(&tree)
+                ));
+            }
+            Err(why) => {
+                not_taken(back);
+                return Err(format!("the worktrees of the repository could not be read, so nothing is taken back: {}", why));
+            }
         }
     }
     // The files of the commits, into the checkout's own store.
@@ -1784,16 +1977,50 @@ fn commits(root: &str, view: &View, store: &Path, allowed: &Allowed, build_files
     if made.is_empty() {
         return Ok(());
     }
-    // On the branch, by a fast-forward of the checkout: git refuses it where a change of the working tree would be lost.
-    if let Err(why) = git(root, &["merge", "--ff-only", "-q", &tip], &[], None) {
+    // The branch checked out is read again just before the move (#298): one changed since is not moved under.
+    let still = checked_out(&root.to_string_lossy()).map(|found| found.as_deref() == Some(view.branch.as_str()));
+    if still != Ok(here) {
         back.after.splice(0..0, wanted.iter().take(made.len()).map(|(commit, raw, _)| (commit.clone(), raw.subject())));
         return Err(format!(
-            "the commits were made, up to {}, and could not be put on {}: {}. Put them there with `git merge --ff-only {}`",
+            "the branch checked out changed while the commits were taken, so they were made, up to {}, and not put on {}",
             tip,
-            view.branch_name(),
-            why,
-            tip
+            view.branch_name()
         ));
+    }
+    if here {
+        // On the branch checked out, by a fast-forward of the checkout: git refuses it where a change of the working
+        // tree would be lost.
+        if let Err(why) = git(root, &["merge", "--ff-only", "-q", &tip], &[], None) {
+            back.after.splice(0..0, wanted.iter().take(made.len()).map(|(commit, raw, _)| (commit.clone(), raw.subject())));
+            return Err(format!(
+                "the commits were made, up to {}, and could not be put on {}: {}. Put them there with `git merge --ff-only {}`",
+                tip,
+                view.branch_name(),
+                why,
+                tip
+            ));
+        }
+    } else {
+        // On a branch that is not checked out (#296), by its ref alone, with the value it was found with: git refuses
+        // it where the branch was changed since. The branch checked out, the index and the working tree are not touched.
+        let old = expected.clone().unwrap_or_else(|| zero.clone());
+        if let Err(why) = git(root, &["update-ref", "-m", "wb: take-back", &view.branch, &tip, &old], &[], None) {
+            back.after.splice(0..0, wanted.iter().take(made.len()).map(|(commit, raw, _)| (commit.clone(), raw.subject())));
+            return Err(format!(
+                "the commits were made, up to {}, and could not be put on {}: {}. Put them there with `git update-ref {} {} {}`",
+                tip,
+                view.branch_name(),
+                why,
+                view.branch,
+                tip,
+                old
+            ));
+        }
+        let how = match &expected {
+            Some(was) => format!("only its ref was moved, from {} to {}", short(was), short(&tip)),
+            None => format!("it was not there, and only its ref was made, at {}, on top of {}, the commit the view was made from", short(&tip), short(&view.head)),
+        };
+        back.notes.push(format!("{} is not checked out: {}; the branch checked out, the index and the working tree are as they were", view.branch_name(), how));
     }
     back.taken = made;
     Ok(())

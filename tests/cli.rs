@@ -15,7 +15,8 @@ const USAGE: &str = "usage:
   wb check
   wb upgrade [--dry-run]
   wb accept <issue> [--no-commit]
-  wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [--ignore-kept] [the options of prompt]
+  wb start <role> [<issue>] [--runner <name>] [--prompt] [--ignore-local] [--ignore-kept]
+            [--ignore-branch] [the options of prompt]
             or <role> <issue> --take-back
   wb status [<issue>] [--stage <heading>]
   wb view <issue> (<role> [--in | --out] | <path>)
@@ -91,7 +92,13 @@ const USAGE: &str = "usage:
             --parts print as prompt does, and post and start nothing. A view
             of the issue kept with work not taken back, from any role, stops the
             start with 1 before anything is posted; --ignore-kept goes on
-            without it, and the stamp says so. --take-back, given with the role
+            without it, and the stamp says so. The commits of the session come
+            back onto the branch of the stamp, made where it is not there.
+            Where it is there and HEAD is not its commit, the start ends with
+            1 before anything is posted. A checkout on another branch, but
+            the default branch before the branch of the stamp is there, stops
+            the start with 1 before anything is posted, and --ignore-branch
+            goes on. --take-back, given with the role
             and the issue alone, starts and posts nothing: it says what it will
             take, then takes back the commits of the newest view of that role
             and issue that was kept, through the checks of the end of a

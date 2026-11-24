@@ -50,9 +50,10 @@ pub fn ended(code: i32, err: &mut dyn Write) -> i32 {
 }
 
 /// The flags that pass a guard, each with its command: `--ignore-local` a local change under `reads` (#172),
-/// `--ignore-kept` a view kept with work not taken back (#222), `--no-commit` the checks of the commit of
+/// `--ignore-kept` a view kept with work not taken back (#222), `--ignore-branch` a checkout on a branch that is
+/// neither the stamp's nor the default branch (#296), `--no-commit` the checks of the commit of
 /// `wb accept`, which then commits nothing.
-pub const GUARDS: [(&str, &str); 3] = [("start", "--ignore-local"), ("start", "--ignore-kept"), ("accept", "--no-commit")];
+pub const GUARDS: [(&str, &str); 4] = [("start", "--ignore-local"), ("start", "--ignore-kept"), ("start", "--ignore-branch"), ("accept", "--no-commit")];
 
 /// The message of a limit: `limit: ` and why.
 pub fn limit_text(why: impl Display) -> String {

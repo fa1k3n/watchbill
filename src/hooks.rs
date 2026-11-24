@@ -22,6 +22,9 @@ use crate::yamlfile::{self, Node, Value};
 /// The file name of the program of the one runner whose settings `wb` knows: Claude Code.
 pub const PROGRAM: &str = "claude";
 
+/// The person's folder of the runner, from the home folder.
+pub const USER_FOLDER: &str = ".claude";
+
 /// The person's settings, from the home folder.
 pub const USER_SETTINGS: &str = ".claude/settings.json";
 
@@ -36,6 +39,9 @@ pub const NAMED: usize = 20;
 
 /// How many characters of a command are shown at most.
 pub const SHOWN: usize = 200;
+
+/// The longest path the kernel takes: a longer first word is not a program.
+const PATH_MAX: usize = 4096;
 
 /// What the line of a hook that will fail says.
 pub const FAILS: &str = "will fail in the view";
@@ -62,6 +68,8 @@ pub struct Sandbox<'a> {
     pub home: Option<&'a Path>,
     /// The runner's binds, each from the root.
     pub binds: &'a [(PathBuf, bool)],
+    /// The folders of the organisation's file, which the sandbox covers.
+    pub covered: &'a [PathBuf],
     /// `PATH`, as the session inherits it.
     pub path: Option<&'a OsStr>,
 }
@@ -112,15 +120,21 @@ fn first_word(command: &str, checkout: &Path, home: Option<&Path>) -> Option<Wor
     let mut word = String::new();
     let mut at = 0;
     // The variable of the checkout at `at`, a `$`: how many characters it takes.
+    // It is compared in place: nothing is copied for each `$`.
+    let name: Vec<char> = PROJECT_DIR.chars().collect();
     let project = |at: usize| -> Option<usize> {
-        let rest: String = chars[at + 1..].iter().collect();
-        if rest.starts_with(&format!("{{{}}}", PROJECT_DIR)) {
-            return Some(PROJECT_DIR.len() + 3);
+        let rest = &chars[at + 1..];
+        if rest.first() == Some(&'{') && rest[1..].starts_with(&name) && rest.get(name.len() + 1) == Some(&'}') {
+            return Some(name.len() + 3);
         }
-        let after = rest.strip_prefix(PROJECT_DIR)?;
-        (!after.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_')).then_some(PROJECT_DIR.len() + 1)
+        let after = rest.strip_prefix(&name[..])?;
+        (!after.first().is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_')).then_some(name.len() + 1)
     };
     while let Some(&c) = chars.get(at) {
+        // A word longer than a path can be is not a program.
+        if word.len() > PATH_MAX {
+            return None;
+        }
         match c {
             ' ' | '\t' | '\n' | ';' | '&' | '|' | '<' | '>' | '(' | ')' => break,
             '\'' => {
@@ -170,7 +184,7 @@ fn first_word(command: &str, checkout: &Path, home: Option<&Path>) -> Option<Wor
             }
         }
     }
-    if word.is_empty() || RUNS_ANOTHER.contains(&word.as_str()) {
+    if word.is_empty() || word.len() > PATH_MAX || RUNS_ANOTHER.contains(&word.as_str()) {
         return None;
     }
     if BUILTINS.contains(&word.as_str()) {
@@ -198,9 +212,23 @@ fn normal(path: &Path) -> PathBuf {
     out
 }
 
-/// Whether `path` lies under the system's folders the sandbox holds or under a bind of the runner.
-fn under_held(path: &Path, binds: &[(PathBuf, bool)]) -> bool {
-    crate::view::SYSTEM.iter().map(Path::new).chain(binds.iter().map(|(bind, _)| bind.as_path())).any(|folder| path.starts_with(folder))
+/// Where the file that the sandbox has at `path` is on the host, or why the sandbox does not hold `path`. Bubblewrap
+/// binds what a bind leads to at the bind's own path, so a bind that is a link holds what it leads to. The folder of the
+/// organisation's file is covered.
+fn host_of(path: &Path, sandbox: &Sandbox) -> Result<PathBuf, String> {
+    if sandbox.covered.iter().any(|folder| path.starts_with(folder)) {
+        return Err(format!("{} lies in the folder of the organisation's file, which the sandbox covers", path.display()));
+    }
+    let bind = sandbox.binds.iter().map(|(bind, _)| bind).filter(|bind| path.starts_with(bind)).max_by_key(|bind| bind.components().count());
+    if let Some(bind) = bind {
+        let base = fs::canonicalize(bind).map_err(|_| format!("{} is not there", path.display()))?;
+        let rest = path.strip_prefix(bind).unwrap_or(Path::new(""));
+        return Ok(if rest.as_os_str().is_empty() { base } else { base.join(rest) });
+    }
+    if crate::view::SYSTEM.iter().any(|folder| path.starts_with(folder)) {
+        return Ok(path.to_path_buf());
+    }
+    Err(format!("{} lies outside what the sandbox holds", path.display()))
 }
 
 fn executable(meta: &fs::Metadata) -> bool {
@@ -218,15 +246,14 @@ fn reachable(path: &Path, sandbox: &Sandbox) -> Result<(), String> {
             )),
         };
     }
-    if !under_held(path, sandbox.binds) {
-        return Err(format!("{} lies outside what the sandbox holds", path.display()));
-    }
-    let real = fs::canonicalize(path).map_err(|_| format!("{} is not there", path.display()))?;
-    if real != path {
+    let host = host_of(path, sandbox)?;
+    let real = fs::canonicalize(&host).map_err(|_| format!("{} is not there", path.display()))?;
+    if real != host {
+        // A link below a bind or in the system is followed in the sandbox: what it leads to must be there, at its path.
         if real.starts_with(sandbox.checkout) {
             return reachable(&real, sandbox);
         }
-        if !under_held(&real, sandbox.binds) {
+        if host_of(&real, sandbox).ok().as_ref() != Some(&real) {
             return Err(format!("{} leads to {}, which lies outside what the sandbox holds", path.display(), real.display()));
         }
     }
@@ -289,45 +316,65 @@ struct Settings {
     read: Option<Result<Vec<u8>, String>>,
     /// Why the runner in the view does not read it, or none where it does.
     not_shown: Option<&'static str>,
+    /// What is said of the file of the working tree where it is not as `HEAD` has it, which the view never holds.
+    working: Option<String>,
+}
+
+/// git, in the checkout at `root`, with no replace refs and no `GIT_*` of `wb`'s.
+fn git(root: &str, args: &[&str]) -> Result<Vec<u8>, String> {
+    let mut command = Command::new("git");
+    command.arg("-C").arg(root).arg("--no-replace-objects").args(args);
+    for (name, _) in std::env::vars_os() {
+        if name.to_string_lossy().starts_with("GIT_") {
+            command.env_remove(name);
+        }
+    }
+    command.env("GIT_LITERAL_PATHSPECS", "1").stdin(Stdio::null()).stderr(Stdio::null());
+    let output = command.output().map_err(|error| format!("git could not be run: {}", error))?;
+    if !output.status.success() {
+        return Err(format!("`git {}` ended with {}", args.first().unwrap_or(&""), output.status.code().unwrap_or(-1)));
+    }
+    Ok(output.stdout)
+}
+
+/// The entry of `path` in `HEAD`: its mode, its object and its size (`-` for what is not a blob), or none.
+fn head_entry(root: &str, path: &str) -> Result<Option<(String, String, String)>, String> {
+    let listed = git(root, &["ls-tree", "-z", "-l", "--full-tree", "HEAD", "--", path])?;
+    let entry = String::from_utf8_lossy(&listed);
+    let Some((meta, _)) = entry.split('\0').find(|entry| !entry.is_empty()).and_then(|entry| entry.split_once('\t')) else { return Ok(None) };
+    match meta.split_whitespace().collect::<Vec<&str>>()[..] {
+        [mode, _, object, size] => Ok(Some((mode.to_string(), object.to_string(), size.to_string()))),
+        _ => Err(Fault::NotPlain.to_string()),
+    }
 }
 
 /// What a settings file of `HEAD` holds: none where it is not there, and the error where it is not a plain blob of
 /// `CAP` bytes or less.
-fn head_blob(root: &str, path: &str) -> Result<Option<Vec<u8>>, String> {
-    let git = |args: &[&str]| -> Result<Vec<u8>, String> {
-        let mut command = Command::new("git");
-        command.arg("-C").arg(root).arg("--no-replace-objects").args(args);
-        for (name, _) in std::env::vars_os() {
-            if name.to_string_lossy().starts_with("GIT_") {
-                command.env_remove(name);
-            }
-        }
-        command.env("GIT_LITERAL_PATHSPECS", "1").stdin(Stdio::null()).stderr(Stdio::null());
-        let output = command.output().map_err(|error| format!("git could not be run: {}", error))?;
-        if !output.status.success() {
-            return Err(format!("`git {}` ended with {}", args.first().unwrap_or(&""), output.status.code().unwrap_or(-1)));
-        }
-        Ok(output.stdout)
-    };
-    let listed = git(&["ls-tree", "-z", "-l", "--full-tree", "HEAD", "--", path])?;
-    let entry = String::from_utf8_lossy(&listed);
-    let Some((meta, _)) = entry.split('\0').find(|entry| !entry.is_empty()).and_then(|entry| entry.split_once('\t')) else { return Ok(None) };
-    let words: Vec<&str> = meta.split_whitespace().collect();
-    let (mode, object, size) = match words[..] {
-        [mode, _, object, size] => (mode, object, size),
-        _ => return Err(Fault::NotPlain.to_string()),
-    };
-    if !matches!(mode, "100644" | "100755") {
+fn head_blob(root: &str, entry: Option<&(String, String, String)>) -> Result<Option<Vec<u8>>, String> {
+    let Some((mode, object, size)) = entry else { return Ok(None) };
+    if !matches!(mode.as_str(), "100644" | "100755") {
         return Err(Fault::NotPlain.to_string());
     }
     if size.parse::<u64>().map_or(true, |size| size > CAP) {
         return Err(Fault::TooBig(CAP).to_string());
     }
-    let bytes = git(&["cat-file", "blob", object])?;
+    let bytes = git(root, &["cat-file", "blob", object])?;
     if bytes.len() as u64 > CAP {
         return Err(Fault::TooBig(CAP).to_string());
     }
     Ok(Some(bytes))
+}
+
+/// Whether the file of the working tree at `path` is there and not as `HEAD` has it, by its kind, size and mode alone:
+/// it is looked at, never read.
+fn working_differs(root: &str, path: &str, entry: Option<&(String, String, String)>) -> bool {
+    let Ok(meta) = fs::symlink_metadata(Path::new(root).join(path)) else { return false };
+    match entry {
+        None => true,
+        Some((mode, _, size)) => {
+            !(meta.is_file() && size.parse::<u64>() == Ok(meta.len()) && (meta.permissions().mode() & 0o111 != 0) == (mode == "100755"))
+        }
+    }
 }
 
 /// The settings of the runner whose program is `program`, where `wb` knows them: the person's, and the project's as
@@ -338,19 +385,37 @@ fn settings(program: &str, root: &str, sandbox: &Sandbox) -> Vec<Settings> {
     }
     let mut found = Vec::new();
     if let Some(home) = sandbox.home {
+        let folder = home.join(USER_FOLDER);
         let path = home.join(USER_SETTINGS);
-        let read = match bounded::read_plain(&path, CAP) {
-            Err(Fault::NotFound) => None,
-            Err(fault) => Some(Err(fault.to_string())),
-            Ok(bytes) => Some(Ok(bytes)),
+        // The folder is a plain folder too: one that is a link is not followed.
+        let read = match fs::symlink_metadata(&folder) {
+            Err(_) => None,
+            Ok(meta) if !meta.is_dir() => Some(Err(format!("~/{} is not a plain folder", USER_FOLDER))),
+            Ok(_) => match bounded::read_plain(&path, CAP) {
+                Err(Fault::NotFound) => None,
+                Err(fault) => Some(Err(fault.to_string())),
+                Ok(bytes) => Some(Ok(bytes)),
+            },
         };
         let bound = sandbox.binds.iter().any(|(bind, _)| path.starts_with(bind));
-        found.push(Settings { shown: format!("~/{}", USER_SETTINGS), read, not_shown: (!bound).then_some("is not in the runner's `binds`: the runner does not read it in the view") });
+        found.push(Settings {
+            shown: format!("~/{}", USER_SETTINGS),
+            read,
+            not_shown: (!bound).then_some("is not in the runner's `binds`: the runner does not read it in the view"),
+            working: None,
+        });
     }
     for path in PROJECT_SETTINGS {
-        let read = head_blob(root, path).transpose();
+        let (read, working) = match head_entry(root, path) {
+            Err(why) => (Some(Err(why)), None),
+            Ok(entry) => (
+                head_blob(root, entry.as_ref()).transpose(),
+                working_differs(root, path, entry.as_ref())
+                    .then(|| format!("{} of the working tree is not as HEAD has it: the runner does not read it in the view, and none of its hooks runs in the view", path)),
+            ),
+        };
         let in_view = fs::symlink_metadata(sandbox.view.join(path)).is_ok_and(|meta| meta.is_file());
-        found.push(Settings { shown: format!("{} of HEAD", path), read, not_shown: (!in_view).then_some("is not in the view: the runner does not read it there") });
+        found.push(Settings { shown: format!("{} of HEAD", path), read, not_shown: (!in_view).then_some("is not in the view: the runner does not read it there"), working });
     }
     found
 }
@@ -363,12 +428,11 @@ struct Failing {
     why: String,
 }
 
-/// A command as it is said: escaped, and cut at `SHOWN` characters.
+/// A command as it is said: cut at `SHOWN` characters. The whole line is escaped after (`issue::shown`).
 fn shown(command: &str) -> String {
-    let escaped = command.escape_debug().to_string();
-    match escaped.char_indices().nth(SHOWN) {
-        Some((at, _)) => format!("{}…", &escaped[..at]),
-        None => escaped,
+    match command.char_indices().nth(SHOWN) {
+        Some((at, _)) => format!("{}…", &command[..at]),
+        None => command.to_string(),
     }
 }
 
@@ -380,6 +444,9 @@ pub fn said(program: &str, root: &str, sandbox: &Sandbox) -> Vec<String> {
     let mut lines = Vec::new();
     let mut failing: Vec<Failing> = Vec::new();
     for file in settings(program, root, sandbox) {
+        if let Some(working) = &file.working {
+            lines.push(working.clone());
+        }
         let bytes = match file.read {
             None => continue,
             Some(Err(why)) => {
@@ -407,16 +474,19 @@ pub fn said(program: &str, root: &str, sandbox: &Sandbox) -> Vec<String> {
             }
             continue;
         }
-        let first = failing.len();
+        // Each command of this file once, by where it stands in `failing`.
+        let mut known: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
         for hook in hooks {
             let Some(command) = hook.command else { continue };
-            if let Some(known) = failing[first..].iter_mut().find(|known| known.command == command) {
-                if !known.events.contains(&hook.event) {
-                    known.events.push(hook.event);
+            if let Some(&at) = known.get(&command) {
+                let events = &mut failing[at].events;
+                if !events.contains(&hook.event) {
+                    events.push(hook.event);
                 }
                 continue;
             }
             if let Some(why) = unheld(&command, sandbox) {
+                known.insert(command.clone(), failing.len());
                 failing.push(Failing { shown: file.shown.clone(), command, events: vec![hook.event], why });
             }
         }
@@ -427,5 +497,7 @@ pub fn said(program: &str, root: &str, sandbox: &Sandbox) -> Vec<String> {
     if failing.len() > NAMED {
         lines.push(format!("and {} more hooks that {}", failing.len() - NAMED, FAILS));
     }
-    lines
+    // Every part that comes from a file (a path, an event, a command, the loader's words) is said escaped, so that a
+    // line stays one line and no control character reaches the terminal.
+    lines.iter().map(|line| crate::issue::shown(line)).collect()
 }

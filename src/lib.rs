@@ -1839,6 +1839,16 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
             return code;
         }
     }
+    // A runner's hooks (#160) are looked at before the signals are held, so that a slow look can be ended (#317). The
+    // folders of the organisation's file are covered in the sandbox, as `view::arguments_out` covers them.
+    let named = {
+        let path = std::env::var_os("PATH");
+        let fixed = Path::new(confidentiality::ORGANISATION_FILE).parent().filter(|folder| folder.is_dir());
+        let given = organisation.parent().filter(|folder| folder.is_dir());
+        let covered: Vec<std::path::PathBuf> = [fixed, given].into_iter().flatten().map(Path::to_path_buf).collect();
+        let sandbox = hooks::Sandbox { checkout: Path::new(root), view: &prepared.view.folder, home: machine.home, binds: &prepared.binds, covered: &covered, path: path.as_deref() };
+        hooks::said(filled.first().map(String::as_str).unwrap_or_default(), root, &sandbox)
+    };
     let began = std::time::Instant::now();
     // The signals stay held until the commits are taken back and `back` and `outcome` are written (#221).
     let _held = interrupt::hold();
@@ -1854,9 +1864,6 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         }
     }
     // A runner's hooks (#160): each that will fail in the view is named before the session, which starts all the same.
-    let path = std::env::var_os("PATH");
-    let sandbox = hooks::Sandbox { checkout: Path::new(root), view: &prepared.view.folder, home: machine.home, binds: &prepared.binds, path: path.as_deref() };
-    let named = hooks::said(filled.first().map(String::as_str).unwrap_or_default(), root, &sandbox);
     for line in &named {
         let _ = writeln!(err, "{}: {}", name, line);
     }

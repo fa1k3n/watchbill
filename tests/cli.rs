@@ -69,15 +69,15 @@ const USAGE: &str = "usage:
             role, its model and effort, the runner, the version and revision,
             the issue, the change, the round, the branch, the checkout, the
             time, and each part as --parts gives it. Not with --parts.
-            --runner names the runner the prompt is handed to. The breakdown
+            --runner names the runner the prompt is handed to. The planner
             needs it, and is handed out only to a runner that
-            /etc/watchbill/organisation.yml clears for the breakdown up to the
+            /etc/watchbill/organisation.yml clears for the planner up to the
             level of the repository, the line confidentiality: of
             watchbill.yml. Its stamp then has the model and effort of that
             file, and --parts adds the level and the runner. Ends with 0 when
             the prompt is printed, 1 when it is refused, 2 when it was used
             wrongly or the repository is not set up. Writes nothing
-  start     start a session of one role, breakdown, tester, build, review or
+  start     start a session of one role, planner, tester, build, review or
             fix: the role is the word after start. The issue is needed by
             all but the review and the fix, which may be given --change
             and no issue. It checks what prompt checks, that a fix
@@ -176,7 +176,7 @@ const USAGE: &str = "usage:
             --change <n> <role> posts it on a change with no issue, by
             change_comment.
             The branch, the issue's file and its acceptance, and the change are
-            not touched: taking commits back is git's. The breakdown is taken
+            not touched: taking commits back is git's. The planner is taken
             back with git, not by a marker. Ends with 0 when the marker is
             posted, 1 when it was refused or the posting failed, 2 when it was
             used wrongly or the repository is not set up
@@ -192,7 +192,7 @@ const USAGE: &str = "usage:
             open question in full, as it is laid out when asked, to standard
             output, and asks nothing, posts nothing and ends with 0; it takes
             no --suggested and no answer. <question> <answer>, as
-            tester.q1 2 (q1 for the breakdown), answers a question
+            tester.q1 2 (q1 for the planner), answers a question
             without asking, and the pairs repeat; with --suggested the
             suggestion is taken for every question they do not answer.
             One comment per role is posted, or none when a pair is wrong

@@ -24,11 +24,11 @@ pub fn revert(root: &str, on: On, role: &str, round: Option<u64>, err: &mut dyn 
         On::Issue(issue) => ("issue", issue, "issue_comments", "issue_comment"),
         On::Change(change) => ("change", change, "change_comments", "change_comment"),
     };
-    if role == "breakdown" {
+    if role == "planner" {
         return crate::refusal::limit(
             err,
             "wb revert",
-            "the breakdown is not taken back by a marker. The issue's file and its acceptance are files of the repository, and git takes them back.",
+            "the planner is not taken back by a marker. The issue's file and its acceptance are files of the repository, and git takes them back.",
         );
     }
     if let Err(why) = starter::held(root) {
@@ -64,12 +64,12 @@ pub fn revert(root: &str, on: On, role: &str, round: Option<u64>, err: &mut dyn 
         };
         return crate::refusal::limit(err, "wb revert", format_args!("there is {} on {} {} (from `{}` of watchbill.yml), so there is no {} to take back.", which, word, value, read, role));
     };
-    if stamps[at..].iter().any(|(name, _)| name == "breakdown") {
+    if stamps[at..].iter().any(|(name, _)| name == "planner") {
         return crate::refusal::limit(
             err,
             "wb revert",
             format_args!(
-                "a later breakdown took the issue back ({} {}), so the stamp `{} round {}` before it no longer counts and is not reverted. Nothing is posted.",
+                "a later planner took the issue back ({} {}), so the stamp `{} round {}` before it no longer counts and is not reverted. Nothing is posted.",
                 word, value, role, n
             ),
         );

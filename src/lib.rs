@@ -94,15 +94,15 @@ pub const USAGE: &str = "usage:
             role, its model and effort, the runner, the version and revision,
             the issue, the change, the round, the branch, the checkout, the
             time, and each part as --parts gives it. Not with --parts.
-            --runner names the runner the prompt is handed to. The breakdown
+            --runner names the runner the prompt is handed to. The planner
             needs it, and is handed out only to a runner that
-            /etc/watchbill/organisation.yml clears for the breakdown up to the
+            /etc/watchbill/organisation.yml clears for the planner up to the
             level of the repository, the line confidentiality: of
             watchbill.yml. Its stamp then has the model and effort of that
             file, and --parts adds the level and the runner. Ends with 0 when
             the prompt is printed, 1 when it is refused, 2 when it was used
             wrongly or the repository is not set up. Writes nothing
-  start     start a session of one role, breakdown, tester, build, review or
+  start     start a session of one role, planner, tester, build, review or
             fix: the role is the word after start. The issue is needed by
             all but the review and the fix, which may be given --change
             and no issue. It checks what prompt checks, that a fix
@@ -201,7 +201,7 @@ pub const USAGE: &str = "usage:
             --change <n> <role> posts it on a change with no issue, by
             change_comment.
             The branch, the issue's file and its acceptance, and the change are
-            not touched: taking commits back is git's. The breakdown is taken
+            not touched: taking commits back is git's. The planner is taken
             back with git, not by a marker. Ends with 0 when the marker is
             posted, 1 when it was refused or the posting failed, 2 when it was
             used wrongly or the repository is not set up
@@ -217,7 +217,7 @@ pub const USAGE: &str = "usage:
             open question in full, as it is laid out when asked, to standard
             output, and asks nothing, posts nothing and ends with 0; it takes
             no --suggested and no answer. <question> <answer>, as
-            tester.q1 2 (q1 for the breakdown), answers a question
+            tester.q1 2 (q1 for the planner), answers a question
             without asking, and the pairs repeat; with --suggested the
             suggestion is taken for every question they do not answer.
             One comment per role is posted, or none when a pair is wrong
@@ -633,7 +633,7 @@ fn old_form(args: &[OsString], err: &mut dyn Write) -> i32 {
 }
 
 /// The roles that `wb start` starts a session of (#84, #175).
-const STARTED: [&str; 5] = ["breakdown", "tester", "build", "review", "fix"];
+const STARTED: [&str; 5] = ["planner", "tester", "build", "review", "fix"];
 
 /// Says that a command was used wrongly, then the usage, and gives 2.
 fn used(err: &mut dyn Write, name: &str, why: &str) -> i32 {
@@ -772,11 +772,11 @@ fn read_words(parser: &mut Parser, name: &str, role: Option<&str>, err: &mut dyn
     }
     // A session that `wb start <role>` starts takes the organisation's default runner, when none is given (#84).
     let prints = !starter || print || stamp || parts;
-    if role == "breakdown" && runner.is_none() && prints {
+    if role == "planner" && runner.is_none() && prints {
         return Err(used(
             err,
             name,
-            "the breakdown is handed out only to a runner that the organisation's file clears for it: give '--runner <name>'",
+            "the planner is handed out only to a runner that the organisation's file clears for it: give '--runner <name>'",
         ));
     }
     if let Some(word) = issue_word {
@@ -817,7 +817,7 @@ struct Handed {
 }
 
 /// Everything `wb prompt` checks and does before it prints, for the words given: the check of `wb check`,
-/// the role, the breakdown's runner (#93), the issue's file (#76, #97), the values derived (#72) and those
+/// the role, the planner's runner (#93), the issue's file (#76, #97), the values derived (#72) and those
 /// worked out from the patterns (#84), and the prompt put together. `starting` is `wb start <role>` that starts a
 /// session: it always needs the round, and a pattern it needs that is not there is refused. What is
 /// refused is said after `name`, and its status is the error.
@@ -866,10 +866,10 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
     if let Err(why) = prompt::require_role(Path::new(&root), role) {
         return Err(refused(err, &why));
     }
-    // The breakdown goes only to a runner the organisation cleared for it, up to the repository's level (#93).
+    // The planner goes only to a runner the organisation cleared for it, up to the repository's level (#93).
     let mut cleared = None;
-    if role == "breakdown" {
-        match confidentiality::clear_breakdown(organisation, Path::new(&root), words.runner.as_deref().unwrap_or_default()) {
+    if role == "planner" {
+        match confidentiality::clear_planner(organisation, Path::new(&root), words.runner.as_deref().unwrap_or_default()) {
             Ok(found) => cleared = Some(found),
             Err(why) => return Err(refused(err, &why)),
         }
@@ -976,7 +976,7 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
     Ok(Handed { root, values, found, cleared, file, requirements_given, stamps: worked.stamps, level })
 }
 
-/// The model and effort a role is handed out with: for the breakdown those its runner is cleared with, for
+/// The model and effort a role is handed out with: for the planner those its runner is cleared with, for
 /// the others the model table's.
 fn model_of(role: &str, cleared: Option<&confidentiality::Cleared>) -> Result<rules::Model, String> {
     if let Some(cleared) = cleared {
@@ -1020,10 +1020,10 @@ fn stamp_of(role: &str, handed: &Handed, runner: &str, local: Option<usize>, kep
     Ok(prompt::stamp(&said, &given, &handed.found))
 }
 
-/// The local changes the view of a session of `role` would miss (#172): over the whole checkout for the breakdown
+/// The local changes the view of a session of `role` would miss (#172): over the whole checkout for the planner
 /// (#202), its issue's file as its `changes`, and for a role with no issue's file, which `--ignore-local` passes.
 fn local_of(role: &str, handed: &Handed, root: &str) -> Option<Result<Vec<view::Local>, String>> {
-    if role == "breakdown" {
+    if role == "planner" {
         let issue = value_of(&handed.values, "issue")?;
         return Some(view::local_changes_whole(root, Some(&issue_file_of(issue))));
     }
@@ -1058,16 +1058,16 @@ fn outside_the_sandbox(program: &str, binds: &[(std::path::PathBuf, bool)]) -> O
     })
 }
 
-/// The issue's file of `issue`, from the root, as the breakdown writes it.
+/// The issue's file of `issue`, from the root, as the planner writes it.
 fn issue_file_of(issue: &str) -> String {
     format!("{}/{}.yml", issue::FOLDER, issue)
 }
 
-/// What may come back from the view of a session of `role` (#202): for the breakdown its issue's file alone, for a
+/// What may come back from the view of a session of `role` (#202): for the planner its issue's file alone, for a
 /// role with an issue's file its `changes`, and for any other session every path but `.watchbill/` and
 /// `build_files`.
 fn allowed_of(role: &str, file: Option<&issue::Used>, issue: Option<&str>) -> view::Allowed {
-    if role == "breakdown" {
+    if role == "planner" {
         return view::Allowed::IssueFile(issue_file_of(issue.unwrap_or_default()));
     }
     match file {
@@ -1078,7 +1078,7 @@ fn allowed_of(role: &str, file: Option<&issue::Used>, issue: Option<&str>) -> vi
 
 /// The paths of the view a session of `role` runs in (#126): those of the issue's file for the role, when the
 /// role is one the file lists paths for and a file is used. `None`: the session runs in a view of every file of
-/// `HEAD` (#202), as the breakdown, which reads the whole code by its role, and a role started with no issue's file
+/// `HEAD` (#202), as the planner, which reads the whole code by its role, and a role started with no issue's file
 /// (#116) do.
 fn view_paths(role: &str, handed: &Handed) -> Option<Vec<String>> {
     view_paths_of(role, handed.file.as_ref())
@@ -1123,7 +1123,7 @@ fn print(name: &str, words: &Words, handed: &Handed, out: &mut dyn Write, err: &
 /// `wb prompt <role> [--<placeholder> X]... [--runner <name>] [--parts]`: the prompt of a role, filled from
 /// one option for each placeholder of the list (`prompt::PLACEHOLDERS`), or with `--parts` the path and hash
 /// of each of its parts. Nothing is printed unless the check of `wb check` holds and the prompt can be put
-/// together. The breakdown is handed out only to a runner the organisation's file clears for it (#93). It
+/// together. The planner is handed out only to a runner the organisation's file clears for it (#93). It
 /// writes nothing.
 fn run_prompt(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let name = "wb prompt";
@@ -1293,7 +1293,7 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     // 1c. The branch checked out (#296, #298): the commits come back onto the stamp's branch, whichever is checked
     // out. Where that branch is there, the view is its tree or nothing: a checkout whose `HEAD` is not its commit is a
     // limit. A checkout on another branch is said, for the person may mean that branch; the default branch passes
-    // only where the stamp's branch is not there yet, as for a breakdown. Only `--ignore-branch` passes the guard.
+    // only where the stamp's branch is not there yet, as for a planner. Only `--ignore-branch` passes the guard.
     if let Some(stamped) = value_of(&handed.values, "branch") {
         match view::on_branch(root, stamped) {
             view::OnBranch::Fine => {}
@@ -1330,8 +1330,8 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
             return refused(&mut lines, err, "rule", &starter::no_review(&stamps.on, &stamps.key));
         }
     }
-    // 3. The class: no classed code is worked on here before #65. The breakdown changes only the issue's file.
-    if role != "breakdown" {
+    // 3. The class: no classed code is worked on here before #65. The planner changes only the issue's file.
+    if role != "planner" {
         let changes = handed.file.as_ref().map(|file| file.issue.changes.as_slice());
         if let Err(why) = starter::class(root, changes) {
             return refused(&mut lines, err, "class", &why);
@@ -1434,7 +1434,7 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     }
     let paths = view_paths(role, &handed);
     let layout = match (role, &paths) {
-        ("breakdown", _) => view::Layout::Breakdown,
+        ("planner", _) => view::Layout::Planner,
         (_, Some(_)) => view::Layout::Listed,
         (_, None) => view::Layout::Whole,
     };
@@ -1453,10 +1453,10 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         let why = format!("{}. Bind it in `binds` of the runner '{}' in the organisation's file {}", why, runner, organisation.display());
         return refused(&mut lines, err, "start", &why);
     }
-    // The breakdown has no login (#295): its issue, and the questions and answers under it, are read here, as the
+    // The planner has no login (#295): its issue, and the questions and answers under it, are read here, as the
     // person and outside the sandbox, and brought into its view before anything is posted. The stamp holds the hash.
     let brought = match (role, value_of(&handed.values, "issue")) {
-        ("breakdown", Some(issue)) => match brought::bring_in(root, issue, &prepared.view.folder) {
+        ("planner", Some(issue)) => match brought::bring_in(root, issue, &prepared.view.folder) {
             Ok(found) => Some(found),
             Err(why) => {
                 discard(&prepared);
@@ -1588,9 +1588,9 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
             let _ = writeln!(err, "{}: to see what the commit changes, run:\n  git show --stat {}", name, commit);
         }
         say_push(name, role, root, prepared.view.branch_name(), err);
-        // The breakdown posts nothing (#295): its new questions, written in full in the issue's file, are posted here.
+        // The planner posts nothing (#295): its new questions, written in full in the issue's file, are posted here.
         // They are read from the last commit taken back, not from the working tree, which need not hold it (#296).
-        if let (true, Some(issue), Some((commit, _))) = (role == "breakdown", value_of(&handed.values, "issue"), back.taken.last()) {
+        if let (true, Some(issue), Some((commit, _))) = (role == "planner", value_of(&handed.values, "issue"), back.taken.last()) {
             if let Err(why) = brought::post_questions(name, root, issue, commit, err) {
                 refusal::limit(err, name, format_args!("the questions of the issue's file are not posted: {}", why));
                 // not a refusal: the limit is said just above, after the session; the code says it too.
@@ -1640,10 +1640,10 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
         Ok(kept) => kept,
         Err(why) => return refuse(err, &why),
     };
-    // What may come back, as at the end of a session: by the issue's accepted file, or by the rule of the breakdown
+    // What may come back, as at the end of a session: by the issue's accepted file, or by the rule of the planner
     // or of a role with no issue's file (#202); never the build files of watchbill.yml. The rule is the one the
     // session ran under, as its stamp's `view:` says it: where HEAD now gives another, nothing is taken.
-    let file = if role == "breakdown" {
+    let file = if role == "planner" {
         None
     } else {
         match issue::for_prompt(Path::new(&root), issue) {
@@ -2032,8 +2032,8 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
         }
     };
     let refused = |err: &mut dyn Write, why: &str| refusal::limit(err, name, why);
-    if role == Some("breakdown") {
-        return refused(err, "the breakdown runs in a view of every file of HEAD, writable, with .watchbill/ read-only but for .watchbill/issues/: it reads the whole code by its role, and has no list of paths");
+    if role == Some("planner") {
+        return refused(err, "the planner runs in a view of every file of HEAD, writable, with .watchbill/ read-only but for .watchbill/issues/: it reads the whole code by its role, and has no list of paths");
     }
     let settings = match starter::settings(&root) {
         Ok(settings) => settings,
@@ -2111,7 +2111,7 @@ fn run_view(parser: &mut Parser, folder: Option<&Path>, _organisation: &Path, ou
     }
 }
 
-/// The level of the repository, as `--parts` of the breakdown gives it: by the organisation's file where it is
+/// The level of the repository, as `--parts` of the planner gives it: by the organisation's file where it is
 /// there; else the line `confidentiality:` of `watchbill.yml`, which the organisation's list cannot be held to.
 /// The error says why it is not known.
 fn level_of(root: &str, settings: &yamlfile::Document, organisation: &Path) -> Result<String, String> {

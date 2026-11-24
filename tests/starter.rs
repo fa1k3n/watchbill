@@ -99,7 +99,7 @@ fn script(path: &Path, body: &str) {
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
 }
 
-/// The organisation's file of the bench: `stand-in` has `start` and is cleared for the breakdown; `idle`
+/// The organisation's file of the bench: `stand-in` has `start` and is cleared for the planner; `idle`
 /// has no `start`. `{default}` is the line of `default`, or nothing.
 const ORG: &str = "levels: [public, internal, confidential]
 {default}runners:
@@ -108,7 +108,7 @@ const ORG: &str = "levels: [public, internal, confidential]
     model: a stand-in
     agreement: none
     up_to: internal
-    breakdown:
+    planner:
       up_to: public
       model: claude-opus-5-5
       effort: high
@@ -148,7 +148,7 @@ fn bench() -> Bench {
         ),
     );
     script(&log.path.join("ssh.sh"), &format!("echo ssh >> {l}/network\nexit 1\n"));
-    // The issue's text and its whole comments, which `wb start breakdown` brings into the view (#295).
+    // The issue's text and its whole comments, which `wb start planner` brings into the view (#295).
     script(&log.path.join("address.sh"), &format!("echo \"address $1\" >> {l}/calls\necho \"The text of issue $1.\"\nexit 0\n"));
     script(&log.path.join("bodies.sh"), &format!("echo \"bodies $1\" >> {l}/calls\nexit 0\n"));
     git(&repo.path, &["config", "user.name", "Ada Lovelace"]);
@@ -268,9 +268,9 @@ fn test_WB_BUILD_1_an_issue_s_file_that_is_not_accepted_is_refused_as_wb_prompt_
 }
 
 #[test]
-fn test_WB_BUILD_1_a_breakdown_runner_that_is_not_cleared_is_refused_as_wb_prompt_refuses_it() {
+fn test_WB_BUILD_1_a_planner_runner_that_is_not_cleared_is_refused_as_wb_prompt_refuses_it() {
     let bench = bench();
-    same_as_prompt(&bench, "breakdown", &["54", "--runner", "idle"]);
+    same_as_prompt(&bench, "planner", &["54", "--runner", "idle"]);
 }
 
 #[test]
@@ -433,12 +433,12 @@ fn test_WB_BUILD_6_the_session_is_started_from_a_folder_inside_the_checkout_in_i
 }
 
 #[test]
-fn test_WB_BUILD_6_the_breakdown_starts_with_the_model_and_effort_its_runner_is_cleared_with() {
+fn test_WB_BUILD_6_the_planner_starts_with_the_model_and_effort_its_runner_is_cleared_with() {
     let bench = bench();
-    ok(&bench.start(true, &["start", "breakdown", "54"]));
+    ok(&bench.start(true, &["start", "planner", "54"]));
     assert_eq!(read(&bench.at("start.model")), "--model=claude-opus-5-5");
     assert_eq!(read(&bench.at("start.effort")), "high");
-    assert!(bench.posted("issue", "54").unwrap().starts_with("[stamp] breakdown round 1\n"));
+    assert!(bench.posted("issue", "54").unwrap().starts_with("[stamp] planner round 1\n"));
 }
 
 #[test]
@@ -465,7 +465,7 @@ fn test_WB_BUILD_6_a_start_that_cannot_be_run_ends_with_1_and_names_it() {
 fn test_WB_BUILD_121_a_runner_s_program_that_is_not_there_is_refused_with_1_before_anything_is_posted() {
     let bench = bench();
     bench.organisation(&org(&bench.log.path, Some("stand-in")).replace("/start.sh", "/no-such-program"));
-    for role in ["build", "breakdown"] {
+    for role in ["build", "planner"] {
         let run = bench.start(true, &["start", role, "54"]);
         refused(&bench, &run, 1, &["no-such-program", "is not there"]);
         assert!(!text(&run.stderr).contains("bubblewrap"), "{}", text(&run.stderr));
@@ -480,7 +480,7 @@ fn test_WB_BUILD_122_a_runner_s_program_outside_what_the_sandbox_holds_is_refuse
     script(&program, "exit 0\n");
     let start = format!("{}/start.sh", bench.log.path.to_str().unwrap());
     bench.organisation(&org(&bench.log.path, Some("stand-in")).replace(&start, program.to_str().unwrap()));
-    for role in ["build", "breakdown"] {
+    for role in ["build", "planner"] {
         let run = bench.start(true, &["start", role, "54"]);
         refused(&bench, &run, 1, &[program.to_str().unwrap(), "outside what the sandbox holds"]);
     }
@@ -577,11 +577,11 @@ fn test_WB_BUILD_8_the_usage_names_the_commands_of_the_roles() {
     // The paragraph of `start` names the five roles, and no line of the usage is left with the old form.
     let paragraph = USAGE.split("\n  start ").nth(1).unwrap_or_else(|| panic!("{}", USAGE));
     let paragraph = paragraph.split("\n  revision ").next().unwrap();
-    for role in ["breakdown", "tester", "build", "review", "fix"] {
+    for role in ["planner", "tester", "build", "review", "fix"] {
         assert!(paragraph.contains(role), "{}", role);
     }
     assert!(!USAGE.contains("wb <role>"), "{}", USAGE);
-    for role in ["breakdown", "tester", "build", "review", "fix"] {
+    for role in ["planner", "tester", "build", "review", "fix"] {
         assert!(!USAGE.contains(&format!("wb {} ", role)), "{}", role);
     }
 }
@@ -654,10 +654,10 @@ fn test_WB_BUILD_11_the_review_takes_one_more_than_the_review_stamps_and_the_fix
 }
 
 #[test]
-fn test_WB_BUILD_11_the_tester_the_build_and_the_breakdown_take_one_more_than_their_own_stamps() {
+fn test_WB_BUILD_11_the_tester_the_build_and_the_planner_take_one_more_than_their_own_stamps() {
     let bench = bench();
-    bench.comments("issue", "54", &["[stamp] breakdown round 1", "[stamp] tester round 1", "[stamp] tester round 2", "[stamp] review round 1"]);
-    for (role, round) in [("tester", 3), ("build", 1), ("breakdown", 2)] {
+    bench.comments("issue", "54", &["[stamp] planner round 1", "[stamp] tester round 1", "[stamp] tester round 2", "[stamp] review round 1"]);
+    for (role, round) in [("tester", 3), ("build", 1), ("planner", 2)] {
         ok(&bench.start(true, &["start", role, "54"]));
         let posted = bench.posted("issue", "54").unwrap();
         assert!(posted.starts_with(&format!("[stamp] {} round {}\n", role, round)), "{}", posted);
@@ -863,8 +863,8 @@ fn test_WB_BUILD_20_with_no_issue_s_file_a_role_is_refused_unless_classed_is_emp
             let run = bench.start(true, words);
             refused(&bench, &run, 1, &["#65", "classed: []"]);
         }
-        // The breakdown changes only the issue's file, and is not refused on the class.
-        ok(&bench.start(true, &["start", "breakdown", "54"]));
+        // The planner changes only the issue's file, and is not refused on the class.
+        ok(&bench.start(true, &["start", "planner", "54"]));
         // `--prompt` is not refused on the class.
         ok(&bench.start(true, &["start", "build", "54", "--prompt"]));
         fs::remove_file(bench.at("calls")).unwrap();
@@ -1309,7 +1309,7 @@ fn test_WB_VIEW_90_with_no_state_folder_known_no_session_starts_and_both_are_sai
     let bench = bench();
     let run = start_in(&bench.repo.path, &bench.org, true, None, &["start", "build", "54"]);
     refused(&bench, &run, 1, &["no lines of this start are written", "a view is made below the state folder"]);
-    let run = start_in(&bench.repo.path, &bench.org, true, None, &["start", "breakdown", "54"]);
+    let run = start_in(&bench.repo.path, &bench.org, true, None, &["start", "planner", "54"]);
     refused(&bench, &run, 1, &["no lines of this start are written", "a view is made below the state folder"]);
 }
 
@@ -1353,8 +1353,8 @@ fn agree(posted: &str, role: &str, round: usize) {
 fn test_WB_BUILD_27_the_round_line_agrees_with_the_first_line_for_each_role_with_the_round_worked_out() {
     let bench = bench();
     bench.changes("issue-54", &["174"]);
-    bench.comments("issue", "54", &["[stamp] breakdown round 1", "[stamp] tester round 1", "[stamp] tester round 2", "[stamp] review round 1", "[stamp] review round 2"]);
-    for (role, round) in [("breakdown", 2), ("tester", 3), ("build", 1), ("review", 3), ("fix", 2)] {
+    bench.comments("issue", "54", &["[stamp] planner round 1", "[stamp] tester round 1", "[stamp] tester round 2", "[stamp] review round 1", "[stamp] review round 2"]);
+    for (role, round) in [("planner", 2), ("tester", 3), ("build", 1), ("review", 3), ("fix", 2)] {
         ok(&bench.start(true, &["start", role, "54"]));
         agree(&bench.posted("issue", "54").unwrap(), role, round);
     }
@@ -1629,7 +1629,7 @@ fn test_WB_BUILD_37_the_old_form_ends_with_2_and_says_the_new_form_with_the_same
     let bench = bench();
     for (words, form) in [
         (&["build", "54"][..], "use: wb start build 54"),
-        (&["breakdown", "54"], "use: wb start breakdown 54"),
+        (&["planner", "54"], "use: wb start planner 54"),
         (&["tester", "54", "--runner", "stand-in"], "use: wb start tester 54 --runner stand-in"),
         (&["review", "--change", "178"], "use: wb start review --change 178"),
         (&["build", "a b", "it's"], "use: wb start build 'a b' 'it'\\''s'"),
@@ -1651,14 +1651,14 @@ fn test_WB_BUILD_38_a_role_that_is_not_known_after_start_ends_with_2_and_names_t
     let bench = bench();
     for words in [&["start", "nothing", "54"][..], &["start"], &["start", "--prompt"], &["start", "prompt", "54"]] {
         let run = bench.start(true, words);
-        refused(&bench, &run, 2, &["breakdown", "tester", "build", "review", "fix"]);
+        refused(&bench, &run, 2, &["planner", "tester", "build", "review", "fix"]);
         let run = wb(&bench.repo.path, words, "");
         assert_eq!(code(&run), Some(2), "{:?}: {}", words, text(&run.stderr));
         // The first line is the message of `wb start`; the usage follows it.
         let err = text(&run.stderr);
         let first = err.lines().next().unwrap();
         assert!(first.starts_with("wb start: "), "{:?}: {}", words, err);
-        for role in ["breakdown", "tester", "build", "review", "fix"] {
+        for role in ["planner", "tester", "build", "review", "fix"] {
             assert!(first.contains(role), "{:?}: {}", words, err);
         }
         assert!(!bench.any_posted() && !bench.started(), "{:?}", bench.calls());

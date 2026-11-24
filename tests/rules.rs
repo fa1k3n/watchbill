@@ -11,9 +11,9 @@ use std::path::{Path, PathBuf};
 
 use watchbill::rules;
 
-const ROLES: [&str; 6] = ["breakdown", "tester", "build", "review", "fix", "officer"];
-const WITH_PROMPT: [&str; 5] = ["breakdown", "tester", "build", "review", "fix"];
-// The roles with a row for a vendor's runner in the model table: all with a prompt but the breakdown (#75).
+const ROLES: [&str; 6] = ["planner", "tester", "build", "review", "fix", "officer"];
+const WITH_PROMPT: [&str; 5] = ["planner", "tester", "build", "review", "fix"];
+// The roles with a row for a vendor's runner in the model table: all with a prompt but the planner (#75).
 const WITH_MODEL: [&str; 4] = ["tester", "build", "review", "fix"];
 
 fn root() -> PathBuf {
@@ -381,13 +381,13 @@ fn test_WB_RULE_7_the_first_table_names_no_queue() {
 }
 
 #[test]
-fn test_WB_RULE_40_the_model_table_has_a_row_for_the_roles_with_a_prompt_but_the_breakdown_only() {
+fn test_WB_RULE_40_the_model_table_has_a_row_for_the_roles_with_a_prompt_but_the_planner_only() {
     let table = first_revision();
     assert_eq!(sorted(table.models.keys().cloned().collect()), sorted_names(&WITH_MODEL));
     assert!(!table.models.contains_key("officer"));
-    assert!(!table.models.contains_key("breakdown"));
+    assert!(!table.models.contains_key("planner"));
     for (name, role) in &table.roles {
-        assert_eq!(table.models.contains_key(name), role.prompt != "none" && name != "breakdown", "{}", name);
+        assert_eq!(table.models.contains_key(name), role.prompt != "none" && name != "planner", "{}", name);
     }
 }
 
@@ -475,10 +475,10 @@ fn test_WB_RULE_6_a_role_that_may_merge_is_refused_and_names_the_role() {
 fn test_WB_RULE_6_an_officer_that_may_hold_another_role_is_refused() {
     let mut t = Tables::new();
     t.role("officer").set("may_not_also_hold", texts(&["tester"]));
-    for name in ["breakdown", "build", "review", "fix"] {
+    for name in ["planner", "build", "review", "fix"] {
         t.role(name).get("may_not_also_hold").list().retain(|other| !matches!(other, J::S(role) if role == "officer"));
     }
-    t.role("tester").set("may_not_also_hold", texts(&["breakdown", "build", "review", "fix", "officer"]));
+    t.role("tester").set("may_not_also_hold", texts(&["planner", "build", "review", "fix", "officer"]));
     assert!(t.refused().contains("officer"));
 }
 
@@ -938,7 +938,7 @@ fn test_WB_RULE_39_the_tables_read_hold_what_the_files_say() {
     assert_eq!(build.produces, "what build produces");
     assert_eq!(build.reads, vec!["a thing to read"]);
     assert_eq!(build.may, vec!["a thing to do"]);
-    assert_eq!(build.may_not_also_hold, vec!["breakdown", "tester", "review", "fix", "officer"]);
+    assert_eq!(build.may_not_also_hold, vec!["planner", "tester", "review", "fix", "officer"]);
     assert_eq!(build.prompt, "roles/build.md");
 }
 
@@ -1067,26 +1067,26 @@ fn test_WB_RULE_37_the_check_of_a_fix_after_the_last_round_goes_to_a_person() {
     assert!(person.contains(&"check_of_a_fix_after_last_round".to_string()), "{:?}", person);
 }
 
-// The breakdown and the place for the models of local runners (#75).
+// The planner and the place for the models of local runners (#75).
 
 #[test]
-fn test_WB_RULE_40_a_model_row_for_the_breakdown_is_refused() {
+fn test_WB_RULE_40_a_model_row_for_the_planner_is_refused() {
     let mut t = Tables::new();
-    t.models.get("models").set("breakdown", map(vec![("model", s("claude-sonnet-5-5")), ("effort", s("medium"))]));
+    t.models.get("models").set("planner", map(vec![("model", s("claude-sonnet-5-5")), ("effort", s("medium"))]));
     let message = t.refused();
-    assert!(message.contains("breakdown"), "{}", message);
+    assert!(message.contains("planner"), "{}", message);
     assert!(message.contains("models.yml"), "{}", message);
 }
 
 #[test]
-fn test_WB_RULE_42_the_breakdown_comes_before_the_tester() {
-    let step = &first_revision().roles["breakdown"].step;
-    assert!(step.contains("The breakdown comes before the tester."), "{}", step);
+fn test_WB_RULE_42_the_planner_comes_before_the_tester() {
+    let step = &first_revision().roles["planner"].step;
+    assert!(step.contains("The planner comes before the tester."), "{}", step);
 }
 
 #[test]
 fn test_WB_RULE_43_no_other_role_of_an_issue_is_started_until_its_file_is_accepted() {
-    let step = &first_revision().roles["breakdown"].step;
+    let step = &first_revision().roles["planner"].step;
     assert!(
         step.contains("No other role of the issue is started until a person has accepted the issue's file."),
         "{}",
@@ -1095,14 +1095,14 @@ fn test_WB_RULE_43_no_other_role_of_an_issue_is_started_until_its_file_is_accept
 }
 
 #[test]
-fn test_WB_RULE_44_the_breakdown_holds_no_other_role_and_no_other_role_holds_it() {
+fn test_WB_RULE_44_the_planner_holds_no_other_role_and_no_other_role_holds_it() {
     let table = first_revision();
-    let others: Vec<&str> = ROLES.iter().copied().filter(|name| *name != "breakdown").collect();
-    assert_eq!(sorted(table.roles["breakdown"].may_not_also_hold.clone()), sorted_names(&others));
+    let others: Vec<&str> = ROLES.iter().copied().filter(|name| *name != "planner").collect();
+    assert_eq!(sorted(table.roles["planner"].may_not_also_hold.clone()), sorted_names(&others));
     for name in others {
-        assert!(table.roles[name].may_not_also_hold.iter().any(|other| other == "breakdown"), "{}", name);
+        assert!(table.roles[name].may_not_also_hold.iter().any(|other| other == "planner"), "{}", name);
     }
-    assert_eq!(table.roles["breakdown"].prompt, "roles/breakdown.md");
+    assert_eq!(table.roles["planner"].prompt, "roles/planner.md");
 }
 
 #[test]
@@ -1121,7 +1121,7 @@ fn test_WB_RULE_45_the_model_table_has_an_empty_place_for_the_models_of_local_ru
 fn test_WB_RULE_46_a_model_table_with_something_under_local_models_is_refused() {
     let mut t = Tables::new();
     for bad in [
-        map(vec![("breakdown", map(vec![("model", s("granite-4")), ("effort", s("medium"))]))]),
+        map(vec![("planner", map(vec![("model", s("granite-4")), ("effort", s("medium"))]))]),
         texts(&["granite-4"]),
         s("granite-4"),
         J::Null,
@@ -1133,26 +1133,26 @@ fn test_WB_RULE_46_a_model_table_with_something_under_local_models_is_refused() 
     }
 }
 
-// The breakdown asks its questions on the issue (#95), in one comment for the session from revision 0.0.9 (#145).
+// The planner asks its questions on the issue (#95), in one comment for the session from revision 0.0.9 (#145).
 
 /// What a row of the rule table says each role may do about its questions (#145).
 const ASKS: &str = "Post its questions on the issue, in one comment per session.";
 
 #[test]
-fn test_WB_RULE_50_the_breakdown_may_post_its_questions_on_the_issue_in_one_comment_and_nothing_else() {
-    let row = &first_revision().roles["breakdown"];
+fn test_WB_RULE_50_the_planner_may_post_its_questions_on_the_issue_in_one_comment_and_nothing_else() {
+    let row = &first_revision().roles["planner"];
     assert!(row.may.contains(&ASKS.to_string()), "{:?}", row.may);
     let posts: Vec<&String> = row.may.iter().filter(|each| each.to_lowercase().contains("post")).collect();
     assert_eq!(posts.len(), 1, "{:?}", row.may);
     assert!(row.reads.contains(&"The issue with its comments, the answers of a person among them.".to_string()), "{:?}", row.reads);
 }
 
-// Work is pushed by the breakdown (#98). The tester, the build and the fix run in a view with no remote, and a
+// Work is pushed by the planner (#98). The tester, the build and the fix run in a view with no remote, and a
 // person pushes their commits (#145).
 
 #[test]
 fn test_WB_RULE_54_no_role_s_row_allows_a_push() {
-    // The breakdown runs in a view with no remote too (#202), and a person pushes.
+    // The planner runs in a view with no remote too (#202), and a person pushes.
     let revision = first_revision();
     for (name, row) in &revision.roles {
         assert!(!row.may.join(" ").to_lowercase().contains("push"), "{}: {:?}", name, row.may);

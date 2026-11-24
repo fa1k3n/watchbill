@@ -79,10 +79,10 @@ fn test_WB_CMD_27_a_refusal_of_each_command_starts_with_limit_after_the_command_
     // view: an issue with no file.
     refused_as(&wb(at, &["view", "999", "build"], ""), "wb view", "limit");
     // answer: no open question of that name.
-    put(at, ".tracker/174.bodies", &format!("{}\0", BREAKDOWN));
+    put(at, ".tracker/174.bodies", &format!("{}\0", PLANNER));
     refused_as(&wb(at, &["answer", "174", "q9", "1"], ""), "wb answer", "limit");
-    // revert: the breakdown is taken back by git.
-    refused_as(&wb(at, &["revert", "174", "breakdown"], ""), "wb revert", "limit");
+    // revert: the planner is taken back by git.
+    refused_as(&wb(at, &["revert", "174", "planner"], ""), "wb revert", "limit");
     // upgrade: the repository is pinned to a version newer than the installed one.
     let yml = read(&config(at)).replace(&format!("watchbill: {}", REVISION), "watchbill: 999.0.0");
     fs::write(config(at), yml).unwrap();
@@ -283,7 +283,7 @@ fn test_WB_CMD_34_each_entry_of_a_command_passes_its_status_through_refusal_ende
 
 // ---- WB-CMD-32: a command that posts checks every part before the first post ----
 
-const BREAKDOWN: &str = "[questions] 174 q1
+const PLANNER: &str = "[questions] 174 q1
 q1: Which name does the event use?
 <details>
 
@@ -314,8 +314,8 @@ changes the issue's file: no
 #[test]
 fn test_WB_CMD_32_wb_answer_with_one_answer_wrong_posts_none_and_says_it_as_a_limit() {
     let folder = set_up();
-    put(&folder.path, ".tracker/174.bodies", &format!("{}\0{}\0", BREAKDOWN, TESTER));
-    // The answer to the breakdown is right, and would be posted first; the tester's is no choice.
+    put(&folder.path, ".tracker/174.bodies", &format!("{}\0{}\0", PLANNER, TESTER));
+    // The answer to the planner is right, and would be posted first; the tester's is no choice.
     let run = wb(&folder.path, &["answer", "174", "q1", "1", "tester.q1", "9"], "");
     refused_as(&run, "wb answer", "limit");
     assert!(posted(&folder.path, "174").is_empty(), "{:?}", posted(&folder.path, "174"));

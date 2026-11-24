@@ -1,4 +1,4 @@
-//! No role after the breakdown until the issue's file and its acceptance are committed (#97), run as a
+//! No role after the planner until the issue's file and its acceptance are committed (#97), run as a
 //! person runs it, in a repository made for the test.
 
 // A test is named after the requirement it covers, and the ID has capitals.
@@ -172,20 +172,20 @@ fn test_WB_TASK_13_an_acceptance_changed_in_the_working_tree_after_its_commit_is
 }
 
 #[test]
-fn test_WB_TASK_13_the_breakdown_is_never_asked_for_an_acceptance() {
+fn test_WB_TASK_13_the_planner_is_never_asked_for_an_acceptance() {
     let folder = set_up();
-    // The breakdown is handed out only to a runner the organisation cleared for it (#93).
+    // The planner is handed out only to a runner the organisation cleared for it (#93).
     let (_place, organisation) = cleared(&folder.path);
-    let breakdown = |folder: &Path| {
-        let mut args = vec!["breakdown", "54"];
+    let planner = |folder: &Path| {
+        let mut args = vec!["planner", "54"];
         args.extend(REST);
         args.extend(["--runner", "claude-code"]);
         prompt_with(folder, &organisation, &args)
     };
-    let run = breakdown(&folder.path);
+    let run = planner(&folder.path);
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     put(&folder.path, YML, GOOD);
-    let run = breakdown(&folder.path);
+    let run = planner(&folder.path);
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
 }
 
@@ -299,4 +299,16 @@ fn test_WB_TASK_17_with_no_file_requirements_is_the_numbered_requirements_of_the
     let values = watchbill::prompt::derive(root, "build", &given).ok().expect("derive");
     assert_eq!(values.iter().filter(|(name, _)| *name == "requirements").count(), 1);
     assert!(values.contains(&("requirements", "R".to_string())));
+}
+
+#[test]
+fn test_WB_BUILD_38_wb_start_breakdown_is_not_a_role_and_ends_with_2() {
+    // The role was called breakdown until revision 0.12.0 (#290); there is no deprecation, so the old name is
+    // an unknown role, as any other.
+    let folder = set_up();
+    let run = wb(&folder.path, &["start", "breakdown", "54"], "");
+    assert_eq!(code(&run), Some(2), "{}", text(&run.stderr));
+    let said = text(&run.stderr);
+    assert!(said.contains("'breakdown' is not a role of the revision: planner"), "{}", said);
+    assert_eq!(text(&run.stdout), "");
 }

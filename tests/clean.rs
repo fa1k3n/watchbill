@@ -611,22 +611,13 @@ fn test_WB_VIEW_132_a_view_that_cannot_be_read_is_not_removed_named_or_not_and_w
     assert!(err_of(&run).contains("not read"), "{}", err_of(&run));
 }
 
-/// A process that is a `wb` to `wb` (`wb`, by the name of its program) and waits: a copy of the shell in a loop. The
-/// copy is written and closed first, and the spawn is tried again where another thread's fork still holds the file
-/// open for writing (`ETXTBSY`, "text file busy").
+/// A process that is a `wb` to `wb` (`wb`, by the name of its program) and waits: a copy of the shell in a loop, started by
+/// `stand_in`, which is safe from `ETXTBSY` ("text file busy").
 fn running_wb() -> (Folder, Child) {
     let place = folder_named("running");
     let program = place.path.join("wb");
-    fs::copy("/bin/sh", &program).unwrap();
-    fs::File::open(&program).unwrap().sync_all().unwrap();
-    for attempt in 0..100 {
-        match Command::new(&program).args(["-c", "while :; do sleep 1; done"]).stdin(Stdio::null()).spawn() {
-            Ok(child) => return (place, child),
-            Err(error) if error.raw_os_error() == Some(26) && attempt < 99 => std::thread::sleep(std::time::Duration::from_millis(50)),
-            Err(error) => panic!("the stand-in could not be started: {}", error),
-        }
-    }
-    unreachable!()
+    let child = stand_in("/bin/sh", &program, &["-c", "while :; do sleep 1; done"]);
+    (place, child)
 }
 
 #[test]

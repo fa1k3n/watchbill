@@ -1165,8 +1165,7 @@ fn test_WB_STATUS_81_a_round_with_no_record_on_this_machine_counts_by_its_stamp(
     assert_eq!(out, "Built:\n  3  issue-3-work\n");
     // A session that still runs: its process is one that is read as `wb` (a copy of `sleep` named `wb`).
     let program = state.path.join("wb");
-    fs::copy("/usr/bin/sleep", &program).unwrap();
-    let mut running = Command::new(&program).arg("60").spawn().expect("the stand-in for wb could not be started");
+    let mut running = stand_in("/usr/bin/sleep", &program, &["60"]);
     fs::write(state.path.join("watchbill/sessions/2026-11-24T100100Z-build-3/outcome"), format!("outcome: running\npid: {}\n", running.id())).unwrap();
     fs::write(state.path.join("watchbill/sessions/2026-11-24T100100Z-build-3/back"), NOTHING).unwrap();
     let (out, _) = status_in(&folder.path, &state.path, &[]);

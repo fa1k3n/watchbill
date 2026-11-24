@@ -310,3 +310,19 @@ pub fn commit_path(folder: &Path, path: &str) {
     git(folder, &["add", "-A", "--", path]);
     git(folder, &["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "The project's text"]);
 }
+
+/// A stand-in for a running `wb`: the program at `source` copied to `program`, written, closed and synced, then
+/// started with `args` and no input. Where another thread of the test has forked while the file was open for
+/// writing, the start fails with `ETXTBSY` ("text file busy"); it is tried again, a short wait between.
+pub fn stand_in(source: &str, program: &Path, args: &[&str]) -> std::process::Child {
+    fs::copy(source, program).expect("the stand-in could not be copied");
+    fs::File::open(program).expect("the stand-in could not be opened").sync_all().expect("the stand-in could not be synced");
+    for attempt in 0..100 {
+        match Command::new(program).args(args).stdin(Stdio::null()).spawn() {
+            Ok(child) => return child,
+            Err(error) if error.raw_os_error() == Some(26) && attempt < 99 => std::thread::sleep(std::time::Duration::from_millis(50)),
+            Err(error) => panic!("the stand-in for wb could not be started: {}", error),
+        }
+    }
+    unreachable!()
+}

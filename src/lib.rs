@@ -156,9 +156,10 @@ pub const USAGE: &str = "usage:
             refused while a branch of any of its names holds work the default
             branch does not, or this machine keeps a view of it with work not
             taken back. A name with / has no issue's file until point 15, and
-            show, edit and remove of a name that is no plan are refused. Ends
-            with 0 when it is done or nothing changes, 1 when it is refused, 2
-            when it was used wrongly or the repository is not set up
+            show, edit and remove of a name that is no plan are refused.
+            Ends with 0 when it is done or nothing changes, 1 when it is
+            refused, 2 when it was used wrongly or the repository is not set
+            up
   prompt    print the prompt of a role on standard output and nothing else: the
             role's text of the pinned revision with each placeholder filled
             from the option of its name, such as --issue for {issue}, then the

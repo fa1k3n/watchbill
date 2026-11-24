@@ -279,6 +279,11 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
                     found.push(about_config(&why));
                     settings += 1;
                 }
+                // The limits of a session (#267): lower than the rule table's, never higher.
+                if let Some(why) = crate::watchdog::fault(&document) {
+                    found.push(about_config(&why));
+                    settings += 1;
+                }
                 let installed = manifest::revision_hash(package);
                 match (&pinned_version, &line, &installed) {
                     (_, _, Err(why)) => found.push(format!("the installed wb cannot read its revision: {}", why)),

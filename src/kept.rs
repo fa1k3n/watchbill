@@ -597,6 +597,57 @@ pub fn cut_off(state: &Path, issue: &str) -> Vec<CutOff> {
     found
 }
 
+/// A session of an issue that runs, with its `wb` alive (#267).
+pub struct Running {
+    pub role: String,
+    pub round: String,
+    /// How long it has run, in seconds, from the line `since:` of its `outcome`, where it has one.
+    pub ran: Option<u64>,
+    /// How long since its view last changed, in seconds, or why it was not read; none where `ran` is none.
+    pub quiet: Option<Result<u64, String>>,
+}
+
+/// The sessions of `issue` that run, oldest first: at most the newest `MOST_CUT_OFF`. The view of each is read for when
+/// it last changed (`view::last_change`), with the paths its lines name in `view`, within the bounds of a read of a
+/// view; nothing is written.
+pub fn running(root: &str, state: &Path, issue: &str) -> Vec<Running> {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|since| since.as_secs()).unwrap_or(0);
+    let mut found: Vec<Running> = sessions(state, Some(issue))
+        .iter()
+        .filter(|session| session.running() == Some(true))
+        .take(MOST_CUT_OFF)
+        .map(|session| {
+            let outcome = small(&session.folder.join("outcome")).unwrap_or_default();
+            let since = value(&outcome, "since").and_then(|since| since.parse::<u64>().ok());
+            let quiet = since.map(|since| match &session.place {
+                None => Err("its session left no file `folder`".to_string()),
+                Some(place) => {
+                    let paths: Vec<String> = small(&session.folder.join("view")).unwrap_or_default().lines().map(str::to_string).collect();
+                    view::last_change(root, &place.view, &paths).map(|newest| now.saturating_sub(newest.map_or(since, |newest| newest.max(since))))
+                }
+            });
+            Running { role: session.role.clone(), round: session.round(), ran: since.map(|since| now.saturating_sub(since)), quiet }
+        })
+        .collect();
+    found.reverse();
+    found
+}
+
+impl Running {
+    /// The line of `wb status <issue>`: `running: <role> round <n>, <run time>, quiet <quiet time>`.
+    pub fn line(&self) -> String {
+        let mut line = format!("running: {} round {}", crate::issue::shown(&self.role), self.round);
+        if let Some(ran) = self.ran {
+            line.push_str(&format!(", {}", crate::watchdog::shown(ran)));
+            match &self.quiet {
+                Some(Ok(quiet)) => line.push_str(&format!(", quiet {}", crate::watchdog::shown(*quiet))),
+                Some(Err(_)) | None => line.push_str(", quiet not read"),
+            }
+        }
+        line
+    }
+}
+
 impl Kept {
     /// How many commits were not taken.
     pub fn count(&self) -> usize {

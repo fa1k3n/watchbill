@@ -580,15 +580,36 @@ Each start of `wb start <role>`, started or refused, leaves a few plain lines on
   message: …
   ```
 
-  `check` is the one that refused: `prompt`, `rule`, `class`, `start`, `terminal`, `ci`, `kept`, `branch`, `local` or `view`. `message` is the first line of what was said. `not posted` is a stamp that was not posted, and no session was started. `ended` gives the session's own status (or `signal:`, with `SIGHUP`, `SIGINT`, `SIGQUIT`, `SIGKILL` or `SIGTERM` by name and any other by its number, when a signal ended it) and the seconds it ran. `outcome` is written first, before the session starts, as `outcome: running`, `pid: <process ID of wb>` and `started: <its start time in clock ticks>`, and the lines above replace it when the start ends. A `wb` that is ended before its session leaves `running`: a folder whose `outcome` says `running`, and whose `pid` is gone, is not `wb`, or started at another time, was `cut off`, and `wb status <issue>` says so.
+  `check` is the one that refused: `prompt`, `rule`, `class`, `start`, `terminal`, `ci`, `kept`, `branch`, `local` or `view`. `message` is the first line of what was said. `not posted` is a stamp that was not posted, and no session was started. `ended` gives the session's own status (or `signal:`, with `SIGHUP`, `SIGINT`, `SIGQUIT`, `SIGKILL` or `SIGTERM` by name and any other by its number, when a signal ended it) and the seconds it ran, and last `limit: max_minutes` for a session that `wb` ended at its limit ([A session that runs long](#a-session-that-runs-long)). `outcome` is written first, before the session starts, as `outcome: running`, `pid: <process ID of wb>`, `started: <its start time in clock ticks>` and `since: <the time, in seconds since 1970>` (#267), and the lines above replace it when the start ends. A `wb` that is ended before its session leaves `running`: a folder whose `outcome` says `running`, and whose `pid` is gone, is not `wb`, or started at another time, was `cut off`, and `wb status <issue>` says so.
 - **`ci`,** for a review: `ci: green`, `ci: red` or `ci: pending`, the word `change_checks` printed; `ci: not read` where there is no `change_checks`, and `ci: unread` where it printed something else or failed. It is kept whether or not the review started, so that a count of views that were green and CIs that were not can be made.
 - **`local`,** for a start that `--ignore-local` let go on: the paths of the local changes it ignored, one to a line, escaped. A start with none has no such file.
 - **`folder`,** for a session in a view, written before it starts: `folder:` the view's folder, `base:` the commit it was made with, `head:` the commit of the checkout it was made from, `branch:` and `issue:`. A `wb` that was ended leaves no `back`, and the view is found by this file.
 - **`view` and `back`,** for a session in a view: the list of its paths, one to a line, whose SHA-256 is the stamp's `view:`; and what came back, a line each: `taken: <commit on the branch> <subject>`, `took: <commit of the view> <commit on the branch>` after each (#277), so that a commit taken is not named again as not taken; `took:` is not checked against the branch: where the branch is reset after a take-back, the commits it took are still not named and not taken again, so take them from the view by hand (`git -C <view> log` names them, and `git cherry-pick` takes one), `refused: <commit of the view> <subject>: <why>`, `not taken: …`, `uncommitted: <path>`, `failed: <why>`, and last `view: removed` or `view: kept <folder>`. A path is written escaped, so each is one line.
+- **`quiet`,** for a session that was quiet (#267): a line `quiet: <minutes>` each time `wb` said so.
 - **`push`,** after a session of the tester, the build or the fix of an issue (#151): `pushed: <commit>`, or `not pushed: <why>`; after a build that was pushed, `change: <number>`, or `change: not opened: <why>`.
 - **Not in the way:** a folder that cannot be written is said on standard error. It changes neither the status nor whether the session starts.
 - **What writes none:** `--prompt`, `--stamp` and `--parts`, and `wb prompt` and `wb check`. Nor does a command used wrongly (status 2 before the checks begin): no start was tried.
 - **What they are:** diagnostics on one machine, not a record ([Not goals](#not-goals)). Only `wb start` and `wb status` read them back, to name a view kept with work not taken back and a session cut off; nothing else is decided by them, and nothing in them leaves the machine. They are plain files, so the team's own tools or a recorder can collect them, and a person removes them when they are no longer wanted.
+
+### A session that runs long
+
+The `wb` that waits for a session is its watchdog (#267). There is no other command and no daemon.
+
+- **The limits:** each role's row of the rule table gives `quiet_minutes: 30` and `max_minutes: 240`, the planner's too. They are part of the revision. `watchbill.yml` may set them lower for a role, never higher:
+
+  ```yaml
+  session_limits:
+    build:
+      quiet_minutes: 15
+      max_minutes: 120
+  ```
+
+  A value higher than the table's, a role or a key that is not known, or a value that is not a whole number of at least 1, is refused by `wb check` with 1 and by `wb start` with 1 (`limit:`) before anything is posted, naming the key.
+- **Quiet:** while the session runs, `wb` looks at its view every 10 seconds: the commit its `HEAD` names, read from its files, and the time and the number of the entries under the paths of its list, by their metadata alone. No file of the view is opened and no link is followed, so a FIFO or a link to `/dev/zero` there does not make `wb` wait. The quiet is counted by `wb`'s own clock from the start, or from the last look that found anything changed: a time a session writes on a file or a commit is one change, never when it worked. A session can touch its files to look busy, so this is a hint. Past `quiet_minutes` `wb` says `wb start <role>: quiet: nothing has changed in the view for <n> minutes` on standard error, and writes `quiet: <n>` in the file `quiet` of the lines; again each time the quiet doubles. The session goes on.
+- **Past `max_minutes`:** `wb` says the limit (`limit:`) and ends the session as a termination of `wb` does (#221): the termination is sent on to it, and after 10 seconds it and bubblewrap are killed. Its commits are taken back, `outcome` says `limit: max_minutes`, nothing is pushed or posted as after a session that ended well, and `wb` ends with 1.
+- **`wb status <issue>`** shows a session that runs, its `wb` alive: `running: build round 2, 7h12m, quiet 6h50m`, how long since `since:` of its `outcome`, and how long since its view last changed. That is read from the newer of the time of the commit its `HEAD` names, where it is not the commit the view was made with, and the newest time of the entries under the paths of its `view`, each git run on the view within 3 seconds, as a kept view is read; `quiet not read` where it could not be. A time is `12m` under an hour, else `7h05m`. A session whose `outcome` has no `since:` is shown as `running: build round 2`.
+- **A session started by hand** has no `wb` waiting for it: nothing ends it, and `wb status` shows only what its lines say.
+- **The tests** set the length of a minute by `WB_TEST_MINUTE` and the grace by `WB_TEST_GRACE`, in seconds; only a build with debug assertions reads them, which the RPM's build does not.
 
 ### The patterns
 

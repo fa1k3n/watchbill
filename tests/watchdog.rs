@@ -163,19 +163,6 @@ impl Bench {
         let mut out = Vec::new();
         watchbill::start_on(&args, &self.repo.path, &machine, &mut out, err)
     }
-
-    fn git_text(&self, args: &[&str]) -> String {
-        let run = Command::new("git").arg("-C").arg(&self.repo.path).args(args).env_clear().envs(env()).output().unwrap();
-        text(&run.stdout)
-    }
-
-    /// The folders of the lines of the starts.
-    fn sessions(&self) -> Vec<PathBuf> {
-        let Ok(found) = fs::read_dir(self.state.path.join("watchbill").join("sessions")) else { return Vec::new() };
-        let mut found: Vec<PathBuf> = found.map(|entry| entry.unwrap().path()).collect();
-        found.sort();
-        found
-    }
 }
 
 /// A `bwrap` that makes no sandbox: it answers the probe, and else runs the words in the view.
@@ -242,7 +229,7 @@ impl Watched {
     }
 
     fn quiet_lines(&self) -> Vec<&str> {
-        self.said.lines().filter(|line| line.starts_with("wb start: quiet: ")).collect()
+        self.said.lines().filter(|line| line.starts_with("wb start build: quiet: ")).collect()
     }
 }
 
@@ -480,7 +467,7 @@ fn test_WB_BUILD_155_past_max_minutes_the_session_is_ended_its_commit_taken_back
     assert!(found.outcome.lines().any(|line| line == "limit: max_minutes"), "{}", found.outcome);
     assert!(found.back.lines().any(|line| line.starts_with("taken: ") && line.contains("A new file")), "{}", found.back);
     assert_eq!(found.subjects.lines().next(), Some("A new file"), "{}", found.subjects);
-    assert!(found.said.lines().any(|line| line.starts_with("wb start: limit: ") && line.contains("max_minutes")), "{}", found.said);
+    assert!(found.said.lines().any(|line| line.starts_with("wb start build: limit: ") && line.contains("max_minutes")), "{}", found.said);
 }
 
 #[test]
@@ -517,7 +504,7 @@ fn test_WB_BUILD_156_a_session_that_commits_now_and_then_is_not_called_quiet() {
 fn test_WB_BUILD_157_a_fifo_or_a_link_to_dev_zero_in_the_view_does_not_make_the_quiet_check_wait() {
     // The files of the view are looked at by their metadata alone: none is opened, and no link is followed. Its HEAD
     // is a FIFO too, which no read of `wb` opens.
-    let session = "rm -f src/new.c && mkfifo src/new.c\nrm -f tests/test_brake.c && ln -s /dev/zero tests/test_brake.c\nmkdir -p src/deep && ln -s /dev/zero src/deep/zero\nrm -f .git/HEAD && mkfifo .git/HEAD\necho $$ > {log}/pid\nsleep 3\n";
+    let session = "rm -f src/new.c && mkfifo src/new.c\nrm -f tests/test_brake.c && ln -s /dev/zero tests/test_brake.c\nmkdir -p src/deep && ln -s /dev/zero src/deep/zero\nrm -f .git/HEAD && mkfifo .git/HEAD\necho $$ > {log}/pid\nsleep 5\n";
     let found = watched(session, &limits(1, 30), &[], 60);
     assert_ne!(found.status, -2, "wb did not end: {}", found.said);
     assert!(found.took < std::time::Duration::from_secs(30), "{:?}", found.took);
@@ -542,7 +529,7 @@ fn test_WB_BUILD_158_a_build_without_debug_assertions_ignores_the_test_minute() 
 fn test_WB_BUILD_159_a_time_the_session_writes_on_a_file_or_a_commit_does_not_hold_it_busy() {
     // The quiet is counted by `wb`'s own clock from the last look that found the view changed: a file or a commit
     // dated an hour ahead is one change, not an hour of work.
-    let session = "touch -d '+1 hour' src/brake.c\necho 'int fresh;' > src/new.c && git add src/new.c && GIT_COMMITTER_DATE=\"$(date -d '+1 hour' -R)\" git commit -q -m 'Ahead'\ntouch -d '+1 hour' src/new.c\necho $$ > {log}/pid\nsleep 3.5\n";
+    let session = "touch -d '+1 hour' src/brake.c\necho 'int fresh;' > src/new.c && git add src/new.c && GIT_COMMITTER_DATE=\"$(date -d '+1 hour' -R)\" git commit -q -m 'Ahead'\ntouch -d '+1 hour' src/new.c\necho $$ > {log}/pid\nsleep 6\n";
     let found = watched(session, &limits(1, 30), &[], 60);
     assert_eq!(found.status, 0, "{}", found.said);
     assert!(found.quiet.starts_with("quiet: 1\nquiet: 2\n"), "{}\n{}", found.quiet, found.said);

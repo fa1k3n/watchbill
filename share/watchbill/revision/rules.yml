@@ -35,7 +35,10 @@ officer_queues: []
 added_requirement_goes_to: [tester, build]
 
 # For each role: the step and what it produces, what it may read, what it may do,
-# the roles the same team member may not also hold on one change, and the prompt file.
+# the roles the same team member may not also hold on one change, the prompt file, and the
+# limits of a session in minutes: past quiet_minutes with nothing changed in its view the
+# program says so, and past max_minutes it ends the session. watchbill.yml may set them lower
+# for a role, never higher.
 roles:
   planner:
     step: Read the issue and the code, and write the issue's file. The planner comes before the tester. No other role of the issue is started until a person has accepted the issue's file.
@@ -51,6 +54,8 @@ roles:
       - Post its questions on the issue, in one comment per session.
     may_not_also_hold: [tester, build, review, fix, officer]
     prompt: roles/planner.md
+    quiet_minutes: 30
+    max_minutes: 240
 
   tester:
     step: Write the tests from the requirement, before the code exists.
@@ -66,6 +71,8 @@ roles:
       - Post its questions on the issue, in one comment per session.
     may_not_also_hold: [planner, build, review, fix, officer]
     prompt: roles/tester.md
+    quiet_minutes: 30
+    max_minutes: 240
 
   build:
     step: Make the tester's tests pass.
@@ -82,6 +89,8 @@ roles:
       - Post its questions on the issue, in one comment per session.
     may_not_also_hold: [planner, tester, review, fix, officer]
     prompt: roles/build.md
+    quiet_minutes: 30
+    max_minutes: 240
 
   review:
     step: Judge the change clause by clause, from outside, and report.
@@ -99,6 +108,8 @@ roles:
       - Post its questions on the issue, in one comment per session.
     may_not_also_hold: [planner, tester, build, fix, officer]
     prompt: roles/review.md
+    quiet_minutes: 30
+    max_minutes: 240
 
   fix:
     step: Answer each must finding with a fix or a reason.
@@ -114,6 +125,8 @@ roles:
       - Post its questions on the issue, in one comment per session.
     may_not_also_hold: [planner, tester, build, review, officer]
     prompt: roles/fix.md
+    quiet_minutes: 30
+    max_minutes: 240
 
   officer:
     step: Hand issues on, and judge what takes judgement before and between the pieces.
@@ -126,3 +139,5 @@ roles:
       - Assign an issue through its own account, once the program has checked the handover.
     may_not_also_hold: [planner, tester, build, review, fix]
     prompt: none
+    quiet_minutes: 30
+    max_minutes: 240

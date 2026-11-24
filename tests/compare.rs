@@ -201,16 +201,7 @@ fn test_WB_REV_29_a_version_or_a_hash_that_is_not_held_ends_with_2_and_prints_no
 }
 
 #[test]
-fn test_WB_REV_29_a_repository_whose_files_are_not_its_pinned_revision_ends_with_2() {
-    // A file changed after the pin.
-    let repo = pinned_with(|_| {});
-    let rules = repo.path.join(".watchbill/revision/rules.yml");
-    fs::write(&rules, format!("{}# more\n", read(&rules))).unwrap();
-    let run = from(&repo.path, REVISION, PINNED);
-    assert_eq!(code(&run), Some(2), "{}", text(&run.stderr));
-    assert_eq!(text(&run.stdout), "");
-    assert!(text(&run.stderr).contains("wb compare: "), "{}", text(&run.stderr));
-
+fn test_WB_REV_29_a_repository_that_is_not_set_up_ends_with_2() {
     // No `.watchbill/` at all.
     let empty = folder_named("empty");
     let run = from(&empty.path, REVISION, PINNED);
@@ -225,6 +216,25 @@ fn test_WB_REV_29_a_repository_whose_files_are_not_its_pinned_revision_ends_with
     assert_eq!(code(&run), Some(2));
     assert_eq!(text(&run.stdout), "");
     assert!(text(&run.stderr).contains("revision"), "{}", text(&run.stderr));
+}
+
+/// A refusal of what is read ends with 1, says `limit:` after the name of the command and prints nothing.
+fn assert_limit(run: &Output, named: &str) {
+    assert_eq!(code(run), Some(1), "{}", text(&run.stderr));
+    assert_eq!(text(&run.stdout), "");
+    let said = text(&run.stderr);
+    assert!(said.starts_with("wb compare: limit: "), "{}", said);
+    assert!(said.contains(named), "{}", said);
+}
+
+#[test]
+fn test_WB_REV_29_files_that_are_not_the_revision_the_repository_names_are_refused_with_1() {
+    // A file changed after the pin.
+    let repo = pinned_with(|_| {});
+    let rules = repo.path.join(".watchbill/revision/rules.yml");
+    fs::write(&rules, format!("{}# more\n", read(&rules))).unwrap();
+    let run = from(&repo.path, REVISION, PINNED);
+    assert_limit(&run, "revision");
 }
 
 #[test]
@@ -257,29 +267,44 @@ fn test_WB_REV_30_a_revision_named_by_version_or_by_hash_gives_the_same_output()
 }
 
 #[test]
-fn test_WB_REV_31_a_link_or_a_file_not_in_the_fixed_form_in_the_pinned_revision_is_refused_by_name() {
+fn test_WB_REV_31_a_link_a_hidden_file_or_a_file_not_in_the_fixed_form_in_the_pinned_revision_is_refused_by_name_with_1() {
     let repo = pinned_with(|_| {});
     let watch = repo.path.join(".watchbill/revision");
     symlink("rules.yml", watch.join("roles/link.md")).unwrap();
-    let run = from(&repo.path, REVISION, PINNED);
-    assert_eq!(code(&run), Some(2), "{}", text(&run.stderr));
-    assert_eq!(text(&run.stdout), "");
-    assert!(text(&run.stderr).contains("roles/link.md"), "{}", text(&run.stderr));
+    assert_limit(&from(&repo.path, REVISION, PINNED), "roles/link.md");
 
     let repo = pinned_with(|_| {});
     fs::write(repo.path.join(".watchbill/revision/roles/crlf.md"), "a\r\nb\r\n").unwrap();
-    let run = from(&repo.path, REVISION, PINNED);
-    assert_eq!(code(&run), Some(2), "{}", text(&run.stderr));
-    assert_eq!(text(&run.stdout), "");
-    assert!(text(&run.stderr).contains("roles/crlf.md"), "{}", text(&run.stderr));
+    assert_limit(&from(&repo.path, REVISION, PINNED), "roles/crlf.md");
+
+    let repo = pinned_with(|_| {});
+    fs::write(repo.path.join(".watchbill/revision/roles/.hidden.md"), "Hidden.\n").unwrap();
+    assert_limit(&from(&repo.path, REVISION, PINNED), "roles/.hidden.md");
 
     // `.watchbill` itself as a link is never followed.
     let real = pinned_with(|_| {});
     let outer = folder_named("outer");
     symlink(real.path.join(".watchbill"), outer.path.join(".watchbill")).unwrap();
-    let run = from(&outer.path, REVISION, PINNED);
-    assert_eq!(code(&run), Some(2), "{}", text(&run.stderr));
-    assert_eq!(text(&run.stdout), "");
+    assert_limit(&from(&outer.path, REVISION, PINNED), "symbolic link");
+}
+
+#[test]
+fn test_WB_REV_32_a_file_with_a_nul_byte_is_diffed_as_text_and_a_file_without_a_hunk_is_refused() {
+    let repo = pinned_with(|watch| {
+        let file = watch.join("revision/roles/build.md");
+        fs::write(&file, format!("{}\0 after a nul byte\n", read(&file))).unwrap();
+    });
+    let run = from(&repo.path, REVISION, PINNED);
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    let out = String::from_utf8_lossy(&run.stdout).to_string();
+    assert!(out.starts_with("changed: revision/roles/build.md\n\n--- a/revision/roles/build.md\n+++ b/revision/roles/build.md\n@@ "), "{}", out);
+    assert!(out.contains("+\0 after a nul byte\n"), "{}", out);
+    assert!(!out.contains("Binary"), "{}", out);
+
+    // The system attributes file of git cannot be given from a test: the source turns it off, and asks git for text.
+    let source = fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/compare.rs")).unwrap();
+    assert!(source.contains("\"GIT_ATTR_NOSYSTEM\""), "the system attributes of git are read");
+    assert!(source.contains("\"--text\""), "git is not asked for text");
 }
 
 #[test]

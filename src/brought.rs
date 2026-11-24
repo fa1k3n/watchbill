@@ -70,15 +70,16 @@ fn asked_or_answered_by(on: &str, prefix: &str, first: &str) -> bool {
     }
 }
 
-/// Writes a new file of the view, never over a file that is there: a link in its place is not followed (`O_EXCL`).
-fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
+/// Writes a new file in `place`, the view or the folder of what `wb` brings in, never over a file that is there: a
+/// link in its place is not followed (`O_EXCL`).
+fn write_new(path: &Path, bytes: &[u8], place: &str) -> Result<(), String> {
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
         .open(path)
-        .map_err(|error| format!("{} could not be written in the view: {}", path.display(), error))?;
-    file.write_all(bytes).map_err(|error| format!("{} could not be written in the view: {}", path.display(), error))
+        .map_err(|error| format!("{} could not be written in {}: {}", path.display(), place, error))?;
+    file.write_all(bytes).map_err(|error| format!("{} could not be written in {}: {}", path.display(), place, error))
 }
 
 /// Reads the issue's text of `issue` by `issue_text` and its comments by `issue_comment_bodies`, as the person, in the root
@@ -112,8 +113,8 @@ pub fn bring_in(root: &str, issue: &str, view: &Path) -> Result<Brought, String>
     }
     fs::DirBuilder::new().mode(0o700).create(&folder).map_err(|error| format!("{} could not be made in the view: {}", FOLDER, error))?;
     // The issue's text as `issue_text` printed it, byte for byte.
-    write_new(&folder.join(format!("{}.md", issue)), &text)?;
-    write_new(&folder.join(format!("{}.questions", issue)), questions.as_bytes())?;
+    write_new(&folder.join(format!("{}.md", issue)), &text, "the view")?;
+    write_new(&folder.join(format!("{}.questions", issue)), questions.as_bytes(), "the view")?;
     let hash = Sha256::digest(&text).iter().map(|byte| format!("{:02x}", byte)).collect();
     Ok(Brought { hash })
 }
@@ -322,6 +323,9 @@ fn kept_of(bodies: &[String], keep: &dyn Fn(&str) -> bool) -> String {
 
 /// The diff of `branch` against its merge base with the default branch, limited to `paths` where they are given,
 /// through the cap of a text file. Run with git at the root of the checkout, as the person; nothing of the network.
+/// Its first line is `wb`'s own: the ref and the commit the diff ends at, and its base, so that a branch this checkout
+/// holds behind the server's can be seen. An empty list of paths gives that line alone: git is not asked for a diff,
+/// as `git diff` with no path after `--` is the diff of every path.
 fn diff_of(root: &str, branch: Option<&str>, paths: Option<&[String]>) -> Result<Vec<u8>, String> {
     let Some(branch) = branch else {
         return Err("the branch of the change is not known, and wb brings in its diff".to_string());
@@ -336,12 +340,21 @@ fn diff_of(root: &str, branch: Option<&str>, paths: Option<&[String]>) -> Result
         .ok_or_else(|| format!("the branch {} is not there, and wb brings in the diff of the change", branch))?;
     let base = git(&["merge-base", &default, &tip]).ok_or_else(|| format!("the branch {} has no merge base with {}, and wb brings in the diff of the change", branch, default))?;
     let base = String::from_utf8_lossy(&base).trim().to_string();
-    let mut args: Vec<String> = ["--no-replace-objects", "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames", &base, &tip].iter().map(|word| word.to_string()).collect();
+    let at = git(&["rev-parse", "--verify", "--quiet", &format!("{}^{{commit}}", tip)]).ok_or_else(|| format!("the branch {} is not there, and wb brings in the diff of the change", branch))?;
+    let at = String::from_utf8_lossy(&at).trim().to_string();
+    let mut bytes = format!("wb: the diff of {} at {} against {}, its merge base with {}, as this checkout holds them; nothing is fetched\n", tip, at, base, default).into_bytes();
+    if paths.is_some_and(|paths| paths.is_empty()) {
+        return Ok(bytes);
+    }
+    let mut args: Vec<String> =
+        ["--no-replace-objects", "diff", "--no-ext-diff", "--no-textconv", "--submodule=short", "--no-color", "--no-renames", &base, &at].iter().map(|word| word.to_string()).collect();
     if let Some(paths) = paths {
         args.push("--".to_string());
         args.extend(paths.iter().map(|path| format!(":(literal){}", path)));
     }
-    git_capped(root, &args, bounded::TEXT_CAP, "the diff of the change")
+    let cap = bounded::TEXT_CAP.saturating_sub(bytes.len() as u64);
+    bytes.extend(git_capped(root, &args, cap, "the diff of the change")?);
+    Ok(bytes)
 }
 
 /// What git prints for `args` at `root`, with no `GIT_*` of this process, through `cap`. The error names `what`.
@@ -415,7 +428,7 @@ pub fn bring_in_for(root: &str, session: &Session, out: &Path) -> Result<(), Str
     let folder = out.join(crate::view::BROUGHT_FOLDER);
     fs::DirBuilder::new().mode(0o700).create(&folder).map_err(|error| format!("the folder {} could not be made: {}", folder.display(), error))?;
     for (name, bytes) in files {
-        write_new(&folder.join(name), &bytes)?;
+        write_new(&folder.join(name), &bytes, "the folder of what wb brings in")?;
     }
     Ok(())
 }
@@ -461,8 +474,9 @@ pub struct Ended<'a> {
     pub round: Option<&'a str>,
     /// Whether the session ended with 0.
     pub ended_well: bool,
-    /// Whether the branch was pushed after it.
-    pub pushed: bool,
+    /// Why the fix's answers are held back, or none: only where a commit of the session came back and was not pushed,
+    /// as the answers would name commits the change does not hold.
+    pub held: Option<String>,
 }
 
 /// Posts what a session wrote for `wb` (#153), each after it is said: the new questions of `{questions}` for the
@@ -500,7 +514,7 @@ pub fn post_written(ended: &Ended, written: Written, err: &mut dyn Write) -> i32
     }
     match written.needs_person {
         Ok(None) => {}
-        Ok(Some(text)) if text.trim() == "none" => {}
+        Ok(Some(text)) if says_none(&text) => {}
         Ok(Some(text)) => {
             if let Err(why) = post_needs_person(ended, &text, err) {
                 limit(err, format!("what {} holds is not posted: {}", crate::view::NEEDS_PERSON, why));
@@ -509,6 +523,14 @@ pub fn post_written(ended: &Ended, written: Written, err: &mut dyn Write) -> i32
         Err(why) => limit(err, format!("needs_person is not posted: {}", why)),
     }
     code
+}
+
+/// Whether `text` says there is nothing for a person: `none` in any case, trimmed of white space, backticks and a final
+/// full stop.
+fn says_none(text: &str) -> bool {
+    let trimmed = |text: &str| text.trim_matches(|c: char| c.is_whitespace() || c == '`').to_string();
+    let text = trimmed(text);
+    trimmed(text.strip_suffix('.').unwrap_or(&text)).eq_ignore_ascii_case("none")
 }
 
 /// `text` with a line break at its end.
@@ -575,8 +597,8 @@ fn post_change_comment(ended: &Ended, text: &str, err: &mut dyn Write) -> Result
     if !ended.ended_well {
         return Err(Held::Back("the session did not end with 0".to_string()));
     }
-    if role == "fix" && !ended.pushed {
-        return Err(Held::Back("the fix's branch was not pushed, so its answers would name commits the change does not hold".to_string()));
+    if let (true, Some(why)) = (role == "fix", &ended.held) {
+        return Err(Held::Back(why.clone()));
     }
     let Some(change) = ended.session.change else {
         return Err(Held::Back("the change is not known".to_string()));

@@ -1709,7 +1709,7 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
             session: session_of(),
             round: value_of(&handed.values, "round"),
             ended_well: status.success(),
-            pushed: pushed.lines.as_deref().is_some_and(|text| text.starts_with("pushed: ")),
+            held: fix_held_back(&back, value_of(&handed.values, "issue"), pushed.lines.as_deref()),
         },
         written,
         err,
@@ -1720,6 +1720,21 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     }
     lines.close(None, sessions::Outcome::Ended { status, seconds }, err);
     code
+}
+
+/// Why the fix's answers are held back after its session (#153), or none: only where a commit came back, taken or
+/// refused, and the branch was not pushed. A fix that commits nothing answers with reasons alone, and they are posted.
+fn fix_held_back(back: &view::Back, issue: Option<&str>, pushed: Option<&str>) -> Option<String> {
+    if back.taken.is_empty() && !back.refused_any() {
+        return None;
+    }
+    if pushed.is_some_and(|text| text.starts_with("pushed: ")) {
+        return None;
+    }
+    Some(match issue {
+        None => "there is no issue, so there is no issue's branch to push the fix's commits to, and its answers would name commits the change does not hold".to_string(),
+        Some(_) => "the fix's branch was not pushed, so its answers would name commits the change does not hold".to_string(),
+    })
 }
 
 /// `wb start <role> <issue> --take-back` (#223): takes back the commits of the newest kept view of that role and

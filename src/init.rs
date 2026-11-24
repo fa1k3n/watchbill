@@ -178,6 +178,8 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
             // after each, which `wb` does not read as part of the next body.
             ("issue_comment_bodies", whole("issue")),
             ("change_comment_bodies", whole("change")),
+            // The change's description alone, which `wb start` brings in for the review and the fix (#153).
+            ("change_text", format!("gh pr view {{change}} --repo {} --json body --jq .body", repository)),
             // The command that opens the change as a draft, which `wb start build` says and a person runs (#145). The
             // description is filled from the commits: the build writes it in the message of its last commit.
             ("draft_change", format!("gh pr create --repo {} --head {{branch}} --draft --fill --body-file -", repository)),
@@ -243,6 +245,8 @@ pub fn render_with(revision: &str, hash: &str, setup: &Setup, classed: &[String]
             // byte, oldest first. The query is quoted: it holds `&`.
             ("issue_comment_bodies", whole("issues", "issue")),
             ("change_comment_bodies", whole("merge_requests", "change")),
+            // The change's description alone, for the review and the fix (#153), as `glab` gives it in JSON.
+            ("change_text", format!("glab mr view {{change}} --repo {} -F json | jq -r .description", url)),
             // The command that opens the change as a draft (#145, #151). `--fill` gives the title from the commits;
             // `--push=false` keeps `glab` from pushing, which `--fill` does by default: `wb`'s push is the only push.
             // A given `--description` is kept over the one `--fill` would make.

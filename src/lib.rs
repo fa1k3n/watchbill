@@ -59,6 +59,8 @@ pub const USAGE: &str = "usage:
             [--branch <text>] [--issue_address <text>]
             [--change_address <text>] [--classed <text>]
             [--classed_touched <text>] [--description <text>]
+            [--brought <text>] [--questions <text>]
+            [--change_comment <text>] [--needs_person <text>]
             [--runner <name>] [--parts] [--stamp]
   wb revision
   wb compare [--from <path>] <revision> <revision>
@@ -1275,6 +1277,11 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     if words.get("description").is_some() {
         return used(err, name, "'--description' is taken only with --prompt, --stamp or --parts: the file of the change's description is named by wb");
     }
+    // So are the folder of what `wb` brings in, and the files it posts from (#153).
+    if let Some(given) = prompt::NAMED_BY_WB.iter().find(|placeholder| words.get(placeholder).is_some()) {
+        let why = format!("'--{}' is taken only with --prompt, --stamp or --parts: the files a session reads and writes are named by wb", given);
+        return used(err, name, &why);
+    }
     // The stamp's first line is read back by the next start: the round is a whole number.
     if let Some(round) = words.get("round") {
         if !is_round(round) {
@@ -1547,6 +1554,21 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
         },
         _ => None,
     };
+    // Every other role has no login either (#153): what it reads is read here, as the person and outside the sandbox,
+    // and brought into the sandbox outside its view, before anything is posted.
+    let session_of = || brought::Session {
+        role,
+        issue: value_of(&handed.values, "issue"),
+        change: value_of(&handed.values, "change"),
+        branch: value_of(&handed.values, "branch"),
+        paths: paths.as_deref(),
+    };
+    if brought::BROUGHT_FOR.contains(&role) {
+        if let Err(why) = brought::bring_in_for(root, &session_of(), &prepared.out) {
+            discard(&prepared);
+            return refused(&mut lines, err, "issue", &why);
+        }
+    }
     let stamp: Result<String, String> = match (&stamp, &brought) {
         (Ok(text), Some(found)) => Ok(prompt::with_issue_text(text, &found.hash)),
         (Ok(text), None) => Ok(text.clone()),
@@ -1668,6 +1690,7 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
     }
     // What the session wrote for `wb` (#151), read before its folder goes.
     let description = push::read_description(&prepared.out);
+    let written = brought::read_written(&prepared.out);
     push::remove_out(&prepared.out);
     // How to look at what was taken (#159): the commits keep who wrote them, the tests, the checks.
     for (commit, _) in &back.taken {
@@ -1704,8 +1727,41 @@ fn run_start(role: &str, parser: &mut Parser, folder: Option<&Path>, machine: &M
             }
         }
     }
+    // What the session wrote for `wb` to post (#153): its questions, the review's findings or the fix's answers, and
+    // what only a person can settle. After the commits are taken back and the push.
+    let posted = brought::post_written(
+        &brought::Ended {
+            name,
+            root,
+            session: session_of(),
+            round: value_of(&handed.values, "round"),
+            ended_well: status.success(),
+            held: fix_held_back(&back, value_of(&handed.values, "issue"), pushed.lines.as_deref()),
+        },
+        written,
+        err,
+    );
+    if posted != 0 {
+        // not a refusal: what could not be posted is said by `brought::post_written` as a limit.
+        code = 1;
+    }
     lines.close(None, sessions::Outcome::Ended { status, seconds }, err);
     code
+}
+
+/// Why the fix's answers are held back after its session (#153), or none: only where a commit came back, taken or
+/// refused, and the branch was not pushed. A fix that commits nothing answers with reasons alone, and they are posted.
+fn fix_held_back(back: &view::Back, issue: Option<&str>, pushed: Option<&str>) -> Option<String> {
+    if back.taken.is_empty() && !back.refused_any() {
+        return None;
+    }
+    if pushed.is_some_and(|text| text.starts_with("pushed: ")) {
+        return None;
+    }
+    Some(match issue {
+        None => "there is no issue, so there is no issue's branch to push the fix's commits to, and its answers would name commits the change does not hold".to_string(),
+        Some(_) => "the fix's branch was not pushed, so its answers would name commits the change does not hold".to_string(),
+    })
 }
 
 /// `wb start <role> <issue> --take-back` (#223): takes back the commits of the newest kept view of that role and

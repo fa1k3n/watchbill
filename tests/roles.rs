@@ -293,7 +293,9 @@ fn test_WB_ROLE_5_every_placeholder_on_the_list_is_used_by_a_prompt() {
     for role in ROLES {
         used.extend(placeholders(&prompt(role)));
     }
-    let unused: Vec<String> = listed().into_iter().filter(|name| !used.contains(name)).collect();
+    // The addresses are for the project's own text: no role prompt names a program of the tracker (#153).
+    let for_the_project = ["{issue_address}", "{change_address}"];
+    let unused: Vec<String> = listed().into_iter().filter(|name| !used.contains(name) && !for_the_project.contains(&name.as_str())).collect();
     assert!(unused.is_empty(), "{:?}", unused);
 }
 
@@ -363,7 +365,7 @@ fn test_WB_ROLE_18_every_prompt_names_its_checkout_its_branch_and_where_its_issu
         let opening = split_parts(&prompt(role)).remove(0);
         assert!(opening.contains("You work in the checkout {checkout}, on the branch {branch}."), "{}", role);
         // The planner reads the issue as the program brought it in (#295), the other roles at its address.
-        let read = if role == "planner" { "The issue {issue}, as a person wrote it, in `.watchbill/issue/{issue}.md`," } else { "The issue {issue}, at {issue_address}," };
+        let read = if role == "planner" { "The issue {issue}, as a person wrote it, in `.watchbill/issue/{issue}.md`," } else { "The issue {issue}, as a person wrote it, in `{brought}/issue.text`," };
         assert!(part(role, "## What you read").contains(read), "{}", role);
     }
 }
@@ -371,7 +373,7 @@ fn test_WB_ROLE_18_every_prompt_names_its_checkout_its_branch_and_where_its_issu
 #[test]
 fn test_WB_ROLE_19_review_and_fix_name_where_the_change_is_read_and_posted() {
     for role in ["review", "fix"] {
-        assert!(part(role, "## What you read").contains("{change}, at {change_address}"), "{}", role);
+        assert!(part(role, "## What you read").contains("in `{brought}/change.diff`"), "{}", role);
     }
 }
 
@@ -662,14 +664,11 @@ fn test_WB_ROLE_37_the_stamp_on_the_issue_says_what_the_session_was_handed_out_a
 
 #[test]
 fn test_WB_ROLE_38_the_session_reads_its_stamp_and_says_where_its_own_word_differs() {
-    for role in ASKERS {
+    // No stamp is in a view (#295, #153): a person holds the word of each role against it.
+    for role in ROLES {
         let text = after_fields(role);
-        assert!(text.contains("Read the stamp of your own session on the issue, where it is given"), "{}: {}", role, text);
-        assert!(text.contains("Where your own word differs from it, say so under `model` and `effort`."), "{}: {}", role, text);
+        assert!(text.contains("A person holds them against the stamp."), "{}: {}", role, text);
     }
-    // The planner's stamp is not in its view (#295): a person holds its word against the stamp.
-    let text = after_fields("planner");
-    assert!(text.contains("A person holds them against the stamp."), "{}", text);
 }
 
 // The planner: it reads the issue and the code, and writes the issue's file (#75).
@@ -988,9 +987,9 @@ fn test_WB_ROLE_77_no_role_file_holds_the_draft_line() {
 #[test]
 fn test_WB_ROLE_67_where_the_address_shows_no_description_the_review_says_so_as_a_finding() {
     let body = part("review", "## What you read");
-    let point = body.split('\n').find(|line| line.starts_with("- Then its description and its commit messages,"));
+    let point = body.split('\n').find(|line| line.starts_with("- Then its description, in `{brought}/change.text`, and its commit messages,"));
     let point = point.unwrap_or_else(|| panic!("no point for the description: {}", body));
-    assert!(point.contains("Where {change_address} shows no description of the change, say so as a finding"), "{}", point);
+    assert!(point.contains("Where `{brought}/change.text` is empty, say so as a finding"), "{}", point);
     assert!(point.contains("do not judge the change as if it had none"), "{}", point);
 }
 
@@ -1007,9 +1006,9 @@ fn read_point(role: &str, lead: &str) -> String {
 fn test_WB_ROLE_75_the_review_and_the_fix_say_that_with_no_issue_the_change_s_description_is_the_spec() {
     for role in ["review", "fix"] {
         let point = read_point(role, "- Where the issue is none,");
-        assert!(point.contains("the change was made with no issue, and its description, at {change_address}, is the spec"), "{}: {}", role, point);
+        assert!(point.contains("the change was made with no issue, and its description, in `{brought}/change.text`, is the spec"), "{}: {}", role, point);
         assert!(point.contains("read it wherever this prompt says the issue"), "{}: {}", role, point);
-        assert!(point.contains("Your stamp, where it is given, is on the change."), "{}: {}", role, point);
+        assert!(point.contains("your questions and answers are those on the change"), "{}: {}", role, point);
     }
 }
 
@@ -1083,7 +1082,8 @@ fn test_WB_ANSWER_43_the_four_post_their_questions_in_one_comment_whose_first_li
         let point = asking_point(role);
         let first = format!("Its first line is `[questions] {}` and the name of each question it holds, as `[questions] {} q1 q2`.", questions_of(role), questions_of(role));
         assert!(point.contains(&first), "{}: {}", role, point);
-        assert!(point.contains("before your last message"), "{}: {}", role, point);
+        // The program posts them after the session (#153).
+        assert!(point.contains("by the program after your session"), "{}: {}", role, point);
     }
 }
 
@@ -1158,12 +1158,10 @@ fn test_WB_ANSWER_10_the_number_of_a_question_counts_on_within_the_role_from_the
 
 #[test]
 fn test_WB_ROLE_83_a_question_is_never_posted_twice() {
-    for role in ASKERS {
-        let text = prompt(role);
-        assert!(text.contains("You post no question twice: a question that stands on the issue already is not posted again."), "{}", role);
+    // No role posts; the program posts the questions (#295, #153).
+    for role in ROLES {
+        assert!(prompt(role).contains("The program posts no question twice: a question that stands on the issue already is not posted again."), "{}", role);
     }
-    // The planner posts nothing; the program posts its questions (#295).
-    assert!(prompt("planner").contains("The program posts no question twice: a question that stands on the issue already is not posted again."));
 }
 
 #[test]
@@ -1221,9 +1219,8 @@ fn test_WB_ROLE_80_any_other_answer_is_taken_by_the_next_session_of_the_role() {
 #[test]
 fn test_WB_ROLE_80_the_four_read_the_issue_with_its_comments() {
     for role in ASKERS {
-        let point = read_point(role, "- The issue {issue}, at {issue_address},");
-        assert!(point.contains("with its comments"), "{}: {}", role, point);
-        assert!(point.contains("the questions of your role, the answers of a person to them, and your stamp"), "{}: {}", role, point);
+        let point = read_point(role, "- The issue {issue}, as a person wrote it, in `{brought}/issue.text`,");
+        assert!(point.contains("the questions of your role and the answers of a person to them, in `{brought}/questions`"), "{}: {}", role, point);
     }
 }
 
@@ -1234,7 +1231,7 @@ fn test_WB_ROLE_72_the_last_messages_of_the_four_end_with_needs_person_and_then_
         assert!(found.len() >= 2, "{}: {:?}", role, found);
         assert_eq!(found[found.len() - 2..], ["needs_person", "asked"], "{}: {:?}", role, found);
         let asked = field_line(role, "asked");
-        assert!(asked.contains("the comments you posted, each by its first line, or `none`."), "{}: {}", role, asked);
+        assert!(asked.contains("the names of the new questions you wrote to {questions}, which the program posts after your session, or `none`."), "{}: {}", role, asked);
     }
 }
 
@@ -1310,14 +1307,9 @@ fn test_WB_ROLE_76_every_role_gives_its_model_and_effort_from_its_stamp() {
         let text = after_fields(role);
         let stamp = format!("Your model and effort are in your stamp on the issue: the latest comment whose first line starts with `[stamp] {}`.", role);
         assert!(text.contains(&stamp), "{}: {}", role, text);
-        if role == "planner" {
-            // The planner's stamp is not brought into its view (#295): it gives its own word.
-            assert!(text.contains("That stamp is not in your view"), "{}", text);
-            assert!(text.contains("give `model` and `effort` in your last message as your session says of itself"), "{}", text);
-            assert!(!text.contains("Read the stamp of your own session on the issue"), "{}", text);
-        } else {
-            assert!(text.contains("give `model` and `effort` in your last message from there"), "{}: {}", role, text);
-        }
+        // No stamp is brought into a view (#295, #153): each role gives its own word.
+        assert!(text.contains("That stamp is not in your view"), "{}: {}", role, text);
+        assert!(text.contains("give `model` and `effort` in your last message as your session says of itself"), "{}: {}", role, text);
     }
 }
 
@@ -1432,4 +1424,107 @@ fn test_WB_ROLE_109_from_is_the_sha256_of_the_issue_s_text_the_program_brought_i
     let form = body.split_once("```yaml\n").expect("the form").1;
     let from = form.split('\n').find(|line| line.starts_with("from:")).unwrap_or_else(|| panic!("{}", form));
     assert!(from.contains("the SHA-256 of .watchbill/issue/{issue}.md"), "{}", from);
+}
+
+// A session in a view holds no login (#153): `wb` brings in what it reads, and posts what it writes.
+
+#[test]
+fn test_WB_ROLE_110_the_four_prompts_hold_no_address_and_name_no_program_of_the_tracker() {
+    for role in ASKERS {
+        let text = prompt(role);
+        for never in ["{issue_address}", "{change_address}"] {
+            assert!(!text.contains(never), "{}: {}", role, never);
+        }
+        let words: Vec<&str> = text.split(|c: char| !c.is_ascii_alphanumeric()).collect();
+        for program in ["gh", "glab"] {
+            assert!(!words.contains(&program), "{}: {}", role, program);
+        }
+    }
+}
+
+#[test]
+fn test_WB_ROLE_111_the_four_prompts_say_the_session_has_no_login_needs_none_and_posts_nothing() {
+    for role in ASKERS {
+        let body = part(role, "## What you read");
+        assert!(body.contains("You have no login to the tracker or the git server, and need none: you run no program of theirs, and you post nothing on them."), "{}: {}", role, body);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_112_the_four_read_the_issue_and_their_questions_as_the_program_brought_them_in() {
+    for role in ASKERS {
+        let body = part(role, "## What you read");
+        assert!(body.contains("- The issue {issue}, as a person wrote it, in `{brought}/issue.text`,"), "{}: {}", role, body);
+        assert!(body.contains("in `{brought}/questions`"), "{}: {}", role, body);
+        assert!(body.contains("The program read them from the tracker before your session and brought them in, read-only, outside the checkout."), "{}: {}", role, body);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_113_the_review_and_the_fix_read_the_change_as_the_program_brought_it_in() {
+    for role in ["review", "fix"] {
+        let body = part(role, "## What you read");
+        for file in ["`{brought}/change.text`", "`{brought}/change.comments`", "`{brought}/change.diff`"] {
+            assert!(body.contains(file), "{}: {}: {}", role, file, body);
+        }
+    }
+}
+
+#[test]
+fn test_WB_ROLE_114_the_four_write_each_question_in_full_to_a_file_and_the_program_posts_the_new_ones() {
+    for role in ASKERS {
+        let point = asking_point(role);
+        assert!(point.contains("You post nothing: you write each question in full to the file {questions}, its first line `q<n>: <what is unclear>`, then the rest of it."), "{}: {}", role, point);
+        assert!(point.contains("by the program after your session"), "{}: {}", role, point);
+        assert!(point.contains("The program posts no question twice: a question that stands on the issue already is not posted again."), "{}: {}", role, point);
+        assert!(prompt(role).contains("- The program makes that comment from your file: the first line of each question is its line, and the rest of it goes under `<details>`, as you wrote it."), "{}", role);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_115_the_review_writes_its_findings_and_the_fix_its_answers_to_a_file_the_program_posts_on_the_change() {
+    for (role, first) in [("review", "`[review] {issue} round {round}`"), ("fix", "`[fix] {issue} round {round}`")] {
+        let body = part(role, "## What you produce");
+        assert!(body.contains("to the file {change_comment}"), "{}: {}", role, body);
+        assert!(body.contains("After your session the program posts that file on the change, as one comment whose first line it writes:"), "{}: {}", role, body);
+        assert!(body.contains(first), "{}: {}", role, body);
+        let end = part(role, "## How you end");
+        let stop = end.split('\n').find(|line| line.starts_with("Stop when")).unwrap_or_else(|| panic!("{}: {}", role, end));
+        assert!(stop.contains("{change_comment}") && !stop.contains("posted"), "{}: {}", role, stop);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_116_every_role_writes_needs_person_to_a_file_the_program_posts() {
+    for role in ROLES {
+        let body = part(role, "## How you end");
+        assert!(
+            body.contains("Where `needs_person` is not `none`, write it also to the file {needs_person}: after your session the program posts it on the issue, so that a person sees it."),
+            "{}: {}",
+            role,
+            body
+        );
+    }
+}
+
+#[test]
+fn test_WB_ROLE_117_the_four_give_their_model_and_effort_as_their_session_says_of_itself() {
+    for role in ASKERS {
+        let text = after_fields(role);
+        assert!(text.contains("That stamp is not in your view"), "{}: {}", role, text);
+        assert!(text.contains("give `model` and `effort` in your last message as your session says of itself"), "{}: {}", role, text);
+        assert!(!text.contains("Read the stamp of your own session on the issue"), "{}: {}", role, text);
+    }
+}
+
+#[test]
+fn test_WB_ROLE_118_the_list_names_the_folder_brought_in_and_the_files_the_session_writes() {
+    let names = listed();
+    for name in ["{brought}", "{questions}", "{change_comment}", "{needs_person}"] {
+        assert!(names.contains(&name.to_string()), "{} is not on the list: {:?}", name, names);
+    }
+    let text = String::from_utf8(raw("placeholders.md")).unwrap();
+    for path in ["`/run/watchbill/in`", "`/run/watchbill/questions`", "`/run/watchbill/change_comment`", "`/run/watchbill/needs_person`"] {
+        assert!(text.contains(path), "{}: {}", path, text);
+    }
 }

@@ -151,6 +151,8 @@ fn bench() -> Bench {
     // The issue's text and its whole comments, which `wb start planner` brings into the view (#295).
     script(&log.path.join("address.sh"), &format!("echo \"address $1\" >> {l}/calls\necho \"The text of issue $1.\"\nexit 0\n"));
     script(&log.path.join("bodies.sh"), &format!("echo \"bodies $1\" >> {l}/calls\nexit 0\n"));
+    script(&log.path.join("ctext.sh"), &format!("echo \"ctext $1\" >> {l}/calls\necho \"The description of change $1.\"\nexit 0\n"));
+    script(&log.path.join("cbodies.sh"), &format!("echo \"cbodies $1\" >> {l}/calls\nexit 0\n"));
     git(&repo.path, &["config", "user.name", "Ada Lovelace"]);
     git(&repo.path, &["config", "user.email", "ada@example.org"]);
     git(&repo.path, &["config", "commit.gpgsign", "false"]);
@@ -167,6 +169,9 @@ fn bench() -> Bench {
         format!("issue_address: '{} {{issue}}'", at("address.sh")),
         format!("issue_comment_bodies: '{} {{issue}}'", at("bodies.sh")),
         format!("issue_text: '{} {{issue}}'", at("address.sh")),
+        // The change's description and its whole comments, which `wb start` brings in for the review and the fix (#153).
+        format!("change_text: '{} {{change}}'", at("ctext.sh")),
+        format!("change_comment_bodies: '{} {{change}}'", at("cbodies.sh")),
         "change_address: 'server {change}'".to_string(),
         "confidentiality: public".to_string(),
     ] {
@@ -595,7 +600,8 @@ fn test_WB_BUILD_9_a_whole_start_reaches_no_remote_of_git_and_runs_only_the_stan
     bench.comments("issue", "54", &["[stamp] review round 1"]);
     ok(&bench.start(true, &["start", "fix", "54"]));
     assert!(!bench.at("network").exists(), "git asked origin");
-    assert_eq!(bench.calls(), ["comments issue 54", "changes issue-54", "post issue 54", "start"]);
+    // What `wb` brings in for the session is read before the stamp is posted (#153).
+    assert_eq!(bench.calls(), ["comments issue 54", "changes issue-54", "address 54", "ctext 174", "cbodies 174", "bodies 54", "post issue 54", "start"]);
 }
 
 // ---- WB-BUILD-10: the runner: `--runner`, else the organisation's `default` ----
@@ -721,7 +727,8 @@ fn test_WB_BUILD_12_the_one_open_change_of_the_branch_is_taken() {
     bench.changes("issue-54", &["174"]);
     ok(&bench.start(true, &["start", "review", "54"]));
     assert!(bench.posted("issue", "54").unwrap().contains("\nchange: 174\n"));
-    assert!(read(&bench.at("start.prompt")).contains("server 174"));
+    // No role's text names the change's address since #153: the change's number stands in the prompt.
+    assert!(read(&bench.at("start.prompt")).contains("You are the reviewer of change 174,"));
 }
 
 #[test]
@@ -746,7 +753,8 @@ fn test_WB_BUILD_12_given_values_win_and_nothing_is_worked_out_for_them() {
     let posted = bench.posted("issue", "54").unwrap();
     assert!(posted.starts_with("[stamp] review round 5\n"), "{}", posted);
     assert!(posted.contains("\nchange: 180\n") && posted.contains("\nround: 5\n"), "{}", posted);
-    assert_eq!(bench.calls(), ["post issue 54", "start"]);
+    // What `wb` brings in for the session is read before the stamp is posted (#153): nothing is worked out.
+    assert_eq!(bench.calls(), ["address 54", "ctext 180", "cbodies 180", "bodies 54", "post issue 54", "start"]);
 }
 
 // ---- WB-BUILD-13: what was worked out is said first ----
@@ -1602,7 +1610,8 @@ fn test_WB_BUILD_36_wb_start_build_does_what_wb_build_did_the_stamp_and_the_star
     bench.changes("issue-54", &["174"]);
     ok(&bench.start(true, &["start", "build", "54"]));
     // The checks read the comments and the changes, then the stamp is posted, then the session starts.
-    assert_eq!(bench.calls(), ["comments issue 54", "post issue 54", "start"]);
+    // What `wb` brings in for the session is read before the stamp is posted (#153).
+    assert_eq!(bench.calls(), ["comments issue 54", "address 54", "bodies 54", "post issue 54", "start"]);
     let posted = read(&bench.at("posted-issue-54"));
     assert!(posted.starts_with("[stamp] build round 1\n"), "{}", posted);
     assert!(posted.contains("\nrole: build\n"), "{}", posted);

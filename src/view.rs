@@ -850,6 +850,21 @@ pub const OUT_FOLDER: &str = "/run/watchbill";
 /// The file the build writes the change's description to, `{description}` of the prompt (#151).
 pub const DESCRIPTION: &str = "/run/watchbill/description";
 
+/// The folder of what `wb` brings in for a session (#153), `{brought}` of the prompt: read-only, below `OUT_FOLDER`.
+pub const BROUGHT: &str = "/run/watchbill/in";
+
+/// Where a session writes its questions, `{questions}` of the prompt (#153).
+pub const QUESTIONS: &str = "/run/watchbill/questions";
+
+/// Where the review writes its findings and the fix its answers, `{change_comment}` of the prompt (#153).
+pub const CHANGE_COMMENT: &str = "/run/watchbill/change_comment";
+
+/// Where a session writes what only a person can settle, `{needs_person}` of the prompt (#153).
+pub const NEEDS_PERSON: &str = "/run/watchbill/needs_person";
+
+/// The folder below the folder of `wb`'s own that is bound read-only at `BROUGHT` (#153).
+pub const BROUGHT_FOLDER: &str = "in";
+
 /// The variables that hold or lead to a login of the code host (#151): `gh`'s, `glab`'s and ssh's, the secrets GitLab
 /// CI hands a job, and the address of the session bus, which leads to the keyring `gh` keeps its login in. None is
 /// handed into the sandbox, as no `GIT_*` is. They are named one by one, never by an ending such as `_TOKEN`, which
@@ -917,6 +932,11 @@ pub fn arguments_out(plan: &Plan, layout: Layout, out: Option<&Path>) -> Vec<OsS
     // What the session writes for `wb` (#151), in `/run` of the sandbox's own, before the view and away from it.
     if let Some(out) = out {
         add(&["--bind".as_ref(), out.as_os_str(), OUT_FOLDER.as_ref()]);
+        // What `wb` brought in (#153), read-only over the folder it lies in.
+        let brought = out.join(BROUGHT_FOLDER);
+        if brought.is_dir() {
+            add(&["--ro-bind".as_ref(), brought.as_os_str(), BROUGHT.as_ref()]);
+        }
     }
     add(&["--bind".as_ref(), plan.view.as_os_str(), plan.checkout.as_os_str()]);
     let inside: &[(&str, &str)] = match layout {

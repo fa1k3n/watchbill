@@ -170,7 +170,8 @@ fn test_WB_PROMPT_53_a_review_of_a_change_with_no_issue_is_handed_out() {
     let said = ok(&run(&folder.path, &["review", "--change", "174", "--round", "1"]));
     assert!(said.contains("reviewer of change 174, made for issue none."), "{}", said);
     assert!(said.contains("The requirements are what the description of change 174 says the change does."), "{}", said);
-    assert!(said.contains("gh pr view 174 --repo example/brake-controller"), "{}", said);
+    // The change is read as `wb` brings it in, by no address (#153).
+    assert!(said.contains("/run/watchbill/in/change.text"), "{}", said);
     assert!(said.contains("on the branch feature-x."), "{}", said);
     assert!(!said.contains("{issue"), "{}", said);
 }
@@ -194,7 +195,8 @@ fn test_WB_PROMPT_53_a_fix_of_a_change_with_no_issue_is_handed_out() {
     let folder = set_up();
     let said = ok(&run(&folder.path, &["fix", "--change", "174", "--round", "1", "--branch", "feature-x"]));
     assert!(said.contains("fixer of change 174, made for issue none."), "{}", said);
-    assert!(said.contains("gh pr view 174 --repo example/brake-controller"), "{}", said);
+    // The change is read as `wb` brings it in, by no address (#153).
+    assert!(said.contains("/run/watchbill/in/change.text"), "{}", said);
     assert!(!said.contains("{issue"), "{}", said);
 }
 

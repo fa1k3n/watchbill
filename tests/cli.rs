@@ -32,6 +32,8 @@ const USAGE: &str = "usage:
             [--branch <text>] [--issue_address <text>]
             [--change_address <text>] [--classed <text>]
             [--classed_touched <text>] [--description <text>]
+            [--brought <text>] [--questions <text>]
+            [--change_comment <text>] [--needs_person <text>]
             [--runner <name>] [--parts] [--stamp]
   wb revision
   wb compare [--from <path>] <revision> <revision>

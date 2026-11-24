@@ -54,25 +54,32 @@ fn pattern(root: &str, key: &str) -> Result<String, String> {
 /// or `[answers] <issue>` with the names after it, or `[question] <issue>.q<n>`, `[answer] <issue>.q<n>` and
 /// `[answer] <issue> suggested` of revision 0.0.8.
 fn asked_or_answered(issue: &str, first: &str) -> bool {
+    asked_or_answered_by(issue, issue, first)
+}
+
+/// The same for the questions named `<prefix>.q<n>` on `on`, the issue or the change (#153): `<prefix>` is
+/// `<on>.<role>` for every role but the planner.
+fn asked_or_answered_by(on: &str, prefix: &str, first: &str) -> bool {
     let words: Vec<&str> = first.split_whitespace().collect();
-    let named = |name: &str| name.strip_prefix(issue).and_then(|rest| rest.strip_prefix(".q")).is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
+    let named = |name: &str| name.strip_prefix(prefix).and_then(|rest| rest.strip_prefix(".q")).is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
     match words.as_slice() {
-        ["[questions]" | "[answers]", on, ..] => *on == issue,
-        ["[answer]", on, "suggested", ..] if *on == issue => true,
+        ["[questions]" | "[answers]", named_on, ..] => *named_on == prefix,
+        ["[answer]", named_on, "suggested", ..] if *named_on == on => true,
         ["[question]" | "[answer]", name, ..] => named(name),
         _ => false,
     }
 }
 
-/// Writes a new file of the view, never over a file that is there: a link in its place is not followed (`O_EXCL`).
-fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
+/// Writes a new file in `place`, the view or the folder of what `wb` brings in, never over a file that is there: a
+/// link in its place is not followed (`O_EXCL`).
+fn write_new(path: &Path, bytes: &[u8], place: &str) -> Result<(), String> {
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
         .open(path)
-        .map_err(|error| format!("{} could not be written in the view: {}", path.display(), error))?;
-    file.write_all(bytes).map_err(|error| format!("{} could not be written in the view: {}", path.display(), error))
+        .map_err(|error| format!("{} could not be written in {}: {}", path.display(), place, error))?;
+    file.write_all(bytes).map_err(|error| format!("{} could not be written in {}: {}", path.display(), place, error))
 }
 
 /// Reads the issue's text of `issue` by `issue_text` and its comments by `issue_comment_bodies`, as the person, in the root
@@ -106,8 +113,8 @@ pub fn bring_in(root: &str, issue: &str, view: &Path) -> Result<Brought, String>
     }
     fs::DirBuilder::new().mode(0o700).create(&folder).map_err(|error| format!("{} could not be made in the view: {}", FOLDER, error))?;
     // The issue's text as `issue_text` printed it, byte for byte.
-    write_new(&folder.join(format!("{}.md", issue)), &text)?;
-    write_new(&folder.join(format!("{}.questions", issue)), questions.as_bytes())?;
+    write_new(&folder.join(format!("{}.md", issue)), &text, "the view")?;
+    write_new(&folder.join(format!("{}.questions", issue)), questions.as_bytes(), "the view")?;
     let hash = Sha256::digest(&text).iter().map(|byte| format!("{:02x}", byte)).collect();
     Ok(Brought { hash })
 }
@@ -121,22 +128,24 @@ struct Question {
 
 /// A question of the issue's file of `issue`: its first line `<issue>.q<n>: <what is unclear>`, then the rest.
 fn question_of(issue: &str, text: &str) -> Result<Question, String> {
+    question_led(&format!("{}.", issue), "of the issue's file", text)
+}
+
+/// A question whose first line is `<lead>q<n>: <what is unclear>`, then the rest; `whose` says where it was read.
+fn question_led(lead: &str, whose: &str, text: &str) -> Result<Question, String> {
     let (first, rest) = text.split_once('\n').unwrap_or((text, ""));
-    let named = first.strip_prefix(issue).and_then(|after| after.strip_prefix(".q")).and_then(|after| after.split_once(':'));
+    let named = first.strip_prefix(lead).and_then(|after| after.strip_prefix('q')).and_then(|after| after.split_once(':'));
     let Some((digits, short)) = named.filter(|(digits, _)| !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())) else {
-        return Err(format!(
-            "the question {} of the issue's file does not start with its name, `{}.q<n>:`",
-            crate::issue::shown(first),
-            issue
-        ));
+        return Err(format!("the question {} {} does not start with its name, `{}q<n>:`", crate::issue::shown(first), whose, lead));
     };
     let number = digits.parse().map_err(|_| format!("the number of the question {} is too big", crate::issue::shown(first)))?;
     // What the session wrote goes to the terminal and the tracker: never a character a prompt never holds (the review
     // of #297).
     if text.chars().any(|c| crate::issue::is_unsafe(c, true)) {
         return Err(format!(
-            "the question {} of the issue's file holds a control character, a line separator or a bidirectional control: {}",
+            "the question {} {} holds a control character, a line separator or a bidirectional control: {}",
             crate::issue::shown(first),
+            whose,
             crate::issue::shown(text)
         ));
     }
@@ -232,6 +241,381 @@ fn pattern_to_post(root: &str, key: &str) -> Result<String, String> {
         Ok(None) => Err(format!("watchbill.yml has no `{}`. Add the line (see the README)", key)),
         Err(why) => Err(why.to_string()),
     }
+}
+
+// ---- #153: every other role reads and writes without a login, as the planner does ----
+
+/// The roles `wb` brings the issue in for, and posts the questions of, through the folder of its own (#153). The
+/// planner has its files in its view (#295).
+pub const BROUGHT_FOR: [&str; 4] = ["tester", "build", "review", "fix"];
+
+/// The cap of a file a session writes for `wb` to post: as the description's (#151).
+pub const WRITTEN_CAP: u64 = crate::push::DESCRIPTION_CAP;
+
+/// What a session of a role is about, as `wb start` worked it out.
+pub struct Session<'a> {
+    pub role: &'a str,
+    pub issue: Option<&'a str>,
+    pub change: Option<&'a str>,
+    pub branch: Option<&'a str>,
+    /// The paths of `changes` and the role's `reads`, or none where there is no issue's file.
+    pub paths: Option<&'a [String]>,
+}
+
+impl Session<'_> {
+    /// Where the role's comments stand: the issue, or the change where the issue is none. The word that names it, and
+    /// the patterns that read the whole comments, read their first lines, and post one.
+    fn on(&self) -> Option<On<'_>> {
+        match (self.issue, self.change) {
+            (Some(issue), _) => Some(On { word: "issue", value: issue, bodies: "issue_comment_bodies", lines: "issue_comments", post: "issue_comment" }),
+            (None, Some(change)) => Some(On { word: "change", value: change, bodies: "change_comment_bodies", lines: "change_comments", post: "change_comment" }),
+            _ => None,
+        }
+    }
+
+    /// The first words of the role's names: `<on>` for the planner, which keeps the names #95 gave, else `<on>.<role>`.
+    fn prefix(&self, on: &On) -> String {
+        if self.role == "planner" {
+            on.value.to_string()
+        } else {
+            format!("{}.{}", on.value, self.role)
+        }
+    }
+}
+
+/// Where a role's comments stand, and the patterns of it.
+struct On<'a> {
+    word: &'static str,
+    value: &'a str,
+    bodies: &'static str,
+    lines: &'static str,
+    post: &'static str,
+}
+
+/// The line of the pattern `key`, for a session of `role`, or why there is none.
+fn needed(root: &str, key: &str, role: &str) -> Result<String, String> {
+    match prompt::pattern_of(root, key) {
+        Ok(Some(line)) => Ok(line),
+        Ok(None) if key == "issue_text" || key == "change_text" => Err(format!(
+            "watchbill.yml has no `{}`, and the {}'s session has no login: wb reads it for the session. `wb upgrade` adds the line `{}`; or add it by hand (see the README)",
+            key, role, key
+        )),
+        Ok(None) => Err(format!("watchbill.yml has no `{}`, and the {}'s session has no login: wb reads it for the session. Add the line (see the README)", key, role)),
+        Err(why) => Err(why.to_string()),
+    }
+}
+
+/// Runs the pattern `key` with `{word}` filled with `value`, as the person, through the cap of a text file.
+fn read_by(root: &str, key: &str, role: &str, word: &str, value: &str) -> Result<Vec<u8>, String> {
+    let line = needed(root, key, role)?;
+    starter::run_capped(root, key, &line.replace(&format!("{{{}}}", word), value), bounded::TEXT_CAP)
+}
+
+/// The comments of `bodies` whose first line `keep` keeps, whole and in order, each ended by a blank line.
+fn kept_of(bodies: &[String], keep: &dyn Fn(&str) -> bool) -> String {
+    let kept: Vec<&str> = bodies.iter().filter(|body| keep(body.split('\n').next().unwrap_or_default().trim_end_matches('\r'))).map(|body| body.trim_end()).collect();
+    let mut text = kept.join("\n\n");
+    if !text.is_empty() {
+        text.push('\n');
+    }
+    text
+}
+
+/// The diff of `branch` against its merge base with the default branch, limited to `paths` where they are given,
+/// through the cap of a text file. Run with git at the root of the checkout, as the person; nothing of the network.
+/// Its first line is `wb`'s own: the ref and the commit the diff ends at, and its base, so that a branch this checkout
+/// holds behind the server's can be seen. An empty list of paths gives that line alone: git is not asked for a diff,
+/// as `git diff` with no path after `--` is the diff of every path.
+fn diff_of(root: &str, branch: Option<&str>, paths: Option<&[String]>) -> Result<Vec<u8>, String> {
+    let Some(branch) = branch else {
+        return Err("the branch of the change is not known, and wb brings in its diff".to_string());
+    };
+    let Some(default) = crate::status::default_branch(root) else {
+        return Err("there is no default branch to take the diff of the change against".to_string());
+    };
+    let git = |args: &[&str]| crate::status::git(root, args);
+    let tip = [format!("refs/heads/{}", branch), format!("refs/remotes/origin/{}", branch)]
+        .into_iter()
+        .find(|full| git(&["rev-parse", "--verify", "--quiet", &format!("{}^{{commit}}", full)]).is_some())
+        .ok_or_else(|| format!("the branch {} is not there, and wb brings in the diff of the change", branch))?;
+    let base = git(&["merge-base", &default, &tip]).ok_or_else(|| format!("the branch {} has no merge base with {}, and wb brings in the diff of the change", branch, default))?;
+    let base = String::from_utf8_lossy(&base).trim().to_string();
+    let at = git(&["rev-parse", "--verify", "--quiet", &format!("{}^{{commit}}", tip)]).ok_or_else(|| format!("the branch {} is not there, and wb brings in the diff of the change", branch))?;
+    let at = String::from_utf8_lossy(&at).trim().to_string();
+    let mut bytes = format!("wb: the diff of {} at {} against {}, its merge base with {}, as this checkout holds them; nothing is fetched\n", tip, at, base, default).into_bytes();
+    if paths.is_some_and(|paths| paths.is_empty()) {
+        return Ok(bytes);
+    }
+    let mut args: Vec<String> =
+        ["--no-replace-objects", "diff", "--no-ext-diff", "--no-textconv", "--submodule=short", "--no-color", "--no-renames", &base, &at].iter().map(|word| word.to_string()).collect();
+    if let Some(paths) = paths {
+        args.push("--".to_string());
+        args.extend(paths.iter().map(|path| format!(":(literal){}", path)));
+    }
+    let cap = bounded::TEXT_CAP.saturating_sub(bytes.len() as u64);
+    bytes.extend(git_capped(root, &args, cap, "the diff of the change")?);
+    Ok(bytes)
+}
+
+/// What git prints for `args` at `root`, with no `GIT_*` of this process, through `cap`. The error names `what`.
+fn git_capped(root: &str, args: &[String], cap: u64, what: &str) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    let mut command = Command::new("git");
+    command.arg("-C").arg(root).args(args);
+    for (key, _) in std::env::vars_os() {
+        if key.to_string_lossy().starts_with("GIT_") {
+            command.env_remove(key);
+        }
+    }
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| format!("git could not be run to make {}: {}", what, error))?;
+    let mut bytes = Vec::new();
+    let read = match child.stdout.take() {
+        Some(out) => out.take(cap + 1).read_to_end(&mut bytes).map(|_| ()),
+        None => Ok(()),
+    };
+    if bytes.len() as u64 > cap {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(format!("{} is more than 1 MiB, and no more of it is read", what));
+    }
+    let status = child.wait().map_err(|error| format!("git could not be waited for: {}", error))?;
+    read.map_err(|error| format!("{} could not be read: {}", what, error))?;
+    if !status.success() {
+        return Err(format!("git did not make {}", what));
+    }
+    Ok(bytes)
+}
+
+/// Reads, as the person and outside the sandbox, what a session of the tester, the build, the review or the fix
+/// reads (#153), and writes it into the new folder `in` of `out`, which the sandbox holds read-only at
+/// `view::BROUGHT`: `issue.text`, what `issue_text` prints; `questions`, the role's own questions and answers; and for
+/// the review and the fix `change.text`, what `change_text` prints, `change.comments`, the comments of the review and
+/// the fix, and `change.diff`. Everything is read before anything is written. Refused, with nothing written, where a
+/// pattern is not there, fails, or prints more than the cap, or the diff cannot be had.
+pub fn bring_in_for(root: &str, session: &Session, out: &Path) -> Result<(), String> {
+    let role = session.role;
+    let mut files: Vec<(&str, Vec<u8>)> = Vec::new();
+    if let Some(issue) = session.issue {
+        files.push(("issue.text", read_by(root, "issue_text", role, "issue", issue)?));
+    }
+    let change_bodies = match (crate::prompt::ALONE.contains(&role), session.change) {
+        (true, Some(change)) => {
+            files.push(("change.text", read_by(root, "change_text", role, "change", change)?));
+            Some(answer::split_bodies(&read_by(root, "change_comment_bodies", role, "change", change)?))
+        }
+        (true, None) => return Err(format!("the change of the {} is not known, and wb brings in its description", role)),
+        _ => None,
+    };
+    if let Some(on) = session.on() {
+        let bodies = match (&change_bodies, on.word) {
+            (Some(bodies), "change") => bodies.clone(),
+            _ => answer::split_bodies(&read_by(root, on.bodies, role, on.word, on.value)?),
+        };
+        let prefix = session.prefix(&on);
+        files.push(("questions", kept_of(&bodies, &|first| asked_or_answered_by(on.value, &prefix, first)).into_bytes()));
+        if let Some(bodies) = &change_bodies {
+            let ours = |first: &str| ["[review]", "[fix]"].iter().any(|kind| first.starts_with(&format!("{} {} round", kind, on.value)));
+            files.push(("change.comments", kept_of(bodies, &ours).into_bytes()));
+            files.push(("change.diff", diff_of(root, session.branch, session.paths)?));
+        }
+    }
+    let folder = out.join(crate::view::BROUGHT_FOLDER);
+    fs::DirBuilder::new().mode(0o700).create(&folder).map_err(|error| format!("the folder {} could not be made: {}", folder.display(), error))?;
+    for (name, bytes) in files {
+        write_new(&folder.join(name), &bytes, "the folder of what wb brings in")?;
+    }
+    Ok(())
+}
+
+/// What a session wrote for `wb` to post, each read before the folder goes: none where the file is not there or
+/// holds only white space.
+pub struct Written {
+    pub questions: Result<Option<String>, String>,
+    pub change_comment: Result<Option<String>, String>,
+    pub needs_person: Result<Option<String>, String>,
+}
+
+/// Reads the files a session wrote in `out` for `wb` to post (#153).
+pub fn read_written(out: &Path) -> Written {
+    Written {
+        questions: read_one(out, crate::view::QUESTIONS),
+        change_comment: read_one(out, crate::view::CHANGE_COMMENT),
+        needs_person: read_one(out, crate::view::NEEDS_PERSON),
+    }
+}
+
+/// The file at `place` in the sandbox, read from `out`, as the description is (#151): a plain file of the cap, never
+/// through a link, UTF-8, with no character `issue::is_unsafe` refuses. The error says why, and holds nothing of it.
+fn read_one(out: &Path, place: &str) -> Result<Option<String>, String> {
+    let name = Path::new(place).file_name().unwrap_or_default();
+    let bytes = match bounded::read_plain(&out.join(name), WRITTEN_CAP) {
+        Ok(bytes) => bytes,
+        Err(bounded::Fault::NotFound) => return Ok(None),
+        Err(fault) => return Err(format!("the file {} was not read: {}", place, fault)),
+    };
+    let text = String::from_utf8(bytes).map_err(|_| format!("the file {} is not UTF-8 text", place))?;
+    if text.chars().any(|c| crate::issue::is_unsafe(c, true)) {
+        return Err(format!("the file {} holds a control character, a line separator or a bidirectional control", place));
+    }
+    Ok(Some(text).filter(|text| !text.trim().is_empty()))
+}
+
+/// The end of a session, as the posting of what it wrote sees it.
+pub struct Ended<'a> {
+    pub name: &'a str,
+    pub root: &'a str,
+    pub session: Session<'a>,
+    pub round: Option<&'a str>,
+    /// Whether the session ended with 0.
+    pub ended_well: bool,
+    /// Why the fix's answers are held back, or none: only where a commit of the session came back and was not pushed,
+    /// as the answers would name commits the change does not hold.
+    pub held: Option<String>,
+}
+
+/// Posts what a session wrote for `wb` (#153), each after it is said: the new questions of `{questions}` for the
+/// tester, the build, the review and the fix; `{change_comment}` of the review and the fix on the change; and
+/// `{needs_person}` of any role. The status it adds: 1 where anything could not be posted, said as a limit.
+pub fn post_written(ended: &Ended, written: Written, err: &mut dyn Write) -> i32 {
+    let mut code = 0;
+    let mut limit = |err: &mut dyn Write, why: String| {
+        code = crate::refusal::limit(err, ended.name, &why);
+    };
+    let role = ended.session.role;
+    if BROUGHT_FOR.contains(&role) {
+        match written.questions {
+            Ok(None) => {}
+            Ok(Some(text)) => {
+                if let Err(why) = post_questions_of(ended, &text, err) {
+                    limit(err, format!("the questions of {} are not posted: {}", crate::view::QUESTIONS, why));
+                }
+            }
+            Err(why) => limit(err, format!("the questions are not posted: {}", why)),
+        }
+    }
+    if crate::prompt::ALONE.contains(&role) {
+        match written.change_comment {
+            Ok(None) => {}
+            Ok(Some(text)) => match post_change_comment(ended, &text, err) {
+                Ok(()) => {}
+                Err(Held::Back(why)) => {
+                    let _ = write!(err, "{}: the comment of the {} in {} is not posted: {}. It reads:\n{}", ended.name, role, crate::view::CHANGE_COMMENT, why, with_end(&text));
+                }
+                Err(Held::Failed(why)) => limit(err, format!("the comment of the {} in {} is not posted: {}", role, crate::view::CHANGE_COMMENT, why)),
+            },
+            Err(why) => limit(err, format!("the comment on the change is not posted: {}", why)),
+        }
+    }
+    match written.needs_person {
+        Ok(None) => {}
+        Ok(Some(text)) if says_none(&text) => {}
+        Ok(Some(text)) => {
+            if let Err(why) = post_needs_person(ended, &text, err) {
+                limit(err, format!("what {} holds is not posted: {}", crate::view::NEEDS_PERSON, why));
+            }
+        }
+        Err(why) => limit(err, format!("needs_person is not posted: {}", why)),
+    }
+    code
+}
+
+/// Whether `text` says there is nothing for a person: `none` in any case, trimmed of white space, backticks and a final
+/// full stop.
+fn says_none(text: &str) -> bool {
+    let trimmed = |text: &str| text.trim_matches(|c: char| c.is_whitespace() || c == '`').to_string();
+    let text = trimmed(text);
+    trimmed(text.strip_suffix('.').unwrap_or(&text)).eq_ignore_ascii_case("none")
+}
+
+/// `text` with a line break at its end.
+fn with_end(text: &str) -> String {
+    let mut text = text.trim_end().to_string();
+    text.push('\n');
+    text
+}
+
+/// Says `comment` and posts it on `on` by its pattern, as the person.
+fn say_and_post(ended: &Ended, on: &On, key: &str, comment: &str, err: &mut dyn Write) -> Result<(), String> {
+    let line = pattern_to_post(ended.root, key)?;
+    let _ = write!(err, "{}: will post on {} {}, by `{}` of watchbill.yml:\n{}", ended.name, on.word, on.value, key, comment);
+    let said = starter::run(ended.root, key, &line.replace(&format!("{{{}}}", on.word), on.value), Some(comment.as_bytes()))?;
+    let _ = err.write_all(&said);
+    Ok(())
+}
+
+/// Posts the questions of `text` that `on` does not hold yet, in one comment, as #295 posts the planner's.
+fn post_questions_of(ended: &Ended, text: &str, err: &mut dyn Write) -> Result<(), String> {
+    let on = ended.session.on().ok_or("there is no issue and no change to post them on")?;
+    let prefix = ended.session.prefix(&on);
+    let questions = split_questions(text)?.iter().map(|one| question_led("", &format!("in {}", crate::view::QUESTIONS), one)).collect::<Result<Vec<_>, _>>()?;
+    let read = pattern_to_post(ended.root, on.lines)?;
+    let printed = starter::run_capped(ended.root, on.lines, &read.replace(&format!("{{{}}}", on.word), on.value), bounded::TEXT_CAP)?;
+    let lines = starter::counted(&String::from_utf8_lossy(&printed));
+    let asked = answer::asked_names(on.value, &lines);
+    let new: Vec<Question> = questions.into_iter().filter(|question| !asked.contains(&format!("{}.q{}", prefix, question.number))).collect();
+    if new.is_empty() {
+        return Ok(());
+    }
+    say_and_post(ended, &on, on.post, &comment_of(&prefix, &new), err)
+}
+
+/// The questions of a file: each from a line `q<n>: …` to the next. Text before the first is refused.
+fn split_questions(text: &str) -> Result<Vec<String>, String> {
+    let starts = |line: &str| line.strip_prefix('q').and_then(|rest| rest.split_once(':')).is_some_and(|(digits, _)| !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()));
+    let mut found: Vec<String> = Vec::new();
+    for line in text.split('\n') {
+        if starts(line) {
+            found.push(String::new());
+        }
+        match found.last_mut() {
+            Some(current) => {
+                current.push_str(line);
+                current.push('\n');
+            }
+            None if line.trim().is_empty() => {}
+            None => return Err(format!("{} does not start with a question, `q<n>: <what is unclear>`, but with {}", crate::view::QUESTIONS, crate::issue::shown(line))),
+        }
+    }
+    Ok(found)
+}
+
+/// Why the comment on the change is not posted: held back, as the person may post it, or failed.
+enum Held {
+    Back(String),
+    Failed(String),
+}
+
+/// Posts the review's findings or the fix's answers on the change, under a first line of `wb`'s own.
+fn post_change_comment(ended: &Ended, text: &str, err: &mut dyn Write) -> Result<(), Held> {
+    let role = ended.session.role;
+    if !ended.ended_well {
+        return Err(Held::Back("the session did not end with 0".to_string()));
+    }
+    if let (true, Some(why)) = (role == "fix", &ended.held) {
+        return Err(Held::Back(why.clone()));
+    }
+    let Some(change) = ended.session.change else {
+        return Err(Held::Back("the change is not known".to_string()));
+    };
+    let on = ended.session.on().map(|on| on.value).unwrap_or(change);
+    let round = ended.round.unwrap_or("1");
+    let comment = format!("[{}] {} round {}\n{}", role, on, round, with_end(text));
+    let change_on = On { word: "change", value: change, bodies: "change_comment_bodies", lines: "change_comments", post: "change_comment" };
+    say_and_post(ended, &change_on, "change_comment", &comment, err).map_err(Held::Failed)
+}
+
+/// Posts what only a person can settle on the issue, or on the change where the issue is none, under a first line
+/// of `wb`'s own.
+fn post_needs_person(ended: &Ended, text: &str, err: &mut dyn Write) -> Result<(), String> {
+    let on = ended.session.on().ok_or("there is no issue and no change to post it on")?;
+    let comment = format!("[needs_person] {}\n{}", ended.session.prefix(&on), with_end(text));
+    say_and_post(ended, &on, on.post, &comment, err)
 }
 
 #[cfg(test)]

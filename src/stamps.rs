@@ -212,6 +212,9 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
     let mut read = objects(root, &commits)?;
     // In the order of the ref, oldest first.
     read.sort_by_key(|(object, _)| commits.iter().position(|commit| commit == object));
+    // The plan as the ref's tip holds it (#234): what every stamp's `job:` lines are checked against, so that a signed
+    // stamp brought onto the ref from elsewhere is held to this repository's job, not to the one it came with.
+    let sources = crate::plan::source_hashes(root, name);
     for (commit, raw) in read {
         // A commit over the cap is not read, and so is no stamp: it is said, not left out unseen.
         let raw = match raw {
@@ -243,10 +246,9 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
                 Err(why) => Err(format!("its signature could not be checked: {}", why)),
             },
         };
-        let parent = commits.iter().position(|held| *held == commit).and_then(|at| at.checked_sub(1)).map(|at| commits[at].as_str());
         let counts = signed.and_then(|by| {
             of_this_issue(&message, name)?;
-            of_this_repository(root, &message, name, parent)?;
+            of_this_repository(root, &message, &sources)?;
             Ok(by)
         });
         ledger.entries.push(Entry { commit, first, message, counts });
@@ -268,10 +270,11 @@ fn of_this_issue(message: &str, name: &str) -> Result<(), String> {
     }
 }
 
-/// Checks that a message was written for this repository (WB-BUILD-163 to 165): its one `base:` is a commit this
-/// repository has, and its `job:` lines are the hashes of the plan that `parent`, the commit before it on the ref, holds
-/// (`job: none` where it holds none). A genuine stamp of another repository, put on this ref, fails one of the two.
-fn of_this_repository(root: &str, message: &str, name: &str, parent: Option<&str>) -> Result<(), String> {
+/// Checks that a message was written for this repository (WB-BUILD-163 to 165): its one `base:` is a commit object this
+/// repository has, and its `job:` lines are `job: none` where the tip of the ref holds no plan (or a removed one), and
+/// else a non-empty prefix, in order, of the tip's `sources`: a later `wb plan add` only adds a source at the end, so
+/// the stamps before it stay counted. A genuine stamp of another repository, put on this ref, fails one of the two.
+fn of_this_repository(root: &str, message: &str, sources: &[String]) -> Result<(), String> {
     const OTHER: &str = "a stamp of another repository";
     let bases: Vec<&str> = message.lines().filter_map(|held| held.strip_prefix("base:")).collect();
     let base = match bases.as_slice() {
@@ -284,12 +287,9 @@ fn of_this_repository(root: &str, message: &str, name: &str, parent: Option<&str
         return Err(format!("{}: its base {} is not a commit of this repository", OTHER, crate::issue::shown(base)));
     }
     let held: Vec<&str> = message.lines().filter_map(|line| line.strip_prefix("job:")).map(|rest| rest.strip_prefix(' ').unwrap_or(rest)).collect();
-    let mut expected = parent.map(|commit| crate::plan::source_hashes_at(root, name, commit)).unwrap_or_default();
-    if expected.is_empty() {
-        expected.push("none".to_string());
-    }
-    if held != expected {
-        return Err(format!("{}: its lines `job:` are not those of the job on {}", OTHER, full(name)));
+    let fits = if sources.is_empty() { held == ["none"] } else { !held.is_empty() && held.len() <= sources.len() && held.iter().zip(sources).all(|(held, source)| *held == source.as_str()) };
+    if !fits {
+        return Err(format!("{}: its lines `job:` are not those of the job this repository holds on its ref", OTHER));
     }
     Ok(())
 }

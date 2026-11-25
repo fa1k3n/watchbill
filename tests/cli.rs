@@ -198,7 +198,8 @@ const USAGE: &str = "usage:
             file, and that standard input and output are a terminal; then
             write the stamp of an issue as a commit on refs/watchbill/<issue>,
             signed by a key of .watchbill/signers with start (refused where
-            the default branch has no list), and push it to origin with no
+            the default branch has no list, or one with no key line), and push
+            it to origin with no
             force: a push refused as
             not a fast-forward ends with 1 and starts nothing, and with no
             origin the stamp stays local, said. Its copy is posted by

@@ -20,12 +20,34 @@ thread_local! {
     static SAID: Cell<bool> = const { Cell::new(false) };
     /// Whether a 1 was marked as an answer since the command began, on this thread.
     static ANSWERED: Cell<bool> = const { Cell::new(false) };
+    /// Whether `-q` was given to the command that is running, on this thread (#285).
+    static QUIET: Cell<bool> = const { Cell::new(false) };
+}
+
+/// `-q` or `--quiet` was given: the command leaves out the lines that only inform (#285). Never a refusal, never
+/// what a command says before it writes, never the output a script reads.
+pub fn set_quiet() {
+    QUIET.with(|quiet| quiet.set(true));
+}
+
+/// Whether the command that runs was given `-q` or `--quiet`: it says the lines that only inform through `inform`.
+pub fn quiet() -> bool {
+    QUIET.with(Cell::get)
+}
+
+/// Writes a line that only informs, unless `-q` was given (#285).
+pub fn inform(out: &mut dyn Write, line: std::fmt::Arguments) {
+    if !quiet() {
+        // A failed write, such as a closed pipe, does not change what the command ended with.
+        let _ = writeln!(out, "{}", line);
+    }
 }
 
 /// A command begins: nothing is said or marked yet.
 pub fn begin() {
     SAID.with(|said| said.set(false));
     ANSWERED.with(|answered| answered.set(false));
+    QUIET.with(|quiet| quiet.set(false));
 }
 
 /// Marks the 1 a command ends with as an answer, not a refusal: a check that does not hold, a path in no view, an
@@ -42,6 +64,7 @@ pub const FAULT: &str = "a status of 1 with no refusal said and no answer marked
 /// written here nor a mark of an answer is a fault in `wb`: it is said on `err`, and the command panics with
 /// `FAULT`.
 pub fn ended(code: i32, err: &mut dyn Write) -> i32 {
+    QUIET.with(|quiet| quiet.set(false));
     if cfg!(debug_assertions) && code == 1 && !SAID.with(Cell::get) && !ANSWERED.with(Cell::get) {
         let _ = writeln!(err, "wb: a fault in wb: it ends with 1 with no line `limit:` or `guard:` and no mark of an answer (#180).");
         std::panic::panic_any(FAULT);

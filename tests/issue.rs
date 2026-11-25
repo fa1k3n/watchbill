@@ -158,7 +158,7 @@ fn test_WB_TASK_1_the_issue_of_the_file_is_the_issue_asked_for() {
 fn test_WB_TASK_1_the_usage_names_accept() {
     let run = wb(&folder().path, &["help", "accept"], "");
 
-    assert!(text(&run.stdout).contains("  wb accept <issue> [--no-commit]\n"), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains("  wb accept <issue> [--no-commit | -n] [-q | --quiet]\n"), "{}", text(&run.stdout));
 }
 
 #[test]

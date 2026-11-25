@@ -113,7 +113,7 @@ fn about_config(why: &dyn std::fmt::Display) -> String {
 
 fn finish(found: &[String], settings: usize, unpinned: bool, project: &[String], out: &mut dyn Write) -> i32 {
     if found.is_empty() && project.is_empty() {
-        let _ = writeln!(out, "The repository is at the revision it is pinned to, and the installed wb is that revision.");
+        crate::refusal::inform(out, format_args!("The repository is at the revision it is pinned to, and the installed wb is that revision."));
         return 0;
     }
     for line in found.iter().chain(project) {

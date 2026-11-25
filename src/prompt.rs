@@ -971,6 +971,17 @@ pub fn with_issue_text(stamp: &str, hash: &str) -> String {
     }
 }
 
+/// `stamp` with the line `reach:` before its parts (#195): the endpoints the session reaches, split by a space, or
+/// `none`. Only the stamp of a start has it: `--stamp` starts no session.
+pub fn with_reach(stamp: &str, reach: &[crate::reach::Endpoint]) -> String {
+    let all: Vec<String> = reach.iter().map(ToString::to_string).collect();
+    let line = format!("reach: {}\n", if all.is_empty() { "none".to_string() } else { all.join(" ") });
+    match stamp.find("\npart: ") {
+        Some(at) => format!("{}{}{}", &stamp[..at + 1], line, &stamp[at + 1..]),
+        None => format!("{}{}", stamp, line),
+    }
+}
+
 /// The stamp of an assignment (`docs/revision.md`, point 12): lines of `name: value` in a fixed order,
 /// then one line `part: <sha256>  <path>` for each part, as `--parts` gives it. A value that is empty, or (but for the
 /// round, #136) that the prompt does not hold, is written as the name and the colon alone. `runner` is empty when no runner is given (#93).

@@ -529,7 +529,7 @@ fn test_WB_CMD_57_no_needs_is_an_ok_line_and_nothing_is_run() {
 }
 
 #[test]
-fn test_WB_CMD_58_each_listening_port_is_a_warning_that_says_it_cannot_tell_whether_it_has_a_login() {
+fn test_WB_CMD_58_each_listening_port_is_named_and_one_that_reach_does_not_name_is_not_reached() {
     let bench = bench();
     let tcp = format!("{}{}{}{}", HEADER, socket("0100007F:1F90", "0A"), socket("00000000:0016", "0A"), socket("0100007F:C350", "01"));
     let tcp6 = format!("{}{}{}", HEADER, socket("00000000000000000000000001000000:0050", "0A"), socket("00000000000000000000000000000000:0277", "0A"));
@@ -541,14 +541,15 @@ fn test_WB_CMD_58_each_listening_port_is_a_warning_that_says_it_cannot_tell_whet
     all_hold(&run);
     let lines = lines_of(&run, "ports");
     assert_eq!(lines.len(), 4, "{:?}", lines);
-    assert!(lines.iter().all(|line| line.starts_with("warning: ")), "{:?}", lines);
+    // The runner has no `reach` (#195): a session in a view reaches none of them.
+    assert!(lines.iter().all(|line| line.starts_with("ok: ")), "{:?}", lines);
     let find = |address: &str| lines.iter().find(|line| line.contains(&format!(": ports: {} ", address))).unwrap_or_else(|| panic!("{}: {:?}", address, lines)).clone();
     assert!(find("127.0.0.1:8080").contains("loopback"));
     assert!(find("0.0.0.0:22").contains("every address"));
     assert!(find("[::1]:80").contains("loopback"));
     assert!(find("[::]:631").contains("every address"));
     for line in &lines {
-        assert!(line.contains("cannot tell") && line.contains("login") && line.contains("a session in a view can reach it") && line.contains("#195"), "{}", line);
+        assert!(line.contains("a session in a view does not reach it") && line.contains("a network of its own"), "{}", line);
     }
     // A socket that is not listening (state 01) is none.
     assert!(!lines.iter().any(|line| line.contains(":50000")), "{:?}", lines);
@@ -702,4 +703,100 @@ fn test_WB_CMD_60_the_page_the_completion_the_readme_and_the_words_name_it() {
     assert!(readme.contains("`wb doctor`") && !readme.contains("`doctor` (planned"), "README.md");
     let words = fs::read_to_string(root.join("docs/words.md")).unwrap();
     assert!(!words.contains("`doctor` (planned"), "docs/words.md");
+}
+
+// ---- WB-VIEW-152: what `wb doctor` says of the network of a view ----
+
+impl Bench {
+    /// The default runner with `reach` as written.
+    fn reach(&self, reach: &str) {
+        let org = read(&self.organisation()).replace("    binds:", &format!("    reach: {}\n    binds:", reach));
+        fs::write(self.organisation(), org).unwrap();
+    }
+}
+
+#[test]
+fn test_WB_VIEW_152_the_sandbox_is_said_to_have_a_network_of_its_own() {
+    let bench = bench();
+
+    let run = bench.doctor();
+
+    let line = line_of(&run, "user namespaces");
+    assert!(line.starts_with("ok: ") && line.contains("a network of its own"), "{}", line);
+}
+
+#[test]
+fn test_WB_VIEW_152_a_runner_with_no_reach_is_a_warning_that_it_reaches_no_network() {
+    let bench = bench();
+
+    let run = bench.doctor();
+
+    all_hold(&run);
+    let line = line_of(&run, "reach");
+    assert!(line.starts_with("warning: ") && line.contains("stand-in") && line.contains("no `reach`") && line.contains("no network"), "{}", line);
+}
+
+#[test]
+fn test_WB_VIEW_152_each_endpoint_is_said_and_one_on_this_machine_is_a_warning() {
+    let bench = bench();
+    bench.reach("[api.example.org:443, localhost:11434, '127.0.0.1:8080', '[::1]:8443']");
+
+    let run = bench.doctor();
+
+    all_hold(&run);
+    let lines = lines_of(&run, "reach");
+    assert_eq!(lines.len(), 4, "{:?}", lines);
+    let find = |endpoint: &str| lines.iter().find(|line| line.contains(endpoint)).unwrap_or_else(|| panic!("{}: {:?}", endpoint, lines)).clone();
+    assert!(find("api.example.org:443").starts_with("ok: ") && find("api.example.org:443").contains("through wb's proxy"), "{:?}", lines);
+    for endpoint in ["localhost:11434", "127.0.0.1:8080", "[::1]:8443"] {
+        let line = find(endpoint);
+        assert!(line.starts_with("warning: ") && line.contains("this machine") && line.contains("cannot tell") && line.contains("login"), "{}", line);
+    }
+}
+
+#[test]
+fn test_WB_VIEW_152_with_no_default_runner_reach_is_not_looked_at() {
+    let bench = bench();
+    let org = read(&bench.organisation()).replace("default: stand-in\n", "");
+    fs::write(bench.organisation(), org).unwrap();
+
+    let run = bench.doctor();
+
+    let line = line_of(&run, "reach");
+    assert!(line.starts_with("warning: ") && line.contains("not looked at"), "{}", line);
+}
+
+#[test]
+fn test_WB_VIEW_152_a_port_whose_number_reach_names_is_a_warning_whatever_the_host() {
+    let bench = bench();
+    bench.reach("[model.example.org:8080]");
+    let tcp = format!("{}{}{}", HEADER, socket("0100007F:1F90", "0A"), socket("00000000:0016", "0A"));
+    fs::write(bench.net.path.join("tcp"), tcp).unwrap();
+
+    let run = bench.doctor();
+
+    all_hold(&run);
+    let lines = lines_of(&run, "ports");
+    let reached = lines.iter().find(|line| line.contains("127.0.0.1:8080")).unwrap().clone();
+    assert!(reached.starts_with("warning: ") && reached.contains("model.example.org:8080") && reached.contains("cannot tell"), "{}", reached);
+    let other = lines.iter().find(|line| line.contains("0.0.0.0:22")).unwrap().clone();
+    assert!(other.starts_with("ok: ") && other.contains("does not reach it"), "{}", other);
+}
+
+#[test]
+fn test_WB_VIEW_152_the_readme_says_what_the_network_of_a_view_holds() {
+    let readme = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join("README.md"));
+    let start = readme.find("### What still leaks").expect("the README has no section on what still leaks");
+    let leaks = &readme[start..];
+    let leaks = &leaks[..leaks[4..].find("\n#").map(|end| end + 4).unwrap_or(leaks.len())];
+    assert!(!leaks.contains("The network is the machine's"), "{}", leaks);
+    assert!(!readme.contains("until #195") && !readme.contains("#195, planned"), "the README still says #195 is to come");
+    let start = readme.find("## The view").unwrap();
+    let view = &readme[start..start + readme[start..].find("### Seeing a view first").unwrap()];
+    for words in ["`reach`", "--unshare-net", "CONNECT", "HTTPS_PROXY", "refused", "no network"] {
+        assert!(view.contains(words), "the view's section does not say {:?}", words);
+    }
+    let start = readme.find("## Checking the machine").unwrap();
+    let doctor = &readme[start..start + readme[start..].find("## Upgrading it").unwrap()];
+    assert!(doctor.contains("**reach**"), "the section of wb doctor does not say reach");
 }

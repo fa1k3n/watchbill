@@ -22,7 +22,7 @@ Not with \-\-parts. \-\-show\-origin prints the whole prompt as it is, and befor
 .PP
 \-\-runner names the runner the prompt is handed to. The planner needs it, and is handed out only to a runner that /etc/watchbill/organisation.yml clears for the planner up to the level of the repository, the line confidentiality: of watchbill.yml.
 .PP
-Its stamp then has the model and effort of that file, and \-\-parts adds the level and the runner. Ends with 0 when the prompt is printed, 1 when it is refused, 2 when it was used wrongly or the repository is not set up. Writes nothing.
+Its stamp then has the model and effort of that file, and \-\-parts adds the level and the runner. Where the job's ref of the issue is not as wb writes it (one line of commits, each signed by a key of .watchbill/signers with the role it needs), no prompt of the issue is printed: it ends with 1, naming the first commit that is not. Ends with 0 when the prompt is printed, 1 when it is refused, 2 when it was used wrongly or the repository is not set up. Writes nothing.
 .PP
 \-q (\-\-quiet) is taken and changes nothing: what it prints is what a script reads.
 .SH OPTIONS

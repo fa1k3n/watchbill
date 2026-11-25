@@ -754,6 +754,14 @@ pub fn derive_with(
             }
         }
     }
+    // A job's ref that is not as `wb` writes it (#327, the review of #328): nothing on it counts, so neither the round
+    // nor whether the acceptance holds can be told from it, and no prompt of the issue is handed out, as `wb start`
+    // starts no session of it.
+    if let Some(issue) = &issue {
+        if let Some(why) = crate::stamps::not_as_written(root, issue).map_err(PromptError)? {
+            return Err(PromptError(format!("{}. No prompt is handed out", why)).into());
+        }
+    }
     let mut worked = Worked::default();
     // The round: from the stamps on the issue, or on the change when there is no issue (#84, #116).
     let on = match (&issue, &alone) {

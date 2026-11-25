@@ -80,6 +80,7 @@ fn git(root: &str, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>, Strin
     }
     // As `signers::git`: what the job's ref holds decides which stamps count (#324, #327), and a read never fetches.
     command.env("GIT_NO_LAZY_FETCH", "1");
+    command.env("GIT_GRAFT_FILE", crate::signers::NO_GRAFTS);
     command.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn().map_err(|error| format!("git could not be run: {}", error))?;
     if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
@@ -796,6 +797,11 @@ pub(crate) fn planner_after(bodies: &[String], accepted: &str) -> bool {
 /// never read.
 pub(crate) fn planned_again(root: &str, issue: &str, accepted: &str) -> Result<bool, String> {
     let ledger = crate::stamps::read(root, issue)?;
+    // Where the ref is not as `wb` writes it, a planner round on it cannot be told: the acceptance counts as void, and
+    // the line that names the commit is why (the review of #328).
+    if let Some(why) = ledger.broken {
+        return Err(why);
+    }
     Ok(planner_after(&ledger.bodies(), accepted))
 }
 
@@ -892,6 +898,16 @@ pub(crate) fn source_hashes(root: &str, name: &str) -> Vec<String> {
     }
 }
 
+/// The hash of each source of the plan that the commit `commit` holds, in the order they were added: none where it
+/// holds no job, or a removed one. Read by the commit's id, so that what `stamps::read` walked is what is read (the
+/// review of #328).
+pub(crate) fn source_hashes_at(root: &str, commit: &str) -> Vec<String> {
+    match read_job(root, commit, commit) {
+        Ok(job) if !is_removed(root, commit) => job.sources.iter().map(|source| source.hash.clone()).collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// `wb plan show <name>` in the repository at `root`: the plan's names, its sources, its issue's file and its state.
 pub fn show(root: &str, name: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     const COMMAND: &str = "wb plan show";
@@ -928,10 +944,12 @@ pub fn show(root: &str, name: &str, out: &mut dyn Write, err: &mut dyn Write) ->
         ));
     }
     // Where the job's ref is not as `wb` writes it, nothing on it counts (#327): said on one line.
-    match crate::stamps::not_as_written(root, name) {
-        Ok(None) => {}
-        Ok(Some(why)) => text.push_str(&format!("{}\n", why)),
+    let broken = match crate::stamps::not_as_written(root, name) {
+        Ok(broken) => broken,
         Err(why) => return crate::refusal::limit(err, COMMAND, format_args!("{}", why)),
+    };
+    if let Some(why) = &broken {
+        text.push_str(&format!("{}\n", why));
     }
     if !crate::issue::is_name(name) {
         text.push_str(&format!(
@@ -972,6 +990,8 @@ pub fn show(root: &str, name: &str, out: &mut dyn Write, err: &mut dyn Write) ->
         Err(words) => words,
         // A planner round after the acceptance voids it (the owner, 2026-11-24): its stamp is read whole, from the
         // job's ref (#236).
+        // On a job's ref that is not as `wb` writes it, the acceptance counts as void (the review of #328).
+        Ok(_) if broken.is_some() => "not accepted (nothing on the job's ref counts, as the line above says)".to_string(),
         Ok((by, time)) => match planned_again(root, name, &time) {
             Err(why) => return crate::refusal::limit(err, COMMAND, format_args!("{}", why)),
             Ok(true) => "not accepted (planned again after the acceptance)".to_string(),
@@ -1023,6 +1043,13 @@ pub fn accept(root: &str, name: &str, commit: bool, out: &mut dyn Write, err: &m
     if let Err(code) = issue_name(name, COMMAND, err) {
         return code;
     }
+    // On a job's ref that is not as `wb` writes it, an acceptance would count for nothing at once (the review of #328).
+    match crate::stamps::not_as_written(root, name) {
+        Ok(None) => {}
+        Ok(Some(why)) | Err(why) => {
+            return crate::refusal::limit(err, COMMAND, format_args!("{}. An acceptance would count for nothing. Nothing written.", why));
+        }
+    }
     crate::issue::accept_as(COMMAND, root, name, commit, out, err)
 }
 
@@ -1047,8 +1074,12 @@ pub fn accept_word(root: &str, name: &str, err: &mut dyn Write) -> Option<i32> {
     let (file, _) = files_of(name);
     let body = accepted_in_tree(root, name);
     let accepted = match plain(root, &file).map(|bytes| state_of(root, name, &plan, &bytes, body.as_deref())) {
-        // A stamp that cannot be read leaves it to `wb accept`, which refuses an acceptance that is there.
-        Some(Ok((_, time))) => !matches!(planned_again(root, name, &time), Ok(true)),
+        // A stamp that cannot be read leaves it to `wb accept`, which refuses an acceptance that is there; a job's ref
+        // that is not as `wb` writes it voids the acceptance (the review of #328).
+        Some(Ok((_, time))) => match planned_again(root, name, &time) {
+            Ok(again) => !again,
+            Err(_) => crate::stamps::not_as_written(root, name).map_or(true, |broken| broken.is_none()),
+        },
         _ => false,
     };
     if accepted {

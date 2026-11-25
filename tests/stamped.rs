@@ -737,7 +737,9 @@ fn test_WB_BUILD_48_a_signed_stamp_of_another_issue_under_an_unsigned_child_is_n
     args.extend(REST);
     let said = bench.prompt(&args);
     assert_eq!(said.code, 1, "{}", said.err);
-    assert!(said.err.contains("no review stamp on refs/watchbill/54"), "{}", said.err);
+    // Since the review of #328 a prompt of an issue whose job's ref is not as `wb` writes it is refused first.
+    assert!(said.err.contains("refs/watchbill/54 is not as wb writes it") && said.err.contains("No prompt is handed out"), "{}", said.err);
+    assert!(said.out.is_empty(), "{}", said.out);
 }
 
 #[test]

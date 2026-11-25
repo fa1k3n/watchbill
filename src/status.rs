@@ -277,7 +277,14 @@ pub(crate) fn file_of_issue(root: &str, number: &str, pattern: &str) -> Option<(
 /// Whether the acceptance `body` of the issue `number` is void (#290): a source of its plan added after it, or, where
 /// `planner` says a `[stamp] planner` counts on the job's ref, one whose time is not before it (#236). What decided it is
 /// said in `from`.
-fn voided(root: &str, number: &str, body: &str, planner: bool, from: &mut Vec<String>) -> Result<bool, String> {
+fn voided(root: &str, number: &str, body: &str, ledger: &crate::stamps::Ledger, from: &mut Vec<String>) -> Result<bool, String> {
+    // On a job's ref that is not as `wb` writes it, a planner round cannot be told, so the acceptance counts as void
+    // (the review of #328); the line of the ledger names the commit.
+    if ledger.broken.is_some() {
+        from.push(format!("the acceptance counts for nothing: nothing on {} counts", ledger.full));
+        return Ok(true);
+    }
+    let planner = ledger.has_planner();
     if crate::plan::sources_after_acceptance(root, number, body) {
         from.push(format!("{}{}: a source added after the acceptance", crate::plan::PREFIX, number));
         return Ok(true);
@@ -444,7 +451,7 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
     // An acceptance is void after a source added to the plan, or a planner round, later than it (#290).
     let accepted = match &acceptance {
         None => false,
-        Some(body) => !voided(root, number, body, ledger.has_planner(), &mut from)?,
+        Some(body) => !voided(root, number, body, &ledger, &mut from)?,
     };
     let mut acceptances: Vec<String> = acceptance.iter().filter(|_| accepted).map(|body| file_line(body)).collect();
     // The branch that is shown: the first of the issue's branches in the flow, a local one before one at `origin`.

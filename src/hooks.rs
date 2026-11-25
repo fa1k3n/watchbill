@@ -47,10 +47,10 @@ const PATH_MAX: usize = 4096;
 pub const FAILS: &str = "will fail in the view";
 
 /// The shell's builtins that run no program.
-const BUILTINS: [&str; 16] = [":", "true", "false", "exit", "echo", "printf", "test", "[", "cd", "export", "set", "unset", "read", "return", "shift", "wait"];
+pub const BUILTINS: [&str; 16] = [":", "true", "false", "exit", "echo", "printf", "test", "[", "cd", "export", "set", "unset", "read", "return", "shift", "wait"];
 
 /// The shell's words that run another program, or more than one: the program cannot be told from the first word.
-const RUNS_ANOTHER: [&str; 22] = [
+pub const RUNS_ANOTHER: [&str; 22] = [
     "exec", "eval", "source", ".", "command", "builtin", "if", "then", "else", "elif", "fi", "for", "while", "until", "do", "done", "case", "esac",
     "select", "function", "time", "coproc",
 ];

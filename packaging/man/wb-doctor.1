@@ -1,0 +1,31 @@
+.TH WB\-DOCTOR 1 "" "watchbill"
+.SH NAME
+wb\-doctor \- say what on this machine Watchbill needs
+.SH SYNOPSIS
+.nf
+\fBwb\fR doctor [\-q | \-\-quiet]
+.fi
+.SH DESCRIPTION
+.PP
+Say what on this machine Watchbill needs, one line to a check, each ok, warning or fault: bubblewrap and user namespaces, git, the tools the patterns of watchbill.yml call, the organisation's file and its default runner, each bind of that runner, each hook of the runner's settings whose program the sandbox does not hold, the command needs run once, and the ports that listen on this machine. A port is a warning, as wb cannot tell whether it has a login, and a session in a view can reach it. It reads only and asks nothing of the network. Ends with 0 when no check is a fault, 1 when one is. \-q (\-\-quiet) leaves out the ok lines, and not a warning or a fault.
+.PP
+Each line is ok: <check>: <what holds>, warning: <check>: <what to know> or fault: <check>: <what is wrong and what to do>, on standard output. The ports are read from /proc/net/tcp and /proc/net/tcp6 through a cap of 1 MiB, each as address:port, and each is named, as a session in a view shares the machine's network until the sandbox has its own. No more than 20 are named, and the rest are counted. Where the organisation's file has no default runner, the program, the binds and the hooks of a runner are not looked at. The command needs of watchbill.yml is the one command it runs, once, for watchbill.yml; where it ends with anything but 0 that is a warning, as it is for the language of the team and may refuse this file. The file is read as HEAD has it.
+.SH OPTIONS
+.TP
+.B \-q, \-\-quiet
+Leave out the ok lines; never a warning or a fault.
+.SH EXIT STATUS
+.TP
+.B 0
+No check is a fault. A warning is not a fault.
+.TP
+.B 1
+A check is a fault.
+.TP
+.B 2
+It was used wrongly, this folder is not in a git repository, or Watchbill is not set up.
+.SH SEE ALSO
+.BR wb (1) ,
+.BR wb\-check (1) ,
+.BR wb\-start (1) ,
+.BR wb\-view (1)

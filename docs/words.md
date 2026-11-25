@@ -62,7 +62,7 @@ The words `wb` and its documents use, one line each, and how they are like git. 
 | `view <path>` | `git check-ignore -v` | says the list and the line |
 | `clean` (planned for 0.12.0, #176) | `git clean`, `git worktree prune` | lists and asks first |
 | `upgrade` | `git submodule update` | shows what changes first |
-| `doctor` (planned for 0.12.0, #178) | none in git | checks the machine |
+| `doctor` | none in git | checks the machine: what Watchbill needs on it, one line to a check, and the ports that listen |
 | `help` | `git help` | |
 
 | Thing | Nearest in git | Differs in |

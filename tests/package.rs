@@ -36,10 +36,21 @@ fn test_WB_PKG_7_the_package_requires_git_core_and_no_python_and_no_crate() {
         // The name of each: the word after the tag, before any version (git-core >= 2.36, #298).
         .map(|line| line.split_whitespace().nth(1).unwrap_or_default())
         .collect();
-    // `bubblewrap` since #126 (WB-VIEW-12), from the distribution's own repositories as `git-core` is.
-    assert_eq!(requires, ["git-core", "bubblewrap"], "{:?}", requires);
+    // `bubblewrap` since #126 (WB-VIEW-12), and `ssh-keygen` by its path since #323 (WB-PKG-24), from the
+    // distribution's own repositories as `git-core` is.
+    assert_eq!(requires, ["git-core", "bubblewrap", "/usr/bin/ssh-keygen"], "{:?}", requires);
     assert!(!text.to_lowercase().contains("python"), "the spec names Python");
     assert!(!text.contains("%pyproject"), "the spec builds a Python package");
+}
+
+#[test]
+fn test_WB_PKG_24_the_package_requires_ssh_keygen() {
+    let text = spec();
+    assert!(
+        text.lines().any(|line| line.starts_with("Requires:") && line.split_whitespace().last() == Some("/usr/bin/ssh-keygen")),
+        "{}",
+        text
+    );
 }
 
 #[test]

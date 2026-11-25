@@ -260,8 +260,14 @@ impl Bench {
 /// A repository set up by `wb init --yes` (which writes `classed: []`), with the level `public`, the patterns of the
 /// issue's text and its whole comments as stand-ins, and `tracker` the stamp's copy and the comments too; committed on
 /// `main`, with `origin/HEAD` naming `main`, and the branch `issue-54` checked out. `origin` is a bare repository of the
-/// test where `remote` is true, and there is none where it is false.
+/// test where `remote` is true, and there is none where it is false. Since #323 nothing that needs a signature counts
+/// without `.watchbill/signers`: `main` holds Ada's line, with `accept` and `start`, and git signs with her key.
 fn bench(tracker: bool, remote: bool) -> Bench {
+    bench_listed(tracker, remote, true)
+}
+
+/// As `bench`, with no `.watchbill/signers` on `main` where `listed` is false: git still signs with Ada's key.
+fn bench_listed(tracker: bool, remote: bool, listed: bool) -> Bench {
     let repo = repository(None);
     let log = folder_named("log");
     let home = folder_named("home");
@@ -289,6 +295,10 @@ fn bench(tracker: bool, remote: bool) -> Bench {
     }
     fs::write(config(&bench.repo.path), yml).unwrap();
     put(&bench.repo.path, "src/brake.c", "int brake(void) { return 1; }\n");
+    if listed {
+        put(&bench.repo.path, SIGNERS, &format!("ada@example.org roles=\"accept,start\" {}\n", bench.public("ada")));
+    }
+    bench.sign_with("ada");
     bench.git(&["add", "--", ".watchbill", "src/brake.c"]);
     bench.git(&["commit", "-q", "-m", "Watchbill"]);
     bench.git(&["branch", "-M", "main"]);
@@ -378,7 +388,9 @@ fn test_WB_BUILD_45_a_second_start_from_a_clone_that_did_not_fetch_the_first_is_
     let other = folder_named("other");
     let clone = other.path.join("brake-controller");
     bench.git_in(&other.path, &["clone", "-q", "-b", "issue-54", origin.to_str().unwrap(), clone.to_str().unwrap()]);
-    for (key, value) in [("user.name", "Grace Hopper"), ("user.email", "grace@example.org"), ("commit.gpgsign", "false")] {
+    // The clone signs its stamp with Ada's key, which the list holds with `start` (#323).
+    let key = bench.key("ada");
+    for (key, value) in [("user.name", "Grace Hopper"), ("user.email", "grace@example.org"), ("commit.gpgsign", "false"), ("gpg.format", "ssh"), ("user.signingkey", key.to_str().unwrap())] {
         bench.git_in(&clone, &["config", key, value]);
     }
 
@@ -444,7 +456,7 @@ fn test_WB_BUILD_48_an_unsigned_stamp_commit_is_not_counted_and_status_says_so()
     let bench = bench(false, false);
     bench.signers("ada", "start");
     bench.sign_with("ada");
-    stamps_on_ref(&bench.repo.path, "54", &["[stamp] tester round 1\nrole: tester\n", "[stamp] review round 1\nrole: review\n"]);
+    unsigned_stamps_on_ref(&bench.repo.path, "54", &["[stamp] tester round 1\nrole: tester\n", "[stamp] review round 1\nrole: review\n"]);
 
     let said = bench.start(&["tester", "54"]);
 
@@ -518,17 +530,77 @@ fn test_WB_BUILD_50_with_the_list_the_stamp_is_signed_by_the_starters_key_and_co
     assert!(bench.message(&bench.on_ref()[0]).starts_with("[stamp] tester round 2\n"));
 }
 
-// ---- WB-BUILD-51: with no list the stamp is unsigned and counts ----
+// ---- WB-TASK-56, WB-TASK-58 and WB-TASK-59: with no list, no stamp is written and none counts (#323) ----
 
 #[test]
-fn test_WB_BUILD_51_with_no_list_the_stamp_is_unsigned_counts_and_status_says_no_signature_is_checked() {
-    let bench = bench(false, false);
-    ok(&bench.start(&["tester", "54"]));
-    let raw = bench.git(&["cat-file", "commit", &bench.on_ref()[0]]);
-    assert!(!raw.contains("gpgsig"), "{}", raw);
+fn test_WB_TASK_56_with_no_list_the_start_is_refused_with_1_writes_nothing_and_names_the_file_and_how_to_add_a_key() {
+    // Git signs with Ada's key: only the list is missing.
+    let bench = bench_listed(true, false, false);
+    let before = bench.git(&["for-each-ref"]);
+
+    let said = bench.start(&["tester", "54"]);
+
+    assert_eq!(said.code, 1, "{}", said.err);
+    assert!(said.err.contains("no .watchbill/signers on origin/main"), "{}", said.err);
+    assert!(said.err.contains("roles=\"start\""), "{}", said.err);
+    assert_eq!(bench.git(&["for-each-ref"]), before);
+    assert!(bench.on_ref().is_empty(), "{:?}", bench.on_ref());
+    assert!(bench.calls().iter().all(|call| !call.starts_with("post ") && call != "start"), "{:?}", bench.calls());
+}
+
+#[test]
+fn test_WB_TASK_56_with_no_list_revert_of_an_issue_is_refused_with_1_and_writes_no_marker() {
+    let bench = bench_listed(true, false, false);
+    unsigned_stamps_on_ref(&bench.repo.path, "54", &["[stamp] review round 1\nrole: review\n"]);
+    let before = bench.git(&["for-each-ref"]);
+
+    let run = bench.wb(&["revert", "54", "review"]);
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    assert!(text(&run.stderr).contains("no .watchbill/signers on origin/main"), "{}", text(&run.stderr));
+    assert!(text(&run.stderr).contains("roles=\"start\""), "{}", text(&run.stderr));
+    assert_eq!(bench.git(&["for-each-ref"]), before);
+    assert!(bench.posted().is_none());
+}
+
+#[test]
+fn test_WB_TASK_58_with_no_list_a_stamp_commit_signed_or_not_counts_for_nothing() {
+    let bench = bench_listed(false, false, false);
+    // One stamp signed by Ada's key, which no list holds, and one unsigned after it.
+    let tree = bench.git(&["write-tree"]).trim().to_string();
+    let signed = bench.git(&["commit-tree", "-S", "-m", "[stamp] tester round 1\nissue: 54\nrole: tester", &tree]).trim().to_string();
+    bench.git(&["update-ref", JOB, &signed]);
+    unsigned_stamps_on_ref(&bench.repo.path, "54", &["[stamp] review round 1\nrole: review\n"]);
+
     let status = bench.status();
-    assert!(status.contains("Tested:"), "{}", status);
-    assert!(status.contains("no .watchbill/signers on origin/main: no signature is checked"), "{}", status);
+    assert!(!status.contains("Tested:") && !status.contains("Reviewed:"), "{}", status);
+    assert!(status.contains("[stamp] tester round 1  (on refs/watchbill/54, not counted"), "{}", status);
+    assert!(status.contains("[stamp] review round 1  (on refs/watchbill/54, not counted"), "{}", status);
+    assert_eq!(status.matches("no .watchbill/signers on origin/main: nothing is signed, so nothing counts").count(), 1, "{}", status);
+
+    // No round and no next role comes from them: a fix finds no review stamp.
+    let mut args = vec!["fix", "54"];
+    args.extend(REST);
+    let said = bench.prompt(&args);
+    assert_eq!(said.code, 1, "{}", said.err);
+    assert!(said.err.contains("no review stamp on refs/watchbill/54"), "{}", said.err);
+}
+
+#[test]
+fn test_WB_TASK_58_with_no_list_a_marker_takes_nothing_back() {
+    let bench = bench(false, false);
+    stamps_on_ref(&bench.repo.path, "54", &["[stamp] review round 1\nrole: review\n"]);
+    let run = bench.wb(&["revert", "54", "review"]);
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    // With the list gone from `main`, the stamp and the marker both count for nothing.
+    bench.git(&["checkout", "-q", "main"]);
+    bench.git(&["rm", "-q", "--", SIGNERS]);
+    bench.git(&["commit", "-q", "-m", "No keys"]);
+    bench.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    bench.git(&["checkout", "-q", "issue-54"]);
+    let status = bench.status();
+    assert!(status.contains("[revert] review round 1  (on refs/watchbill/54, not counted"), "{}", status);
+    assert!(status.contains("[stamp] review round 1  (on refs/watchbill/54, not counted"), "{}", status);
 }
 
 // ---- WB-BUILD-52 and WB-BUILD-53: refused before anything is written ----
@@ -537,6 +609,7 @@ fn test_WB_BUILD_51_with_no_list_the_stamp_is_unsigned_counts_and_status_says_no
 fn test_WB_BUILD_52_with_the_list_and_no_signing_key_the_start_is_refused_with_1_naming_the_setting() {
     let bench = bench(true, false);
     bench.signers("ada", "start");
+    bench.git(&["config", "--unset", "user.signingkey"]);
     let before = bench.git(&["for-each-ref"]);
 
     let said = bench.start(&["tester", "54"]);

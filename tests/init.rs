@@ -1152,3 +1152,25 @@ fn test_WB_PUSH_24_a_github_and_a_gitlab_origin_get_change_text_and_another_serv
     );
     no_pattern(&["change_text"]);
 }
+
+// ---- WB-TASK-61: `wb init` writes no list, and says it is needed (#323) ----
+
+#[test]
+fn test_WB_TASK_61_init_writes_no_list_and_its_last_lines_name_it_and_how_to_write_a_line() {
+    let folder = repository(None);
+
+    let run = wb(&folder.path, &["init", "--yes"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(!folder.path.join(".watchbill/signers").exists());
+    let out = text(&run.stdout);
+    let lines: Vec<&str> = out.lines().collect();
+    let last = lines[lines.len().saturating_sub(4)..].join("\n");
+    assert!(last.contains(".watchbill/signers"), "{}", out);
+    assert!(last.contains("before the first acceptance"), "{}", out);
+    assert!(last.contains("<identity> roles=\"accept,start\" <key type> <key>"), "{}", out);
+    // Said with -q too: it is what the person must do, not a line that only informs.
+    let folder = repository(None);
+    let quiet = text(&wb(&folder.path, &["init", "--yes", "-q"], "").stdout);
+    assert!(quiet.contains(".watchbill/signers"), "{}", quiet);
+}

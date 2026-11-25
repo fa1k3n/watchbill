@@ -27,3 +27,4 @@ How `wb` is installed and what it needs. What the package carries of the revisio
 | WB-PKG-21 | The release workflow shall install the packages of the build with the documents kept (`--setopt=tsflags=`), as the container images of Fedora leave them out and a crate includes one. Issue: #120. | T | Implemented |
 | WB-PKG-22 | The RPM shall install `packaging/wb.bash` as `/usr/share/bash-completion/completions/wb`, with a link `watchbill` beside it, shall own the two folders, and shall not require `bash-completion`. Issue: #220. | T | Implemented |
 | WB-PKG-23 | The RPM shall install `wb.1` and the page of each built command under `%{_mandir}/man1`, and own them, with no tool fetched to make them. Issue: #182. | T | Implemented |
+| WB-PKG-24 | The RPM shall require `/usr/bin/ssh-keygen`, which `wb` checks every signature with, by its path, so that a later `git-core` that no longer brings it in does not take it away. Issue: #323. | T | Draft |

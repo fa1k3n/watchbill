@@ -802,20 +802,162 @@ fn test_WB_TASK_36_a_replace_of_a_later_commit_by_the_acceptance_of_the_work_is_
     assert!(!err_of(&run).contains("is done"), "{}", err_of(&run));
 }
 
-// ---- WB-TASK-37: no list, no check ----
+// ---- WB-TASK-56 to WB-TASK-62: no list, nothing counts (#323) ----
+
+/// The line `wb status <issue>` says where the default branch holds no list.
+const NOTHING_COUNTS: &str = "no .watchbill/signers on main: nothing is signed, so nothing counts";
+
+/// An acceptance of 54 written by hand, as `wb plan accept` writes `.accepted`, with no tag, committed on the branch.
+fn accepted_by_hand(bench: &Bench) {
+    let hash = hash_bytes(&fs::read(bench.at(YML)).unwrap());
+    bench.put(ACCEPTED, &format!("sha256: {}\nby: Ada Lovelace <ada@example.org>\ntime: 2026-11-25T10:00:00Z\n", hash));
+    bench.git(&["add", "--", ACCEPTED]);
+    bench.git(&["commit", "-q", "-m", "The acceptance (54), by hand"]);
+}
+
+/// `.watchbill/signers` taken out of `main`, and the branch of the job brought back.
+fn no_list_on_main(bench: &Bench) {
+    let back = bench.git(&["symbolic-ref", "--short", "HEAD"]).trim().to_string();
+    bench.git(&["checkout", "-q", "main"]);
+    bench.git(&["rm", "-q", "--", SIGNERS]);
+    bench.git(&["commit", "-q", "-m", "No keys"]);
+    bench.git(&["checkout", "-q", &back]);
+}
 
 #[test]
-fn test_WB_TASK_37_with_no_list_the_acceptance_is_read_from_accepted_and_status_says_no_signature_is_checked() {
+fn test_WB_TASK_56_with_no_list_plan_accept_ends_with_1_writes_nothing_and_names_the_file_and_how_to_add_a_key() {
+    // Git signs with Ada's key: only the list is missing.
     let bench = bench(None);
     bench.job();
-    bench.git(&["config", "--unset", "user.signingkey"]);
-    bench.accept();
-    assert!(bench.at(ACCEPTED).is_file());
+    let before = snapshot(&bench);
+    let run = bench.wb(&["plan", "accept", "54"]);
+    assert_eq!(code(&run), Some(1), "{}", out_of(&run));
+    let err = err_of(&run);
+    assert!(err.contains(".watchbill/signers"), "{}", err);
+    assert!(err.contains("roles=\"accept\""), "{}", err);
+    assert!(!bench.at(ACCEPTED).exists());
+    assert_eq!(snapshot(&bench), before);
     assert!(bench.refs("refs/tags/").is_empty());
+    let run = bench.wb(&["plan", "accept", "54", "--no-commit"]);
+    assert_eq!(code(&run), Some(1), "{}", out_of(&run));
+    assert!(!bench.at(ACCEPTED).exists());
+    assert_eq!(snapshot(&bench), before);
+}
+
+#[test]
+fn test_WB_TASK_56_with_no_list_accept_of_the_work_ends_with_1_writes_nothing_and_names_the_file() {
+    let bench = bench(None);
+    bench.job();
+    accepted_by_hand(&bench);
+    bench.put("src/work.c", "int work;\n");
+    bench.git(&["add", "--", "src/work.c"]);
+    bench.git(&["commit", "-q", "-m", "The work"]);
+    bench.comments(&["[stamp] tester round 1", "[stamp] build round 1"]);
+    let before = snapshot(&bench);
+    let run = bench.wb(&["accept", "54"]);
+    assert_eq!(code(&run), Some(1), "{}", out_of(&run));
+    let err = err_of(&run);
+    assert!(err.contains(".watchbill/signers"), "{}", err);
+    assert!(err.contains("roles=\"accept\""), "{}", err);
+    assert!(!bench.at(RECORD).exists());
+    assert_eq!(snapshot(&bench), before);
+    assert!(bench.refs("refs/tags/").is_empty());
+}
+
+#[test]
+fn test_WB_TASK_57_an_accepted_written_by_hand_with_no_tag_counts_for_nothing_with_no_list() {
+    let bench = bench(None);
+    bench.job();
+    accepted_by_hand(&bench);
     let status = bench.status();
-    assert!(status.starts_with("Accepted:\n"), "{}", status);
-    assert!(status.contains("no .watchbill/signers on main: no signature is checked"), "{}", status);
+    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.contains(NOTHING_COUNTS), "{}", status);
+    assert!(!status.contains("accepted: the issue's file"), "{}", status);
+    let run = bench.prompt("tester");
+    assert_eq!(code(&run), Some(1), "{}", out_of(&run));
+    assert!(out_of(&run).is_empty(), "{}", out_of(&run));
+    assert!(err_of(&run).contains(".watchbill/signers"), "{}", err_of(&run));
+}
+
+#[test]
+fn test_WB_TASK_57_a_signed_acceptance_counts_for_nothing_once_the_list_is_gone_from_main() {
+    let bench = accepted();
+    assert!(bench.status().starts_with("Accepted:\n"), "{}", bench.status());
+    no_list_on_main(&bench);
+    let status = bench.status();
+    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.contains(NOTHING_COUNTS), "{}", status);
+    assert_eq!(code(&bench.prompt("tester")), Some(1));
+}
+
+#[test]
+fn test_WB_TASK_58_a_finished_with_no_list_counts_for_nothing_and_the_job_is_not_done() {
+    let bench = accepted();
+    bench.put("src/work.c", "int work;\n");
+    bench.git(&["add", "--", "src/work.c"]);
+    bench.git(&["commit", "-q", "-m", "The work"]);
+    bench.comments(&["[stamp] tester round 1", "[stamp] build round 1"]);
+    let run = bench.wb(&["accept", "54"]);
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    assert!(bench.status().starts_with("Done:\n"), "{}", bench.status());
+    no_list_on_main(&bench);
+    let status = bench.status();
+    assert!(!status.contains("Done:"), "{}", status);
+    assert!(!status.contains("accepted: "), "{}", status);
+    assert!(status.contains(NOTHING_COUNTS), "{}", status);
+    // The list of the issues in the flow lists it again.
+    let all = text(&bench.wb(&["status"]).stdout);
+    assert!(all.contains("  54  issue-54-work"), "{}", all);
+}
+
+#[test]
+fn test_WB_TASK_59_status_of_an_issue_says_the_line_once_for_an_acceptance_and_stamps_with_no_list() {
+    let bench = bench(None);
+    bench.job();
+    accepted_by_hand(&bench);
+    // Two stamps on the job's ref, signed by Ada's key, which no list holds.
+    bench.comments(&["[stamp] tester round 1", "[stamp] build round 1"]);
+    let status = bench.status();
+    assert_eq!(status.matches(NOTHING_COUNTS).count(), 1, "{}", status);
+    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.contains("[stamp] tester round 1  (on refs/watchbill/54, not counted"), "{}", status);
+    assert!(status.contains("[stamp] build round 1  (on refs/watchbill/54, not counted"), "{}", status);
+}
+
+#[test]
+fn test_WB_TASK_60_check_with_no_list_in_the_working_tree_ends_with_1_naming_it() {
+    let bench = bench(None);
+    let run = bench.wb(&["check"]);
+    assert_eq!(code(&run), Some(1), "{}{}", out_of(&run), err_of(&run));
+    assert!(out_of(&run).contains("missing: .watchbill/signers"), "{}", out_of(&run));
+    let bench = ada_accepts();
+    let run = bench.wb(&["check"]);
+    assert_eq!(code(&run), Some(0), "{}{}", out_of(&run), err_of(&run));
+}
+
+#[test]
+fn test_WB_TASK_62_with_no_default_branch_plan_accept_is_refused_as_with_no_list() {
+    let bench = ada_accepts();
+    bench.job();
+    // The list is on the branch that was `main`; under another name it is no default branch.
+    bench.git(&["branch", "-m", "main", "trunk"]);
+    let before = snapshot(&bench);
+    let run = bench.wb(&["plan", "accept", "54"]);
+    assert_eq!(code(&run), Some(1), "{}", out_of(&run));
+    assert!(err_of(&run).contains("no default branch"), "{}", err_of(&run));
+    assert!(err_of(&run).contains(".watchbill/signers"), "{}", err_of(&run));
+    assert!(!bench.at(ACCEPTED).exists());
+    assert_eq!(snapshot(&bench), before);
+}
+
+#[test]
+fn test_WB_TASK_62_with_no_default_branch_a_signed_acceptance_counts_for_nothing() {
+    let bench = accepted();
     assert_eq!(code(&bench.prompt("tester")), Some(0));
+    bench.git(&["branch", "-m", "main", "trunk"]);
+    let run = bench.prompt("tester");
+    assert_eq!(code(&run), Some(1), "{}", out_of(&run));
+    assert!(err_of(&run).contains("no default branch"), "{}", err_of(&run));
 }
 
 // ---- WB-TASK-38: an edit after the tag ----

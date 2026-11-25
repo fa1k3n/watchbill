@@ -824,6 +824,16 @@ pub(crate) fn source_hashes(root: &str, name: &str) -> Vec<String> {
     }
 }
 
+/// The hash of each source of the plan of `name` as `commit` holds it, in the order they were added: what a stamp that
+/// follows `commit` on the job's ref names as its job (#324). None where `commit` holds no job, or its plan is removed.
+pub(crate) fn source_hashes_at(root: &str, name: &str, commit: &str) -> Vec<String> {
+    let full = format!("{}{}", PREFIX, name);
+    match read_job(root, commit, &full) {
+        Ok(job) if !is_removed(root, commit) => job.sources.iter().map(|source| source.hash.clone()).collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// `wb plan show <name>` in the repository at `root`: the plan's names, its sources, its issue's file and its state.
 pub fn show(root: &str, name: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     const COMMAND: &str = "wb plan show";

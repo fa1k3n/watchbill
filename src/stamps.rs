@@ -5,7 +5,9 @@
 //! list as `view` and the issue's file as `issue.yml`. A marker of `wb revert` is a commit of the same kind whose first
 //! line is `[revert] <role> round <n>`, and whose tree is the one before it. Each is signed by the starter, and counts
 //! only where its signature checks against a key of `.watchbill/signers` of the default branch with the role `start`.
-//! Where the default branch holds no list, none counts and none is written (#323).
+//! Where the default branch holds no list, none counts and none is written (#323). Each also holds one line
+//! `issue: <name>`, one `base:` that is a commit this repository has, and the `job:` lines of the plan that the commit
+//! before it holds: one signed in another repository and put on this ref is "a stamp of another repository" (#324).
 //!
 //! `wb start` pushes the ref with no force before the session starts: a push that is not a fast-forward is refused by
 //! the remote, so two starts of one role cannot both go on. The rounds are counted from these commits, never from a
@@ -210,7 +212,6 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
     let mut read = objects(root, &commits)?;
     // In the order of the ref, oldest first.
     read.sort_by_key(|(object, _)| commits.iter().position(|commit| commit == object));
-    let line = issue_line(name);
     for (commit, raw) in read {
         // A commit over the cap is not read, and so is no stamp: it is said, not left out unseen.
         let raw = match raw {
@@ -242,19 +243,62 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
                 Err(why) => Err(format!("its signature could not be checked: {}", why)),
             },
         };
+        let parent = commits.iter().position(|held| *held == commit).and_then(|at| at.checked_sub(1)).map(|at| commits[at].as_str());
         let counts = signed.and_then(|by| {
-            if message.lines().any(|held| held.trim_end_matches('\r') == line) {
-                return Ok(by);
-            }
-            let named = message.lines().find_map(|held| held.strip_prefix("issue:")).map(str::trim).filter(|named| !named.is_empty());
-            Err(match named {
-                Some(other) => format!("a stamp of another job: it names issue {}, not {}", crate::issue::shown(other), crate::issue::shown(name)),
-                None => format!("a stamp of another job: it names no issue, and this is the ref of {}", crate::issue::shown(name)),
-            })
+            of_this_issue(&message, name)?;
+            of_this_repository(root, &message, name, parent)?;
+            Ok(by)
         });
         ledger.entries.push(Entry { commit, first, message, counts });
     }
     Ok(ledger)
+}
+
+/// Checks that a message names the issue of the ref it is on, in exactly one line `issue: <name>` (WB-BUILD-161): a
+/// signed stamp of another job, put under a commit of this ref, is not a stamp of this one.
+fn of_this_issue(message: &str, name: &str) -> Result<(), String> {
+    let named: Vec<&str> = message.lines().filter_map(|held| held.strip_prefix("issue:")).collect();
+    let shown_name = crate::issue::shown(name);
+    match named.as_slice() {
+        [] => Err(format!("a stamp of another job: it names no issue, and this is the ref of {}", shown_name)),
+        [one] if *one == format!(" {}", name) => Ok(()),
+        [one] if one.trim() == name => Err(format!("a stamp with no clear issue: its line is not exactly `{}` (no space around the number)", issue_line(name))),
+        [one] => Err(format!("a stamp of another job: it names issue {}, not {}", crate::issue::shown(one.trim()), shown_name)),
+        _ => Err(format!("a stamp with no clear issue: it holds more than one line `issue:`, and only `{}` is one of this ref", issue_line(name))),
+    }
+}
+
+/// Checks that a message was written for this repository (WB-BUILD-163 to 165): its one `base:` is a commit this
+/// repository has, and its `job:` lines are the hashes of the plan that `parent`, the commit before it on the ref, holds
+/// (`job: none` where it holds none). A genuine stamp of another repository, put on this ref, fails one of the two.
+fn of_this_repository(root: &str, message: &str, name: &str, parent: Option<&str>) -> Result<(), String> {
+    const OTHER: &str = "a stamp of another repository";
+    let bases: Vec<&str> = message.lines().filter_map(|held| held.strip_prefix("base:")).collect();
+    let base = match bases.as_slice() {
+        [one] => one.strip_prefix(' ').unwrap_or(one),
+        [] => return Err(format!("{}: it holds no line `base:`", OTHER)),
+        _ => return Err(format!("{}: it holds more than one line `base:`", OTHER)),
+    };
+    let hash = !base.is_empty() && matches!(base.len(), 40 | 64) && base.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+    if !hash || git_line(root, &["cat-file", "-e", &format!("{}^{{commit}}", base)], None).is_err() {
+        return Err(format!("{}: its base {} is not a commit of this repository", OTHER, crate::issue::shown(base)));
+    }
+    let held: Vec<&str> = message.lines().filter_map(|line| line.strip_prefix("job:")).map(|rest| rest.strip_prefix(' ').unwrap_or(rest)).collect();
+    let mut expected = parent.map(|commit| crate::plan::source_hashes_at(root, name, commit)).unwrap_or_default();
+    if expected.is_empty() {
+        expected.push("none".to_string());
+    }
+    if held != expected {
+        return Err(format!("{}: its lines `job:` are not those of the job on {}", OTHER, full(name)));
+    }
+    Ok(())
+}
+
+/// The line `base:` that a stamp or a marker holds: the commit `HEAD` is at, read with no replace ref; empty where there
+/// is none, and then no stamp counts.
+pub fn base_line(root: &str) -> String {
+    let base = signers::git(root, &["rev-parse", "--verify", "-q", "HEAD^{commit}"], None).map(|printed| String::from_utf8_lossy(&printed).trim().to_string()).unwrap_or_default();
+    if base.is_empty() { "base:\n".to_string() } else { format!("base: {}\n", base) }
 }
 
 /// How the stamp is signed, as worked out before anything is written: by the key git signs with, which the list holds

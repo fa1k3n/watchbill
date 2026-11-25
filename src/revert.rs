@@ -140,10 +140,10 @@ fn on_ref(root: &str, issue: &str, role: &str, round: Option<u64>, err: &mut dyn
             format!("a later planner took the issue back ({}), so the stamp `{} round {}` before it no longer counts and is not reverted. Nothing is posted.", ledger.full, role, n),
         );
     }
-    // The marker names its issue and its job (the review of #322): on the ref of another issue it counts for nothing.
+    // The marker names its issue, its job and its base (the review of #322, #324): on the ref of another issue it counts for nothing.
     let jobs = crate::plan::source_hashes(root, issue);
     let job_lines: String = if jobs.is_empty() { "job: none\n".to_string() } else { jobs.iter().map(|job| format!("job: {}\n", job)).collect() };
-    let marker = format!("[revert] {} round {}\n{}\n{}", role, n, crate::stamps::issue_line(issue), job_lines);
+    let marker = format!("[revert] {} round {}\n{}\n{}{}", role, n, crate::stamps::issue_line(issue), job_lines, crate::stamps::base_line(root));
     let _ = write!(err, "wb revert: the marker:\n{}From the stamp `{} round {}` up to this marker, no stamp, question or answer counts. Nothing is deleted.\n", marker, role, n);
     if let Err(why) = crate::stamps::write("wb revert", root, issue, &marker, &crate::stamps::Held::Marker, &signing, err) {
         return limit(err, format!("{}.", why));

@@ -283,7 +283,7 @@ fn of_this_repository(root: &str, message: &str, sources: &[String]) -> Result<(
         _ => return Err(format!("{}: it holds more than one line `base:`", OTHER)),
     };
     let hash = !base.is_empty() && matches!(base.len(), 40 | 64) && base.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
-    if !hash || git_line(root, &["cat-file", "-e", &format!("{}^{{commit}}", base)], None).is_err() {
+    if !hash || git_line(root, &["cat-file", "-t", base], None).map_or(true, |kind| kind != "commit") {
         return Err(format!("{}: its base {} is not a commit of this repository", OTHER, crate::issue::shown(base)));
     }
     let held: Vec<&str> = message.lines().filter_map(|line| line.strip_prefix("job:")).map(|rest| rest.strip_prefix(' ').unwrap_or(rest)).collect();

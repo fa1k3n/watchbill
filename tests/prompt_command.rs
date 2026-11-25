@@ -18,8 +18,9 @@ fn package() -> PathBuf {
 }
 
 /// The issues the tests of this file hand a role out for. Each has a file with no requirement, accepted
-/// and committed (#97), as no role is handed out without.
-const ISSUES: [&str; 9] = ["1", "7", "12", "42", "54", "T-1", "T-1.a_b", "-x", "a..b"];
+/// and committed (#97), as no role is handed out without. `a..b` has none since #323: an acceptance is a signed tag
+/// (#235), which git cannot name for it, so it cannot be accepted; with no file it is handed out as it is (WB-TASK-17).
+const ISSUES: [&str; 8] = ["1", "7", "12", "42", "54", "T-1", "T-1.a_b", "-x"];
 
 /// A repository set up by `wb init --yes`, with the files of `ISSUES` accepted and committed.
 fn set_up() -> Folder {
@@ -1576,9 +1577,21 @@ fn test_WB_PROMPT_68_classed_touched_says_it_cannot_be_told_and_why_where_the_di
     // No default branch to compare with.
     let folder = classed_repository(Some("classed: [src/safety]"), &["src/safety/limits.rs"]);
     git(&folder.path, &["branch", "-m", "main", "trunk"]);
+    // Since #323 no default branch is as no `.watchbill/signers`: the acceptance of T-1 counts for nothing.
+    let run = wb(&folder.path, &review_words(), "");
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
+    assert!(text(&run.stderr).contains("no default branch"), "{}", text(&run.stderr));
+    // An issue with no file needs no acceptance (WB-TASK-17): T-1's file taken out, the review is handed out.
+    git(&folder.path, &["rm", "-q", "--", ".watchbill/issues/T-1.yml", ".watchbill/issues/T-1.accepted"]);
+    git(&folder.path, &["commit", "-q", "-m", "No file of T-1"]);
     let run = wb(&folder.path, &review_words(), "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert_review(&run, "src/safety", "cannot be told: no default branch to compare with");
+    // The review as before, without the parts that come of the issue's file: the interface and the lists.
+    let told = "cannot be told: no default branch to compare with";
+    let printed = text(&run.stdout);
+    assert!(printed.contains("\n  src/safety\n") && printed.contains(&format!("\n  {}\n", told)), "{}", printed);
+    let full = review_filled("src/safety", told);
+    assert_eq!(printed, full[..full.find("\n## The interface").unwrap()]);
 }
 
 #[test]

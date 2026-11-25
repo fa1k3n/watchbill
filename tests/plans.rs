@@ -95,6 +95,8 @@ fn bench() -> Bench {
     git(&repo.path, &["branch", "-M", "main"]);
     git(&repo.path, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
     git(&repo.path, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+    // Nothing that needs a signature counts without `.watchbill/signers` on the default branch (#323).
+    signing(&repo.path);
     let org_folder = folder_named("org");
     let org = org_folder.path.join("organisation.yml");
     fs::write(&org, ORG).unwrap();

@@ -11,8 +11,9 @@ License:        Apache-2.0
 URL:            https://github.com/fa1k3n/watchbill
 Source:         %{name}-%{version}.tar.gz
 
-# The tests make git repositories.
+# The tests make git repositories, and SSH keys of their own to sign with (#323).
 BuildRequires:  git-core
+BuildRequires:  /usr/bin/ssh-keygen
 # The Rust of the distribution, and the macros that build with it and take every crate
 # from the distribution's packages. On Enterprise Linux 9 the macros and the crates are in
 # EPEL, so the build needs EPEL there. The macros ask for the crates of Cargo.toml when they
@@ -35,6 +36,9 @@ Requires:       git-core >= 2.36
 # build needs none: a test that needs a sandbox checks first that bubblewrap can make one, and a
 # build root often cannot.
 Requires:       bubblewrap
+# `wb` checks every signature of an acceptance and a stamp with ssh-keygen, run by its name (#235, #323). The
+# file is owned by openssh on Fedora and Enterprise Linux 9, and came until now only through git-core.
+Requires:       /usr/bin/ssh-keygen
 
 %description
 Watchbill is a harness for AI agents in embedded software development, deployed

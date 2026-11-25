@@ -266,7 +266,8 @@ fn bench(tracker: bool, remote: bool) -> Bench {
     bench_listed(tracker, remote, true)
 }
 
-/// As `bench`, with no `.watchbill/signers` on `main` where `listed` is false: git still signs with Ada's key.
+/// As `bench`, with no `.watchbill/signers` on `main` where `listed` is false: the list with Ada's line is then on the
+/// branch `issue-54` alone, where it is not trusted, so that `wb check` of the checkout holds. Git signs with Ada's key.
 fn bench_listed(tracker: bool, remote: bool, listed: bool) -> Bench {
     let repo = repository(None);
     let log = folder_named("log");
@@ -305,6 +306,11 @@ fn bench_listed(tracker: bool, remote: bool, listed: bool) -> Bench {
     bench.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
     bench.git(&["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
     bench.git(&["checkout", "-q", "-b", "issue-54"]);
+    if !listed {
+        put(&bench.repo.path, SIGNERS, &format!("ada@example.org roles=\"accept,start\" {}\n", bench.public("ada")));
+        bench.git(&["add", "--", SIGNERS]);
+        bench.git(&["commit", "-q", "-m", "The project's keys, on the branch alone"]);
+    }
     if !remote {
         return bench;
     }
@@ -534,7 +540,7 @@ fn test_WB_BUILD_50_with_the_list_the_stamp_is_signed_by_the_starters_key_and_co
 
 #[test]
 fn test_WB_TASK_56_with_no_list_the_start_is_refused_with_1_writes_nothing_and_names_the_file_and_how_to_add_a_key() {
-    // Git signs with Ada's key: only the list is missing.
+    // Git signs with Ada's key: only the list on the default branch is missing. The branch's own is not trusted.
     let bench = bench_listed(true, false, false);
     let before = bench.git(&["for-each-ref"]);
 
@@ -545,6 +551,16 @@ fn test_WB_TASK_56_with_no_list_the_start_is_refused_with_1_writes_nothing_and_n
     assert!(said.err.contains("roles=\"start\""), "{}", said.err);
     assert_eq!(bench.git(&["for-each-ref"]), before);
     assert!(bench.on_ref().is_empty(), "{:?}", bench.on_ref());
+    assert!(bench.calls().iter().all(|call| !call.starts_with("post ") && call != "start"), "{:?}", bench.calls());
+
+    // With the list in no tree at all, the check of `wb check` refuses it first, naming the list.
+    bench.git(&["rm", "-q", "--", SIGNERS]);
+    bench.git(&["commit", "-q", "-m", "No keys"]);
+    let before = bench.git(&["for-each-ref"]);
+    let said = bench.start(&["tester", "54"]);
+    assert_eq!(said.code, 1, "{}", said.err);
+    assert!(said.err.contains("missing: .watchbill/signers"), "{}", said.err);
+    assert_eq!(bench.git(&["for-each-ref"]), before);
     assert!(bench.calls().iter().all(|call| !call.starts_with("post ") && call != "start"), "{:?}", bench.calls());
 }
 

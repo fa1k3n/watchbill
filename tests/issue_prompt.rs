@@ -218,6 +218,8 @@ fn test_WB_PROMPT_27_a_file_with_a_fault_of_form_and_a_hand_written_acceptance_i
     put(&folder.path, ".watchbill/issues/54.yml", &broken);
     let body = format!("sha256: {}\nby: x <y>\ntime: 2026-11-18T10:00:00Z\n", hash_bytes(broken.as_bytes()));
     put(&folder.path, ".watchbill/issues/54.accepted", &body);
+    // Since #323 an acceptance counts only by its signed tag: the hand-written one is signed, so the form is reached.
+    sign_acceptance(&folder.path, "54");
     let run = prompt(&folder.path, "build", &[]);
     assert_eq!(code(&run), Some(1));
     assert_eq!(text(&run.stdout), "");

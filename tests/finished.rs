@@ -36,6 +36,8 @@ fn set_up() -> Folder {
     git(&folder.path, &["add", "--", ".watchbill", "src/brake.c"]);
     git(&folder.path, &["commit", "-q", "-m", "Set up"]);
     git(&folder.path, &["branch", "-M", "main"]);
+    // An acceptance and a stamp count only against `.watchbill/signers` of `main` (#323).
+    signing(&folder.path);
     folder
 }
 
@@ -232,6 +234,8 @@ fn test_WB_TASK_49_off_the_branch_of_the_issue_or_with_no_issue_comments_it_ends
     git(&bare.path, &["add", "--", ".watchbill", "src/brake.c"]);
     git(&bare.path, &["commit", "-q", "-m", "Set up"]);
     git(&bare.path, &["branch", "-M", "main"]);
+    // An acceptance is refused without `.watchbill/signers` on `main` (#323).
+    signing(&bare.path);
     job(&bare.path, &BUILT);
     let run = wb(&bare.path, &["accept", "54"], "");
     assert_eq!(code(&run), Some(1), "{}", out_of(&run));

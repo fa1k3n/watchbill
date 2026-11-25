@@ -34,6 +34,8 @@ fn set_up_with(patterns: &str) -> Folder {
     file.write_all(patterns.as_bytes()).unwrap();
     git(&folder.path, &["add", "--", ".watchbill"]);
     git(&folder.path, &["commit", "-q", "-m", "Set up"]);
+    // An acceptance and a stamp count only against `.watchbill/signers` of the default branch (#323).
+    signing(&folder.path);
     folder
 }
 
@@ -387,7 +389,8 @@ fn test_WB_STATUS_24_one_issue_prints_the_heading_worked_out_from_and_its_lines_
     open(&folder.path, &["1"]);
     comments(&folder.path, "1", &["[stamp] tester round 1"]);
     let (out, _) = stdout(&folder.path, &["status", "1"]);
-    assert_eq!(out, "Tested:\n  1  issue-1-work\n\nWorked out from:\n  refs/heads/issue-1-work: no .watchbill/issues/1.yml\n  refs/remotes/origin/issue-1-work: no .watchbill/issues/1.yml\n  [stamp] tester round 1  (on refs/watchbill/1)\n  the stamps of refs/watchbill/1 count unsigned: no .watchbill/signers on master: no signature is checked\n");
+    // Since #323 a stamp counts only signed by a key of `.watchbill/signers`, and the line says by whom.
+    assert_eq!(out, "Tested:\n  1  issue-1-work\n\nWorked out from:\n  refs/heads/issue-1-work: no .watchbill/issues/1.yml\n  refs/remotes/origin/issue-1-work: no .watchbill/issues/1.yml\n  [stamp] tester round 1  (on refs/watchbill/1, signed by ada@example.org)\n");
     // The full list has no such heading.
     let (out, _) = stdout(&folder.path, &["status"]);
     assert!(!out.contains("Worked out from"), "{}", out);

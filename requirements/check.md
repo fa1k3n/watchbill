@@ -4,7 +4,7 @@ Whether a repository still is at the revision it is pinned to, and whether the i
 
 | ID | Requirement | Ver | Status |
 |---|---|---|---|
-| WB-CHECK-1 | `wb check` shall end with 0 when the files under `.watchbill/revision/`, the manifest, the `revision:` line and the installed `wb` agree. Issue: #8. | T | Implemented |
+| WB-CHECK-1 | `wb check` shall end with 0 when the files under `.watchbill/revision/`, the manifest, the `revision:` line and the installed `wb` agree, and `.watchbill/signers` of the working tree is there and holds its form (WB-TASK-60, #323). Issue: #8, #323. | T | Implemented |
 | WB-CHECK-2 | `wb check` shall end with 1 and name the file when a file under `.watchbill/revision/` does not have the hash its line of the manifest says, or is a folder or another thing that is not a plain file. Issue: #8. | T | Implemented |
 | WB-CHECK-3 | `wb check` shall end with 1 and name the file when a file of the manifest is missing. Issue: #8. | T | Implemented |
 | WB-CHECK-4 | `wb check` shall end with 1 and name the file when a file under `.watchbill/revision/` has no line in the manifest, and name a folder the manifest does not account for, even an empty one. Issue: #8. | T | Implemented |

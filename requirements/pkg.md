@@ -10,7 +10,7 @@ How `wb` is installed and what it needs. What the package carries of the revisio
 | WB-PKG-4 | The package shall give the two commands `wb` and `watchbill`, the same program. Issue: #2. | D | Implemented |
 | WB-PKG-5 | `wb` shall be built with the Rust that the distribution packages, 1.97 or later. Issue: #21. | D | Implemented |
 | WB-PKG-6 | A build of `wb` shall take every crate from the distribution's packages, with EPEL on Enterprise Linux 9, and ask nothing of the network. Issue: #21. | D | Implemented |
-| WB-PKG-7 | The package of `wb` shall require `git-core`, and no Python and no crate. Issue: #25. | D | Implemented |
+| WB-PKG-7 | The package of `wb` shall require `git-core` and, beside it, `/usr/bin/ssh-keygen` (WB-PKG-24, #323), and no Python and no crate. Issue: #25, #323. | D | Implemented |
 | WB-PKG-8 | The version in `Cargo.toml` shall be the version in `src/watchbill/__init__.py`, as long as both are there. Replaced by WB-PKG-9: the Python is removed. Issue: #21. | T | Deprecated |
 | WB-PKG-9 | The version in `Cargo.toml` shall be the version that `wb --version` prints, and the only place the version of the package is written. Issue: #25. | T | Implemented |
 | WB-PKG-10 | A fault in `wb` itself shall end the command with 1 and one line, and print no panic message. Issue: #25. | T | Implemented |
@@ -27,4 +27,4 @@ How `wb` is installed and what it needs. What the package carries of the revisio
 | WB-PKG-21 | The release workflow shall install the packages of the build with the documents kept (`--setopt=tsflags=`), as the container images of Fedora leave them out and a crate includes one. Issue: #120. | T | Implemented |
 | WB-PKG-22 | The RPM shall install `packaging/wb.bash` as `/usr/share/bash-completion/completions/wb`, with a link `watchbill` beside it, shall own the two folders, and shall not require `bash-completion`. Issue: #220. | T | Implemented |
 | WB-PKG-23 | The RPM shall install `wb.1` and the page of each built command under `%{_mandir}/man1`, and own them, with no tool fetched to make them. Issue: #182. | T | Implemented |
-| WB-PKG-24 | The RPM shall require `/usr/bin/ssh-keygen`, which `wb` checks every signature with, by its path, so that a later `git-core` that no longer brings it in does not take it away. Issue: #323. | T | Draft |
+| WB-PKG-24 | The RPM shall require `/usr/bin/ssh-keygen`, which `wb` checks every signature with, by its path, so that a later `git-core` that no longer brings it in does not take it away. Issue: #323. | T | Implemented |

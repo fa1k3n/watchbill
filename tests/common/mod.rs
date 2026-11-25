@@ -160,8 +160,16 @@ questions: []
 
 /// Commits `.watchbill/watchbill.yml` as it is in the working tree, when `HEAD` has it otherwise or has none:
 /// `wb` runs a pattern of the file only while it is as `HEAD` has it (#186). The commit has an identity of
-/// its own, given for it alone, so that a test of a missing identity is not spoilt.
+/// its own, given for it alone, so that a test of a missing identity is not spoilt. Since #323 a repository set up
+/// with no `.watchbill/signers` refuses every role and every acceptance, so the repository also signs with Ada's key
+/// of the test and has her line in the list (`signing`), where the default branch holds none.
 pub fn commit_config(folder: &Path) {
+    commit_config_alone(folder);
+    signing(folder);
+}
+
+/// As `commit_config`, with no list and no signing: `.watchbill/watchbill.yml` alone.
+pub fn commit_config_alone(folder: &Path) {
     let held = Command::new("git")
         .arg("-C")
         .arg(folder)
@@ -498,6 +506,12 @@ pub fn ada_line(folder: &Path) -> String {
     format!("ada@example.org roles=\"accept,start\" {}\n", test_public(folder, "ada"))
 }
 
+/// Writes `.watchbill/signers` with Ada's line in the working tree alone, as a person writes it after `wb init`:
+/// `wb check` holds only where it is there (#323).
+pub fn put_signers(folder: &Path) {
+    put(folder, ".watchbill/signers", &ada_line(folder));
+}
+
 /// The default branch as `wb` finds it: `refs/remotes/origin/HEAD`, else `origin/main`, `main`, `origin/master`, `master`.
 pub fn default_branch(folder: &Path) -> Option<String> {
     let exists = |full: &str| git_text(folder, &["rev-parse", "--verify", "-q", &format!("{}^{{commit}}", full)]).is_some();
@@ -540,6 +554,24 @@ pub fn signing(folder: &Path) {
     let line = ada_line(folder);
     let head = git_text(folder, &["symbolic-ref", "-q", "HEAD"]);
     let identity = ["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false"];
+    // The checkout's commit where it is that of the default branch (as after a clone): the list is committed in the
+    // checkout, and the default branch moved along with it.
+    let commit_of = |name: &str| git_text(folder, &["rev-parse", "--verify", "-q", &format!("{}^{{commit}}", name)]);
+    let along = match (&default, &head) {
+        (Some(default), Some(head)) if default != head && commit_of(default).is_some() && commit_of(default) == commit_of(head) => Some(default.clone()),
+        _ => None,
+    };
+    if let Some(default) = along {
+        let old = commit_of(&default).unwrap();
+        put(folder, ".watchbill/signers", &line);
+        git(folder, &["add", "--", ".watchbill/signers"]);
+        let mut args: Vec<&str> = identity.to_vec();
+        args.extend(["commit", "-q", "-m", "The project's keys", "--", ".watchbill/signers"]);
+        git(folder, &args);
+        let new = commit_of("HEAD").unwrap();
+        git(folder, &["update-ref", &default, &new, &old]);
+        return;
+    }
     match default {
         Some(default) if head.as_deref() != Some(default.as_str()) => {
             let blob = String::from_utf8_lossy(&git_with(folder, &["hash-object", "-w", "--stdin"], &[], line.as_bytes()).stdout).trim().to_string();

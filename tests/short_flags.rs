@@ -75,6 +75,8 @@ fn set_up() -> Folder {
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     git(&folder.path, &["add", "--all", "--", ".watchbill"]);
     git(&folder.path, &["commit", "-q", "-m", "Watchbill"]);
+    // An acceptance is refused, and `wb check` does not hold, without `.watchbill/signers` (#323).
+    signing(&folder.path);
     folder
 }
 
@@ -158,10 +160,19 @@ fn test_WB_CMD_38_accept_n_passes_the_commit_checks_as_no_commit_does_and_no_oth
     let long = wb(&folder.path, &["plan", "accept", "--no-commit", "54"], "");
     let long_out = out_of(&long);
     fs::remove_file(folder.path.join(ACCEPTED)).unwrap();
+    // Since #323 each acceptance is a signed tag too, named by the acceptance: the first run's goes with it.
+    for tag in say(&folder.path, &["tag", "--list", "watchbill/accept/54/*"]).lines() {
+        git(&folder.path, &["tag", "-d", tag]);
+    }
     let short = wb(&folder.path, &["plan", "accept", "-n", "54"], "");
 
-    // The time of the acceptance is the one thing that differs between two runs.
-    let untimed = |out: &str| out.lines().filter(|line| !line.starts_with("time: ")).collect::<Vec<_>>().join("\n");
+    // The time of the acceptance is the one thing that differs between two runs, and with it the name of its tag.
+    let tag = "refs/tags/watchbill/accept/54/";
+    let untagged = |line: &str| match line.find(tag) {
+        Some(at) => format!("{}{}", &line[..at + tag.len()], &line[(at + tag.len() + 12).min(line.len())..]),
+        None => line.to_string(),
+    };
+    let untimed = |out: &str| out.lines().filter(|line| !line.starts_with("time: ")).map(untagged).collect::<Vec<_>>().join("\n");
     assert_eq!(code(&long), code(&short));
     assert_eq!(untimed(&long_out), untimed(&out_of(&short)));
 }
@@ -188,6 +199,8 @@ fn bench() -> Bench {
     git(&repo.path, &["branch", "-M", "main"]);
     git(&repo.path, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
     git(&repo.path, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+    // Nothing that needs a signature counts without `.watchbill/signers` on the default branch (#323).
+    signing(&repo.path);
     let org_folder = folder_named("org");
     let org = org_folder.path.join("organisation.yml");
     fs::write(&org, ORG).unwrap();

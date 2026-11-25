@@ -231,8 +231,9 @@ pub const USAGE: &str = "usage:
             watchbill.yml), that the runner has start in the organisation's
             file, and that standard input and output are a terminal; then
             write the stamp of an issue as a commit on refs/watchbill/<issue>,
-            signed by a key of .watchbill/signers with start where the list
-            is there, and push it to origin with no force: a push refused as
+            signed by a key of .watchbill/signers with start (refused where
+            the default branch has no list), and push it to origin with no
+            force: a push refused as
             not a fast-forward ends with 1 and starts nothing, and with no
             origin the stamp stays local, said. Its copy is posted by
             issue_comment of watchbill.yml where it is there (a review or a
@@ -2791,11 +2792,20 @@ fn run_accept(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
             let _ = writeln!(err, "wb accept: this folder is not in a git repository. Watchbill is set up in one.");
             2
         }
-        // An issue's file not accepted is accepted with `wb plan accept`, plan or not (#290, #282); `wb accept` accepts the work.
-        Ok(Some(root)) => match plan::accept_word(&root, &issue, err) {
-            Some(code) => code,
-            None => finished::accept(&root, &issue, commit, sessions::state_folder().as_deref(), out, err),
-        },
+        Ok(Some(root)) => {
+            // Without `.watchbill/signers` on the default branch no acceptance counts (#323): refused with 1 before the
+            // acceptance of the file is looked at, where Watchbill is set up.
+            let set_up = !crate::bounded::is_absent(&Path::new(&root).join(".watchbill").join("watchbill.yml"));
+            if let Some(why) = signers::missing(&signers::load(&root), "accept").filter(|_| set_up) {
+                return refusal::limit(err, "wb accept", format_args!("{}. Nothing written.", why));
+            }
+            // An issue's file not accepted is accepted with `wb plan accept`, plan or not (#290, #282); `wb accept`
+            // accepts the work.
+            match plan::accept_word(&root, &issue, err) {
+                Some(code) => code,
+                None => finished::accept(&root, &issue, commit, sessions::state_folder().as_deref(), out, err),
+            }
+        }
     }
 }
 

@@ -235,7 +235,7 @@ fn on_branches(root: &str, number: &str, pattern: &str, all: &[Branch], from: &m
             let keys = keys.get_or_insert_with(|| crate::signers::load(root));
             match crate::signers::file_signed(root, keys, number, &bytes, text) {
                 crate::signers::Signed::Void(why) => from.push(why),
-                crate::signers::Signed::Good(said) | crate::signers::Signed::Unchecked(said) => {
+                crate::signers::Signed::Good(said) => {
                     from.push(said);
                     return (true, body);
                 }
@@ -246,7 +246,7 @@ fn on_branches(root: &str, number: &str, pattern: &str, all: &[Branch], from: &m
 }
 
 /// Whether the acceptance `body` of the issue's file `bytes` of `number` counts by its signature (#235): it does where
-/// its signed tag checks, or where no signature is checked.
+/// its signed tag checks, and never where `.watchbill/signers` is missing (#323).
 fn signed_holds(root: &str, number: &str, bytes: &[u8], body: &str) -> bool {
     !matches!(crate::signers::file_signed(root, &crate::signers::load(root), number, bytes, body), crate::signers::Signed::Void(_))
 }
@@ -319,8 +319,8 @@ fn default_holds(root: &str, default: &str, number: &str) -> bool {
 
 /// How a job is closed, from git alone (#282): the record of the acceptance of its work holds on a branch of the issue,
 /// or no branch of the issue is in the flow and the default branch holds the issue's file with its acceptance. The
-/// record is read on every branch of the issue, a local one before one at `origin`. Where the default branch has
-/// `.watchbill/signers`, a record counts only where its signed tag checks (#235); why one does not is said in `from`.
+/// record is read on every branch of the issue, a local one before one at `origin`. A record counts only where its
+/// signed tag checks against `.watchbill/signers` of the default branch (#235, #323); why one does not is said in `from`.
 fn closing(root: &str, number: &str, pattern: &str, all: &[Branch], flow: &[String], default: &str, from: &mut Vec<String>) -> Option<Closed> {
     let mine = || all.iter().filter(|branch| is_of(pattern, number, &branch.name));
     let work = |record: &crate::finished::Record, on: &str| {
@@ -517,6 +517,11 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
         if ["[question] ", "[questions] ", "[answer] ", "[answers] "].iter().any(|start| line.starts_with(start)) {
             from.push(if gone { format!("{}  (taken back by a [revert] marker)", issue::shown(line)) } else { issue::shown(line) });
         }
+    }
+    // Where `.watchbill/signers` is missing, why nothing counts is said once (#323), however many things it voids.
+    if let Some(missing) = &ledger.missing {
+        let mut said = false;
+        from.retain(|line| line != missing || !std::mem::replace(&mut said, true));
     }
     let questions = answer::open_names(number, &counted);
     let waits = answer::waits_for(number, &counted);

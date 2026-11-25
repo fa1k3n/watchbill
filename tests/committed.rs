@@ -166,6 +166,9 @@ fn test_WB_TASK_13_an_acceptance_changed_in_the_working_tree_after_its_commit_is
     let mut body = read(&folder.path.join(ACCEPTED));
     body.push_str("note: changed later\n");
     put(&folder.path, ACCEPTED, &body);
+    // Since #323 an acceptance counts only by its signed tag: the changed one is signed too, so that only its commit
+    // is what does not hold.
+    sign_acceptance(&folder.path, "54");
     for role in ROLES {
         refused(&prompt(&folder.path, role, &[]), ACCEPTED);
     }

@@ -302,13 +302,18 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
     // The project's own text, with the placeholders judged as `wb prompt` judges them, and the project's keys (#235),
     // as the working tree has them, so that a fault is named before the file is merged.
     let project = crate::prompt::unknown_in_project(Path::new(root));
+    // A list that is not there is a difference too (#323): without it on the default branch nothing counts.
     let keys = crate::signers::check(Path::new(root));
     if !keys.is_empty() && found.is_empty() && project.is_empty() {
         for line in &keys {
             let _ = writeln!(out, "{}", line);
         }
         let plural = if keys.len() == 1 { "" } else { "s" };
-        let _ = writeln!(out, "{} difference{}. {} does not hold its form: on the default branch, no acceptance would count.", keys.len(), plural, crate::signers::PATH);
+        if keys == [crate::signers::ABSENT] {
+            let _ = writeln!(out, "{} difference. {} is not there. {}.", keys.len(), crate::signers::PATH, crate::signers::add_a_key("accept,start"));
+        } else {
+            let _ = writeln!(out, "{} difference{}. {} does not hold its form: on the default branch, no acceptance would count.", keys.len(), plural, crate::signers::PATH);
+        }
         crate::refusal::answer();
         return 1;
     }

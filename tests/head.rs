@@ -112,6 +112,8 @@ fn bench() -> Bench {
     git(&repo.path, &["branch", "-M", "main"]);
     git(&repo.path, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
     git(&repo.path, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+    // Nothing that needs a signature counts without `.watchbill/signers` on the default branch (#323).
+    signing(&repo.path);
     git(&repo.path, &["branch", "issue-54"]);
     let org_folder = folder_named("org");
     let org = org_folder.path.join("organisation.yml");
@@ -141,6 +143,8 @@ fn commands() -> Vec<(&'static str, Command)> {
             put(&b.repo.path, ".watchbill/issues/54.yml", ISSUE);
             let hash = watchbill::manifest::hash_bytes(ISSUE.as_bytes());
             put(&b.repo.path, ".watchbill/issues/54.accepted", &format!("sha256: {}\nby: Ada <ada@example.org>\ntime: 2026-11-24T10:00:00Z\n", hash));
+            // Since #323 an acceptance counts only by its signed tag.
+            sign_acceptance(&b.repo.path, "54");
             wb(&b.repo.path, &["accept", "--no-commit", "54"], "")
         }),
     ]

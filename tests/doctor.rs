@@ -307,12 +307,12 @@ fn test_WB_CMD_53_what_is_in_quotes_or_cannot_be_told_is_not_taken_for_a_tool() 
 #[test]
 fn test_WB_CMD_53_an_option_after_command_and_a_loop_variable_are_not_taken_for_a_tool() {
     let bench = bench();
-    bench.add("issue_comments: 'command -v jq >/dev/null; time -p gh; for f in a b; do cat $f; done; select s in a; do gh; done; case $x in a) gh;; esac'\n");
+    bench.add("issue_comments: 'command -v jq >/dev/null; time -p gh; for f in a b; do cat $f; done; select s in a; do gh; done; case $x in a|nowhere-pat) gh;; esac'\n");
 
     let run = bench.doctor();
 
     let said = lines_of(&run, "tools").join("\n");
-    for word in [": -v", ": -p", ": f ", ": s ", ": in "] {
+    for word in [": -v", ": -p", ": f ", ": s ", ": in ", ": nowhere-pat"] {
         assert!(!said.contains(word), "{} in {}", word, said);
     }
 }

@@ -232,10 +232,10 @@ pub const USAGE: &str = "usage:
             file, and that standard input and output are a terminal; then
             write the stamp of an issue as a commit on refs/watchbill/<issue>,
             signed by a key of .watchbill/signers with start (refused where
-            the default branch has no list), and push it to origin with no
-            force: a push refused as
-            not a fast-forward ends with 1 and starts nothing, and with no
-            origin the stamp stays local, said. Its copy is posted by
+            the default branch has no list, or one with no key line), and push
+            it to origin with no force: a push refused as not a
+            fast-forward ends with 1 and starts nothing, and with no origin
+            the stamp stays local, said. Its copy is posted by
             issue_comment of watchbill.yml where it is there (a review or a
             fix of a change with no issue posts the stamp by change_comment),
             and the runner's start is run in the root of the checkout. The

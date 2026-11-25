@@ -5,7 +5,9 @@
 //! list as `view` and the issue's file as `issue.yml`. A marker of `wb revert` is a commit of the same kind whose first
 //! line is `[revert] <role> round <n>`, and whose tree is the one before it. Each is signed by the starter, and counts
 //! only where its signature checks against a key of `.watchbill/signers` of the default branch with the role `start`.
-//! Where the default branch holds no list, none counts and none is written (#323).
+//! Where the default branch holds no list, none counts and none is written (#323). Each also holds one line
+//! `issue: <name>`, one `base:` that is a commit this repository has, and the `job:` lines of the plan that the commit
+//! before it holds: one signed in another repository and put on this ref is "a stamp of another repository" (#324).
 //!
 //! `wb start` pushes the ref with no force before the session starts: a push that is not a fast-forward is refused by
 //! the remote, so two starts of one role cannot both go on. The rounds are counted from these commits, never from a
@@ -210,7 +212,9 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
     let mut read = objects(root, &commits)?;
     // In the order of the ref, oldest first.
     read.sort_by_key(|(object, _)| commits.iter().position(|commit| commit == object));
-    let line = issue_line(name);
+    // The plan as the ref's tip holds it (#234): what every stamp's `job:` lines are checked against, so that a signed
+    // stamp brought onto the ref from elsewhere is held to this repository's job, not to the one it came with.
+    let sources = crate::plan::source_hashes(root, name);
     for (commit, raw) in read {
         // A commit over the cap is not read, and so is no stamp: it is said, not left out unseen.
         let raw = match raw {
@@ -243,18 +247,58 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
             },
         };
         let counts = signed.and_then(|by| {
-            if message.lines().any(|held| held.trim_end_matches('\r') == line) {
-                return Ok(by);
-            }
-            let named = message.lines().find_map(|held| held.strip_prefix("issue:")).map(str::trim).filter(|named| !named.is_empty());
-            Err(match named {
-                Some(other) => format!("a stamp of another job: it names issue {}, not {}", crate::issue::shown(other), crate::issue::shown(name)),
-                None => format!("a stamp of another job: it names no issue, and this is the ref of {}", crate::issue::shown(name)),
-            })
+            of_this_issue(&message, name)?;
+            of_this_repository(root, &message, &sources)?;
+            Ok(by)
         });
         ledger.entries.push(Entry { commit, first, message, counts });
     }
     Ok(ledger)
+}
+
+/// Checks that a message names the issue of the ref it is on, in exactly one line `issue: <name>` (WB-BUILD-161): a
+/// signed stamp of another job, put under a commit of this ref, is not a stamp of this one.
+fn of_this_issue(message: &str, name: &str) -> Result<(), String> {
+    let named: Vec<&str> = message.lines().filter_map(|held| held.strip_prefix("issue:")).collect();
+    let shown_name = crate::issue::shown(name);
+    match named.as_slice() {
+        [] => Err(format!("a stamp of another job: it names no issue, and this is the ref of {}", shown_name)),
+        [one] if *one == format!(" {}", name) => Ok(()),
+        [one] if one.trim() == name => Err(format!("a stamp with no clear issue: its line is not exactly `{}` (no space around the number)", issue_line(name))),
+        [one] => Err(format!("a stamp of another job: it names issue {}, not {}", crate::issue::shown(one.trim()), shown_name)),
+        _ => Err(format!("a stamp with no clear issue: it holds more than one line `issue:`, and only `{}` is one of this ref", issue_line(name))),
+    }
+}
+
+/// Checks that a message was written for this repository (WB-BUILD-163 to 165): its one `base:` is a commit object this
+/// repository has, and its `job:` lines are `job: none` where the tip of the ref holds no plan (or a removed one), and
+/// else a non-empty prefix, in order, of the tip's `sources`: a later `wb plan add` only adds a source at the end, so
+/// the stamps before it stay counted. A genuine stamp of another repository, put on this ref, fails one of the two.
+fn of_this_repository(root: &str, message: &str, sources: &[String]) -> Result<(), String> {
+    const OTHER: &str = "a stamp of another repository";
+    let bases: Vec<&str> = message.lines().filter_map(|held| held.strip_prefix("base:")).collect();
+    let base = match bases.as_slice() {
+        [one] => one.strip_prefix(' ').unwrap_or(one),
+        [] => return Err(format!("{}: it holds no line `base:`", OTHER)),
+        _ => return Err(format!("{}: it holds more than one line `base:`", OTHER)),
+    };
+    let hash = !base.is_empty() && matches!(base.len(), 40 | 64) && base.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+    if !hash || git_line(root, &["cat-file", "-t", base], None).map_or(true, |kind| kind != "commit") {
+        return Err(format!("{}: its base {} is not a commit of this repository", OTHER, crate::issue::shown(base)));
+    }
+    let held: Vec<&str> = message.lines().filter_map(|line| line.strip_prefix("job:")).map(|rest| rest.strip_prefix(' ').unwrap_or(rest)).collect();
+    let fits = if sources.is_empty() { held == ["none"] } else { !held.is_empty() && held.len() <= sources.len() && held.iter().zip(sources).all(|(held, source)| *held == source.as_str()) };
+    if !fits {
+        return Err(format!("{}: its lines `job:` are not those of the job this repository holds on its ref", OTHER));
+    }
+    Ok(())
+}
+
+/// The line `base:` that a stamp or a marker holds: the commit `HEAD` is at, read with no replace ref; empty where there
+/// is none, and then no stamp counts.
+pub fn base_line(root: &str) -> String {
+    let base = signers::git(root, &["rev-parse", "--verify", "-q", "HEAD^{commit}"], None).map(|printed| String::from_utf8_lossy(&printed).trim().to_string()).unwrap_or_default();
+    if base.is_empty() { "base:\n".to_string() } else { format!("base: {}\n", base) }
 }
 
 /// How the stamp is signed, as worked out before anything is written: by the key git signs with, which the list holds
@@ -270,6 +314,11 @@ pub struct Signing {
 /// is `origin`, it is refused too (the review of #322): the lock is the push to `origin`, and a stamp kept local there
 /// would hold none.
 pub fn ready(root: &str) -> Result<Signing, String> {
+    // The stamp names the commit of `HEAD` it is made from (`base:`), and none counts without one (WB-BUILD-163): where
+    // there is none, it is refused before anything is written.
+    if signers::git(root, &["rev-parse", "--verify", "-q", "HEAD^{commit}"], None).is_err() {
+        return Err("there is no commit at HEAD to base the stamp on, and a stamp with no base counts for nothing".to_string());
+    }
     let remotes = remotes(root)?;
     if !remotes.is_empty() && !remotes.iter().any(|remote| remote == "origin") {
         let shown: Vec<String> = remotes.iter().map(|remote| crate::issue::shown(remote)).collect();

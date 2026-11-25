@@ -84,3 +84,4 @@ How a prompt is put together from the revision and the project's own text, and t
 | WB-PROMPT-78 | `wb prompt` without `--show-origin` shall print what it printed before, and `--parts` and `--stamp` stay as they are. Issue: #291. | T | Implemented |
 | WB-PROMPT-79 | `wb prompt --show-origin` and `wb start <role> --show-origin` shall make the same checks and refusals as `wb prompt` without the flag, write nothing, and be used wrongly (2) with `--parts` or `--stamp` or given twice. Issue: #291. | T | Implemented |
 | WB-PROMPT-80 | The usage, `wb help`, the man page and the completion of `wb prompt` shall name `--show-origin`. Issue: #291. | T | Implemented |
+| WB-PROMPT-81 | `wb prompt --stamp` shall write on `round:` the round that `--round` gives, for every role; with no `--round` the line shall be empty, and for the tester and the build no pattern shall be run. Replaces the tested part of WB-PROMPT-55. Issue: #324. | T | Implemented |

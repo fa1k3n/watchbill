@@ -263,6 +263,9 @@ pub(crate) fn git(root: &str, args: &[&str], input: Option<&[u8]>) -> Result<Vec
             command.env_remove(name);
         }
     }
+    // A read that decides trust never fetches: in a partial clone git would ask the promisor remote for a missing object,
+    // such as the `base:` of a stamp of another repository. Older git does not know the variable and ignores it.
+    command.env("GIT_NO_LAZY_FETCH", "1");
     command.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn().map_err(|error| format!("git could not be run: {}", error))?;
     if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {

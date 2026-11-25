@@ -423,6 +423,18 @@ fn test_WB_CMD_55_a_bind_that_is_not_there_is_a_fault_naming_it() {
 }
 
 #[test]
+fn test_WB_CMD_55_a_backslash_in_a_bind_is_shown_escaped_once() {
+    let bench = bench();
+    let org = read(&bench.organisation()).replace("'~/.claude'", "'~/.claude', '/nowhere/b\\c'");
+    fs::write(bench.organisation(), org).unwrap();
+
+    let run = bench.doctor();
+
+    let line = lines_of(&run, "binds").into_iter().find(|line| line.starts_with("fault: ")).unwrap_or_else(|| panic!("{}", text(&run.stdout)));
+    assert!(line.contains("/nowhere/b\\\\c") && !line.contains("\\\\\\\\"), "{}", line);
+}
+
+#[test]
 fn test_WB_CMD_55_a_bind_that_holds_a_login_of_the_code_host_is_a_fault() {
     let bench = bench();
     fs::create_dir_all(bench.home.path.join(".config/gh")).unwrap();
@@ -495,16 +507,16 @@ fn test_WB_CMD_57_the_needs_command_is_run_once_and_a_good_one_is_ok() {
 }
 
 #[test]
-fn test_WB_CMD_57_a_needs_command_that_ends_with_anything_but_0_is_a_fault() {
+fn test_WB_CMD_57_a_needs_command_that_ends_with_anything_but_0_is_a_warning() {
     let bench = bench();
     script(&bench.tools.path.join("needs.sh"), "exit 3\n");
     bench.add(&format!("needs: '{}/needs.sh {{file}}'\n", bench.tools.path.display()));
 
     let run = bench.doctor();
 
-    assert_eq!(code(&run), Some(1));
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stdout));
     let line = line_of(&run, "needs");
-    assert!(line.starts_with("fault: ") && line.contains("ended with 3"), "{}", line);
+    assert!(line.starts_with("warning: ") && line.contains("ended with 3"), "{}", line);
 }
 
 #[test]
@@ -654,7 +666,7 @@ fn test_WB_CMD_59_it_runs_no_pattern_but_needs_and_reads_the_file_as_head_has_it
 fn test_WB_CMD_59_it_asks_nothing_of_the_network() {
     let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/doctor.rs")).unwrap();
 
-    for word in ["TcpStream", "TcpListener", "UdpSocket", "ToSocketAddrs", "\"curl\"", "\"gh\"", "\"glab\"", "\"ssh\""] {
+    for word in ["TcpStream", "TcpListener", "UdpSocket", "ToSocketAddrs", "Command::new", "std::process", "\"curl\"", "\"gh\"", "\"glab\"", "\"ssh\""] {
         assert!(!source.contains(word), "src/doctor.rs names {}", word);
     }
 }

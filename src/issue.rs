@@ -527,7 +527,7 @@ fn build_hits<'a>(changes: &'a [String], build_files: &'a [String]) -> Vec<(&'a 
 }
 
 /// A path as `/bin/sh` reads one word: in single quotes, and a quote in it written `'\''`.
-fn quoted(path: &str) -> String {
+pub(crate) fn quoted(path: &str) -> String {
     format!("'{}'", path.replace('\'', "'\\''"))
 }
 

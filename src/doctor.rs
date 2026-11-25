@@ -88,8 +88,18 @@ impl Report {
                 "fault"
             }
         };
-        // What comes from a file or a pattern is said escaped, so that a line stays one line.
-        self.lines.push(issue::shown(&format!("{}: {}: {}", word, check, text.split_whitespace().collect::<Vec<_>>().join(" "))));
+        // What comes from a file or a pattern is said escaped, once, so that a line stays one line.
+        self.lines.push(issue::shown(&format!("{}: {}: {}", word, check, text)));
+    }
+
+    /// A line whose text is already escaped by what made it: it is not escaped again.
+    fn say_shown(&mut self, kind: Kind, check: &str, text: &str) {
+        let before = self.lines.len();
+        self.say(kind, check, "");
+        if self.lines.len() > before {
+            let line = self.lines.pop().unwrap_or_default();
+            self.lines.push(format!("{}{}", line, text));
+        }
     }
 
     fn ok(&mut self, check: &str, text: &str) {
@@ -103,6 +113,11 @@ impl Report {
     fn fault(&mut self, check: &str, text: &str) {
         self.say(Kind::Fault, check, text);
     }
+}
+
+/// A message of several lines, as one.
+fn flat(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// An executable file called `name` in a folder of `path`, which holds only absolute folders.
@@ -154,14 +169,14 @@ pub fn doctor(root: &str, host: &Host, out: &mut dyn Write, err: &mut dyn Write)
 fn sandbox(report: &mut Report, host: &Host) {
     if !host.sandbox.is_file() {
         let why = view::works(host.sandbox).err().unwrap_or_default();
-        report.fault("bubblewrap", &why);
+        report.fault("bubblewrap", &flat(&why));
         report.warning("user namespaces", "not looked at: there is no bubblewrap");
         return;
     }
     report.ok("bubblewrap", &format!("{} is there", host.sandbox.display()));
     match view::works(host.sandbox) {
         Ok(()) => report.ok("user namespaces", "bubblewrap makes a sandbox here"),
-        Err(why) => report.fault("user namespaces", &why),
+        Err(why) => report.fault("user namespaces", &flat(&why)),
     }
 }
 
@@ -376,7 +391,7 @@ fn binds(report: &mut Report, host: &Host, runner: Option<&Runner>) -> Vec<(Path
         Some(start) => {
             let program = start.first().map(String::as_str).unwrap_or_default();
             if let Some(why) = crate::outside_the_sandbox(program, &resolved) {
-                report.fault("default runner", &format!("{}: {}", runner.name, why));
+                report.say_shown(Kind::Fault, "default runner", &format!("{}: {}", issue::shown(&runner.name), why));
             } else if program.starts_with('/') {
                 if Path::new(program).is_file() {
                     report.ok("default runner", &format!("{} starts {}", runner.name, program));
@@ -437,9 +452,9 @@ fn hooks_of(report: &mut Report, root: &str, host: &Host, runner: Option<&Runner
     }
     for line in lines {
         if line.contains(hooks::FAILS) || line.contains("more hooks that") {
-            report.fault("hooks", &line);
+            report.say_shown(Kind::Fault, "hooks", &line);
         } else {
-            report.warning("hooks", &line);
+            report.say_shown(Kind::Warning, "hooks", &line);
         }
     }
 }
@@ -466,10 +481,11 @@ fn needs(report: &mut Report, root: &str) {
         }
     };
     let file = format!("{}/{}", crate::init::CONFIG_FOLDER, crate::init::CONFIG_FILE);
-    let line = pattern.replace("{file}", &format!("'{}'", file.replace('\'', "'\\''")));
-    match starter::run(root, "needs", &line, None) {
+    let line = pattern.replace("{file}", &issue::quoted(&file));
+    // What it prints is thrown away, so it is read through the cap.
+    match starter::run_capped(root, "needs", &line, bounded::TEXT_CAP) {
         Ok(_) => report.ok("needs", &format!("`needs` of watchbill.yml was run once, for {}, and ended with 0", file)),
-        Err(why) => report.fault("needs", &format!("{}, run for {}. Mend the command, or take `needs` out of watchbill.yml", why, file)),
+        Err(why) => report.warning("needs", &format!("{}, run for {}. A `needs` is for the team's own language, so it may refuse this file. Mend the command, or take `needs` out of watchbill.yml", why, file)),
     }
 }
 
@@ -487,12 +503,18 @@ fn listening(text: &str, six: bool) -> Vec<Socket> {
         }
         let Some((address, port)) = fields.get(1).and_then(|local| local.split_once(':')) else { continue };
         let Ok(port) = u16::from_str_radix(port, 16) else { continue };
-        let group = |at: usize| u32::from_str_radix(address.get(at * 8..at * 8 + 8)?, 16).ok().map(u32::to_le_bytes);
+        let group = |at: usize| u32::from_str_radix(address.get(at * 8..at * 8 + 8)?, 16).ok().map(u32::to_ne_bytes);
         let (shown, loopback, any) = if six && address.len() == 32 {
             let mut bytes = [0u8; 16];
+            let mut bad = false;
             for at in 0..4 {
-                let Some(group) = group(at) else { return found };
-                bytes[at * 4..at * 4 + 4].copy_from_slice(&group);
+                match group(at) {
+                    Some(group) => bytes[at * 4..at * 4 + 4].copy_from_slice(&group),
+                    None => bad = true,
+                }
+            }
+            if bad {
+                continue;
             }
             let ip = Ipv6Addr::from(bytes);
             match ip.to_ipv4_mapped() {

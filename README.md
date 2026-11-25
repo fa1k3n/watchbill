@@ -220,7 +220,7 @@ One line to a check: `ok`, `warning` or `fault`, the check's name, and what hold
 - **organisation**: the organisation's file is there and reads. **default runner**: it names one (none is a warning, as `--runner` may name it), and the program of its `start` is on `PATH` and in what the sandbox holds.
 - **binds**: each bind of the default runner is there, and none holds or lies in a login of the code host, as `wb start` refuses.
 - **hooks**: each hook of the runner's settings whose program the sandbox does not hold, as `wb start` says it (#160), with the checkout standing for the view.
-- **needs**: the pattern `needs` of `watchbill.yml`, run once, for `watchbill.yml` itself. A command that ends with anything but 0 is a fault.
+- **needs**: the pattern `needs` of `watchbill.yml`, run once, for `watchbill.yml` itself. A command that ends with anything but 0 is a warning that names the file it was run for, as `needs` is for the team's own language and may refuse this file.
 - **ports**: the sockets that listen in `/proc/net/tcp` and `tcp6`, each as a warning, read through a cap of 1 MiB. A session in a view shares the machine's network, so it can reach a port that listens on loopback or on any address. `wb` cannot tell whether a port has a login, so it names every one, and says it cannot tell, until the sandbox has a network of its own (#195). It warns and refuses nothing.
 
 Every pattern and key comes from `watchbill.yml` as `HEAD` has it, as for `wb status`; where the working tree's file differs, a line on standard error says so.

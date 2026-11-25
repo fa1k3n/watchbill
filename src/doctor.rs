@@ -240,7 +240,16 @@ pub fn programs_of(line: &str) -> Vec<String> {
         if plain && word.contains('=') && word.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') {
             continue;
         }
+        if plain && matches!(word.as_str(), "for" | "select" | "case") {
+            // The words up to the next command are a variable and a list, not programs.
+            at_start = false;
+            continue;
+        }
         if plain && hooks::RUNS_ANOTHER.contains(&word.as_str()) {
+            continue;
+        }
+        // An option of `command`, `exec` or `time` is not the program.
+        if plain && word.len() > 1 && word.starts_with('-') {
             continue;
         }
         at_start = false;

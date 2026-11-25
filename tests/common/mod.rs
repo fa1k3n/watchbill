@@ -392,6 +392,31 @@ fn commits_on_ref(folder: &Path, issue: &str, messages: &[&str], signed: bool) {
             let (first, rest) = body.split_once('\n').unwrap_or((body.as_str(), ""));
             body = format!("{}\n{}\n{}", first, named, rest);
         }
+        // And its job and its base (#324), as `wb` writes them: the hashes of the plan the commit before holds, `none`
+        // where there is none, and the commit `HEAD` is at.
+        if !body.lines().any(|line| line.starts_with("job:")) {
+            let ask = |args: &[String]| Command::new("git").arg("-C").arg(folder).args(args).env_clear().envs(env()).stderr(Stdio::null()).output().expect("git could not be started");
+            let hashes: String = match &parent {
+                Some(commit) if ask(&["cat-file".to_string(), "-e".to_string(), format!("{}:removed", commit)]).status.success() => String::new(),
+                Some(commit) => {
+                    let job = ask(&["cat-file".to_string(), "blob".to_string(), format!("{}:job.yml", commit)]);
+                    String::from_utf8_lossy(&job.stdout)
+                        .lines()
+                        .filter_map(|line| line.trim().strip_prefix("- hash: ").map(|hash| format!("job: {}\n", hash.trim_matches('\'').trim_matches('"'))))
+                        .collect()
+                }
+                None => String::new(),
+            };
+            let hashes = if hashes.is_empty() { "job: none\n".to_string() } else { hashes };
+            let (first, rest) = body.split_once('\n').unwrap_or((body.as_str(), ""));
+            body = format!("{}\n{}{}", first, hashes, rest);
+        }
+        if !body.lines().any(|line| line.starts_with("base:")) {
+            let head = Command::new("git").arg("-C").arg(folder).args(["rev-parse", "--verify", "-q", "HEAD"]).env_clear().envs(env()).output().expect("git could not be started");
+            let head = String::from_utf8_lossy(&head.stdout).trim().to_string();
+            let (first, rest) = body.split_once('\n').unwrap_or((body.as_str(), ""));
+            body = format!("{}\nbase: {}\n{}", first, head, rest);
+        }
         let commit = run(&args, body.as_bytes());
         run(&["update-ref", &full, &commit], b"");
         parent = Some(commit);

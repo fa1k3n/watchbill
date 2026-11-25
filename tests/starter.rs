@@ -1411,10 +1411,10 @@ fn test_WB_BUILD_27_the_round_line_agrees_with_the_first_line_for_a_review_of_a_
     agree(&bench.posted("change", "174").unwrap(), "review", 2);
 }
 
-// ---- WB-PROMPT-55: `--stamp` holds the round for every role, where there is one ----
+// ---- WB-PROMPT-81: `--stamp` holds the round for every role, where there is one ----
 
 #[test]
-fn test_WB_PROMPT_55_a_stamp_keeps_change_empty_for_a_role_whose_text_has_no_change() {
+fn test_WB_PROMPT_81_a_stamp_keeps_change_empty_for_a_role_whose_text_has_no_change() {
     let bench = bench();
     let run = bench.prompt(&["build", "54", "--round", "1", "--change", "9", "--stamp"]);
     ok(&run);
@@ -1423,7 +1423,7 @@ fn test_WB_PROMPT_55_a_stamp_keeps_change_empty_for_a_role_whose_text_has_no_cha
 }
 
 #[test]
-fn test_WB_PROMPT_55_a_stamp_of_the_build_without_a_round_leaves_it_empty_and_runs_no_pattern() {
+fn test_WB_PROMPT_81_a_stamp_of_the_build_without_a_round_leaves_it_empty_and_runs_no_pattern() {
     let bench = bench();
     bench.comments("issue", "54", &["[stamp] build round 1"]);
     let run = bench.prompt(&["build", "54", "--stamp"]);

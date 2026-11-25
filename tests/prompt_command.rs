@@ -855,7 +855,7 @@ fn test_WB_PROMPT_19_a_value_the_prompt_does_not_use_is_written_empty_but_the_ro
 }
 
 #[test]
-fn test_WB_PROMPT_55_with_no_round_given_or_worked_out_the_round_line_is_empty() {
+fn test_WB_PROMPT_81_with_no_round_given_or_worked_out_the_round_line_is_empty() {
     let folder = set_up();
     let mut args = vec!["prompt", "build", "--stamp"];
     args.extend(with_where(&["--issue", "1", "--requirements", "R"]));

@@ -760,3 +760,182 @@ fn test_WB_BUILD_46_with_remotes_and_none_named_origin_the_start_is_refused_with
     assert_eq!(bench.git(&["for-each-ref"]), before);
     assert_eq!(bench.sessions(), 0, "{:?}", bench.calls());
 }
+
+// ---- the loose ends of #236 (#324) ----
+
+/// A signed commit on the job's ref of 54 with `message` as it is, after the tip of the ref, with the tree of the tip.
+/// The ref is moved to it. Ada's key signs it, and `.watchbill/signers` holds her line with `start`.
+fn raw_stamp(bench: &Bench, message: &str) -> String {
+    use std::io::Write;
+    let tip = bench.run_in("git", &["rev-parse", "--verify", "-q", JOB], &bench.repo.path);
+    let tip = text(&tip.stdout).trim().to_string();
+    let tree = if tip.is_empty() { bench.git(&["mktree"]).trim().to_string() } else { bench.git(&["rev-parse", &format!("{}^{{tree}}", tip)]).trim().to_string() };
+    let mut args = vec!["commit-tree", "-S", tree.as_str()];
+    if !tip.is_empty() {
+        args.extend(["-p", tip.as_str()]);
+    }
+    let mut child = Command::new("git")
+        .args(&args)
+        .current_dir(&bench.repo.path)
+        .env_clear()
+        .envs(env_in(&bench.home.path))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(message.as_bytes()).unwrap();
+    let run = child.wait_with_output().unwrap();
+    assert!(run.status.success(), "git commit-tree: {}", text(&run.stderr));
+    let commit = text(&run.stdout).trim().to_string();
+    bench.git(&["update-ref", JOB, &commit]);
+    commit
+}
+
+/// A bench with Ada's line, with `start`, on `main`, and git signing with her key.
+fn listed() -> Bench {
+    let bench = bench(false, false);
+    bench.signers("ada", "start");
+    bench.sign_with("ada");
+    bench
+}
+
+/// The line of `wb status 54` that holds `first`.
+fn status_of(bench: &Bench, first: &str) -> String {
+    bench.status().lines().find(|line| line.contains(first)).unwrap_or_default().to_string()
+}
+
+#[test]
+fn test_WB_BUILD_161_a_stamp_with_a_space_after_its_issue_is_not_counted_and_the_text_is_not_a_riddle() {
+    let bench = listed();
+    let base = bench.head();
+    raw_stamp(&bench, &format!("[stamp] tester round 1\nrole: tester\nissue: 54 \njob: none\nbase: {}\n", base));
+
+    let line = status_of(&bench, "[stamp] tester round 1");
+
+    assert!(line.contains("not counted:"), "{}", bench.status());
+    assert!(!line.contains("names issue 54, not 54"), "{}", line);
+    assert!(line.contains("issue: 54"), "{}", line);
+    ok(&bench.start(&["tester", "54"]));
+    assert!(bench.message(&bench.on_ref()[0]).starts_with("[stamp] tester round 1\n"), "{}", bench.message(&bench.on_ref()[0]));
+}
+
+#[test]
+fn test_WB_BUILD_161_a_stamp_with_two_issue_lines_is_not_counted() {
+    let bench = listed();
+    let base = bench.head();
+    raw_stamp(&bench, &format!("[stamp] tester round 1\nrole: tester\nissue: 99\nissue: 54\njob: none\nbase: {}\n", base));
+    raw_stamp(&bench, &format!("[stamp] review round 1\nrole: review\nissue: 54\nissue: 54\njob: none\nbase: {}\n", base));
+
+    let status = bench.status();
+
+    assert!(status_of(&bench, "[stamp] tester round 1").contains("not counted:"), "{}", status);
+    assert!(status_of(&bench, "[stamp] review round 1").contains("not counted:"), "{}", status);
+    assert!(!status.contains("Reviewed:"), "{}", status);
+}
+
+#[test]
+fn test_WB_BUILD_162_a_stamp_commit_over_64_kib_is_not_counted_and_status_names_it() {
+    let bench = listed();
+    let base = bench.head();
+    let padding = "x".repeat(70 * 1024);
+    let commit = raw_stamp(&bench, &format!("[stamp] tester round 1\nrole: tester\nissue: 54\njob: none\nbase: {}\n\n{}\n", base, padding));
+
+    let line = status_of(&bench, &commit);
+
+    assert!(line.contains("(on refs/watchbill/54, not counted: larger than 64 KiB ("), "{}", bench.status());
+    assert!(line.contains("so it is not read)"), "{}", line);
+}
+
+#[test]
+fn test_WB_BUILD_163_a_stamp_whose_base_is_no_commit_of_this_repository_is_not_counted_as_one_of_another() {
+    let bench = listed();
+    let blob = blob(&bench, "not a commit\n");
+    // A commit this repository does not have, a blob it has, a base that is no hash, and none.
+    let bases = ["base: 1234567890123456789012345678901234567890\n".to_string(), format!("base: {}\n", blob), "base: not-a-hash\n".to_string(), String::new()];
+    for (round, base) in bases.iter().enumerate() {
+        raw_stamp(&bench, &format!("[stamp] tester round {}\nrole: tester\nissue: 54\njob: none\n{}", round + 1, base));
+    }
+
+    let status = bench.status();
+
+    for round in 1..=4 {
+        let line = status_of(&bench, &format!("[stamp] tester round {}", round));
+        assert!(line.contains("not counted: a stamp of another repository"), "{}", status);
+        assert!(line.contains("base"), "{}", line);
+    }
+    ok(&bench.start(&["tester", "54"]));
+    assert!(bench.message(&bench.on_ref()[0]).starts_with("[stamp] tester round 1\n"), "{}", bench.message(&bench.on_ref()[0]));
+}
+
+#[test]
+fn test_WB_BUILD_163_a_stamp_with_two_base_lines_is_not_counted_and_one_with_this_repositorys_commit_is() {
+    let bench = listed();
+    let base = bench.head();
+    raw_stamp(&bench, &format!("[stamp] tester round 1\nrole: tester\nissue: 54\njob: none\nbase: {}\nbase: {}\n", base, base));
+    raw_stamp(&bench, &format!("[stamp] review round 1\nrole: review\nissue: 54\njob: none\nbase: {}\n", base));
+
+    assert!(status_of(&bench, "[stamp] tester round 1").contains("not counted: a stamp of another repository"), "{}", bench.status());
+    assert!(status_of(&bench, "[stamp] review round 1").contains("signed by"), "{}", bench.status());
+}
+
+#[test]
+fn test_WB_BUILD_163_the_marker_of_wb_revert_holds_the_base_and_counts() {
+    let bench = listed();
+    ok(&bench.start(&["tester", "54"]));
+    let base = bench.head();
+
+    let run = bench.wb(&["revert", "54", "tester"]);
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let marker = bench.message(&bench.on_ref()[0]);
+    assert!(marker.starts_with("[revert] tester round 1\n") && marker.contains(&format!("\nbase: {}\n", base)), "{}", marker);
+    assert!(bench.status().contains("taken back by a [revert] marker"), "{}", bench.status());
+}
+
+#[test]
+fn test_WB_BUILD_164_a_stamp_of_a_job_this_repository_has_no_plan_for_is_not_counted_as_one_of_another() {
+    let bench = listed();
+    let base = bench.head();
+    raw_stamp(&bench, &format!("[stamp] tester round 1\nrole: tester\nissue: 54\njob: {}\nbase: {}\n", blob(&bench, "A plan of another repository.\n"), base));
+
+    let line = status_of(&bench, "[stamp] tester round 1");
+
+    assert!(line.contains("not counted: a stamp of another repository"), "{}", bench.status());
+    assert!(line.contains("job"), "{}", line);
+}
+
+#[test]
+fn test_WB_BUILD_164_a_stamp_with_job_none_where_this_repository_has_a_plan_is_not_counted() {
+    let bench = listed();
+    bench.plan("The brakes hold.");
+    let base = bench.head();
+    raw_stamp(&bench, &format!("[stamp] tester round 1\nrole: tester\nissue: 54\njob: none\nbase: {}\n", base));
+    raw_stamp(&bench, &format!("[stamp] review round 1\nrole: review\nissue: 54\njob: {}\nbase: {}\n", blob(&bench, "The brakes hold.\n"), base));
+
+    let status = bench.status();
+
+    assert!(status_of(&bench, "[stamp] tester round 1").contains("not counted: a stamp of another repository"), "{}", status);
+    assert!(status_of(&bench, "[stamp] review round 1").contains("signed by"), "{}", status);
+}
+
+#[test]
+fn test_WB_BUILD_164_a_stamp_stays_counted_after_a_source_is_added_to_the_plan_later() {
+    let bench = listed();
+    bench.plan("The brakes hold.");
+    ok(&bench.start(&["tester", "54"]));
+    bench.plan("And they hold in the wet.");
+
+    let line = status_of(&bench, "[stamp] tester round 1");
+
+    assert!(line.contains("signed by"), "{}", bench.status());
+}
+
+#[test]
+fn test_WB_BUILD_164_the_stamp_of_a_start_after_a_plan_names_its_job_and_counts() {
+    let bench = listed();
+    bench.plan("The brakes hold.");
+    ok(&bench.start(&["tester", "54"]));
+    ok(&bench.start(&["tester", "54"]));
+    assert!(bench.message(&bench.on_ref()[0]).starts_with("[stamp] tester round 2\n"), "{}", bench.message(&bench.on_ref()[0]));
+}

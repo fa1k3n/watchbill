@@ -53,12 +53,13 @@ pub fn said(commit: &str, not_run: &[String]) -> String {
     }
 }
 
-/// The record that holds on the ref `full`: it is committed there, and the tip is the one commit after the commit it
-/// names, which changed the record alone.
-pub fn holding(root: &str, issue: &str, full: &str) -> Option<Record> {
+/// The record that holds on the ref `full`, with its text: it is committed there, and the tip is the one commit after
+/// the commit it names, which changed the record alone. Its signature is not looked at here.
+pub fn holding(root: &str, issue: &str, full: &str) -> Option<(Record, String)> {
     let path = path_of(issue);
     let body = crate::status::git(root, &["show", &format!("{}:{}", full, path)])?;
-    let record = parse(&String::from_utf8_lossy(&body))?;
+    let body = String::from_utf8_lossy(&body).to_string();
+    let record = parse(&body)?;
     let listed = crate::status::git(root, &["rev-list", &format!("{}..{}", record.commit, full)])?;
     let listed = String::from_utf8_lossy(&listed).to_string();
     let commits: Vec<&str> = listed.lines().collect();
@@ -68,7 +69,7 @@ pub fn holding(root: &str, issue: &str, full: &str) -> Option<Record> {
         return None;
     }
     let names = crate::status::git(root, &["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", tip])?;
-    (String::from_utf8_lossy(&names).lines().collect::<Vec<_>>() == [path.as_str()]).then_some(record)
+    (String::from_utf8_lossy(&names).lines().collect::<Vec<_>>() == [path.as_str()]).then_some((record, body))
 }
 
 fn commit_message(issue: &str) -> String {
@@ -94,6 +95,17 @@ pub fn accept(root: &str, issue: &str, commit: bool, state: Option<&Path>, out: 
     let record = base.join(&path);
     if fs::symlink_metadata(&record).is_ok() {
         return crate::refusal::limit(err, NAME, format_args!("{} is there already, and is never written over. Nothing written. Where a later commit voided it, remove it in a commit of its own and run wb accept again.", path));
+    }
+    // Where the default branch has `.watchbill/signers`, the acceptance is also a signed tag (#235).
+    let keys = crate::signers::load(root);
+    match &keys {
+        crate::signers::Keys::Fault(why) => return crate::refusal::limit(err, NAME, format_args!("{}. Nothing written.", why)),
+        crate::signers::Keys::List(_) => {
+            if let Err(why) = crate::signers::signing_ready(root) {
+                return crate::refusal::limit(err, NAME, format_args!("{} Nothing written.", why));
+            }
+        }
+        crate::signers::Keys::Unchecked(_) => {}
     }
     if let Err(not_ready) = issue::ready_to_commit(root, issue) {
         let (issue::NotReady::Fault(why) | issue::NotReady::Guard(why)) = not_ready;
@@ -168,6 +180,21 @@ pub fn accept(root: &str, issue: &str, commit: bool, state: Option<&Path>, out: 
         body.push_str(&format!("not run: {}\n", not_run.join(", ")));
     }
     let _ = writeln!(out, "{}: accepting {}", NAME, said(&head, &not_run));
+    // The signed tag on the commit the record names, made and checked before the record is written (#235).
+    let mut tag: Option<(String, String)> = None;
+    if let crate::signers::Keys::List(_) = &keys {
+        let made = crate::signers::tag_of(crate::signers::FINISHED_TAGS, issue, body.as_bytes());
+        if let Err(why) = crate::signers::make(root, &keys, NAME, &made, "commit", &head, &crate::signers::work_message(issue, &body), out) {
+            return crate::refusal::limit(err, NAME, format_args!("{}. Nothing written.", why));
+        }
+        let object = crate::signers::object_of(root, &made).unwrap_or_default();
+        tag = Some((made, object));
+    }
+    let unmake = |tag: &Option<(String, String)>| {
+        if let Some((made, object)) = tag {
+            crate::signers::unmake(root, made, object);
+        }
+    };
     let _ = writeln!(out, "{}: will write {}:\n{}", NAME, path, body);
     // Whole or not at all: a file of its own, linked to the name, which fails where the name is there.
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|since| since.subsec_nanos()).unwrap_or(0);
@@ -180,10 +207,14 @@ pub fn accept(root: &str, issue: &str, commit: bool, state: Option<&Path>, out: 
                 break;
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return crate::refusal::limit(err, NAME, format_args!("{} cannot be written ({}). Nothing written.", path, error)),
+            Err(error) => {
+                unmake(&tag);
+                return crate::refusal::limit(err, NAME, format_args!("{} cannot be written ({}). Nothing written.", path, error));
+            }
         }
     }
     let Some((part, mut opened)) = written else {
+        unmake(&tag);
         return crate::refusal::limit(err, NAME, format_args!("{} cannot be written. Nothing written.", path));
     };
     let result = opened.write_all(body.as_bytes()).and_then(|_| opened.sync_all());
@@ -191,9 +222,14 @@ pub fn accept(root: &str, issue: &str, commit: bool, state: Option<&Path>, out: 
     let result = result.and_then(|_| fs::hard_link(&part, &record));
     let _ = fs::remove_file(&part);
     if let Err(error) = result {
+        unmake(&tag);
         return crate::refusal::limit(err, NAME, format_args!("{} could not be written ({}). Nothing written.", path, error));
     }
     crate::refusal::inform(out, format_args!("{}: the work of issue {} is accepted.", NAME, issue::shown(issue)));
+    if let Some((made, _)) = &tag {
+        // Said with `-q` too: only the person can push it.
+        let _ = writeln!(out, "{}: made the signed tag {}. wb pushes nothing: push it with\n  git push origin {}", NAME, made, made);
+    }
     let command = format!("git add {} && git commit -m \"{}\" -- {}", path, commit_message(issue), path);
     if !commit {
         let _ = writeln!(out, "{}: commit the record alone, so the history holds it:\n  {}", NAME, command);

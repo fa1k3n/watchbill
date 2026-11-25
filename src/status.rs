@@ -81,8 +81,10 @@ struct Branch {
     name: String,
 }
 
+/// Runs git in `root`, with no replace ref: the files, the acceptances and the commits an acceptance's tag is matched
+/// against are what the objects are, never what a replace ref says they are (#235).
 pub(crate) fn git(root: &str, args: &[&str]) -> Option<Vec<u8>> {
-    let mut all = vec!["-C", root];
+    let mut all = vec!["--no-replace-objects", "-C", root];
     all.extend(args);
     crate::detect::git_output(&all, None).filter(|run| run.status.success()).map(|run| run.stdout)
 }
@@ -213,6 +215,8 @@ fn on_branches(root: &str, number: &str, pattern: &str, all: &[Branch], from: &m
         from.push(format!("no branch of the issue, from the pattern `branch`: {}", pattern));
     }
     let mut has_file = false;
+    // The project's keys, read once, where an acceptance is found to hold by its hash (#235).
+    let mut keys: Option<crate::signers::Keys> = None;
     for branch in mine {
         let Some(bytes) = git(root, &["show", &format!("{}:{}", branch.full, file)]) else {
             from.push(format!("{}: no {}", branch.full, file));
@@ -227,11 +231,24 @@ fn on_branches(root: &str, number: &str, pattern: &str, all: &[Branch], from: &m
         } else {
             format!("{}: {}, and {} is not there or does not hold for it", branch.full, file, accepted)
         });
-        if held {
-            return (true, body);
+        if let (true, Some(text)) = (held, body.as_deref()) {
+            let keys = keys.get_or_insert_with(|| crate::signers::load(root));
+            match crate::signers::file_signed(root, keys, number, &bytes, text) {
+                crate::signers::Signed::Void(why) => from.push(why),
+                crate::signers::Signed::Good(said) | crate::signers::Signed::Unchecked(said) => {
+                    from.push(said);
+                    return (true, body);
+                }
+            }
         }
     }
     (has_file, None)
+}
+
+/// Whether the acceptance `body` of the issue's file `bytes` of `number` counts by its signature (#235): it does where
+/// its signed tag checks, or where no signature is checked.
+fn signed_holds(root: &str, number: &str, bytes: &[u8], body: &str) -> bool {
+    !matches!(crate::signers::file_signed(root, &crate::signers::load(root), number, bytes, body), crate::signers::Signed::Void(_))
 }
 
 /// Where `wb status` reads the issue's file of `number` (#290, for `wb plan show`): the first branch of the issue, by
@@ -310,13 +327,15 @@ fn default_holds(root: &str, default: &str, number: &str) -> bool {
         return false;
     };
     let hash = crate::manifest::hash_bytes(&bytes);
-    String::from_utf8_lossy(&body).lines().find_map(|line| line.strip_prefix("sha256: ")) == Some(hash.as_str())
+    let body = String::from_utf8_lossy(&body).to_string();
+    body.lines().find_map(|line| line.strip_prefix("sha256: ")) == Some(hash.as_str()) && signed_holds(root, number, &bytes, &body)
 }
 
 /// How a job is closed, from git alone (#282): the record of the acceptance of its work holds on a branch of the issue,
 /// or no branch of the issue is in the flow and the default branch holds the issue's file with its acceptance. The
-/// record is read on every branch of the issue, a local one before one at `origin`.
-fn closing(root: &str, number: &str, pattern: &str, all: &[Branch], flow: &[String], default: &str) -> Option<Closed> {
+/// record is read on every branch of the issue, a local one before one at `origin`. Where the default branch has
+/// `.watchbill/signers`, a record counts only where its signed tag checks (#235); why one does not is said in `from`.
+fn closing(root: &str, number: &str, pattern: &str, all: &[Branch], flow: &[String], default: &str, from: &mut Vec<String>) -> Option<Closed> {
     let mine = || all.iter().filter(|branch| is_of(pattern, number, &branch.name));
     let work = |record: &crate::finished::Record, on: &str| {
         let said = crate::finished::said(&record.commit, &[]);
@@ -324,15 +343,32 @@ fn closing(root: &str, number: &str, pattern: &str, all: &[Branch], flow: &[Stri
         let line = format!("accepted: {} ({}, {}{})", said, issue::shown(&record.by), issue::shown(&record.time), not_run);
         Closed { line, said: format!("its work is accepted ({}, on {})", said, issue::shown(on)) }
     };
-    if let Some((branch, record)) = mine().find_map(|branch| crate::finished::holding(root, number, &branch.full).map(|record| (branch, record))) {
-        return Some(work(&record, &branch.name));
+    let mut keys: Option<crate::signers::Keys> = None;
+    let mut signed = |record: &crate::finished::Record, body: &str, from: &mut Vec<String>| {
+        let keys = keys.get_or_insert_with(|| crate::signers::load(root));
+        match crate::signers::work_signed(root, keys, number, &record.commit, body) {
+            crate::signers::Signed::Void(why) => {
+                from.push(why);
+                false
+            }
+            _ => true,
+        }
+    };
+    for branch in mine() {
+        if let Some((record, body)) = crate::finished::holding(root, number, &branch.full) {
+            if signed(&record, &body, from) {
+                return Some(work(&record, &branch.name));
+            }
+        }
     }
     // The record reached the default branch with the merge of the branch: no branch is needed then, but a branch of the
     // issue in the flow, with a commit after it, puts the job back (#282).
     if !mine().any(|branch| flow.contains(&branch.full)) && default_holds(root, default, number) {
-        let record = git(root, &["show", &format!("{}:{}", default, crate::finished::path_of(number))]).and_then(|text| crate::finished::parse(&String::from_utf8_lossy(&text)));
-        if let Some(record) = record {
-            return Some(work(&record, short_ref(default)));
+        let body = git(root, &["show", &format!("{}:{}", default, crate::finished::path_of(number))]).map(|text| String::from_utf8_lossy(&text).to_string());
+        if let Some((record, body)) = body.and_then(|body| crate::finished::parse(&body).map(|record| (record, body))) {
+            if signed(&record, &body, from) {
+                return Some(work(&record, short_ref(default)));
+            }
         }
     }
     // A branch of the issue is there, none is in the flow, one holds work after the acceptance, and the default branch
@@ -365,7 +401,7 @@ pub(crate) fn done_of(root: &str, number: &str) -> Option<String> {
     let pattern = prompt::pattern_of(root, "branch").ok().flatten().unwrap_or_else(|| "issue-{issue}".to_string());
     let default = default_branch(root)?;
     let flow = in_flow(root, &default, &pattern).ok()?;
-    closing(root, number, &pattern, &branches(root), &flow, &default).map(|closed| closed.said)
+    closing(root, number, &pattern, &branches(root), &flow, &default, &mut Vec::new()).map(|closed| closed.said)
 }
 
 /// Whether the commit `commit` (as the views name it) is in the default branch: git says it is an ancestor of it.
@@ -374,7 +410,7 @@ pub(crate) fn in_default(root: &str, commit: &str) -> bool {
         return false;
     }
     let Some(default) = default_branch(root) else { return false };
-    crate::detect::git_output(&["-C", root, "merge-base", "--is-ancestor", &format!("{}^{{commit}}", commit), &default], None).is_some_and(|run| run.status.code() == Some(0))
+    crate::detect::git_output(&["--no-replace-objects", "-C", root, "merge-base", "--is-ancestor", &format!("{}^{{commit}}", commit), &default], None).is_some_and(|run| run.status.code() == Some(0))
 }
 
 /// What `wb accept` needs to know of a job (#282).
@@ -467,7 +503,7 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
             roles.push(name.clone());
         }
     }
-    let closed = closing(root, number, pattern, all, flow, default);
+    let closed = closing(root, number, pattern, all, flow, default, &mut from);
     if let Some(closed) = &closed {
         from.push(format!("done: {}", closed.said));
         if closed.line.starts_with("accepted: ") {

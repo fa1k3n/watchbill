@@ -71,7 +71,8 @@ struct Job {
 /// it failed, with the first line of what git said.
 fn git(root: &str, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>, String> {
     let mut command = Command::new("git");
-    command.arg("-C").arg(root).args(args);
+    // No replace ref decides what a job holds: the hashes of its sources are what an acceptance's tag names (#235).
+    command.arg("--no-replace-objects").arg("-C").arg(root).args(args);
     for (name, _) in std::env::vars_os() {
         if name.to_string_lossy().starts_with("GIT_") {
             command.env_remove(name);
@@ -791,18 +792,31 @@ fn accepted_in_tree(root: &str, name: &str) -> Option<String> {
 /// The state of a plan whose issue's file is `bytes` and whose acceptance is `body`, by its acceptance and its sources;
 /// the planner's stamps are read after, by the caller, where it is accepted. `Ok((by, time))` where it is accepted, else
 /// the state's words.
-fn state_of(plan: &Plan, bytes: &[u8], body: Option<&str>) -> Result<(String, String), &'static str> {
+fn state_of(root: &str, name: &str, plan: &Plan, bytes: &[u8], body: Option<&str>) -> Result<(String, String), String> {
     let Some(body) = body else {
-        return Err("not accepted");
+        return Err("not accepted".to_string());
     };
     if line_of(body, "sha256") != Some(crate::manifest::hash_bytes(bytes).as_str()) {
-        return Err("not accepted (edited after the acceptance)");
+        return Err("not accepted (edited after the acceptance)".to_string());
+    }
+    // Where the default branch has `.watchbill/signers`, the acceptance is its signed tag (#235).
+    if let crate::signers::Signed::Void(why) = crate::signers::file_signed(root, &crate::signers::load(root), name, bytes, body) {
+        return Err(format!("not accepted ({})", why));
     }
     let time = accepted_time(body);
     if source_after(&plan.job, &time) {
-        return Err("not accepted (a source added after the acceptance)");
+        return Err("not accepted (a source added after the acceptance)".to_string());
     }
     Ok((line_of(body, "by").unwrap_or("").to_string(), time))
+}
+
+/// The hash of each source of the plan of `name`, in the order they were added: the job's hash, which the tag of an
+/// acceptance names (#235). None where there is no plan of the name, or it is removed.
+pub(crate) fn source_hashes(root: &str, name: &str) -> Vec<String> {
+    match plan_of(root, name) {
+        Some(plan) if !plan.removed => plan.job.sources.iter().map(|source| source.hash.clone()).collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// `wb plan show <name>` in the repository at `root`: the plan's names, its sources, its issue's file and its state.
@@ -875,8 +889,8 @@ pub fn show(root: &str, name: &str, out: &mut dyn Write, err: &mut dyn Write) ->
     if bytes.len() as u64 > crate::issue::MAX_BYTES {
         return crate::refusal::limit(err, COMMAND, format_args!("{} is larger than 1 MiB, and an issue's file is not", file));
     }
-    let state = match state_of(&plan, &bytes, body.as_deref()) {
-        Err(words) => words.to_string(),
+    let state = match state_of(root, name, &plan, &bytes, body.as_deref()) {
+        Err(words) => words,
         // A planner round after the acceptance voids it (the owner, 2026-11-24): its stamp is read whole.
         Ok((by, time)) => match planned_again(root, name, &time) {
             Err(why) => return crate::refusal::limit(err, COMMAND, format_args!("{}", why)),
@@ -956,7 +970,7 @@ pub fn accept_word(root: &str, name: &str, err: &mut dyn Write) -> Option<i32> {
     };
     let (file, _) = files_of(name);
     let body = accepted_in_tree(root, name);
-    let accepted = match plain(root, &file).map(|bytes| state_of(&plan, &bytes, body.as_deref())) {
+    let accepted = match plain(root, &file).map(|bytes| state_of(root, name, &plan, &bytes, body.as_deref())) {
         // A stamp that cannot be read leaves it to `wb accept`, which refuses an acceptance that is there.
         Some(Ok((_, time))) => !matches!(planned_again(root, name, &time), Ok(Some(true))),
         _ => false,

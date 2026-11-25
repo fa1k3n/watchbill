@@ -49,6 +49,10 @@ impl Bench {
     fn comments(&self, kind: &str, name: &str, lines: &[&str]) {
         let text: String = lines.iter().map(|line| format!("{}\n", line)).collect();
         fs::write(self.at(&format!("comments-{}-{}", kind, name)), text).unwrap();
+        // Since #236 the stamps and the markers are commits on the job's ref, and `wb` reads no `[stamp]` comment.
+        if kind == "issue" {
+            stamps_from_lines(&self.repo.path, name, lines, &[]);
+        }
     }
 
     /// The open changes of a branch, as `change_of_branch` prints them.
@@ -132,6 +136,8 @@ fn org(log: &Path, default: Option<&str>) -> String {
 /// `origin` is an address no stand-in serves; git reaches it only through `ssh.sh`, which writes `network`.
 fn bench() -> Bench {
     let repo = repository(Some("ssh://example.invalid/brakes/controller.git"));
+    // The stamp is pushed before the session (#236): to a bare repository of the test, never the network.
+    push_beside(&repo.path);
     let log = folder_named("log");
     let at = |name: &str| log.path.join(name).to_str().unwrap().to_string();
     let l = log.path.to_str().unwrap();
@@ -305,7 +311,8 @@ fn test_WB_BUILD_2_a_fix_whose_rule_cannot_be_checked_for_want_of_issue_comments
     let bench = bench();
     bench.set("issue_comments", "");
     let run = bench.start(true, &["start", "fix", "54", "--round", "1", "--change", "174"]);
-    refused(&bench, &run, 1, &["a fix follows a review", "issue_comments"]);
+    // Since #236 the review's stamps are read from the job's ref, which needs no `issue_comments`.
+    refused(&bench, &run, 1, &["a fix follows a review", "no review stamp on refs/watchbill/54"]);
 }
 
 #[test]
@@ -604,7 +611,8 @@ fn test_WB_BUILD_9_a_whole_start_reaches_no_remote_of_git_and_runs_only_the_stan
     ok(&bench.start(true, &["start", "fix", "54"]));
     assert!(!bench.at("network").exists(), "git asked origin");
     // What `wb` brings in for the session is read before the stamp is posted (#153).
-    assert_eq!(bench.calls(), ["comments issue 54", "changes issue-54", "address 54", "ctext 174", "cbodies 174", "bodies 54", "post issue 54", "start"]);
+    // Since #236 no comment is read for the round: the stamps are commits on the job's ref.
+    assert_eq!(bench.calls(), ["changes issue-54", "address 54", "ctext 174", "cbodies 174", "bodies 54", "post issue 54", "start"]);
 }
 
 // ---- WB-BUILD-10: the runner: `--runner`, else the organisation's `default` ----
@@ -659,7 +667,8 @@ fn test_WB_BUILD_11_the_review_takes_one_more_than_the_review_stamps_and_the_fix
     ok(&bench.start(true, &["start", "review", "54"]));
     assert!(bench.posted("issue", "54").unwrap().starts_with("[stamp] review round 2\n"));
     ok(&bench.start(true, &["start", "fix", "54"]));
-    assert!(bench.posted("issue", "54").unwrap().starts_with("[stamp] fix round 1\n"));
+    // Since #236 the review's own stamp is a commit on the job's ref, and counts: the fix answers round 2.
+    assert!(bench.posted("issue", "54").unwrap().starts_with("[stamp] fix round 2\n"));
 }
 
 #[test]
@@ -698,12 +707,13 @@ fn test_WB_BUILD_11_wb_prompt_works_out_the_same_round_by_the_same_function() {
 }
 
 #[test]
-fn test_WB_BUILD_11_with_no_issue_comments_and_no_round_wb_role_is_refused_naming_both() {
+fn test_WB_BUILD_11_with_no_issue_comments_the_round_of_an_issue_is_worked_out_from_its_jobs_ref() {
+    // Since #236 the round of an issue needs no `issue_comments`.
     let bench = bench();
     bench.set("issue_comments", "");
     let run = bench.start(true, &["start", "build", "54"]);
-    refused(&bench, &run, 1, &["issue_comments", "--round"]);
-    ok(&bench.start(true, &["start", "build", "54", "--round", "1"]));
+    ok(&run);
+    assert!(text(&run.stderr).contains("round 1 (no build stamp on refs/watchbill/54)"), "{}", text(&run.stderr));
 }
 
 #[test]
@@ -715,11 +725,12 @@ fn test_WB_BUILD_11_wb_prompt_asks_for_no_round_where_its_text_holds_none() {
 }
 
 #[test]
-fn test_WB_BUILD_11_a_comments_command_that_fails_is_refused_with_1_and_named() {
+fn test_WB_BUILD_11_a_comments_command_that_fails_is_not_run_for_the_round_of_an_issue() {
+    // Since #236 the round of an issue is counted from the stamp commits on its job's ref: no comment is read for it.
     let bench = bench();
     bench.ends_with("comments", 1);
-    let run = bench.start(true, &["start", "build", "54"]);
-    refused(&bench, &run, 1, &["issue_comments"]);
+    ok(&bench.start(true, &["start", "build", "54"]));
+    assert!(!bench.calls().iter().any(|call| call.starts_with("comments ")), "{:?}", bench.calls());
 }
 
 // ---- WB-BUILD-12: the change, from `change_of_branch` ----
@@ -770,7 +781,7 @@ fn test_WB_BUILD_13_the_round_and_the_change_and_where_they_came_from_are_said_b
     let run = bench.start(true, &["start", "review", "54"]);
     ok(&run);
     let err = text(&run.stderr);
-    let worked = err.find("round 2 (1 review stamp on issue 54)").unwrap_or_else(|| panic!("{}", err));
+    let worked = err.find("round 2 (1 review stamp on refs/watchbill/54)").unwrap_or_else(|| panic!("{}", err));
     let change = err.find("issue 54, change 174 (from the branch issue-54)").unwrap_or_else(|| panic!("{}", err));
     let post = err.find("will post").unwrap();
     assert!(worked < post && change < post, "{}", err);
@@ -887,13 +898,15 @@ fn test_WB_BUILD_20_with_no_issue_s_file_a_role_is_refused_unless_classed_is_emp
 #[test]
 fn test_WB_BUILD_21_a_pattern_is_run_by_the_shell_in_the_root_of_the_checkout() {
     let bench = bench();
-    let comments = bench.at("comments.sh");
-    bench.set("issue_comments", &format!("issue_comments: 'true && {} issue {{issue}} | cat'", comments.display()));
+    // Since #236 the round is read from the job's ref: the pattern that posts the copy of the stamp is the one run.
+    let post = bench.at("post.sh");
+    let pwd = bench.at("post.pwd");
+    bench.set("issue_comment", &format!("issue_comment: 'true && pwd > {} && {} issue {{issue}} | cat'", pwd.display(), post.display()));
     bench.comments("issue", "54", &["[stamp] build round 1"]);
     fs::create_dir_all(bench.repo.path.join("src/deep")).unwrap();
     ok(&start_with(&bench.repo.path.join("src/deep"), &bench.org, true, &["start", "build", "54"]));
     assert!(bench.posted("issue", "54").unwrap().starts_with("[stamp] build round 2\n"));
-    assert_eq!(read(&bench.at("comments.pwd")).trim(), bench.root());
+    assert_eq!(read(&pwd).trim(), bench.root());
 }
 
 #[test]
@@ -932,11 +945,14 @@ fn test_WB_BUILD_22_a_round_that_is_not_a_whole_number_from_1_is_used_wrongly() 
 // ---- WB-BUILD-23: the pattern that posts must be there ----
 
 #[test]
-fn test_WB_BUILD_23_with_no_issue_comment_nothing_is_posted_or_started() {
+fn test_WB_BUILD_23_with_no_issue_comment_no_copy_is_posted_and_the_session_starts() {
+    // Since #236 the stamp of an issue is the commit on its job's ref, and the comment only a copy of it.
     let bench = bench();
     bench.set("issue_comment", "");
     let run = bench.start(true, &["start", "build", "54"]);
-    refused(&bench, &run, 1, &["issue_comment"]);
+    ok(&run);
+    assert!(text(&run.stderr).contains("watchbill.yml has no `issue_comment`, so no copy of the stamp is posted"), "{}", text(&run.stderr));
+    assert!(!bench.any_posted() && bench.started(), "{:?}", bench.calls());
 }
 
 // ---- WB-BUILD-24: a word too long to be handed to a program ----
@@ -1365,7 +1381,8 @@ fn test_WB_BUILD_27_the_round_line_agrees_with_the_first_line_for_each_role_with
     let bench = bench();
     bench.changes("issue-54", &["174"]);
     bench.comments("issue", "54", &["[stamp] planner round 1", "[stamp] tester round 1", "[stamp] tester round 2", "[stamp] review round 1", "[stamp] review round 2"]);
-    for (role, round) in [("planner", 2), ("tester", 3), ("build", 1), ("review", 3), ("fix", 2)] {
+    // Since #236 each start's own stamp is a commit on the job's ref and counts: the fix answers the review of round 3.
+    for (role, round) in [("planner", 2), ("tester", 3), ("build", 1), ("review", 3), ("fix", 3)] {
         ok(&bench.start(true, &["start", role, "54"]));
         agree(&bench.posted("issue", "54").unwrap(), role, round);
     }
@@ -1614,7 +1631,7 @@ fn test_WB_BUILD_36_wb_start_build_does_what_wb_build_did_the_stamp_and_the_star
     ok(&bench.start(true, &["start", "build", "54"]));
     // The checks read the comments and the changes, then the stamp is posted, then the session starts.
     // What `wb` brings in for the session is read before the stamp is posted (#153).
-    assert_eq!(bench.calls(), ["comments issue 54", "address 54", "bodies 54", "post issue 54", "start"]);
+    assert_eq!(bench.calls(), ["address 54", "bodies 54", "post issue 54", "start"]);
     let posted = read(&bench.at("posted-issue-54"));
     assert!(posted.starts_with("[stamp] build round 1\n"), "{}", posted);
     assert!(posted.contains("\nrole: build\n"), "{}", posted);

@@ -135,7 +135,7 @@ const USAGE: &str = "usage:
             (edited after the acceptance), not accepted (a source added after
             the acceptance), not accepted (planned again after the
             acceptance), or accepted by whom and when; the planner's stamps
-            are read whole by issue_comment_bodies. A source or a [stamp]
+            are read from the job's ref. A source or a [stamp]
             planner of the same second as the acceptance or later voids it,
             and no prompt of the issue is handed out until wb plan accept
             again; a stamp that a [revert] took back counts for nothing. wb
@@ -195,12 +195,18 @@ const USAGE: &str = "usage:
             and no issue. It checks what prompt checks, that a fix
             follows a review, that no classed code is in its way (classed: of
             watchbill.yml), that the runner has start in the organisation's
-            file, and that standard input and output are a terminal; then say
-            and post the stamp by issue_comment of watchbill.yml (by
-            change_comment for a review or a fix of a change with no issue),
-            and run the runner's start in the root of the checkout. The runner
-            is --runner, or the organisation's default. The round and the
-            change are worked out from issue_comments, change_comments and
+            file, and that standard input and output are a terminal; then
+            write the stamp of an issue as a commit on refs/watchbill/<issue>,
+            signed by a key of .watchbill/signers with start where the list
+            is there, and push it to origin with no force: a push refused as
+            not a fast-forward ends with 1 and starts nothing, and with no
+            origin the stamp stays local, said. Its copy is posted by
+            issue_comment of watchbill.yml where it is there (a review or a
+            fix of a change with no issue posts the stamp by change_comment),
+            and the runner's start is run in the root of the checkout. The
+            runner is --runner, or the organisation's default. The round is
+            worked out from the stamp commits on the job's ref (from
+            change_comments for a change with no issue), the change from
             change_of_branch; --round and --change win. --prompt, --stamp and
             --parts print as prompt does, and post and start nothing. A view
             of the issue kept with work not taken back, from any role, stops the
@@ -280,10 +286,10 @@ const USAGE: &str = "usage:
             origin, holds a commit that the default branch of origin does not:
             git alone says which, and fetches nothing. Its line shows the
             branch, the open change as #<n> (change_of_branch) and how many
-            commits are not pushed. The comments come from issue_comments, and
-            for an accepted issue with a [stamp] planner the whole comments
-            from issue_comment_bodies: an acceptance that a source or a
-            planner round after it voided puts the issue under Planned.
+            commits are not pushed. The stamps are the commits on the job's
+            ref that count, the questions and answers come from
+            issue_comments: an acceptance that a source or a planner round
+            after it voided puts the issue under Planned.
             <issue> prints that issue, in the flow or not, with its title
             (issue_address) and what it was worked out from; --stage <heading>
             prints that heading only, whatever its case. A job whose work is

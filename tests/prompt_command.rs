@@ -619,7 +619,10 @@ fn test_WB_PROMPT_19_a_stamp_is_the_thirteen_lines_in_order_and_the_parts_for_ea
         assert!(found.len() > 13, "{}: {}", role, out);
         // The line `requirements: given` stands before the parts, as the file of the issue is used (#97).
         assert_eq!(found[13], ("requirements".to_string(), "given".to_string()), "{}: {}", role, out);
-        assert!(found.iter().skip(14).all(|(name, _)| name == "part"), "{}: {}", role, out);
+        // The lines `job:` and `base:` follow it, before the parts (#236).
+        assert_eq!(found[14].0, "job", "{}: {}", role, out);
+        assert_eq!(found[15].0, "base", "{}: {}", role, out);
+        assert!(found.iter().skip(16).all(|(name, _)| name == "part"), "{}: {}", role, out);
         assert!(out.ends_with('\n'), "{}", role);
         assert_eq!(value(&found, "role"), role);
         // A value the prompt does not hold is written empty: it was not handed out.

@@ -76,6 +76,8 @@ fn at_origin(folder: &Path, name: &str) {
 fn comments(folder: &Path, issue: &str, lines: &[&str]) {
     let all: String = lines.iter().map(|line| format!("{}\n", line)).collect();
     put(folder, &format!(".tracker/{}.comments", issue), &all);
+    // Since #236 the stamps and the markers are commits on the job's ref, and `wb` reads no `[stamp]` comment.
+    stamps_from_lines(folder, issue, lines, &[]);
 }
 
 /// Makes the branch `issue-<issue>-work` with the issue's file, and its acceptance when `accepted`, and goes
@@ -385,7 +387,7 @@ fn test_WB_STATUS_24_one_issue_prints_the_heading_worked_out_from_and_its_lines_
     open(&folder.path, &["1"]);
     comments(&folder.path, "1", &["[stamp] tester round 1"]);
     let (out, _) = stdout(&folder.path, &["status", "1"]);
-    assert_eq!(out, "Tested:\n  1  issue-1-work\n\nWorked out from:\n  refs/heads/issue-1-work: no .watchbill/issues/1.yml\n  refs/remotes/origin/issue-1-work: no .watchbill/issues/1.yml\n  [stamp] tester round 1\n");
+    assert_eq!(out, "Tested:\n  1  issue-1-work\n\nWorked out from:\n  refs/heads/issue-1-work: no .watchbill/issues/1.yml\n  refs/remotes/origin/issue-1-work: no .watchbill/issues/1.yml\n  [stamp] tester round 1  (on refs/watchbill/1)\n  the stamps of refs/watchbill/1 count unsigned: no .watchbill/signers on master: no signature is checked\n");
     // The full list has no such heading.
     let (out, _) = stdout(&folder.path, &["status"]);
     assert!(!out.contains("Worked out from"), "{}", out);
@@ -814,7 +816,8 @@ change_of_branch: \"mkdir -p .calls && echo {branch} >> .calls/change_of_branch\
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(text(&run.stdout).contains("Accepted:\n  2  "), "{}", text(&run.stdout));
     assert_eq!(calls(&folder.path, "issue_comments"), ["1", "2", "3"]);
-    assert_eq!(calls(&folder.path, "issue_comment_bodies"), ["2"]);
+    // Since #236 the planner's stamps and their times are read from the job's ref: no whole comment is read.
+    assert!(calls(&folder.path, "issue_comment_bodies").is_empty(), "{:?}", calls(&folder.path, "issue_comment_bodies"));
 }
 
 #[test]

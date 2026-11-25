@@ -136,6 +136,9 @@ impl Bench {
         fs::write(self.at("54.comments"), firsts).unwrap();
         let whole: String = bodies.iter().map(|body| format!("{}\0", body)).collect();
         fs::write(self.at("54.bodies"), whole).unwrap();
+        // Since #236 the stamps are commits on the job's ref, after the plan's, and `wb` reads no `[stamp]` comment.
+        let lines: Vec<&str> = bodies.iter().map(|body| body.lines().next().unwrap_or("")).collect();
+        stamps_from_lines(&self.repo.path, "54", &lines, bodies);
     }
 
     /// The branch `issue-54` from `main` with the issue's file committed alone, checked out. A planner's round lasts

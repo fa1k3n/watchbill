@@ -135,6 +135,20 @@ impl Bench {
     fn comments(&self, lines: &[&str]) {
         let all: String = lines.iter().map(|line| format!("{}\n", line)).collect();
         self.put(".tracker/54.comments", &all);
+        // Since #236 a stamp is a commit on the job's ref, signed by the starter, and `wb` reads no `[stamp]` comment:
+        // each stamp goes after what the ref holds, signed with the key git signs with.
+        for line in lines.iter().filter(|line| line.starts_with("[stamp] ")) {
+            let parent = self.git_run(&["rev-parse", "--verify", "-q", "refs/watchbill/54"]);
+            let parent = text(&parent.stdout).trim().to_string();
+            let tree = self.git_input(&["mktree"], b"").trim().to_string();
+            let mut args = vec!["commit-tree", "-S", "-m", line, tree.as_str()];
+            if !parent.is_empty() {
+                args.push("-p");
+                args.push(&parent);
+            }
+            let commit = self.git(&args).trim().to_string();
+            self.git(&["update-ref", "refs/watchbill/54", &commit]);
+        }
     }
 
     /// Commits `.watchbill/signers` on `main`, with the lines given, and comes back to the branch it was on.
@@ -284,9 +298,9 @@ fn bench_with(lines: &dyn Fn(&Bench) -> String) -> Bench {
     bench(Some(lines))
 }
 
-/// A bench whose `.watchbill/signers` lets Ada accept.
+/// A bench whose `.watchbill/signers` lets Ada accept, and start a session (#236).
 fn ada_accepts() -> Bench {
-    bench(Some(&|bench: &Bench| bench.line("ada@example.org", "accept", "ada")))
+    bench(Some(&|bench: &Bench| bench.line("ada@example.org", "accept,start", "ada")))
 }
 
 /// Job 54 accepted by Ada, signed, on its branch.

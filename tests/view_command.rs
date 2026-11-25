@@ -66,6 +66,8 @@ const BUILD_LIST: &str = "src/brake.c\ntests/test_brake.c\nsrc/new.c\nsrc/brake.
 /// issue 54 committed on the branch `issue-54`, which is checked out.
 fn bench() -> Bench {
     let repo = repository(Some("ssh://example.invalid/brakes/controller.git"));
+    // The stamp is pushed before the session (#236): to a bare repository of the test, never the network.
+    push_beside(&repo.path);
     let log = folder_named("log");
     let org = folder_named("org");
     let l = log.path.to_str().unwrap();

@@ -368,3 +368,44 @@ pub fn stamps_on_ref(folder: &Path, issue: &str, messages: &[&str]) {
         parent = Some(commit);
     }
 }
+
+/// Sends the pushes of `origin` to a bare repository beside the checkout `repo`, in the folder of the test, while its
+/// fetch address stays as it is: `wb start` pushes the stamp to `origin` before the session (#236), and no push of a
+/// test reaches the network. The bare repository's path.
+pub fn push_beside(repo: &Path) -> PathBuf {
+    let bare = repo.parent().expect("the checkout is in a folder of the test").join("origin.git");
+    git(repo, &["init", "-q", "--bare", bare.to_str().unwrap()]);
+    git(repo, &["config", "remote.origin.pushurl", bare.to_str().unwrap()]);
+    bare
+}
+
+/// The stamps and the markers among `lines`, first lines of comments as a test of an earlier revision gave them, put
+/// where `wb` reads them since #236: as the commits on the job's ref of `issue`, in their order, in place of what the ref
+/// held. A line of another kind is left to the comments. `bodies` gives a whole message for a first line where it has
+/// one (a planner's `time:`); a line with none is given a time long past, as a stamp whose time is not read stood.
+pub fn stamps_from_lines(folder: &Path, issue: &str, lines: &[&str], bodies: &[&str]) {
+    let full = format!("refs/watchbill/{}", issue);
+    // The stamps and markers on the ref go; a plan's commits under them stay.
+    let read = |args: &[&str]| {
+        let run = Command::new("git").arg("-C").arg(folder).args(args).env_clear().envs(env()).stderr(Stdio::null()).output().expect("git could not be started");
+        Some(String::from_utf8_lossy(&run.stdout).trim().to_string()).filter(|out| run.status.success() && !out.is_empty())
+    };
+    while let Some(tip) = read(&["rev-parse", "--verify", "-q", &full]) {
+        let first = read(&["log", "-1", "--format=%s", &tip]).unwrap_or_default();
+        if !first.starts_with("[stamp] ") && !first.starts_with("[revert] ") {
+            break;
+        }
+        match read(&["rev-parse", "--verify", "-q", &format!("{}^", tip)]) {
+            Some(parent) => git(folder, &["update-ref", &full, &parent]),
+            None => git(folder, &["update-ref", "-d", &full]),
+        }
+    }
+    let is_entry = |line: &str| line.starts_with("[stamp] ") || line.starts_with("[revert] ");
+    let messages: Vec<String> = lines
+        .iter()
+        .filter(|line| is_entry(line))
+        .map(|line| bodies.iter().find(|body| body.split('\n').next() == Some(*line)).map_or_else(|| format!("{}\ntime: 2000-01-01T00:00:00Z\n", line), |body| body.to_string()))
+        .collect();
+    let messages: Vec<&str> = messages.iter().map(String::as_str).collect();
+    stamps_on_ref(folder, issue, &messages);
+}

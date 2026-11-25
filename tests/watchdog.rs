@@ -68,6 +68,8 @@ struct Bench {
 /// The bench, with `limits` added to `watchbill.yml` and committed, where it is not empty.
 fn bench_with(limits: &str) -> Bench {
     let repo = repository(Some("ssh://example.invalid/brakes/controller.git"));
+    // The stamp is pushed before the session (#236): to a bare repository of the test, never the network.
+    push_beside(&repo.path);
     let log = folder_named("log");
     let org = folder_named("org");
     let home = folder_named("home");

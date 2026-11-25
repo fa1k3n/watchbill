@@ -1,10 +1,12 @@
 //! `wb revert` (#142): takes an issue, or a change with no issue, back to before a step, by one marker that
-//! deletes nothing. The marker is a comment whose first line is `[revert] <role> round <n>`; `starter::counted`
-//! reads it, and from then on the stamps, questions and answers from that stamp up to the marker do not count.
+//! deletes nothing. The marker's first line is `[revert] <role> round <n>`; from then on the stamps, questions and
+//! answers from that stamp up to the marker do not count (`starter::counted`).
 //!
-//! Only the comment is posted, by `issue_comment` (or `change_comment`). The branch, the issue's file and its
-//! acceptance, and the change are not touched: the commits of the steps taken back stay, and taking them back is
-//! git's.
+//! For an issue (#236) the marker is a commit on its job's ref, after the stamps, naming the issue and the job, signed
+//! and pushed to `origin` as a stamp is (`stamps::write`); its copy is posted by `issue_comment` where `watchbill.yml`
+//! has it, and never read back for a round. For a change with no issue it is a comment, posted by `change_comment`.
+//! The branch, the issue's file and its acceptance, and the change are not touched: the commits of the steps taken back
+//! stay, and taking them back is git's.
 
 use std::io::Write;
 
@@ -138,7 +140,10 @@ fn on_ref(root: &str, issue: &str, role: &str, round: Option<u64>, err: &mut dyn
             format!("a later planner took the issue back ({}), so the stamp `{} round {}` before it no longer counts and is not reverted. Nothing is posted.", ledger.full, role, n),
         );
     }
-    let marker = format!("[revert] {} round {}\n", role, n);
+    // The marker names its issue and its job (the review of #322): on the ref of another issue it counts for nothing.
+    let jobs = crate::plan::source_hashes(root, issue);
+    let job_lines: String = if jobs.is_empty() { "job: none\n".to_string() } else { jobs.iter().map(|job| format!("job: {}\n", job)).collect() };
+    let marker = format!("[revert] {} round {}\n{}\n{}", role, n, crate::stamps::issue_line(issue), job_lines);
     let _ = write!(err, "wb revert: the marker:\n{}From the stamp `{} round {}` up to this marker, no stamp, question or answer counts. Nothing is deleted.\n", marker, role, n);
     if let Err(why) = crate::stamps::write("wb revert", root, issue, &marker, &crate::stamps::Held::Marker, &signing, err) {
         return limit(err, format!("{}.", why));

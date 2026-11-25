@@ -789,7 +789,7 @@ change_address: \"mkdir -p .calls && echo x >> .calls/change_address\"
 }
 
 #[test]
-fn test_WB_STATUS_38_it_runs_issue_comment_bodies_once_for_an_accepted_issue_with_a_planner_stamp_and_for_no_other() {
+fn test_WB_STATUS_38_it_runs_issue_comments_once_for_each_issue_and_no_issue_comment_bodies_the_planner_s_time_is_read_from_the_ref() {
     let folder = set_up();
     let file = config(&folder.path);
     let kept: String = read(&file).lines().filter(|line| !line.starts_with("issue_comments:")).map(|line| format!("{}\n", line)).collect();

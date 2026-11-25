@@ -141,7 +141,7 @@ impl Bench {
             let parent = self.git_run(&["rev-parse", "--verify", "-q", "refs/watchbill/54"]);
             let parent = text(&parent.stdout).trim().to_string();
             let tree = self.git_input(&["mktree"], b"").trim().to_string();
-            let mut args = vec!["commit-tree", "-S", "-m", line, tree.as_str()];
+            let mut args = vec!["commit-tree", "-S", "-m", line, "-m", "issue: 54", tree.as_str()];
             if !parent.is_empty() {
                 args.push("-p");
                 args.push(&parent);

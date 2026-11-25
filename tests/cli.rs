@@ -334,18 +334,19 @@ const USAGE: &str = "usage:
             repository is not set up. Writes nothing. -q (--quiet) is taken
             and changes nothing: what it prints is what a script reads
   revert    take an issue back to before a step, deleting nothing:
-            wb revert <issue> <role> [--round <n>] posts, by issue_comment of
-            watchbill.yml, one comment whose first line is
-            [revert] <role> round <n>, for the last stamp of the role, or round
-            <n>. From that stamp up to the marker no stamp, question or answer
-            counts, for wb start <role>, wb prompt and wb status. wb revert
-            --change <n> <role> posts it on a change with no issue, by
-            change_comment.
+            wb revert <issue> <role> [--round <n>] writes one marker whose
+            first line is [revert] <role> round <n>, for the last stamp of the
+            role, or round <n>, as a commit on refs/watchbill/<issue>, signed
+            and pushed to origin as a stamp is, and posts its copy by
+            issue_comment of watchbill.yml where it is there. From that stamp
+            up to the marker no stamp, question or answer counts, for wb start
+            <role>, wb prompt and wb status. wb revert --change <n> <role>
+            posts it on a change with no issue, by change_comment.
             The branch, the issue's file and its acceptance, and the change are
             not touched: taking commits back is git's. The planner is taken
             back with git, not by a marker. A job that is done is refused. Ends
-            with 0 when the marker is posted, 1 when it was refused or the
-            posting failed, 2 when it was used wrongly or the repository is not
+            with 0 when the marker is written, 1 when it was refused or its
+            writing failed, 2 when it was used wrongly or the repository is not
             set up. -q (--quiet) is taken and changes nothing: what it says,
             that the commits stay, is what a person must know
   clean     remove the views kept on this machine for this repository that

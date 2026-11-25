@@ -307,12 +307,15 @@ fn test_WB_BUILD_2_a_fix_with_no_review_stamp_is_refused_and_names_the_rule_also
 }
 
 #[test]
-fn test_WB_BUILD_2_a_fix_whose_rule_cannot_be_checked_for_want_of_issue_comments_is_refused() {
+fn test_WB_BUILD_2_the_rule_of_a_fix_of_an_issue_is_checked_from_its_jobs_ref_with_no_issue_comments() {
+    // Since #236 the review's stamps are commits on the job's ref: the rule that a fix follows a review is checked from
+    // them, and `issue_comments` is not needed for it.
     let bench = bench();
     bench.set("issue_comments", "");
+    stamps_on_ref(&bench.repo.path, "54", &["[stamp] review round 1"]);
     let run = bench.start(true, &["start", "fix", "54", "--round", "1", "--change", "174"]);
-    // Since #236 the review's stamps are read from the job's ref, which needs no `issue_comments`.
-    refused(&bench, &run, 1, &["a fix follows a review", "no review stamp on refs/watchbill/54"]);
+    ok(&run);
+    assert!(bench.started(), "{:?}", bench.calls());
 }
 
 #[test]

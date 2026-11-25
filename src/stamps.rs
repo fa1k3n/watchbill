@@ -119,28 +119,31 @@ impl Ledger {
     }
 }
 
-/// The objects of `commits`, each as `git cat-file commit` prints it, those larger than `CAP` left out.
-fn objects(root: &str, commits: &[String]) -> Result<Vec<(String, Vec<u8>)>, String> {
+/// The objects of `commits`, each as `git cat-file commit` prints it, or, for one larger than `CAP`, `None` with its size:
+/// it is not read, and is said.
+fn objects(root: &str, commits: &[String]) -> Result<Vec<(String, Result<Vec<u8>, u64>)>, String> {
     if commits.is_empty() {
         return Ok(Vec::new());
     }
     let input: String = commits.iter().map(|commit| format!("{}\n", commit)).collect();
     let sizes = git_line(root, &["cat-file", "--batch-check"], Some(input.as_bytes()))?;
     let mut small = Vec::new();
+    let mut found = Vec::new();
     for line in sizes.lines() {
         let words: Vec<&str> = line.split(' ').collect();
         if let [object, "commit", size] = words.as_slice() {
-            if size.parse::<u64>().is_ok_and(|size| size <= CAP) {
-                small.push(object.to_string());
+            match size.parse::<u64>() {
+                Ok(size) if size <= CAP => small.push(object.to_string()),
+                Ok(size) => found.push((object.to_string(), Err(size))),
+                Err(_) => return Err("git cat-file printed a size that is not a number".to_string()),
             }
         }
     }
     if small.is_empty() {
-        return Ok(Vec::new());
+        return Ok(found);
     }
     let input: String = small.iter().map(|commit| format!("{}\n", commit)).collect();
     let printed = signers::git(root, &["cat-file", "--batch"], Some(input.as_bytes()))?;
-    let mut found = Vec::new();
     let mut at = 0;
     while at < printed.len() {
         let end = printed[at..].iter().position(|byte| *byte == b'\n').map(|end| at + end).ok_or("git cat-file printed what is not an object")?;
@@ -151,14 +154,38 @@ fn objects(root: &str, commits: &[String]) -> Result<Vec<(String, Vec<u8>)>, Str
         };
         let size: usize = size.parse().map_err(|_| "git cat-file printed a size that is not a number".to_string())?;
         let body = printed.get(end + 1..end + 1 + size).ok_or("git cat-file printed less than the size it gave")?;
-        found.push((object.to_string(), body.to_vec()));
+        found.push((object.to_string(), Ok(body.to_vec())));
         at = end + 1 + size + 1;
     }
     Ok(found)
 }
 
+/// The line `issue: <name>` that every stamp and marker holds (the review of #322): a commit counts only on the ref of
+/// the issue it names, so a signed stamp of another job, put under a commit of this ref, is not a stamp of this one.
+pub fn issue_line(name: &str) -> String {
+    format!("issue: {}", name)
+}
+
+/// `message` with the line `issue: <name>`: as it is where it holds it, else with an empty `issue:` line filled, else
+/// with the line after its first.
+pub fn with_issue(message: &str, name: &str) -> String {
+    let line = issue_line(name);
+    if message.lines().any(|held| held == line) {
+        return message.to_string();
+    }
+    let mut lines: Vec<String> = message.lines().map(str::to_string).collect();
+    match lines.iter().position(|held| held == "issue:") {
+        Some(at) => lines[at] = line,
+        None => lines.insert(1.min(lines.len()), line),
+    }
+    let mut out = lines.join("\n");
+    out.push('\n');
+    out
+}
+
 /// The stamps and markers on the job's ref of `name` in the repository at `root`, each checked against the list of
-/// the default branch: an empty ledger where the ref is not there. `Err` where the ref cannot be read.
+/// the default branch and against the issue it names: an empty ledger where the ref is not there. `Err` where the ref
+/// cannot be read.
 pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
     let full = full(name);
     let keys = signers::load(root);
@@ -181,14 +208,25 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
     let mut read = objects(root, &commits)?;
     // In the order of the ref, oldest first.
     read.sort_by_key(|(object, _)| commits.iter().position(|commit| commit == object));
+    let line = issue_line(name);
     for (commit, raw) in read {
+        // A commit over the cap is not read, and so is no stamp: it is said, not left out unseen.
+        let raw = match raw {
+            Ok(raw) => raw,
+            Err(size) => {
+                let first = format!("commit {}", commit);
+                let counts = Err(format!("larger than 64 KiB ({} bytes), so it is not read", size));
+                ledger.entries.push(Entry { commit, first, message: String::new(), counts });
+                continue;
+            }
+        };
         let Some(split) = raw.windows(2).position(|pair| pair == b"\n\n") else { continue };
         let message = String::from_utf8_lossy(&raw[split + 2..]).to_string();
         let first = message.split('\n').next().unwrap_or("").trim_end_matches('\r').to_string();
         if !is_entry(&first) {
             continue;
         }
-        let counts = match &keys {
+        let signed = match &keys {
             Keys::Unchecked(_) => Ok(String::new()),
             Keys::Fault(why) => Err(format!("{}, so no stamp counts", why)),
             Keys::List(list) => match signers::verify_commit(&raw, "start", list) {
@@ -202,6 +240,16 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
                 Err(why) => Err(format!("its signature could not be checked: {}", why)),
             },
         };
+        let counts = signed.and_then(|by| {
+            if message.lines().any(|held| held.trim_end_matches('\r') == line) {
+                return Ok(by);
+            }
+            let named = message.lines().find_map(|held| held.strip_prefix("issue:")).map(str::trim).filter(|named| !named.is_empty());
+            Err(match named {
+                Some(other) => format!("a stamp of another job: it names issue {}, not {}", crate::issue::shown(other), crate::issue::shown(name)),
+                None => format!("a stamp of another job: it names no issue, and this is the ref of {}", crate::issue::shown(name)),
+            })
+        });
         ledger.entries.push(Entry { commit, first, message, counts });
     }
     Ok(ledger)
@@ -217,8 +265,18 @@ pub enum Signing {
 
 /// What the stamp's commit is signed with, before anything is written (WB-BUILD-50 to 53): where the list is there,
 /// git must sign with an SSH key that the list holds with `start`; a list that cannot be read is refused, as no stamp
-/// would count. `Err` says why, and names the setting or the key.
+/// would count. `Err` says why, and names the setting or the key. Where the repository has remotes and none is `origin`,
+/// it is refused too (the review of #322): the lock is the push to `origin`, and a stamp kept local there would hold none.
 pub fn ready(root: &str) -> Result<Signing, String> {
+    let remotes = remotes(root)?;
+    if !remotes.is_empty() && !remotes.iter().any(|remote| remote == "origin") {
+        let shown: Vec<String> = remotes.iter().map(|remote| crate::issue::shown(remote)).collect();
+        return Err(format!(
+            "the stamp is pushed to the remote origin, whose ref is the lock, and this repository has the remote{} {} and none named origin. Name the shared remote origin (git remote rename <name> origin)",
+            if remotes.len() == 1 { "" } else { "s" },
+            shown.join(", ")
+        ));
+    }
     match signers::load(root) {
         Keys::Unchecked(why) => Ok(Signing::Unsigned(why)),
         Keys::Fault(why) => Err(format!("{}, so no stamp would count", why)),
@@ -277,7 +335,8 @@ pub fn say(name: &str, root: &str, job: &str, held: &Held, signing: &Signing, er
         Ok(Some(commit)) => format!("after {}", commit),
         _ => "the first on it".to_string(),
     };
-    let _ = writeln!(err, "{}: will write the {} as a commit on {}, {}, {}, and push it to origin with no force", name, held.word(), full, after, how);
+    let then = if has_origin(root) { "and push it to origin with no force" } else { "and keep it on the local ref: there is no remote" };
+    let _ = writeln!(err, "{}: will write the {} as a commit on {}, {}, {}, {}", name, held.word(), full, after, how, then);
 }
 
 /// Makes the commit of `message` for the job's ref of `job`: for a stamp, its tree is the tree of the commit before,
@@ -312,6 +371,8 @@ pub fn make(root: &str, job: &str, message: &str, held: &Held, signing: &Signing
         Signing::Unsigned(_) => "--no-gpg-sign",
         Signing::Signed { .. } => "-S",
     });
+    // Every stamp and marker names its issue (the review of #322), whatever the prompt holds.
+    let message = with_issue(message, job);
     let commit = git_line(root, &args, Some(message.as_bytes())).map_err(|why| format!("the commit of the stamp could not be made: {}", why))?;
     if let Signing::Signed { list, .. } = signing {
         let raw = signers::git(root, &["cat-file", "commit", &commit], None)?;
@@ -348,16 +409,25 @@ pub enum Pushed {
     Failed(String),
 }
 
+/// The remotes of the repository at `root`, as `git remote` prints them.
+pub fn remotes(root: &str) -> Result<Vec<String>, String> {
+    git_line(root, &["remote"], None).map(|printed| printed.lines().map(str::trim).filter(|name| !name.is_empty()).map(str::to_string).collect())
+}
+
 /// Whether the repository at `root` has a remote `origin`.
 pub fn has_origin(root: &str) -> bool {
-    git_line(root, &["config", "--get", "remote.origin.url"], None).is_ok_and(|url| !url.is_empty())
+    remotes(root).is_ok_and(|remotes| remotes.iter().any(|remote| remote == "origin"))
 }
 
 /// Pushes the commit `made` to every ref it moves at `origin`, with no force and all or none (`--atomic`), as the
-/// person, outside any sandbox. Where there is no `origin`, nothing is pushed.
+/// person, outside any sandbox. Where there is no remote at all, nothing is pushed; where there are remotes and none
+/// is `origin`, the push fails (`ready` refuses that before anything is written).
 pub fn push(root: &str, made: &Made) -> Pushed {
-    if !has_origin(root) {
-        return Pushed::Local;
+    match remotes(root) {
+        Ok(remotes) if remotes.is_empty() => return Pushed::Local,
+        Ok(remotes) if !remotes.iter().any(|remote| remote == "origin") => return Pushed::Failed("there is no remote origin to push to".to_string()),
+        Ok(_) => {}
+        Err(why) => return Pushed::Failed(why),
     }
     let mut command = Command::new("git");
     command.arg("-C").arg(root).args(["push", "--porcelain", "--atomic", "origin"]);
@@ -399,6 +469,19 @@ pub fn record(root: &str, made: &Made) -> Result<(), String> {
     signers::git(root, &["update-ref", "--stdin"], Some(input.as_bytes())).map(|_| ())
 }
 
+/// What a start says where a later step failed after origin took its stamp `commit` (the review of #322): the stamp holds
+/// the round, and `wb revert` takes it back.
+pub fn round_held(job: &str, commit: &str, message: &str) -> String {
+    let role = message.split(' ').nth(1).unwrap_or("<role>");
+    format!(
+        "The stamp {} is on {} and holds the round: take it back with `wb revert {} {}` if the round is to be run again.",
+        commit,
+        full(job),
+        job,
+        role
+    )
+}
+
 /// Writes the commit of `message` on the job's ref of `job`, as `make` makes it, pushes it, and moves the local refs
 /// (WB-BUILD-43 to 46): the commit, and whether it is only local, where it went on; else why not, with nothing moved
 /// and nothing to follow from it. What it does is said on `err` after `name`.
@@ -420,7 +503,13 @@ pub fn write(name: &str, root: &str, job: &str, message: &str, held: &Held, sign
         }
         Pushed::Failed(said) => return Err(format!("the {} could not be pushed to origin, so it holds no lock: {}. {}", word, said, nothing)),
     };
-    record(root, &made).map_err(|why| format!("{} could not be moved to {}: {}. {}", made.full, made.commit, why, nothing))?;
+    record(root, &made).map_err(|why| {
+        let held = match (local, held) {
+            (false, Held::Stamp { .. }) => format!(" {}", round_held(job, &made.commit, message)),
+            _ => String::new(),
+        };
+        format!("{} could not be moved to {}: {}. {}.{}", made.full, made.commit, why, nothing, held)
+    })?;
     if local {
         let _ = writeln!(err, "{}: there is no remote origin, so the {} {} is on the local {} alone, and no start elsewhere is locked out by it", name, word, made.commit, made.full);
     } else {

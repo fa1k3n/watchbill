@@ -362,7 +362,13 @@ pub fn stamps_on_ref(folder: &Path, issue: &str, messages: &[&str]) {
             args.push("-p");
             args.push(commit);
         }
-        let body = if message.ends_with('\n') { message.to_string() } else { format!("{}\n", message) };
+        let mut body = if message.ends_with('\n') { message.to_string() } else { format!("{}\n", message) };
+        // Every stamp and marker names its issue, as `wb` writes it: a commit counts only on the ref of its issue.
+        let named = format!("issue: {}", issue);
+        if !body.lines().any(|line| line == named) {
+            let (first, rest) = body.split_once('\n').unwrap_or((body.as_str(), ""));
+            body = format!("{}\n{}\n{}", first, named, rest);
+        }
         let commit = run(&args, body.as_bytes());
         run(&["update-ref", &full, &commit], b"");
         parent = Some(commit);

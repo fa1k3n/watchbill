@@ -368,18 +368,19 @@ pub const USAGE: &str = "usage:
             repository is not set up. Writes nothing. -q (--quiet) is taken
             and changes nothing: what it prints is what a script reads
   revert    take an issue back to before a step, deleting nothing:
-            wb revert <issue> <role> [--round <n>] posts, by issue_comment of
-            watchbill.yml, one comment whose first line is
-            [revert] <role> round <n>, for the last stamp of the role, or round
-            <n>. From that stamp up to the marker no stamp, question or answer
-            counts, for wb start <role>, wb prompt and wb status. wb revert
-            --change <n> <role> posts it on a change with no issue, by
-            change_comment.
+            wb revert <issue> <role> [--round <n>] writes one marker whose
+            first line is [revert] <role> round <n>, for the last stamp of the
+            role, or round <n>, as a commit on refs/watchbill/<issue>, signed
+            and pushed to origin as a stamp is, and posts its copy by
+            issue_comment of watchbill.yml where it is there. From that stamp
+            up to the marker no stamp, question or answer counts, for wb start
+            <role>, wb prompt and wb status. wb revert --change <n> <role>
+            posts it on a change with no issue, by change_comment.
             The branch, the issue's file and its acceptance, and the change are
             not touched: taking commits back is git's. The planner is taken
             back with git, not by a marker. A job that is done is refused. Ends
-            with 0 when the marker is posted, 1 when it was refused or the
-            posting failed, 2 when it was used wrongly or the repository is not
+            with 0 when the marker is written, 1 when it was refused or its
+            writing failed, 2 when it was used wrongly or the repository is not
             set up. -q (--quiet) is taken and changes nothing: what it says,
             that the commits stay, is what a person must know
   clean     remove the views kept on this machine for this repository that
@@ -2040,6 +2041,13 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
         Ok(stamp) => stamp,
         Err(why) => return not_posted(&mut lines, err, why),
     };
+    // The stamp of an issue names it, whatever the prompt holds (the review of #322): the commit, its copy and the lines
+    // of the start hold the same text.
+    let named_stamp = match &job {
+        Some(issue) => stamps::with_issue(stamp, issue),
+        None => stamp.clone(),
+    };
+    let stamp = &named_stamp;
     lines.open(Some(stamp), err);
     // `outcome` says `running` first (#222), before `folder` is written (#176): a view is never without the mark of a
     // `wb` that is alive, so a `wb clean` that is told its name does not take the view of a session that is starting.
@@ -2071,16 +2079,22 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
     };
     // The stamp of an issue: a commit on the job's ref, pushed with no force before the session (#236). A push that
     // another start went before is refused, and nothing is started: the push is the lock.
+    // Where origin took the stamp, what a later failure says: the stamp holds the round (the review of #322).
+    let mut pushed_stamp: Option<String> = None;
     if let (Some(issue), Some(signing)) = (&job, &signing) {
         let view_list = paths.as_ref().map(|paths| view::list(paths));
         let file = handed.file.as_ref().and_then(|_| signers::git(root, &["cat-file", "blob", &format!("HEAD:{}", issue_file_of(issue))], None).ok());
         let held = stamps::Held::Stamp { view: view_list.as_deref(), issue: file.as_deref() };
-        if let Err(why) = stamps::write(name, root, issue, stamp, &held, signing, err) {
-            discard(&prepared);
-            let message = refusal::limit_text(why);
-            let code = refusal::say(err, name, &message);
-            lines.close(None, sessions::Outcome::NotPosted { status: code, message }, err);
-            return code;
+        match stamps::write(name, root, issue, stamp, &held, signing, err) {
+            Ok((commit, false)) => pushed_stamp = Some(stamps::round_held(issue, &commit, stamp)),
+            Ok((_, true)) => {}
+            Err(why) => {
+                discard(&prepared);
+                let message = refusal::limit_text(why);
+                let code = refusal::say(err, name, &message);
+                lines.close(None, sessions::Outcome::NotPosted { status: code, message }, err);
+                return code;
+            }
         }
     }
     let posted = match &line {
@@ -2099,7 +2113,8 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
         }
         Err(why) => {
             discard(&prepared);
-            let message = refusal::limit_text(format!("{}. The stamp may not be posted, and no session is started.", why));
+            let held = pushed_stamp.as_deref().map(|said| format!(" {}", said)).unwrap_or_default();
+            let message = refusal::limit_text(format!("{}. The stamp may not be posted, and no session is started.{}", why, held));
             let code = refusal::say(err, name, &message);
             lines.close(None, sessions::Outcome::NotPosted { status: code, message }, err);
             return code;

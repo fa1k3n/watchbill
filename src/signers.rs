@@ -221,10 +221,11 @@ pub enum Keys {
     Fault(String),
 }
 
-/// Runs git in `root` with no variable `GIT_*` of this process, as `plan` does: what it printed, or what it said.
+/// Runs git in `root` with no variable `GIT_*` of this process, as `plan` does, and with no replace ref: what a replace
+/// ref says an object is never decides what the list, a tag or its object is. What it printed, or what it said.
 fn git(root: &str, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>, String> {
     let mut command = Command::new("git");
-    command.arg("-C").arg(root).args(args);
+    command.arg("--no-replace-objects").arg("-C").arg(root).args(args);
     for (name, _) in std::env::vars_os() {
         if name.to_string_lossy().starts_with("GIT_") {
             command.env_remove(name);
@@ -253,9 +254,20 @@ fn short(full: &str) -> &str {
     full.strip_prefix("refs/heads/").or_else(|| full.strip_prefix("refs/remotes/")).unwrap_or(full)
 }
 
+/// The default branch as `wb status` finds it (`status::default_branch`), read with no replace ref.
+fn default_branch(root: &str) -> Option<String> {
+    let exists = |full: &str| git(root, &["rev-parse", "--verify", "--quiet", &format!("{}^{{commit}}", full)], None).is_ok();
+    if let Ok(target) = git_line(root, &["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"]) {
+        if !target.is_empty() && exists(&target) {
+            return Some(target);
+        }
+    }
+    ["refs/remotes/origin/main", "refs/heads/main", "refs/remotes/origin/master", "refs/heads/master"].iter().find(|full| exists(full)).map(|full| full.to_string())
+}
+
 /// The list of the tip of the default branch of the repository at `root`.
 pub fn load(root: &str) -> Keys {
-    let Some(default) = crate::status::default_branch(root) else {
+    let Some(default) = default_branch(root) else {
         return Keys::Unchecked("no default branch was found, so no .watchbill/signers is read: no signature is checked".to_string());
     };
     let on = short(&default).to_string();

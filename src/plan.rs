@@ -71,7 +71,8 @@ struct Job {
 /// it failed, with the first line of what git said.
 fn git(root: &str, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>, String> {
     let mut command = Command::new("git");
-    command.arg("-C").arg(root).args(args);
+    // No replace ref decides what a job holds: the hashes of its sources are what an acceptance's tag names (#235).
+    command.arg("--no-replace-objects").arg("-C").arg(root).args(args);
     for (name, _) in std::env::vars_os() {
         if name.to_string_lossy().starts_with("GIT_") {
             command.env_remove(name);

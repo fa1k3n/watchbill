@@ -614,3 +614,60 @@ fn test_WB_JOB_42_a_planner_round_after_the_acceptance_voids_it_for_prompt_of_an
     assert!(said.out.is_empty(), "{}", said.out);
     assert!(said.err.contains("wb plan accept 54"), "{}", said.err);
 }
+
+// ---- WB-BUILD-48: a stamp of another job is not a stamp of this one (the review of PR #322) ----
+
+#[test]
+fn test_WB_BUILD_48_a_signed_stamp_of_another_issue_under_an_unsigned_child_is_not_counted() {
+    let bench = bench(false, false);
+    bench.signers("ada", "start");
+    bench.sign_with("ada");
+    // Ada's own review stamp of issue 99, signed, on its job's ref.
+    let tree = bench.git(&["write-tree"]).trim().to_string();
+    let stamp = bench.git(&["commit-tree", "-S", "-m", "[stamp] review round 1\nrole: review\nissue: 99", &tree]).trim().to_string();
+    bench.git(&["update-ref", "refs/watchbill/99", &stamp]);
+    // Someone with no key points 54 at an unsigned child of it.
+    let child = bench.git(&["commit-tree", "--no-gpg-sign", "-p", &stamp, "-m", "a commit", &tree]).trim().to_string();
+    bench.git(&["update-ref", JOB, &child]);
+
+    let status = bench.status();
+    assert!(!status.contains("Reviewed:"), "{}", status);
+    assert!(status.contains("[stamp] review round 1  (on refs/watchbill/54, not counted: a stamp of another job"), "{}", status);
+
+    let mut args = vec!["fix", "54"];
+    args.extend(REST);
+    let said = bench.prompt(&args);
+    assert_eq!(said.code, 1, "{}", said.err);
+    assert!(said.err.contains("no review stamp on refs/watchbill/54"), "{}", said.err);
+}
+
+#[test]
+fn test_WB_BUILD_48_the_marker_of_wb_revert_names_its_issue_and_job() {
+    let bench = bench(false, false);
+    stamps_on_ref(&bench.repo.path, "54", &["[stamp] review round 1\nrole: review\nissue: 54\n"]);
+
+    let run = bench.wb(&["revert", "54", "review"]);
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let marker = bench.message(&bench.on_ref()[0]);
+    assert!(marker.starts_with("[revert] review round 1\n"), "{}", marker);
+    assert!(marker.contains("\nissue: 54\n") && marker.contains("\njob: none\n"), "{}", marker);
+}
+
+// ---- WB-BUILD-46: a remote that is not `origin` (the review of PR #322) ----
+
+#[test]
+fn test_WB_BUILD_46_with_remotes_and_none_named_origin_the_start_is_refused_with_1_naming_origin() {
+    let bench = bench(false, false);
+    let other = folder_named("upstream.git");
+    bench.git_in(&other.path, &["init", "-q", "--bare"]);
+    bench.git(&["remote", "add", "upstream", other.path.to_str().unwrap()]);
+    let before = bench.git(&["for-each-ref"]);
+
+    let said = bench.start(&["tester", "54"]);
+
+    assert_eq!(said.code, 1, "{}", said.err);
+    assert!(said.err.contains("origin") && said.err.contains("upstream"), "{}", said.err);
+    assert_eq!(bench.git(&["for-each-ref"]), before);
+    assert_eq!(bench.sessions(), 0, "{:?}", bench.calls());
+}

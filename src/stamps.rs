@@ -3,9 +3,9 @@
 //! A stamp is a commit on `refs/watchbill/<name>`, after the commit before it on the ref. Its message is the stamp's
 //! lines, the first `[stamp] <role> round <n>`; its tree holds the job's tree (what the commit before held), the view's
 //! list as `view` and the issue's file as `issue.yml`. A marker of `wb revert` is a commit of the same kind whose first
-//! line is `[revert] <role> round <n>`, and whose tree is the one before it. Where the default branch has
-//! `.watchbill/signers`, each is signed by the starter, and counts only where its signature checks against a key of the
-//! list with the role `start`; where it has none, each counts unsigned, and that no signature is checked is said.
+//! line is `[revert] <role> round <n>`, and whose tree is the one before it. Each is signed by the starter, and counts
+//! only where its signature checks against a key of `.watchbill/signers` of the default branch with the role `start`.
+//! Where the default branch holds no list, none counts and none is written (#323).
 //!
 //! `wb start` pushes the ref with no force before the session starts: a push that is not a fast-forward is refused by
 //! the remote, so two starts of one role cannot both go on. The rounds are counted from these commits, never from a
@@ -31,7 +31,7 @@ pub const VIEW_ENTRY: &str = "view";
 /// The entry of a stamp's tree that holds the issue's file.
 pub const ISSUE_ENTRY: &str = "issue.yml";
 
-/// What a stamp is where the list is there, as `signers::signing_ready` says it.
+/// What a stamp is, as `signers::signing_ready` says it.
 pub const STAMP_SIGNED: &str = "a stamp is a commit signed by the starter";
 
 /// The job's ref of `name`.
@@ -56,9 +56,12 @@ pub struct Entry {
     pub first: String,
     /// Its whole message.
     pub message: String,
-    /// Whether it counts: by whom it is signed (empty where no signature is checked), or why it does not.
+    /// Whether it counts: by whom it is signed, or why it does not.
     pub counts: Result<String, String>,
 }
+
+/// Why a stamp or a marker does not count where the list is missing: the reason is said once, as `Ledger::missing`.
+const NOTHING_SIGNED: &str = "nothing is signed";
 
 /// The stamps and the markers on a job's ref, oldest first.
 #[derive(Clone, Debug)]
@@ -66,8 +69,8 @@ pub struct Ledger {
     /// The ref.
     pub full: String,
     pub entries: Vec<Entry>,
-    /// Why no signature is checked, where none is.
-    pub unchecked: Option<String>,
+    /// Where the default branch holds no list, or there is none, why nothing counts (#323).
+    pub missing: Option<String>,
 }
 
 impl Ledger {
@@ -97,7 +100,7 @@ impl Ledger {
     }
 
     /// One line for each commit, as `wb status <issue>` says what it worked out from: whether it counts and why, and
-    /// what a marker took back; and, where no signature is checked, that.
+    /// what a marker took back; and, where the list is missing, why nothing counts, once.
     pub fn said(&self) -> Vec<String> {
         let gone = crate::starter::taken_back(&self.lines());
         let mut counting = gone.into_iter();
@@ -107,13 +110,12 @@ impl Ledger {
             let line = match &entry.counts {
                 Err(why) => format!("{}  (on {}, not counted: {})", shown, self.full, crate::issue::shown(why)),
                 Ok(_) if counting.next().unwrap_or(false) => format!("{}  (on {}, taken back by a [revert] marker)", shown, self.full),
-                Ok(by) if by.is_empty() => format!("{}  (on {})", shown, self.full),
                 Ok(by) => format!("{}  (on {}, signed by {})", shown, self.full, crate::issue::shown(by)),
             };
             lines.push(line);
         }
-        if let (Some(why), false) = (&self.unchecked, self.entries.is_empty()) {
-            lines.push(format!("the stamps of {} count unsigned: {}", self.full, why));
+        if let (Some(why), false) = (&self.missing, self.entries.is_empty()) {
+            lines.push(why.clone());
         }
         lines
     }
@@ -189,11 +191,11 @@ pub fn with_issue(message: &str, name: &str) -> String {
 pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
     let full = full(name);
     let keys = signers::load(root);
-    let unchecked = match &keys {
-        Keys::Unchecked(why) => Some(why.clone()),
+    let missing = match &keys {
+        Keys::Missing(why) => Some(why.clone()),
         _ => None,
     };
-    let mut ledger = Ledger { full: full.clone(), entries: Vec::new(), unchecked };
+    let mut ledger = Ledger { full: full.clone(), entries: Vec::new(), missing };
     if git_line(root, &["rev-parse", "--verify", "-q", &full], None).is_err() {
         return Ok(ledger);
     }
@@ -227,7 +229,7 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
             continue;
         }
         let signed = match &keys {
-            Keys::Unchecked(_) => Ok(String::new()),
+            Keys::Missing(_) => Err(NOTHING_SIGNED.to_string()),
             Keys::Fault(why) => Err(format!("{}, so no stamp counts", why)),
             Keys::List(list) => match signers::verify_commit(&raw, "start", list) {
                 Ok(Verdict::Good(identity)) => Ok(identity),
@@ -255,18 +257,18 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
     Ok(ledger)
 }
 
-/// How the stamp is signed, as worked out before anything is written.
-pub enum Signing {
-    /// No list on the default branch: the commit is unsigned, and counts. The words say why.
-    Unsigned(String),
-    /// Signed by the key git signs with, which the list holds with `start` for this identity.
-    Signed { list: signers::List, identity: String },
+/// How the stamp is signed, as worked out before anything is written: by the key git signs with, which the list holds
+/// with `start` for this identity.
+pub struct Signing {
+    list: signers::List,
+    identity: String,
 }
 
-/// What the stamp's commit is signed with, before anything is written (WB-BUILD-50 to 53): where the list is there,
-/// git must sign with an SSH key that the list holds with `start`; a list that cannot be read is refused, as no stamp
-/// would count. `Err` says why, and names the setting or the key. Where the repository has remotes and none is `origin`,
-/// it is refused too (the review of #322): the lock is the push to `origin`, and a stamp kept local there would hold none.
+/// What the stamp's commit is signed with, before anything is written (WB-BUILD-50 to 53): git must sign with an SSH
+/// key that the list holds with `start`. A list that is missing (#323) or cannot be read is refused, as no stamp would
+/// count. `Err` says why, and names the setting, the key, or how to add one. Where the repository has remotes and none
+/// is `origin`, it is refused too (the review of #322): the lock is the push to `origin`, and a stamp kept local there
+/// would hold none.
 pub fn ready(root: &str) -> Result<Signing, String> {
     let remotes = remotes(root)?;
     if !remotes.is_empty() && !remotes.iter().any(|remote| remote == "origin") {
@@ -278,12 +280,12 @@ pub fn ready(root: &str) -> Result<Signing, String> {
         ));
     }
     match signers::load(root) {
-        Keys::Unchecked(why) => Ok(Signing::Unsigned(why)),
+        keys @ Keys::Missing(_) => Err(signers::missing(&keys, "start").unwrap_or_default()),
         Keys::Fault(why) => Err(format!("{}, so no stamp would count", why)),
         Keys::List(list) => {
             signers::signing_ready(root, STAMP_SIGNED)?;
             let identity = signers::signer_for(root, &list, "start")?;
-            Ok(Signing::Signed { list, identity })
+            Ok(Signing { list, identity })
         }
     }
 }
@@ -327,10 +329,7 @@ impl Held<'_> {
 /// Says on `err`, after `name`, what `make` will write: the commit and how it is signed, and where it goes.
 pub fn say(name: &str, root: &str, job: &str, held: &Held, signing: &Signing, err: &mut dyn Write) {
     let full = full(job);
-    let how = match signing {
-        Signing::Unsigned(why) => format!("unsigned: {}", why),
-        Signing::Signed { identity, .. } => format!("signed by {}, with the role start in {}", crate::issue::shown(identity), signers::PATH),
-    };
+    let how = format!("signed by {}, with the role start in {}", crate::issue::shown(&signing.identity), signers::PATH);
     let after = match tip(root, &full) {
         Ok(Some(commit)) => format!("after {}", commit),
         _ => "the first on it".to_string(),
@@ -367,21 +366,17 @@ pub fn make(root: &str, job: &str, message: &str, held: &Held, signing: &Signing
         args.push("-p");
         args.push(commit);
     }
-    args.push(match signing {
-        Signing::Unsigned(_) => "--no-gpg-sign",
-        Signing::Signed { .. } => "-S",
-    });
+    args.push("-S");
     // Every stamp and marker names its issue (the review of #322), whatever the prompt holds.
     let message = with_issue(message, job);
     let commit = git_line(root, &args, Some(message.as_bytes())).map_err(|why| format!("the commit of the stamp could not be made: {}", why))?;
-    if let Signing::Signed { list, .. } = signing {
-        let raw = signers::git(root, &["cat-file", "commit", &commit], None)?;
-        match signers::verify_commit(&raw, "start", list) {
-            Ok(Verdict::Good(_)) => {}
-            Ok(Verdict::Unsigned) => return Err("git made the commit of the stamp unsigned".to_string()),
-            Ok(_) => return Err(format!("the commit of the stamp does not check against {} of {}", signers::PATH, list.on)),
-            Err(why) => return Err(format!("the signature of the stamp could not be checked: {}", why)),
-        }
+    let list = &signing.list;
+    let raw = signers::git(root, &["cat-file", "commit", &commit], None)?;
+    match signers::verify_commit(&raw, "start", list) {
+        Ok(Verdict::Good(_)) => {}
+        Ok(Verdict::Unsigned) => return Err("git made the commit of the stamp unsigned".to_string()),
+        Ok(_) => return Err(format!("the commit of the stamp does not check against {} of {}", signers::PATH, list.on)),
+        Err(why) => return Err(format!("the signature of the stamp could not be checked: {}", why)),
     }
     let moved = match &old {
         Some(commit) => {

@@ -48,6 +48,8 @@ fn set_up(address: &str) -> Folder {
     let run = wb(&folder.path, &["init", "--yes"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     commit_all(&folder.path, "Watchbill");
+    // `wb check`, which the upgrade runs after its writes, holds only with `.watchbill/signers` (#323).
+    signing(&folder.path);
     folder
 }
 
@@ -291,6 +293,8 @@ fn test_WB_UPGRADE_4_no_line_classed_or_build_files_is_added() {
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(line_of(&read(&config(&folder.path)), "build_files").is_some());
     commit_all(&folder.path, "Watchbill");
+    // `wb check`, which the upgrade runs after its writes, holds only with `.watchbill/signers` (#323).
+    signing(&folder.path);
     make_older(&folder.path, &[("classed", None), ("build_files", None)]);
 
     let run = upgrade(&folder.path, &[]);

@@ -30,6 +30,8 @@ fn set_up() -> Folder {
     git(&folder.path, &["branch", "-M", "main"]);
     git(&folder.path, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
     git(&folder.path, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+    // No role is handed out without `.watchbill/signers` (#323).
+    signing(&folder.path);
     git(&folder.path, &["branch", "issue-54"]);
     git(&folder.path, &["checkout", "-q", "-b", "feature-x"]);
     folder

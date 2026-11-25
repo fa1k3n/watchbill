@@ -628,6 +628,8 @@ fn test_WB_INIT_43_a_github_origin_gets_the_patterns_of_the_two_addresses_and_th
     );
     assert!(text(&run.stdout).contains("issue_address: 'gh issue view {issue}"), "the file is shown first");
     // The file is read through the loader, and wb check holds with the new lines.
+    // `wb check` holds only with `.watchbill/signers` in the working tree, which `wb init` does not write (#323).
+    put_signers(&folder.path);
     assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
 }
 
@@ -710,6 +712,8 @@ fn test_WB_INIT_47_a_github_origin_gets_the_pattern_that_posts_a_comment_on_an_i
         pattern(&folder.path, "issue_comment").as_deref(),
         Some("gh issue comment {issue} --repo example/brake-controller --body-file -")
     );
+    // `wb check` holds only with `.watchbill/signers` in the working tree, which `wb init` does not write (#323).
+    put_signers(&folder.path);
     assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
 }
 
@@ -784,6 +788,8 @@ fn test_WB_INIT_49_a_gitlab_origin_gets_the_glab_commands_with_the_repository_fi
     for (key, line) in expected {
         assert_eq!(pattern(&folder.path, key).as_deref(), Some(line.as_str()), "{}", key);
     }
+    // `wb check` holds only with `.watchbill/signers` in the working tree, which `wb init` does not write (#323).
+    put_signers(&folder.path);
     assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
 }
 
@@ -856,6 +862,8 @@ fn test_WB_INIT_59_a_line_open_issues_that_is_already_there_is_passed_over_by_ch
     assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
     let mut file = std::fs::OpenOptions::new().append(true).open(config(&folder.path)).unwrap();
     std::io::Write::write_all(&mut file, b"open_issues: 'gh issue list'\n").unwrap();
+    // `wb check` holds only with `.watchbill/signers` in the working tree, which `wb init` does not write (#323).
+    put_signers(&folder.path);
     let run = wb(&folder.path, &["check"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
 }
@@ -986,6 +994,8 @@ fn test_WB_INIT_52_a_github_origin_gets_change_checks_that_prints_one_word() {
         pattern(&folder.path, "change_checks").as_deref(),
         Some("gh pr checks {change} --repo example/brake-controller --json bucket --jq '[.[].bucket] | if length == 0 then \"pending\" elif any(. == \"fail\" or . == \"cancel\") then \"red\" elif all(. == \"pass\" or . == \"skipping\") then \"green\" else \"pending\" end'")
     );
+    // `wb check` holds only with `.watchbill/signers` in the working tree, which `wb init` does not write (#323).
+    put_signers(&folder.path);
     assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
 }
 
@@ -998,6 +1008,8 @@ fn test_WB_INIT_52_a_gitlab_origin_gets_change_checks_with_the_host_of_origin() 
         pattern(&folder.path, "change_checks").as_deref(),
         Some("glab api --hostname gitlab.team.example projects/brakes%2Fcontroller/merge_requests/{change} | jq -r 'if (.iid | type) != \"number\" then error(\"not a merge request\") else (.head_pipeline.status // \"none\") as $s | if $s == \"success\" then \"green\" elif $s == \"failed\" or $s == \"canceled\" then \"red\" else \"pending\" end end'")
     );
+    // `wb check` holds only with `.watchbill/signers` in the working tree, which `wb init` does not write (#323).
+    put_signers(&folder.path);
     assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
 }
 
@@ -1034,6 +1046,8 @@ fn test_WB_ANSWER_12_a_github_origin_gets_issue_comment_bodies() {
         pattern(&folder.path, "issue_comment_bodies").as_deref(),
         Some("gh api repos/example/brake-controller/issues/{issue}/comments --paginate --jq '.[] | .body + \"\\u0000\"'")
     );
+    // `wb check` holds only with `.watchbill/signers` in the working tree, which `wb init` does not write (#323).
+    put_signers(&folder.path);
     assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
     // And none for another server.
     no_pattern(&["issue_comment_bodies"]);
@@ -1061,6 +1075,8 @@ fn test_WB_ANSWER_12_a_gitlab_origin_gets_issue_comment_bodies_with_the_host_of_
         pattern(&folder.path, "issue_comment_bodies").as_deref(),
         Some("glab api --hostname gitlab.team.example 'projects/brakes%2Fcontroller/issues/{issue}/notes?sort=asc&order_by=created_at' --paginate --output ndjson | jq -j 'select(.system == false) | .body + \"\\u0000\"'")
     );
+    // `wb check` holds only with `.watchbill/signers` in the working tree, which `wb init` does not write (#323).
+    put_signers(&folder.path);
     assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
 }
 
@@ -1104,6 +1120,8 @@ fn test_WB_INIT_58_a_github_and_a_gitlab_origin_get_draft_change() {
         pattern(&folder.path, "draft_change").as_deref(),
         Some("glab mr create --repo https://gitlab.team.example/brakes/controller --source-branch {branch} --draft --fill --push=false --yes --description \"$(cat)\"")
     );
+    // `wb check` holds only with `.watchbill/signers` in the working tree, which `wb init` does not write (#323).
+    put_signers(&folder.path);
     assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
     no_pattern(&["draft_change"]);
 }
@@ -1128,6 +1146,8 @@ fn test_WB_INIT_60_a_github_and_a_gitlab_origin_get_issue_text_and_another_serve
     let folder = repository(Some("https://github.com/example/brake-controller.git"));
     assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
     assert_eq!(pattern(&folder.path, "issue_text").as_deref(), Some("gh issue view {issue} --repo example/brake-controller --json body --jq .body"));
+    // `wb check` holds only with `.watchbill/signers` in the working tree, which `wb init` does not write (#323).
+    put_signers(&folder.path);
     assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
     let folder = repository(Some("https://gitlab.example.com/brakes/controller.git"));
     assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
@@ -1143,6 +1163,8 @@ fn test_WB_PUSH_24_a_github_and_a_gitlab_origin_get_change_text_and_another_serv
     let folder = repository(Some("https://github.com/example/brake-controller.git"));
     assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
     assert_eq!(pattern(&folder.path, "change_text").as_deref(), Some("gh pr view {change} --repo example/brake-controller --json body --jq .body"));
+    // `wb check` holds only with `.watchbill/signers` in the working tree, which `wb init` does not write (#323).
+    put_signers(&folder.path);
     assert_eq!(code(&wb(&folder.path, &["check"], "")), Some(0));
     let folder = repository(Some("https://gitlab.example.com/brakes/controller.git"));
     assert_eq!(code(&wb(&folder.path, &["init", "--yes"], "")), Some(0));
@@ -1151,4 +1173,26 @@ fn test_WB_PUSH_24_a_github_and_a_gitlab_origin_get_change_text_and_another_serv
         Some("glab mr view {change} --repo https://gitlab.example.com/brakes/controller -F json | jq -r .description")
     );
     no_pattern(&["change_text"]);
+}
+
+// ---- WB-TASK-61: `wb init` writes no list, and says it is needed (#323) ----
+
+#[test]
+fn test_WB_TASK_61_init_writes_no_list_and_its_last_lines_name_it_and_how_to_write_a_line() {
+    let folder = repository(None);
+
+    let run = wb(&folder.path, &["init", "--yes"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(!folder.path.join(".watchbill/signers").exists());
+    let out = text(&run.stdout);
+    let lines: Vec<&str> = out.lines().collect();
+    let last = lines[lines.len().saturating_sub(4)..].join("\n");
+    assert!(last.contains(".watchbill/signers"), "{}", out);
+    assert!(last.contains("before the first acceptance"), "{}", out);
+    assert!(last.contains("<identity> roles=\"accept,start\" <key type> <key>"), "{}", out);
+    // Said with -q too: it is what the person must do, not a line that only informs.
+    let folder = repository(None);
+    let quiet = text(&wb(&folder.path, &["init", "--yes", "-q"], "").stdout);
+    assert!(quiet.contains(".watchbill/signers"), "{}", quiet);
 }

@@ -50,6 +50,8 @@ fn on_the_branch() -> Folder {
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     git(&folder.path, &["add", "--", ".watchbill"]);
     git(&folder.path, &["commit", "-q", "-m", "Set up"]);
+    // An acceptance is refused without `.watchbill/signers` on the default branch (#323).
+    signing(&folder.path);
     git(&folder.path, &["checkout", "-q", "-b", "issue-54"]);
     put(&folder.path, YML, GOOD);
     git(&folder.path, &["add", "--", YML]);

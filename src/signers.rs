@@ -5,11 +5,14 @@
 //! tip of the default branch has it, so a branch cannot add a key for itself; `wb check` reads the one of the working
 //! tree, to say what does not hold before it is merged.
 //!
-//! Where the list is there, a person's acceptance is a tag signed with an SSH key, on one exact object: the blob of the
+//! A person's acceptance is a tag signed with an SSH key, on one exact object: the blob of the
 //! issue's file for `wb plan accept`, the commit that `.finished` names for `wb accept`. `wb` checks the signature
 //! itself, with `ssh-keygen -Y find-principals` and `ssh-keygen -Y verify`, against files of git's form made from the
 //! list in a folder of its own under `$TMPDIR`, removed after: no setting of git decides what is trusted. A signature
 //! that does not check counts for nothing.
+//!
+//! A missing list is refused, never skipped (#323): where the default branch holds none, or there is no default branch,
+//! nothing that needs a signature counts, and every command that would make one refuses before it writes anything.
 
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -187,19 +190,29 @@ pub fn parse(text: &str) -> Result<Vec<Signer>, Vec<String>> {
     }
 }
 
-/// The faults of the list of the working tree at `root`, each as a line that names the file, for `wb check`. None
-/// where the file is not there.
+/// The line of `wb check` for a list that is not in the working tree (#323).
+pub const ABSENT: &str = "missing: .watchbill/signers (without it on the default branch, nothing that needs a signature counts)";
+
+/// The line of `wb check` for a list of the working tree that holds no key line (#323): it is as missing.
+pub const NO_KEY: &str = ".watchbill/signers: it holds no key (without one on the default branch, nothing that needs a signature counts)";
+
+/// The faults of the list of the working tree at `root`, each as a line that names the file, for `wb check`: `ABSENT`
+/// where the file is not there, and `NO_KEY` where it holds no key line (#323).
 pub fn check(root: &std::path::Path) -> Vec<String> {
     let path = root.join(PATH);
     match std::fs::symlink_metadata(&path) {
-        Err(_) => Vec::new(),
+        Err(_) => vec![ABSENT.to_string()],
         Ok(found) if found.file_type().is_symlink() => vec![format!("link: {} (a link is never followed)", PATH)],
         Ok(found) if !found.is_file() => vec![format!("{}: it is not a plain file", PATH)],
         Ok(_) => match crate::bounded::read_plain(&path, CAP) {
             Err(error) => vec![format!("{}: it cannot be read ({}); it is at most 64 KiB", PATH, error)],
             Ok(bytes) => match String::from_utf8(bytes) {
                 Err(_) => vec![format!("{}: it is not UTF-8 text", PATH)],
-                Ok(text) => parse(&text).err().unwrap_or_default().into_iter().map(|why| format!("{}: {}", PATH, why)).collect(),
+                Ok(text) => match parse(&text) {
+                    Ok(signers) if signers.is_empty() => vec![NO_KEY.to_string()],
+                    Ok(_) => Vec::new(),
+                    Err(faults) => faults.into_iter().map(|why| format!("{}: {}", PATH, why)).collect(),
+                },
             },
         },
     }
@@ -215,11 +228,29 @@ pub struct List {
 
 /// What `wb` checks a signature against.
 pub enum Keys {
-    /// No list, so no signature is checked; the words say why.
-    Unchecked(String),
+    /// No list on the default branch, or no default branch (#323): nothing is signed, so nothing that needs a signature
+    /// counts, and every command that would make one refuses. The words say which, as `wb status <issue>` says it.
+    Missing(String),
     List(List),
     /// A list that cannot be read: no signature counts.
     Fault(String),
+}
+
+/// How a person adds a key to the list, for a refusal where it is missing: the role is the one the command needs.
+pub fn add_a_key(role: &str) -> String {
+    format!(
+        "A person adds one line for each SSH key to {} and commits it on the default branch: `<identity> roles=\"{}\" <key type> <key>`, the key as its public key file has it (as ~/.ssh/id_ed25519.pub)",
+        PATH, role
+    )
+}
+
+/// Where the list is missing (#323), why, with how to add a key that holds `role`: what a command that would sign
+/// refuses with, before it writes anything.
+pub fn missing(keys: &Keys, role: &str) -> Option<String> {
+    match keys {
+        Keys::Missing(why) => Some(format!("{}. {}", why, add_a_key(role))),
+        _ => None,
+    }
 }
 
 /// Runs git in `root` with no variable `GIT_*` of this process, as `plan` does, and with no replace ref: what a replace
@@ -266,10 +297,11 @@ fn default_branch(root: &str) -> Option<String> {
     ["refs/remotes/origin/main", "refs/heads/main", "refs/remotes/origin/master", "refs/heads/master"].iter().find(|full| exists(full)).map(|full| full.to_string())
 }
 
-/// The list of the tip of the default branch of the repository at `root`.
+/// The list of the tip of the default branch of the repository at `root`. A missing list is never skipped (#323): with
+/// no default branch, or none on it, nothing is signed, so nothing counts.
 pub fn load(root: &str) -> Keys {
     let Some(default) = default_branch(root) else {
-        return Keys::Unchecked("no default branch was found, so no .watchbill/signers is read: no signature is checked".to_string());
+        return Keys::Missing(format!("no default branch was found, so there is no {}: nothing is signed, so nothing counts", PATH));
     };
     let on = short(&default).to_string();
     let fault = |why: String| Keys::Fault(format!("{} of {} cannot be read: {}", PATH, on, why));
@@ -278,7 +310,7 @@ pub fn load(root: &str) -> Keys {
         Err(why) => return fault(why),
     };
     if entry.is_empty() {
-        return Keys::Unchecked(format!("no {} on {}: no signature is checked", PATH, on));
+        return Keys::Missing(format!("no {} on {}: nothing is signed, so nothing counts", PATH, on));
     }
     // `<mode> <type> <object>\t<path>`
     let entry = String::from_utf8_lossy(&entry).to_string();
@@ -300,6 +332,8 @@ pub fn load(root: &str) -> Keys {
         Err(why) => return fault(why),
     };
     match parse(&text) {
+        // A list with no key line signs nothing: it is missing, and no tag is made to be removed again (#323).
+        Ok(signers) if signers.is_empty() => Keys::Missing(format!("{} on {} holds no key: nothing is signed, so nothing counts", PATH, on)),
         Ok(signers) => Keys::List(List { on, signers }),
         Err(faults) => fault(faults.join("; ")),
     }
@@ -469,8 +503,6 @@ fn verify_parts(payload: &[u8], signature: &[u8], role: &str, list: &List) -> Re
 /// What the signature of an acceptance comes to.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Signed {
-    /// No signature is checked; the words say why.
-    Unchecked(String),
     /// It checks; the words say by whom.
     Good(String),
     /// It counts for nothing; the words say why.
@@ -512,17 +544,17 @@ fn jobs_in(message: &str) -> Vec<&str> {
     message.lines().filter_map(|line| line.strip_prefix("job: ")).collect()
 }
 
-/// What an acceptance is where the list is there, as `signing_ready` says it.
+/// What an acceptance is, as `signing_ready` says it.
 pub const ACCEPTANCE_SIGNED: &str = "an acceptance is a signed tag";
 
 /// Whether git's config of `root` signs with an SSH key: `user.signingkey` is set, and `gpg.format` is `ssh`. The
-/// setting that is not, named, with how to set it; `what` says what is signed where the list is there.
+/// setting that is not, named, with how to set it; `what` says what is signed.
 pub fn signing_ready(root: &str, what: &str) -> Result<(), String> {
     let key = git_line(root, &["config", "user.signingkey"]).unwrap_or_default();
     if key.is_empty() {
         return Err(format!(
-            "git has no signing key set (user.signingkey), and where {} is there {}. Set it with `git config user.signingkey <the path of your SSH key>`.",
-            PATH, what
+            "git has no signing key set (user.signingkey), and {}, checked against {}. Set it with `git config user.signingkey <the path of your SSH key>`.",
+            what, PATH
         ));
     }
     let format = git_line(root, &["config", "gpg.format"]).unwrap_or_default();
@@ -641,7 +673,7 @@ fn read_tag(root: &str, tag: &str) -> Result<Vec<u8>, String> {
 /// message differs in its `job:` lines alone, the words say how the job differs.
 fn checked(root: &str, keys: &Keys, tag: &str, kind: &str, target: &str, message: &str) -> Signed {
     let list = match keys {
-        Keys::Unchecked(why) => return Signed::Unchecked(why.clone()),
+        Keys::Missing(why) => return Signed::Void(why.clone()),
         Keys::Fault(why) => return Signed::Void(format!("{}, so no acceptance counts", why)),
         Keys::List(list) => list,
     };
@@ -691,15 +723,17 @@ fn checked(root: &str, keys: &Keys, tag: &str, kind: &str, target: &str, message
 /// The signature of the acceptance `body` (the text of `.accepted`) of the issue's file of `name`, whose bytes are
 /// `bytes`, against `keys`.
 pub fn file_signed(root: &str, keys: &Keys, name: &str, bytes: &[u8], body: &str) -> Signed {
-    if let Keys::Unchecked(why) = keys {
-        return Signed::Unchecked(why.clone());
+    if let Keys::Missing(why) = keys {
+        return Signed::Void(why.clone());
     }
     let blob = match blob_of(root, bytes, false) {
         Ok(blob) => blob,
         Err(why) => return Signed::Void(format!("git could not give the blob of the issue's file ({}), so the acceptance counts for nothing", why)),
     };
     let jobs = crate::plan::source_hashes(root, name);
-    let tag = tag_of(ACCEPT_TAGS, name, body.as_bytes());
+    // The tag is named by `.accepted` as `wb` wrote it: a checkout that writes it with CRLF (a `text eol=crlf` of
+    // `.gitattributes`) does not change which tag it names.
+    let tag = tag_of(ACCEPT_TAGS, name, body.replace("\r\n", "\n").as_bytes());
     checked(root, keys, &tag, "blob", &blob, &file_message(name, body, &jobs))
 }
 

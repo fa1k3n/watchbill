@@ -160,8 +160,16 @@ questions: []
 
 /// Commits `.watchbill/watchbill.yml` as it is in the working tree, when `HEAD` has it otherwise or has none:
 /// `wb` runs a pattern of the file only while it is as `HEAD` has it (#186). The commit has an identity of
-/// its own, given for it alone, so that a test of a missing identity is not spoilt.
+/// its own, given for it alone, so that a test of a missing identity is not spoilt. Since #323 a repository set up
+/// with no `.watchbill/signers` refuses every role and every acceptance, so the repository also signs with Ada's key
+/// of the test and has her line in the list (`signing`), where the default branch holds none.
 pub fn commit_config(folder: &Path) {
+    commit_config_alone(folder);
+    signing(folder);
+}
+
+/// As `commit_config`, with no list and no signing: `.watchbill/watchbill.yml` alone.
+pub fn commit_config_alone(folder: &Path) {
     let held = Command::new("git")
         .arg("-C")
         .arg(folder)
@@ -200,12 +208,15 @@ pub fn commit_config_keeping_refs(folder: &Path) {
 }
 
 /// Gives each of the issues a file with no requirement, accepted, and commits the files and the acceptances
-/// alone in one commit, so that a role may be handed out for the issue (#97). Gives git an identity.
+/// alone in one commit, so that a role may be handed out for the issue (#97). Gives git an identity. Since #323
+/// nothing that needs a signature counts without `.watchbill/signers`: the repository signs with Ada's key of the
+/// test (`signing`), and each acceptance is the signed tag that `wb plan accept` makes.
 pub fn issues_ready(folder: &Path, issues: &[&str]) {
     git(folder, &["config", "user.name", "Ada Lovelace"]);
     git(folder, &["config", "user.email", "ada@example.org"]);
     git(folder, &["config", "commit.gpgsign", "false"]);
     commit_config(folder);
+    signing(folder);
     let mut added = Vec::new();
     for issue in issues {
         put(folder, &format!(".watchbill/issues/{}.yml", issue), &BARE_ISSUE.replace("{issue}", issue));
@@ -328,10 +339,21 @@ pub fn stand_in(source: &str, program: &Path, args: &[&str]) -> std::process::Ch
 }
 
 /// Writes each of `messages` as a commit on the job's ref of `issue`, `refs/watchbill/<issue>`, after the one before,
-/// unsigned, with the tree of the commit before (empty for the first): a stamp or a marker as `wb start` and `wb revert`
-/// write one where no `.watchbill/signers` is there (#236). A message is a first line such as `[stamp] review round 1`
-/// and any lines after it. The ref is moved with no check of what it was.
+/// with the tree of the commit before (empty for the first), signed with the key git signs with: a stamp or a marker as
+/// `wb start` and `wb revert` write one (#236). Since #323 an unsigned one counts for nothing, so the repository signs
+/// with Ada's key of the test, and has her line in `.watchbill/signers` where it has no list (`signing`). A message is a
+/// first line such as `[stamp] review round 1` and any lines after it. The ref is moved with no check of what it was.
 pub fn stamps_on_ref(folder: &Path, issue: &str, messages: &[&str]) {
+    signing(folder);
+    commits_on_ref(folder, issue, messages, true);
+}
+
+/// As `stamps_on_ref`, and each commit unsigned: a stamp that counts for nothing (WB-BUILD-48, WB-TASK-58).
+pub fn unsigned_stamps_on_ref(folder: &Path, issue: &str, messages: &[&str]) {
+    commits_on_ref(folder, issue, messages, false);
+}
+
+fn commits_on_ref(folder: &Path, issue: &str, messages: &[&str], signed: bool) {
     let full = format!("refs/watchbill/{}", issue);
     let run = |args: &[&str], input: &[u8]| -> String {
         let mut child = Command::new("git")
@@ -357,7 +379,8 @@ pub fn stamps_on_ref(folder: &Path, issue: &str, messages: &[&str]) {
             Some(commit) => run(&["rev-parse", &format!("{}^{{tree}}", commit)], b""),
             None => run(&["mktree"], b""),
         };
-        let mut args = vec!["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "commit-tree", "--no-gpg-sign", tree.as_str()];
+        let sign = if signed { "-S" } else { "--no-gpg-sign" };
+        let mut args = vec!["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "commit-tree", sign, tree.as_str()];
         if let Some(commit) = &parent {
             args.push("-p");
             args.push(commit);
@@ -414,4 +437,185 @@ pub fn stamps_from_lines(folder: &Path, issue: &str, lines: &[&str], bodies: &[&
         .collect();
     let messages: Vec<&str> = messages.iter().map(String::as_str).collect();
     stamps_on_ref(folder, issue, &messages);
+}
+
+/// The output of git in `folder` with `envs` beside those of `env`, and `input` on standard input.
+fn git_with(folder: &Path, args: &[&str], envs: &[(&str, &str)], input: &[u8]) -> Output {
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(folder)
+        .args(args)
+        .env_clear()
+        .envs(env())
+        .envs(envs.iter().copied())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("git could not be started");
+    let _ = child.stdin.take().unwrap().write_all(input);
+    child.wait_with_output().expect("git could not be waited for")
+}
+
+/// What git printed in `folder`, trimmed, where it ended with 0.
+fn git_text(folder: &Path, args: &[&str]) -> Option<String> {
+    let run = git_with(folder, args, &[], b"");
+    run.status.success().then(|| String::from_utf8_lossy(&run.stdout).trim().to_string())
+}
+
+/// The folder of the keys of a test of the repository `folder`: in its `.git`, so that it goes with the repository and
+/// is never committed. Beside the keys, a home of its own, which every run of `ssh-keygen` for them is given.
+fn keys_folder(folder: &Path) -> PathBuf {
+    let git_dir = git_text(folder, &["rev-parse", "--absolute-git-dir"]).expect("the repository has no git folder");
+    let keys = PathBuf::from(git_dir).join("wb-test-keys");
+    fs::create_dir_all(keys.join("home")).expect("the folder of the keys could not be made");
+    keys
+}
+
+/// The private key `name` of a test of the repository `folder`, made the first time it is asked for, by an
+/// `ssh-keygen` with a home of its own and no ssh agent: no person's key, agent or config is read or touched.
+pub fn test_key(folder: &Path, name: &str) -> PathBuf {
+    let keys = keys_folder(folder);
+    let path = keys.join(name);
+    if !path.exists() {
+        let home = keys.join("home");
+        let run = Command::new("ssh-keygen")
+            .args(["-q", "-t", "ed25519", "-N", "", "-C", name, "-f"])
+            .arg(&path)
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", home.join(".config"))
+            .stdin(Stdio::null())
+            .output()
+            .expect("ssh-keygen could not be started");
+        assert!(run.status.success(), "ssh-keygen: {}", String::from_utf8_lossy(&run.stderr));
+    }
+    path
+}
+
+/// The public key of `test_key`, as `<type> <base64>`.
+pub fn test_public(folder: &Path, name: &str) -> String {
+    let key = test_key(folder, name);
+    let line = read(&PathBuf::from(format!("{}.pub", key.display())));
+    line.split_whitespace().take(2).collect::<Vec<_>>().join(" ")
+}
+
+/// Ada's line of `.watchbill/signers`, with the roles `accept` and `start`.
+pub fn ada_line(folder: &Path) -> String {
+    format!("ada@example.org roles=\"accept,start\" {}\n", test_public(folder, "ada"))
+}
+
+/// Writes `.watchbill/signers` with Ada's line in the working tree alone, as a person writes it after `wb init`:
+/// `wb check` holds only where it is there (#323).
+pub fn put_signers(folder: &Path) {
+    put(folder, ".watchbill/signers", &ada_line(folder));
+}
+
+/// The default branch as `wb` finds it: `refs/remotes/origin/HEAD`, else `origin/main`, `main`, `origin/master`, `master`.
+pub fn default_branch(folder: &Path) -> Option<String> {
+    let exists = |full: &str| git_text(folder, &["rev-parse", "--verify", "-q", &format!("{}^{{commit}}", full)]).is_some();
+    if let Some(target) = git_text(folder, &["symbolic-ref", "-q", "refs/remotes/origin/HEAD"]).filter(|target| !target.is_empty() && exists(target)) {
+        return Some(target);
+    }
+    ["refs/remotes/origin/main", "refs/heads/main", "refs/remotes/origin/master", "refs/heads/master"].iter().find(|full| exists(full)).map(|full| full.to_string())
+}
+
+/// Signs with Ada's key of the test from now on, as git's config of the repository: `gpg.format` ssh, `user.signingkey`
+/// her key, and `gpg.ssh.program` a wrapper that runs `ssh-keygen` with the home of the keys and no ssh agent; and,
+/// as the default branch holds no `.watchbill/signers` (#323), commits one there with Ada's line alone: in the checkout
+/// where that branch is checked out (or no branch is there yet), else onto the branch's ref, the checkout left as it
+/// is. Where the default branch holds a list, it is the test's own, and nothing is done.
+pub fn signing(folder: &Path) {
+    let key = test_key(folder, "ada");
+    let keys = keys_folder(folder);
+    let program = keys.join("ssh-keygen");
+    if !program.exists() {
+        let home = keys.join("home");
+        let quoted = |path: &Path| format!("'{}'", path.display().to_string().replace('\'', "'\\''"));
+        let body = format!(
+            "#!/bin/sh\nunset SSH_AUTH_SOCK SSH_AGENT_PID\nHOME={}\nXDG_CONFIG_HOME={}\nexport HOME XDG_CONFIG_HOME\nexec ssh-keygen \"$@\"\n",
+            quoted(&home),
+            quoted(&home.join(".config"))
+        );
+        fs::write(&program, body).expect("the wrapper of ssh-keygen could not be written");
+        fs::set_permissions(&program, std::os::unix::fs::PermissionsExt::from_mode(0o755)).expect("the wrapper could not be made a program");
+    }
+    // The repository signs with a key of the test in any case (the review of #325, note 5), never by the person's
+    // config: with Ada's key here, unless the test set a key of its own in the repository's config.
+    if git_text(folder, &["config", "--local", "--get", "user.signingkey"]).is_none() {
+        git(folder, &["config", "gpg.format", "ssh"]);
+        git(folder, &["config", "user.signingkey", key.to_str().unwrap()]);
+        git(folder, &["config", "gpg.ssh.program", program.to_str().unwrap()]);
+    }
+    // A list that is there is the test's own: it is not changed.
+    let default = default_branch(folder);
+    if let Some(default) = &default {
+        if git_text(folder, &["cat-file", "-e", &format!("{}:.watchbill/signers", default)]).is_some() {
+            return;
+        }
+    }
+    let line = ada_line(folder);
+    let head = git_text(folder, &["symbolic-ref", "-q", "HEAD"]);
+    let identity = ["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false"];
+    // The checkout's commit where it is that of the default branch (as after a clone): the list is committed in the
+    // checkout, and the default branch moved along with it.
+    let commit_of = |name: &str| git_text(folder, &["rev-parse", "--verify", "-q", &format!("{}^{{commit}}", name)]);
+    let along = match (&default, &head) {
+        (Some(default), Some(head)) if default != head && commit_of(default).is_some() && commit_of(default) == commit_of(head) => Some(default.clone()),
+        _ => None,
+    };
+    if let Some(default) = along {
+        let old = commit_of(&default).unwrap();
+        put(folder, ".watchbill/signers", &line);
+        git(folder, &["add", "--", ".watchbill/signers"]);
+        let mut args: Vec<&str> = identity.to_vec();
+        args.extend(["commit", "-q", "-m", "The project's keys", "--", ".watchbill/signers"]);
+        git(folder, &args);
+        let new = commit_of("HEAD").unwrap();
+        git(folder, &["update-ref", &default, &new, &old]);
+        return;
+    }
+    match default {
+        Some(default) if head.as_deref() != Some(default.as_str()) => {
+            let blob = String::from_utf8_lossy(&git_with(folder, &["hash-object", "-w", "--stdin"], &[], line.as_bytes()).stdout).trim().to_string();
+            let index = keys.join("index");
+            let index = index.to_str().unwrap();
+            let with_index = |args: &[&str]| {
+                let run = git_with(folder, args, &[("GIT_INDEX_FILE", index)], b"");
+                assert!(run.status.success(), "git {:?}: {}", args, String::from_utf8_lossy(&run.stderr));
+                String::from_utf8_lossy(&run.stdout).trim().to_string()
+            };
+            with_index(&["read-tree", &default]);
+            with_index(&["update-index", "--add", "--cacheinfo", &format!("100644,{},.watchbill/signers", blob)]);
+            let tree = with_index(&["write-tree"]);
+            let _ = fs::remove_file(index);
+            let mut args: Vec<&str> = identity.to_vec();
+            args.extend(["commit-tree", "--no-gpg-sign", tree.as_str(), "-p", default.as_str(), "-m", "The project's keys"]);
+            let commit = git_text(folder, &args).expect("the commit of the keys could not be made");
+            git(folder, &["update-ref", &default, &commit]);
+        }
+        _ => {
+            put(folder, ".watchbill/signers", &line);
+            git(folder, &["add", "--", ".watchbill/signers"]);
+            let mut args: Vec<&str> = identity.to_vec();
+            args.extend(["commit", "-q", "-m", "The project's keys", "--", ".watchbill/signers"]);
+            git(folder, &args);
+        }
+    }
+}
+
+/// The signed tag of the acceptance `.watchbill/issues/<issue>.accepted` that a test wrote by hand, as `wb plan accept`
+/// makes it for an issue with no plan (#235): on the blob of the issue's file, signed with the key git signs with
+/// (`signing`, which this runs first). Since #323 an acceptance with no tag counts for nothing.
+pub fn sign_acceptance(folder: &Path, issue: &str) {
+    signing(folder);
+    let file = fs::read(folder.join(format!(".watchbill/issues/{}.yml", issue))).expect("the issue's file could not be read");
+    let body = read(&folder.join(format!(".watchbill/issues/{}.accepted", issue)));
+    let blob = String::from_utf8_lossy(&git_with(folder, &["hash-object", "-w", "--no-filters", "--stdin"], &[], &file).stdout).trim().to_string();
+    let tag = watchbill::signers::tag_of(watchbill::signers::ACCEPT_TAGS, issue, body.as_bytes());
+    let message = watchbill::signers::file_message(issue, &body, &[]);
+    let short = tag.strip_prefix("refs/tags/").unwrap();
+    let run = git_with(folder, &["tag", "-s", "-f", "--cleanup=verbatim", "-F", "-", short, &blob], &[], message.as_bytes());
+    assert!(run.status.success(), "git tag: {}", String::from_utf8_lossy(&run.stderr));
 }

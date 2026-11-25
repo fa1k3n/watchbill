@@ -96,7 +96,7 @@ pub fn accept(root: &str, issue: &str, commit: bool, state: Option<&Path>, out: 
     if fs::symlink_metadata(&record).is_ok() {
         return crate::refusal::limit(err, NAME, format_args!("{} is there already, and is never written over. Nothing written. Where a later commit voided it, remove it in a commit of its own and run wb accept again.", path));
     }
-    // Where the default branch has `.watchbill/signers`, the acceptance is also a signed tag (#235).
+    // The acceptance is also a signed tag (#235); without `.watchbill/signers` on the default branch it is refused (#323).
     let keys = crate::signers::load(root);
     match &keys {
         crate::signers::Keys::Fault(why) => return crate::refusal::limit(err, NAME, format_args!("{}, so no acceptance counts. Nothing written.", why)),
@@ -105,7 +105,10 @@ pub fn accept(root: &str, issue: &str, commit: bool, state: Option<&Path>, out: 
                 return crate::refusal::limit(err, NAME, format_args!("{} Nothing written.", why));
             }
         }
-        crate::signers::Keys::Unchecked(_) => {}
+        crate::signers::Keys::Missing(_) => {
+            let why = crate::signers::missing(&keys, "accept").unwrap_or_default();
+            return crate::refusal::limit(err, NAME, format_args!("{}. Nothing written.", why));
+        }
     }
     if let Err(not_ready) = issue::ready_to_commit(root, issue) {
         let (issue::NotReady::Fault(why) | issue::NotReady::Guard(why)) = not_ready;

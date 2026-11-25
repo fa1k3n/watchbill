@@ -170,6 +170,8 @@ fn bench_for(issue_54: &str) -> Bench {
     git(&repo.path, &["branch", "-M", "main"]);
     git(&repo.path, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
     git(&repo.path, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+    // Nothing that needs a signature counts without `.watchbill/signers` on the default branch (#323).
+    signing(&repo.path);
     // Issue 99 has no file: its branch is there for a role started alone.
     git(&repo.path, &["branch", "issue-99"]);
     git(&repo.path, &["checkout", "-q", "-b", "issue-54"]);

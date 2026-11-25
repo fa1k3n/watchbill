@@ -546,6 +546,14 @@ pub fn init(
         }
         talk.inform(&format!("Added the fetch line {} to the remote origin in .git/config.", crate::plan::FETCH));
     }
+    // The project's keys are not written: wb cannot know them (#323). Said with -q too, as what the person must do.
+    talk.say(&format!(
+        "{} is not written: wb cannot know your key, and until the default branch holds it nothing that needs a signature counts.",
+        crate::signers::PATH
+    ));
+    talk.say("Write it before the first acceptance, one line for each person's SSH key, and commit it on the default branch:");
+    talk.say("  <identity> roles=\"accept,start\" <key type> <key>");
+    talk.say("with the key as its public key file has it (as ~/.ssh/id_ed25519.pub).");
     0
 }
 

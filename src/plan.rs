@@ -803,13 +803,14 @@ fn state_of(root: &str, name: &str, plan: &Plan, bytes: &[u8], body: Option<&str
     if line_of(body, "sha256") != Some(crate::manifest::hash_bytes(bytes).as_str()) {
         return Err("not accepted (edited after the acceptance)".to_string());
     }
-    // Where the default branch has `.watchbill/signers`, the acceptance is its signed tag (#235).
-    if let crate::signers::Signed::Void(why) = crate::signers::file_signed(root, &crate::signers::load(root), name, bytes, body) {
-        return Err(format!("not accepted ({})", why));
-    }
     let time = accepted_time(body);
     if source_after(&plan.job, &time) {
         return Err("not accepted (a source added after the acceptance)".to_string());
+    }
+    // The acceptance is its signed tag (#235), and counts for nothing without `.watchbill/signers` (#323). A source
+    // added after it is named first, as #290 says it: the tag of such an acceptance names another job too.
+    if let crate::signers::Signed::Void(why) = crate::signers::file_signed(root, &crate::signers::load(root), name, bytes, body) {
+        return Err(format!("not accepted ({})", why));
     }
     Ok((line_of(body, "by").unwrap_or("").to_string(), time))
 }

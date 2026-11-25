@@ -244,7 +244,8 @@ pub(crate) fn way_fault(root: &Path) -> Option<String> {
 }
 
 /// Whether an issue's file is accepted: its `.accepted` is there, the SHA-256 in it is that of the file as it is now,
-/// and, where the default branch has `.watchbill/signers`, its signed tag checks (#235). Nothing else is looked at.
+/// and its signed tag checks against `.watchbill/signers` of the default branch (#235); with no list, never (#323).
+/// Nothing else is looked at.
 pub fn is_accepted(root: &Path, issue: &str) -> bool {
     if !is_name(issue) || way_fault(root).is_some() {
         return false;
@@ -345,16 +346,24 @@ pub fn for_prompt(root: &Path, issue: &str) -> Result<Option<Used>, String> {
             shown, FOLDER, issue, accepting, issue
         ));
     }
-    // Where the default branch has `.watchbill/signers`, the acceptance is its signed tag, which must check (#235).
-    if let crate::signers::Signed::Void(why) = crate::signers::file_signed(&root_text, &crate::signers::load(&root_text), issue, &bytes, &body) {
-        return Err(format!("the issue's file {} is not accepted: {}. No prompt is handed out.", shown, why));
-    }
-    // A source added to the plan after the acceptance voids it, as an edit does (#290).
-    if crate::plan::sources_after_acceptance(&root_text, issue, &body) {
-        return Err(format!(
-            "the issue's file {} is not accepted: the plan {} has a source added after the acceptance. Remove {}/{}.accepted and run `wb plan accept {}` again. No prompt is handed out.",
-            shown, issue, FOLDER, issue, issue
-        ));
+    // The acceptance is its signed tag, which must check (#235); with no `.watchbill/signers` nothing counts (#323).
+    // A source added to the plan after the acceptance voids it, as an edit does (#290); where both hold, both are said.
+    let keys = crate::signers::load(&root_text);
+    let after = crate::plan::sources_after_acceptance(&root_text, issue, &body);
+    let source = format!(
+        "the plan {} has a source added after the acceptance. Remove {}/{}.accepted and run `wb plan accept {}` again",
+        issue, FOLDER, issue, issue
+    );
+    match crate::signers::file_signed(&root_text, &keys, issue, &bytes, &body) {
+        crate::signers::Signed::Void(why) => {
+            let add = crate::signers::missing(&keys, "accept").map(|_| format!(" {}.", crate::signers::add_a_key("accept"))).unwrap_or_default();
+            let also = if after { format!(" And {}.", source) } else { String::new() };
+            return Err(format!("the issue's file {} is not accepted: {}.{}{} No prompt is handed out.", shown, why, add, also));
+        }
+        crate::signers::Signed::Good(_) if after => {
+            return Err(format!("the issue's file {} is not accepted: {}. No prompt is handed out.", shown, source));
+        }
+        crate::signers::Signed::Good(_) => {}
     }
     let prefix = format!("{}/", root.display().to_string().trim_end_matches('/'));
     let (read, listed) = read_bytes(&file, bytes).map_err(|why| format!("{}. No prompt is handed out.", why.replace(&prefix, "")))?;
@@ -653,8 +662,8 @@ pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: 
     if fs::symlink_metadata(&accepted).is_ok() {
         return crate::refusal::limit(err, name, format_args!("{} is there already, and is never written over. To accept the file again, remove it first. Nothing written.", shown_accepted));
     }
-    // Where the default branch has `.watchbill/signers`, the acceptance is also a signed tag (#235): git must sign with
-    // an SSH key. Without the list nothing is signed, and the acceptance is as it was.
+    // The acceptance is also a signed tag (#235): git must sign with an SSH key. Without `.watchbill/signers` on the
+    // default branch nothing that needs a signature counts, so it is refused (#323).
     let keys = crate::signers::load(root);
     match &keys {
         crate::signers::Keys::Fault(why) => return crate::refusal::limit(err, name, format_args!("{}, so no acceptance counts. Nothing written.", why)),
@@ -663,7 +672,10 @@ pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: 
                 return crate::refusal::limit(err, name, format_args!("{} Nothing written.", why));
             }
         }
-        crate::signers::Keys::Unchecked(_) => {}
+        crate::signers::Keys::Missing(_) => {
+            let why = crate::signers::missing(&keys, "accept").unwrap_or_default();
+            return crate::refusal::limit(err, name, format_args!("{}. Nothing written.", why));
+        }
     }
     if commit {
         match ready_to_commit(root, issue) {
@@ -778,7 +790,7 @@ pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: 
         return crate::refusal::limit(err, name, format_args!("{} could not be written ({}). Nothing written.", shown_accepted, error));
     }
     crate::refusal::inform(out, format_args!("{}: {} is accepted.", name, shown));
-    // Said with `-q` too: the tag is the acceptance where the list is there, and only the person can push it.
+    // Said with `-q` too: the tag is the acceptance (with no list there is none, #323), and only the person can push it.
     let push_tag = tag.as_ref().map(|(made, _)| format!("git push origin {}", made));
     if let Some(command) = &push_tag {
         let _ = writeln!(out, "{}: made the signed tag {}. wb pushes nothing: push it with\n  {}", name, tag.as_ref().map(|(made, _)| made.as_str()).unwrap_or(""), command);

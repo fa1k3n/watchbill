@@ -1402,3 +1402,266 @@ fn test_WB_BUILD_170_the_readme_says_what_the_ref_as_wb_writes_it_is_and_how_a_p
     assert!(readme.contains("git push --force-with-lease origin"), "README.md");
     assert!(readme.contains("holds no plan, or a removed one,"), "README.md");
 }
+
+// ---- The review of PR #328 ----
+
+/// The tree of `commit` with an entry `name` more, a blob of `text`.
+fn tree_with(bench: &Bench, commit: &str, name: &str, text: &[u8]) -> String {
+    let blob = git_input(bench, &["hash-object", "-w", "--stdin"], text);
+    let mut entries = bench.git(&["ls-tree", &format!("{}^{{tree}}", commit)]);
+    entries.push_str(&format!("100644 blob {}\t{}\n", blob, name));
+    git_input(bench, &["mktree"], entries.as_bytes())
+}
+
+/// The tree of `commit`.
+fn tree_of(bench: &Bench, commit: &str) -> String {
+    bench.git(&["rev-parse", &format!("{}^{{tree}}", commit)]).trim().to_string()
+}
+
+#[test]
+fn test_WB_BUILD_168_a_bad_ref_voids_the_acceptance_a_planner_round_voided_and_prompt_is_refused() {
+    let bench = bench(false, false);
+    bench.issue_file();
+    // A signed planner round after the acceptance voids it.
+    stamps_on_ref(&bench.repo.path, "54", &["[stamp] planner round 1\nrole: planner\ntime: 2999-01-01T00:00:00Z\n"]);
+    let mut with_round = vec!["build", "54", "--round", "1"];
+    with_round.extend(REST);
+    let mut without = vec!["build", "54"];
+    without.extend(REST);
+    assert_eq!(bench.prompt(&with_round).code, 1);
+    assert!(!bench.status().contains("Accepted:"), "{}", bench.status());
+
+    // One unsigned commit on top: nothing on the ref counts, and the void stays.
+    unsigned_stamps_on_ref(&bench.repo.path, "54", &["[stamp] tester round 1\nrole: tester\n"]);
+    let top = tip_of(&bench);
+
+    for args in [&with_round, &without] {
+        let said = bench.prompt(args);
+        assert_eq!(said.code, 1, "{}", said.err);
+        assert!(said.out.is_empty(), "{}", said.out);
+        assert!(said.err.contains("is not as wb writes it") && said.err.contains(&top), "{}", said.err);
+    }
+    let status = bench.status();
+    assert!(!status.contains("Accepted:"), "{}", status);
+    assert_eq!(not_as_written(&bench).len(), 1, "{}", status);
+}
+
+#[test]
+fn test_WB_BUILD_168_plan_accept_on_a_bad_ref_is_refused_with_1_and_writes_nothing() {
+    let bench = bench(false, false);
+    bench.plan("The brakes hold.");
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    put(&bench.repo.path, YML, &BARE_ISSUE.replace("{issue}", "54"));
+    unsigned_stamps_on_ref(&bench.repo.path, "54", &["[stamp] review round 1\nrole: review\n"]);
+    let before = bench.git(&["for-each-ref"]);
+
+    let run = bench.wb(&["plan", "accept", "--no-commit", "54"]);
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    assert!(text(&run.stderr).contains("is not as wb writes it"), "{}", text(&run.stderr));
+    assert!(!bench.repo.path.join(".watchbill/issues/54.accepted").exists());
+    assert_eq!(bench.git(&["for-each-ref"]), before);
+}
+
+#[test]
+fn test_WB_BUILD_166_a_signed_stamp_whose_tree_marks_the_plan_removed_makes_the_ref_not_as_wb_writes_it() {
+    let bench = bench(false, false);
+    bench.plan("The brakes hold.");
+    ok(&bench.start(&["tester", "54"]));
+    let tip = tip_of(&bench);
+    // A stamp signed by a key with `start`, whose tree adds the marker of `wb plan remove`.
+    let tree = tree_with(&bench, &tip, "removed", b"by: Ada Lovelace <ada@example.org>\ntime: 2026-11-26T10:00:00Z\n");
+    let stamp = raw_commit(&bench, &tree, &[tip.as_str()], &format!("[stamp] review round 1\nrole: review\nissue: 54\njob: none\nbase: {}\n", bench.head()), true);
+    bench.git(&["update-ref", JOB, &stamp]);
+
+    let status = bench.status();
+
+    assert!(!status.contains("Tested:") && !status.contains("Reviewed:"), "{}", status);
+    let lines = not_as_written(&bench);
+    assert_eq!(lines.len(), 1, "{}", status);
+    assert!(lines[0].contains(&stamp) && lines[0].contains("tree"), "{}", lines[0]);
+    start_refused(&bench);
+}
+
+#[test]
+fn test_WB_BUILD_166_a_signed_marker_whose_tree_is_not_its_parents_makes_the_ref_not_as_wb_writes_it() {
+    let bench = bench(false, false);
+    ok(&bench.start(&["tester", "54"]));
+    ok(&bench.start(&["tester", "54"]));
+    let tip = tip_of(&bench);
+    let tree = tree_with(&bench, &tip, "extra", b"more\n");
+    let marker = raw_commit(&bench, &tree, &[tip.as_str()], &format!("[revert] tester round 2\nissue: 54\njob: none\nbase: {}\n", bench.head()), true);
+    bench.git(&["update-ref", JOB, &marker]);
+
+    let lines = not_as_written(&bench);
+
+    assert_eq!(lines.len(), 1, "{}", bench.status());
+    assert!(lines[0].contains(&marker) && lines[0].contains("tree"), "{}", lines[0]);
+}
+
+#[test]
+fn test_WB_BUILD_167_a_side_chain_is_named_by_its_merge_and_the_commit_before_it_keeps_every_genuine_stamp() {
+    let bench = bench(false, false);
+    ok(&bench.start(&["tester", "54"]));
+    ok(&bench.start(&["tester", "54"]));
+    let (a2, a1) = (bench.on_ref()[0].clone(), bench.on_ref()[1].clone());
+    let base = bench.head();
+    // An unsigned side commit after a1, and a signed merge of a2 and it.
+    let side = raw_commit(&bench, &tree_of(&bench, &a1), &[a1.as_str()], &format!("[stamp] review round 1\nrole: review\nissue: 54\njob: none\nbase: {}\n", base), false);
+    let merge = raw_commit(&bench, &tree_of(&bench, &a2), &[a2.as_str(), side.as_str()], &format!("[stamp] build round 1\nrole: build\nissue: 54\njob: none\nbase: {}\n", base), true);
+    bench.git(&["update-ref", JOB, &merge]);
+
+    let lines = not_as_written(&bench);
+
+    assert_eq!(lines.len(), 1, "{}", bench.status());
+    assert!(lines[0].contains(&merge) && !lines[0].contains(&side), "{}", lines[0]);
+    // The repair the README gives: the ref moved to the commit before the one named holds both rounds.
+    bench.git(&["update-ref", JOB, &format!("{}^", merge)]);
+    let status = bench.status();
+    assert!(not_as_written(&bench).is_empty(), "{}", status);
+    assert!(status.contains("[stamp] tester round 2  (on refs/watchbill/54, signed by ada@example.org)"), "{}", status);
+}
+
+#[test]
+fn test_WB_BUILD_167_a_side_chain_with_its_own_root_is_named_by_its_merge() {
+    let bench = bench(false, false);
+    ok(&bench.start(&["tester", "54"]));
+    let tip = tip_of(&bench);
+    let empty = bench.git(&["mktree"]).trim().to_string();
+    let root = raw_commit(&bench, &empty, &[], "A commit of another chain\n", false);
+    let merge = raw_commit(&bench, &tree_of(&bench, &tip), &[tip.as_str(), root.as_str()], &format!("[stamp] review round 1\nrole: review\nissue: 54\njob: none\nbase: {}\n", bench.head()), true);
+    bench.git(&["update-ref", JOB, &merge]);
+
+    let lines = not_as_written(&bench);
+
+    assert_eq!(lines.len(), 1, "{}", bench.status());
+    assert!(lines[0].contains(&merge) && !lines[0].contains(&root), "{}", lines[0]);
+    bench.git(&["update-ref", JOB, &format!("{}^", merge)]);
+    assert!(not_as_written(&bench).is_empty(), "{}", bench.status());
+    assert!(bench.status().contains("Tested:"), "{}", bench.status());
+}
+
+#[test]
+fn test_WB_BUILD_166_a_graft_of_this_machine_hides_no_stamp() {
+    let bench = bench(false, false);
+    ok(&bench.start(&["tester", "54"]));
+    ok(&bench.start(&["tester", "54"]));
+    // A graft that makes the tip a commit with no parent, on this machine alone.
+    let git_dir = bench.git(&["rev-parse", "--absolute-git-dir"]).trim().to_string();
+    fs::create_dir_all(Path::new(&git_dir).join("info")).unwrap();
+    fs::write(Path::new(&git_dir).join("info/grafts"), format!("{}\n", tip_of(&bench))).unwrap();
+
+    let status = bench.status();
+
+    assert!(status.contains("[stamp] tester round 1  (on refs/watchbill/54, signed by ada@example.org)"), "{}", status);
+    ok(&bench.start(&["tester", "54"]));
+    assert!(bench.message(&tip_of(&bench)).starts_with("[stamp] tester round 3\n"), "{}", bench.message(&tip_of(&bench)));
+}
+
+#[test]
+fn test_WB_BUILD_166_in_a_shallow_repository_the_ref_is_not_as_wb_writes_it() {
+    let bench = bench(false, false);
+    ok(&bench.start(&["tester", "54"]));
+    ok(&bench.start(&["tester", "54"]));
+    let git_dir = bench.git(&["rev-parse", "--absolute-git-dir"]).trim().to_string();
+    fs::write(Path::new(&git_dir).join("shallow"), format!("{}\n", tip_of(&bench))).unwrap();
+
+    let lines = not_as_written(&bench);
+
+    assert_eq!(lines.len(), 1, "{}", bench.status());
+    assert!(lines[0].contains("shallow"), "{}", lines[0]);
+    assert!(!bench.status().contains("Tested:"), "{}", bench.status());
+    start_refused(&bench);
+}
+
+#[test]
+fn test_WB_BUILD_166_a_ref_at_an_annotated_tag_or_a_tree_is_not_as_wb_writes_it() {
+    let bench = bench(false, false);
+    ok(&bench.start(&["tester", "54"]));
+    let tip = tip_of(&bench);
+    bench.git(&["tag", "-a", "-m", "A tag", "on-the-ref", &tip]);
+    let tag = bench.git(&["rev-parse", "refs/tags/on-the-ref"]).trim().to_string();
+    bench.git(&["update-ref", JOB, &tag]);
+
+    let lines = not_as_written(&bench);
+
+    assert_eq!(lines.len(), 1, "{}", bench.status());
+    assert!(lines[0].contains("tag"), "{}", lines[0]);
+    assert!(!bench.status().contains("Tested:"), "{}", bench.status());
+    start_refused(&bench);
+
+    bench.git(&["update-ref", JOB, &tree_of(&bench, &tip)]);
+    let lines = not_as_written(&bench);
+    assert_eq!(lines.len(), 1, "{}", bench.status());
+    assert!(lines[0].contains("tree"), "{}", lines[0]);
+}
+
+// The cases WB-BUILD-166 lists that 3b3d8ca built with no test of their own (the review of #328, note 10).
+
+#[test]
+fn test_WB_BUILD_166_a_signed_commit_of_another_kind_makes_the_ref_not_as_wb_writes_it() {
+    let bench = bench(false, false);
+    ok(&bench.start(&["tester", "54"]));
+    let tip = tip_of(&bench);
+    let other = raw_commit(&bench, &tree_of(&bench, &tip), &[tip.as_str()], "A note on the ref\n", true);
+    bench.git(&["update-ref", JOB, &other]);
+
+    let lines = not_as_written(&bench);
+
+    assert_eq!(lines.len(), 1, "{}", bench.status());
+    assert!(lines[0].contains(&other) && lines[0].contains("neither a stamp"), "{}", lines[0]);
+    assert!(!bench.status().contains("Tested:"), "{}", bench.status());
+}
+
+#[test]
+fn test_WB_BUILD_166_a_commit_over_64_kib_makes_the_ref_not_as_wb_writes_it() {
+    let bench = bench(false, false);
+    ok(&bench.start(&["tester", "54"]));
+    let padding = "x".repeat(70 * 1024);
+    let big = raw_stamp(&bench, &format!("[stamp] review round 1\nrole: review\nissue: 54\njob: none\nbase: {}\n\n{}\n", bench.head(), padding));
+
+    let lines = not_as_written(&bench);
+
+    assert_eq!(lines.len(), 1, "{}", bench.status());
+    assert!(lines[0].contains(&big) && lines[0].contains("larger than 64 KiB"), "{}", lines[0]);
+    assert!(!bench.status().contains("Tested:"), "{}", bench.status());
+}
+
+#[test]
+fn test_WB_BUILD_166_a_stamp_signed_by_a_key_with_accept_alone_makes_the_ref_not_as_wb_writes_it() {
+    let bench = bench(false, false);
+    ok(&bench.start(&["tester", "54"]));
+    let stamp = tip_of(&bench);
+    bench.signers("ada", "accept");
+
+    let lines = not_as_written(&bench);
+
+    assert_eq!(lines.len(), 1, "{}", bench.status());
+    assert!(lines[0].contains(&stamp) && lines[0].contains("without the role start"), "{}", lines[0]);
+}
+
+#[test]
+fn test_WB_BUILD_166_an_octopus_merge_makes_the_ref_not_as_wb_writes_it() {
+    let bench = bench(false, false);
+    ok(&bench.start(&["tester", "54"]));
+    let tip = tip_of(&bench);
+    let base = bench.head();
+    let empty = bench.git(&["mktree"]).trim().to_string();
+    let stamp = |role: &str| format!("[stamp] {} round 1\nrole: {}\nissue: 54\njob: none\nbase: {}\n", role, role, base);
+    let one = raw_commit(&bench, &empty, &[], &stamp("build"), true);
+    let two = raw_commit(&bench, &empty, &[], &stamp("review"), true);
+    let octopus = raw_commit(&bench, &tree_of(&bench, &tip), &[tip.as_str(), one.as_str(), two.as_str()], &stamp("fix"), true);
+    bench.git(&["update-ref", JOB, &octopus]);
+
+    let lines = not_as_written(&bench);
+
+    assert_eq!(lines.len(), 1, "{}", bench.status());
+    assert!(lines[0].contains(&octopus) && lines[0].contains("merge of 3 commits"), "{}", lines[0]);
+}
+
+#[test]
+fn test_WB_BUILD_170_the_readme_says_a_forced_push_to_a_chain_all_signed_is_not_seen() {
+    let readme = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join("README.md"));
+    assert!(readme.contains("A forced push to another chain"), "README.md");
+    assert!(readme.contains("only the holders of the keys"), "README.md");
+}

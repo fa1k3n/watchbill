@@ -181,12 +181,17 @@ impl Bench {
     fn tag_again(&self, tag: &str, args: &[&str]) {
         let message = self.message(tag);
         let target = self.git(&["rev-parse", &format!("{}^{{}}", tag)]).trim().to_string();
+        self.tag_as(tag, args, &message, &target);
+    }
+
+    /// The tag `tag` made again by `args` of `git tag`, with `message`, on `target`.
+    fn tag_as(&self, tag: &str, args: &[&str], message: &str, target: &str) {
         let file = self.home.path.join("message");
         fs::write(&file, &message).unwrap();
         let short = tag.strip_prefix("refs/tags/").unwrap();
         let mut all = vec!["tag", "-f"];
         all.extend(args);
-        all.extend(["--cleanup=verbatim", "-F", file.to_str().unwrap(), short, &target]);
+        all.extend(["--cleanup=verbatim", "-F", file.to_str().unwrap(), short, target]);
         self.git(&all);
     }
 
@@ -461,6 +466,18 @@ fn test_WB_TASK_34_a_work_accepted_with_an_unsigned_tag_is_not_done() {
     let status = bench.status();
     assert!(status.starts_with("Built:\n"), "{}", status);
     assert!(status.contains(&format!("{}: unsigned", tag)), "{}", status);
+}
+
+#[test]
+fn test_WB_TASK_34_text_after_a_marker_of_a_signature_in_the_message_makes_it_not_the_acceptances() {
+    let bench = accepted();
+    let tag = bench.tag();
+    let message = format!("{}-----BEGIN SSH SIGNATURE-----\nnot really\n", bench.message(&tag));
+    let target = bench.git(&["rev-parse", &format!("{}^{{}}", tag)]).trim().to_string();
+    bench.tag_as(&tag, &["-s"], &message, &target);
+    let status = bench.status();
+    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.contains(&format!("{}: its message is not that of the acceptance", tag)), "{}", status);
 }
 
 // ---- WB-TASK-35: no prompt of a later role ----

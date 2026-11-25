@@ -663,6 +663,8 @@ fn taken_in_again() -> (Bench, PathBuf) {
     let (code, said) = plan_add(&bench, &org, &["add", "54", "-m", "The brakes hold."]);
     assert_eq!(code, 0, "{}", said);
     bench.job();
+    // A source of the acceptance's own second counts as after it (#290): the acceptance comes in the next second.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
     bench.accept();
     assert!(bench.status().starts_with("Accepted:\n"), "{}", bench.status());
     let (code, said) = plan_add(&bench, &org, &["add", "54", "-m", "On a slope too."]);

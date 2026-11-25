@@ -243,8 +243,8 @@ pub(crate) fn way_fault(root: &Path) -> Option<String> {
     None
 }
 
-/// Whether an issue's file is accepted: its `.accepted` is there, and the SHA-256 in it is that of
-/// the file as it is now. Nothing else is looked at.
+/// Whether an issue's file is accepted: its `.accepted` is there, the SHA-256 in it is that of the file as it is now,
+/// and, where the default branch has `.watchbill/signers`, its signed tag checks (#235). Nothing else is looked at.
 pub fn is_accepted(root: &Path, issue: &str) -> bool {
     if !is_name(issue) || way_fault(root).is_some() {
         return false;
@@ -258,7 +258,11 @@ pub fn is_accepted(root: &Path, issue: &str) -> bool {
         return false;
     };
     let hash = crate::manifest::hash_bytes(&bytes);
-    text.lines().find_map(|line| line.strip_prefix("sha256: ")) == Some(hash.as_str())
+    if text.lines().find_map(|line| line.strip_prefix("sha256: ")) != Some(hash.as_str()) {
+        return false;
+    }
+    let root = root.display().to_string();
+    !matches!(crate::signers::file_signed(&root, &crate::signers::load(&root), issue, &bytes, &text), crate::signers::Signed::Void(_))
 }
 
 /// The roles that are given the issue's file in their prompts.
@@ -340,6 +344,10 @@ pub fn for_prompt(root: &Path, issue: &str) -> Result<Option<Used>, String> {
             "the issue's file {} is not accepted: it changed since its acceptance. Remove {}/{}.accepted and run `{} {}` again. No prompt is handed out.",
             shown, FOLDER, issue, accepting, issue
         ));
+    }
+    // Where the default branch has `.watchbill/signers`, the acceptance is its signed tag, which must check (#235).
+    if let crate::signers::Signed::Void(why) = crate::signers::file_signed(&root_text, &crate::signers::load(&root_text), issue, &bytes, &body) {
+        return Err(format!("the issue's file {} is not accepted: {}. No prompt is handed out.", shown, why));
     }
     // A source added to the plan after the acceptance voids it, as an edit does (#290).
     if crate::plan::sources_after_acceptance(&root_text, issue, &body) {
@@ -679,6 +687,18 @@ pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: 
     if fs::symlink_metadata(&accepted).is_ok() {
         return crate::refusal::limit(err, name, format_args!("{} is there already, and is never written over. To accept the file again, remove it first. Nothing written.", shown_accepted));
     }
+    // Where the default branch has `.watchbill/signers`, the acceptance is also a signed tag (#235): git must sign with
+    // an SSH key. Without the list nothing is signed, and the acceptance is as it was.
+    let keys = crate::signers::load(root);
+    match &keys {
+        crate::signers::Keys::Fault(why) => return crate::refusal::limit(err, name, format_args!("{}. Nothing written.", why)),
+        crate::signers::Keys::List(_) => {
+            if let Err(why) = crate::signers::signing_ready(root) {
+                return crate::refusal::limit(err, name, format_args!("{} Nothing written.", why));
+            }
+        }
+        crate::signers::Keys::Unchecked(_) => {}
+    }
     if commit {
         match ready_to_commit(root, issue) {
             Ok(()) => {}
@@ -739,6 +759,26 @@ pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: 
     if read_plain(&file, MAX_BYTES).map(|again| crate::manifest::hash_bytes(&again)).ok().as_deref() != Some(hash.as_str()) {
         return crate::refusal::limit(err, name, format_args!("{} changed while it was read. Nothing written.", shown));
     }
+    // The signed tag on the blob of the file, made and checked before the acceptance is written (#235).
+    let mut tag: Option<(String, String)> = None;
+    if let crate::signers::Keys::List(_) = &keys {
+        let blob = match crate::signers::blob_of(root, &bytes, true) {
+            Ok(blob) => blob,
+            Err(why) => return crate::refusal::limit(err, name, format_args!("git could not write the blob of {} ({}). Nothing written.", shown, why)),
+        };
+        let made = crate::signers::tag_of(crate::signers::ACCEPT_TAGS, issue, body.as_bytes());
+        let message = crate::signers::file_message(issue, &body, &crate::plan::source_hashes(root, issue));
+        if let Err(why) = crate::signers::make(root, &keys, name, &made, "blob", &blob, &message, out) {
+            return crate::refusal::limit(err, name, format_args!("{}. Nothing written.", why));
+        }
+        let object = crate::signers::object_of(root, &made).unwrap_or_default();
+        tag = Some((made, object));
+    }
+    let unmake = |tag: &Option<(String, String)>| {
+        if let Some((made, object)) = tag {
+            crate::signers::unmake(root, made, object);
+        }
+    };
     let _ = writeln!(out, "{}: will write {}:\n{}", name, shown_accepted, body);
     // Whole or not at all: the acceptance is written to a file of its own in the same folder, then
     // linked to its name, which fails when the name is there. A file left by a crash is another name.
@@ -754,11 +794,13 @@ pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: 
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => {
+                unmake(&tag);
                 return crate::refusal::limit(err, name, format_args!("{} cannot be written ({}). Nothing written.", shown_accepted, error));
             }
         }
     }
     let Some((part, mut opened)) = written else {
+        unmake(&tag);
         return crate::refusal::limit(err, name, format_args!("{} cannot be written. Nothing written.", shown_accepted));
     };
     let result = opened.write_all(body.as_bytes()).and_then(|_| opened.sync_all());
@@ -766,12 +808,21 @@ pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: 
     let result = result.and_then(|_| fs::hard_link(&part, &accepted));
     let _ = fs::remove_file(&part);
     if let Err(error) = result {
+        unmake(&tag);
         return crate::refusal::limit(err, name, format_args!("{} could not be written ({}). Nothing written.", shown_accepted, error));
     }
     crate::refusal::inform(out, format_args!("{}: {} is accepted.", name, shown));
+    // Said with `-q` too: the tag is the acceptance where the list is there, and only the person can push it.
+    let push_tag = tag.as_ref().map(|(made, _)| format!("git push origin {}", made));
+    if let Some(command) = &push_tag {
+        let _ = writeln!(out, "{}: made the signed tag {}. wb pushes nothing: push it with\n  {}", name, tag.as_ref().map(|(made, _)| made.as_str()).unwrap_or(""), command);
+    }
     if !commit {
         // Said with `-q` too: the commit is a limit (#97), and the person has to make it.
         let _ = writeln!(out, "{}: commit the acceptance alone, so the history holds it before any work it allows:\n  {}", name, commit_command(issue));
+        if tag.is_some() {
+            let _ = writeln!(out, "{}: no [accepted] notice is posted, as nothing is committed.", name);
+        }
         return 0;
     }
     let _ = writeln!(out, "{}: will commit {} alone, with the message \"{}\", as {} <{}>.", name, shown_accepted, commit_message(issue), user, email);
@@ -796,6 +847,9 @@ pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: 
             }
             crate::refusal::inform(out, format_args!("{}: committed {} alone ({}). What was staged before stays staged.", name, shown_accepted, short));
             let _ = writeln!(out, "{}: wb pushes nothing. Push the branch {} so that the history elsewhere holds the acceptance.", name, branch);
+            if let Some((made, _)) = &tag {
+                notice(name, root, issue, &hash, made, &body, out, err);
+            }
             0
         }
         Err(why) => {
@@ -808,6 +862,39 @@ pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: 
                 commit_command(issue)
             );
             code
+        }
+    }
+}
+
+/// Posts the `[accepted]` notice of a signed acceptance that is committed (#235), by `issue_comment` of `watchbill.yml`,
+/// after it is said on `out`. It is a copy, posted out and never read back: a post that fails is said on `err`, and the
+/// acceptance holds all the same.
+fn notice(name: &str, root: &str, issue: &str, hash: &str, tag: &str, body: &str, out: &mut dyn Write, err: &mut dyn Write) {
+    let line = match crate::prompt::pattern_of(root, "issue_comment") {
+        Ok(Some(line)) => line,
+        Ok(None) => {
+            let _ = writeln!(out, "{}: watchbill.yml has no `issue_comment`, so no [accepted] notice is posted.", name);
+            return;
+        }
+        Err(why) => {
+            let _ = writeln!(err, "{}: no [accepted] notice is posted: {}. The acceptance holds.", name, why);
+            return;
+        }
+    };
+    if !crate::prompt::is_plain_name(issue) {
+        let _ = writeln!(err, "{}: no [accepted] notice is posted: {} is not a plain name that fills `issue_comment`. The acceptance holds.", name, shown(issue));
+        return;
+    }
+    let value = |key: &str| body.lines().find_map(|line| line.strip_prefix(key)).unwrap_or("").to_string();
+    let comment = format!("[accepted] {}\nsha256: {}\ntag: {}\nby: {}\ntime: {}\n", issue, hash, tag, value("by: "), value("time: "));
+    let _ = write!(out, "{}: will post on issue {}, by `issue_comment` of watchbill.yml:\n{}", name, issue, comment);
+    let _ = out.flush();
+    match crate::starter::run(root, "issue_comment", &line.replace("{issue}", issue), Some(comment.as_bytes())) {
+        Ok(said) => {
+            let _ = out.write_all(&said);
+        }
+        Err(why) => {
+            let _ = writeln!(err, "{}: the [accepted] notice was not posted: {}. The acceptance holds: the notice is a copy, and wb never reads it back.", name, why);
         }
     }
 }

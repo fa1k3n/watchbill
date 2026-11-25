@@ -29,6 +29,7 @@ pub mod rules;
 pub mod issue;
 pub mod layout;
 pub mod sessions;
+pub mod signers;
 pub mod starter;
 pub mod status;
 pub mod upgrade;

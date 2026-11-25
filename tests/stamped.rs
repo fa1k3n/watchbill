@@ -763,16 +763,13 @@ fn test_WB_BUILD_46_with_remotes_and_none_named_origin_the_start_is_refused_with
 
 // ---- the loose ends of #236 (#324) ----
 
-/// A signed commit on the job's ref of 54 with `message` as it is, after the tip of the ref, with the tree of the tip.
-/// The ref is moved to it. Ada's key signs it, and `.watchbill/signers` holds her line with `start`.
-fn raw_stamp(bench: &Bench, message: &str) -> String {
+/// A commit of `message` as it is, with the tree `tree` and the parents `parents`, signed by Ada's key where `signed`
+/// is true. No ref is moved.
+fn raw_commit(bench: &Bench, tree: &str, parents: &[&str], message: &str, signed: bool) -> String {
     use std::io::Write;
-    let tip = bench.run_in("git", &["rev-parse", "--verify", "-q", JOB], &bench.repo.path);
-    let tip = text(&tip.stdout).trim().to_string();
-    let tree = if tip.is_empty() { bench.git(&["mktree"]).trim().to_string() } else { bench.git(&["rev-parse", &format!("{}^{{tree}}", tip)]).trim().to_string() };
-    let mut args = vec!["commit-tree", "-S", tree.as_str()];
-    if !tip.is_empty() {
-        args.extend(["-p", tip.as_str()]);
+    let mut args = vec!["commit-tree", if signed { "-S" } else { "--no-gpg-sign" }, tree];
+    for parent in parents {
+        args.extend(["-p", parent]);
     }
     let mut child = Command::new("git")
         .args(&args)
@@ -787,7 +784,21 @@ fn raw_stamp(bench: &Bench, message: &str) -> String {
     child.stdin.take().unwrap().write_all(message.as_bytes()).unwrap();
     let run = child.wait_with_output().unwrap();
     assert!(run.status.success(), "git commit-tree: {}", text(&run.stderr));
-    let commit = text(&run.stdout).trim().to_string();
+    text(&run.stdout).trim().to_string()
+}
+
+/// The tip of the job's ref of 54, or empty.
+fn tip_of(bench: &Bench) -> String {
+    text(&bench.run_in("git", &["rev-parse", "--verify", "-q", JOB], &bench.repo.path).stdout).trim().to_string()
+}
+
+/// A signed commit on the job's ref of 54 with `message` as it is, after the tip of the ref, with the tree of the tip.
+/// The ref is moved to it. Ada's key signs it, and `.watchbill/signers` holds her line with `start`.
+fn raw_stamp(bench: &Bench, message: &str) -> String {
+    let tip = tip_of(bench);
+    let tree = if tip.is_empty() { bench.git(&["mktree"]).trim().to_string() } else { bench.git(&["rev-parse", &format!("{}^{{tree}}", tip)]).trim().to_string() };
+    let parents: Vec<&str> = if tip.is_empty() { vec![] } else { vec![tip.as_str()] };
+    let commit = raw_commit(bench, &tree, &parents, message, true);
     bench.git(&["update-ref", JOB, &commit]);
     commit
 }
@@ -938,4 +949,85 @@ fn test_WB_BUILD_164_the_stamp_of_a_start_after_a_plan_names_its_job_and_counts(
     ok(&bench.start(&["tester", "54"]));
     ok(&bench.start(&["tester", "54"]));
     assert!(bench.message(&bench.on_ref()[0]).starts_with("[stamp] tester round 2\n"), "{}", bench.message(&bench.on_ref()[0]));
+}
+
+/// A signed stamp of 54 with `job: none` on a chain of its own, which the repository's own ref does not hold: what a
+/// stamp of another repository looks like. Its commit.
+fn foreign_stamp(bench: &Bench) -> String {
+    let empty = bench.git(&["mktree"]).trim().to_string();
+    let root = raw_commit(bench, &empty, &[], "A commit of another repository\n", false);
+    let message = format!("[stamp] review round 1\nrole: review\nissue: 54\njob: none\nbase: {}\n", bench.head());
+    raw_commit(bench, &empty, &[root.as_str()], &message, true)
+}
+
+#[test]
+fn test_WB_BUILD_164_a_signed_job_none_stamp_spliced_in_by_an_unsigned_merge_is_not_counted_where_the_tip_holds_a_plan() {
+    let bench = listed();
+    bench.plan("The brakes hold.");
+    ok(&bench.start(&["tester", "54"]));
+    let old = tip_of(&bench);
+    let tree = bench.git(&["rev-parse", &format!("{}^{{tree}}", old)]).trim().to_string();
+    let foreign = foreign_stamp(&bench);
+    let merge = raw_commit(&bench, &tree, &[foreign.as_str(), old.as_str()], "Merge\n", false);
+    bench.git(&["update-ref", JOB, &merge]);
+
+    let status = bench.status();
+
+    assert!(!status.contains("Reviewed:"), "{}", status);
+    assert!(status_of(&bench, "[stamp] review round 1").contains("not counted: a stamp of another repository"), "{}", status);
+}
+
+#[test]
+fn test_WB_BUILD_164_the_same_stamp_under_one_unsigned_commit_with_the_plan_on_top_is_not_counted() {
+    let bench = listed();
+    bench.plan("The brakes hold.");
+    ok(&bench.start(&["tester", "54"]));
+    let tree = bench.git(&["rev-parse", &format!("{}^{{tree}}", tip_of(&bench))]).trim().to_string();
+    let foreign = foreign_stamp(&bench);
+    let top = raw_commit(&bench, &tree, &[foreign.as_str()], "A commit with no stamp\n", false);
+    bench.git(&["update-ref", JOB, &top]);
+
+    let status = bench.status();
+
+    assert!(!status.contains("Reviewed:"), "{}", status);
+    assert!(status_of(&bench, "[stamp] review round 1").contains("not counted: a stamp of another repository"), "{}", status);
+}
+
+#[test]
+fn test_WB_BUILD_164_the_jobs_of_a_stamp_are_a_prefix_of_the_sources_at_the_tip_and_none_only_where_there_is_no_plan() {
+    let bench = listed();
+    bench.plan("The brakes hold.");
+    bench.plan("And they hold in the wet.");
+    let (first, second) = (blob(&bench, "The brakes hold.\n"), blob(&bench, "And they hold in the wet.\n"));
+    let base = bench.head();
+    let stamp = |round: u32, jobs: &str| raw_stamp(&bench, &format!("[stamp] tester round {}\nrole: tester\nissue: 54\n{}base: {}\n", round, jobs, base));
+    stamp(1, &format!("job: {}\n", first));
+    stamp(2, &format!("job: {}\njob: {}\n", first, second));
+    stamp(3, &format!("job: {}\n", second));
+    stamp(4, &format!("job: {}\njob: {}\n", second, first));
+    stamp(5, &format!("job: {}\njob: {}\njob: {}\n", first, second, first));
+    stamp(6, "job: none\n");
+
+    let status = bench.status();
+
+    for (round, counts) in [(1, true), (2, true), (3, false), (4, false), (5, false), (6, false)] {
+        let line = status_of(&bench, &format!("[stamp] tester round {} ", round));
+        assert_eq!(line.contains("signed by"), counts, "round {}: {}", round, status);
+    }
+}
+
+#[test]
+fn test_WB_BUILD_164_where_the_plan_is_removed_only_job_none_counts() {
+    let bench = listed();
+    bench.plan("The brakes hold.");
+    let base = bench.head();
+    let said = bench.child_in(&bench.repo.path, "plan", &["remove", "54"]);
+    assert_eq!(said.code, 0, "{}", said.err);
+    raw_stamp(&bench, &format!("[stamp] tester round 1\nrole: tester\nissue: 54\njob: {}\nbase: {}\n", blob(&bench, "The brakes hold.\n"), base));
+    raw_stamp(&bench, &format!("[stamp] review round 1\nrole: review\nissue: 54\njob: none\nbase: {}\n", base));
+
+    let status = bench.status();
+
+    assert!(status_of(&bench, "[stamp] tester round 1").contains("not counted: a stamp of another repository"), "{}", status);
+    assert!(status_of(&bench, "[stamp] review round 1").contains("signed by"), "{}", status);
 }

@@ -423,18 +423,6 @@ fn test_WB_CMD_55_a_bind_that_is_not_there_is_a_fault_naming_it() {
 }
 
 #[test]
-fn test_WB_CMD_55_a_backslash_in_a_bind_is_shown_escaped_once() {
-    let bench = bench();
-    let org = read(&bench.organisation()).replace("'~/.claude'", "'~/.claude', '/nowhere/b\\c'");
-    fs::write(bench.organisation(), org).unwrap();
-
-    let run = bench.doctor();
-
-    let line = lines_of(&run, "binds").into_iter().find(|line| line.starts_with("fault: ")).unwrap_or_else(|| panic!("{}", text(&run.stdout)));
-    assert!(line.contains("/nowhere/b\\\\c") && !line.contains("\\\\\\\\"), "{}", line);
-}
-
-#[test]
 fn test_WB_CMD_55_a_bind_that_holds_a_login_of_the_code_host_is_a_fault() {
     let bench = bench();
     fs::create_dir_all(bench.home.path.join(".config/gh")).unwrap();
@@ -466,6 +454,17 @@ fn with_hook(bench: &Bench, command: &str) {
     fs::write(bench.organisation(), org).unwrap();
     let json = format!("{{\"hooks\": {{\"Stop\": [{{\"hooks\": [{{\"type\": \"command\", \"command\": \"{}\"}}]}}]}}}}", command);
     fs::write(bench.home.path.join(".claude/settings.json"), json).unwrap();
+}
+
+#[test]
+fn test_WB_CMD_56_a_backslash_in_a_hook_command_is_shown_escaped_once() {
+    let bench = bench();
+    with_hook(&bench, "/nowhere/b\\\\c hook");
+
+    let run = bench.doctor();
+
+    let line = lines_of(&run, "hooks").into_iter().find(|line| line.starts_with("fault: ")).unwrap_or_else(|| panic!("{}", text(&run.stdout)));
+    assert!(line.contains("b\\\\c") && !line.contains("\\\\\\"), "{}", line);
 }
 
 #[test]

@@ -1791,9 +1791,9 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
         code
     };
     let refused = |lines: &mut sessions::Lines, err: &mut dyn Write, check: &'static str, why: &str| said(lines, err, check, refusal::limit_text(why));
-    // 1a. The stamp of an issue is a commit on its job's ref (#236): where the default branch has `.watchbill/signers`,
-    // git must sign it with a key the list holds with `start`. Before anything is written. A review or a fix of a change
-    // with no issue has no job: its stamp is posted on the change, as before.
+    // 1a. The stamp of an issue is a commit on its job's ref (#236): git must sign it with a key that `.watchbill/signers`
+    // of the default branch holds with `start`, and with no list the start is refused (#323). Before anything is written.
+    // A review or a fix of a change with no issue has no job: its stamp is posted on the change, as before.
     let job = words.get("issue").map(str::to_string);
     let signing = match &job {
         None => None,

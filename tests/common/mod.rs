@@ -541,16 +541,20 @@ pub fn signing(folder: &Path) {
         fs::write(&program, body).expect("the wrapper of ssh-keygen could not be written");
         fs::set_permissions(&program, std::os::unix::fs::PermissionsExt::from_mode(0o755)).expect("the wrapper could not be made a program");
     }
-    // A list that is there is the test's own, with the key it signs with: neither is changed.
+    // The repository signs with a key of the test in any case (the review of #325, note 5), never by the person's
+    // config: with Ada's key here, unless the test set a key of its own in the repository's config.
+    if git_text(folder, &["config", "--local", "--get", "user.signingkey"]).is_none() {
+        git(folder, &["config", "gpg.format", "ssh"]);
+        git(folder, &["config", "user.signingkey", key.to_str().unwrap()]);
+        git(folder, &["config", "gpg.ssh.program", program.to_str().unwrap()]);
+    }
+    // A list that is there is the test's own: it is not changed.
     let default = default_branch(folder);
     if let Some(default) = &default {
         if git_text(folder, &["cat-file", "-e", &format!("{}:.watchbill/signers", default)]).is_some() {
             return;
         }
     }
-    git(folder, &["config", "gpg.format", "ssh"]);
-    git(folder, &["config", "user.signingkey", key.to_str().unwrap()]);
-    git(folder, &["config", "gpg.ssh.program", program.to_str().unwrap()]);
     let line = ada_line(folder);
     let head = git_text(folder, &["symbolic-ref", "-q", "HEAD"]);
     let identity = ["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false"];

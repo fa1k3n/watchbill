@@ -311,6 +311,8 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
         let plural = if keys.len() == 1 { "" } else { "s" };
         if keys == [crate::signers::ABSENT] {
             let _ = writeln!(out, "{} difference. {} is not there. {}.", keys.len(), crate::signers::PATH, crate::signers::add_a_key("accept,start"));
+        } else if keys == [crate::signers::NO_KEY] {
+            let _ = writeln!(out, "{} difference. {} holds no key. {}.", keys.len(), crate::signers::PATH, crate::signers::add_a_key("accept,start"));
         } else {
             let _ = writeln!(out, "{} difference{}. {} does not hold its form: on the default branch, no acceptance would count.", keys.len(), plural, crate::signers::PATH);
         }

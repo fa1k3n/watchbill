@@ -5,7 +5,7 @@
 //! tip of the default branch has it, so a branch cannot add a key for itself; `wb check` reads the one of the working
 //! tree, to say what does not hold before it is merged.
 //!
-//! Where the list is there, a person's acceptance is a tag signed with an SSH key, on one exact object: the blob of the
+//! A person's acceptance is a tag signed with an SSH key, on one exact object: the blob of the
 //! issue's file for `wb plan accept`, the commit that `.finished` names for `wb accept`. `wb` checks the signature
 //! itself, with `ssh-keygen -Y find-principals` and `ssh-keygen -Y verify`, against files of git's form made from the
 //! list in a folder of its own under `$TMPDIR`, removed after: no setting of git decides what is trusted. A signature
@@ -193,8 +193,11 @@ pub fn parse(text: &str) -> Result<Vec<Signer>, Vec<String>> {
 /// The line of `wb check` for a list that is not in the working tree (#323).
 pub const ABSENT: &str = "missing: .watchbill/signers (without it on the default branch, nothing that needs a signature counts)";
 
+/// The line of `wb check` for a list of the working tree that holds no key line (#323): it is as missing.
+pub const NO_KEY: &str = ".watchbill/signers: it holds no key (without one on the default branch, nothing that needs a signature counts)";
+
 /// The faults of the list of the working tree at `root`, each as a line that names the file, for `wb check`: `ABSENT`
-/// where the file is not there (#323).
+/// where the file is not there, and `NO_KEY` where it holds no key line (#323).
 pub fn check(root: &std::path::Path) -> Vec<String> {
     let path = root.join(PATH);
     match std::fs::symlink_metadata(&path) {
@@ -205,7 +208,11 @@ pub fn check(root: &std::path::Path) -> Vec<String> {
             Err(error) => vec![format!("{}: it cannot be read ({}); it is at most 64 KiB", PATH, error)],
             Ok(bytes) => match String::from_utf8(bytes) {
                 Err(_) => vec![format!("{}: it is not UTF-8 text", PATH)],
-                Ok(text) => parse(&text).err().unwrap_or_default().into_iter().map(|why| format!("{}: {}", PATH, why)).collect(),
+                Ok(text) => match parse(&text) {
+                    Ok(signers) if signers.is_empty() => vec![NO_KEY.to_string()],
+                    Ok(_) => Vec::new(),
+                    Err(faults) => faults.into_iter().map(|why| format!("{}: {}", PATH, why)).collect(),
+                },
             },
         },
     }
@@ -325,6 +332,8 @@ pub fn load(root: &str) -> Keys {
         Err(why) => return fault(why),
     };
     match parse(&text) {
+        // A list with no key line signs nothing: it is missing, and no tag is made to be removed again (#323).
+        Ok(signers) if signers.is_empty() => Keys::Missing(format!("{} on {} holds no key: nothing is signed, so nothing counts", PATH, on)),
         Ok(signers) => Keys::List(List { on, signers }),
         Err(faults) => fault(faults.join("; ")),
     }
@@ -535,17 +544,17 @@ fn jobs_in(message: &str) -> Vec<&str> {
     message.lines().filter_map(|line| line.strip_prefix("job: ")).collect()
 }
 
-/// What an acceptance is where the list is there, as `signing_ready` says it.
+/// What an acceptance is, as `signing_ready` says it.
 pub const ACCEPTANCE_SIGNED: &str = "an acceptance is a signed tag";
 
 /// Whether git's config of `root` signs with an SSH key: `user.signingkey` is set, and `gpg.format` is `ssh`. The
-/// setting that is not, named, with how to set it; `what` says what is signed where the list is there.
+/// setting that is not, named, with how to set it; `what` says what is signed.
 pub fn signing_ready(root: &str, what: &str) -> Result<(), String> {
     let key = git_line(root, &["config", "user.signingkey"]).unwrap_or_default();
     if key.is_empty() {
         return Err(format!(
-            "git has no signing key set (user.signingkey), and where {} is there {}. Set it with `git config user.signingkey <the path of your SSH key>`.",
-            PATH, what
+            "git has no signing key set (user.signingkey), and {}, checked against {}. Set it with `git config user.signingkey <the path of your SSH key>`.",
+            what, PATH
         ));
     }
     let format = git_line(root, &["config", "gpg.format"]).unwrap_or_default();

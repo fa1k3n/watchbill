@@ -31,7 +31,7 @@ pub const VIEW_ENTRY: &str = "view";
 /// The entry of a stamp's tree that holds the issue's file.
 pub const ISSUE_ENTRY: &str = "issue.yml";
 
-/// What a stamp is where the list is there, as `signers::signing_ready` says it.
+/// What a stamp is, as `signers::signing_ready` says it.
 pub const STAMP_SIGNED: &str = "a stamp is a commit signed by the starter";
 
 /// The job's ref of `name`.

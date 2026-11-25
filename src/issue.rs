@@ -244,7 +244,8 @@ pub(crate) fn way_fault(root: &Path) -> Option<String> {
 }
 
 /// Whether an issue's file is accepted: its `.accepted` is there, the SHA-256 in it is that of the file as it is now,
-/// and, where the default branch has `.watchbill/signers`, its signed tag checks (#235). Nothing else is looked at.
+/// and its signed tag checks against `.watchbill/signers` of the default branch (#235); with no list, never (#323).
+/// Nothing else is looked at.
 pub fn is_accepted(root: &Path, issue: &str) -> bool {
     if !is_name(issue) || way_fault(root).is_some() {
         return false;
@@ -789,7 +790,7 @@ pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: 
         return crate::refusal::limit(err, name, format_args!("{} could not be written ({}). Nothing written.", shown_accepted, error));
     }
     crate::refusal::inform(out, format_args!("{}: {} is accepted.", name, shown));
-    // Said with `-q` too: the tag is the acceptance where the list is there, and only the person can push it.
+    // Said with `-q` too: the tag is the acceptance (with no list there is none, #323), and only the person can push it.
     let push_tag = tag.as_ref().map(|(made, _)| format!("git push origin {}", made));
     if let Some(command) = &push_tag {
         let _ = writeln!(out, "{}: made the signed tag {}. wb pushes nothing: push it with\n  {}", name, tag.as_ref().map(|(made, _)| made.as_str()).unwrap_or(""), command);

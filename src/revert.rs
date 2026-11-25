@@ -40,6 +40,10 @@ pub fn revert(root: &str, on: On, role: &str, round: Option<u64>, err: &mut dyn 
     if let Err(why) = starter::held(root) {
         return crate::refusal::limit(err, "wb revert", format_args!("{}.", why));
     }
+    // The stamps of an issue are commits on its job's ref (#236): so is the marker that takes them back.
+    if let On::Issue(issue) = on {
+        return on_ref(root, issue, role, round, err);
+    }
     let mut commands = Vec::new();
     for key in [read, post] {
         match prompt::pattern_of(root, key) {
@@ -95,6 +99,64 @@ pub fn revert(root: &str, on: On, role: &str, round: Option<u64>, err: &mut dyn 
         }
     }
     // Said with `-q` too: the commits stay, and taking them back is the person's.
+    let _ = writeln!(err, "wb revert: the commits of the steps taken back stay on the branch, and the issue's file, its acceptance and the change are as they were. Taking commits back is git's.");
+    0
+}
+
+/// `wb revert` of an issue (#236): the stamp is found among the commits on the job's ref that count, and the marker is
+/// a commit on that ref after them, signed and pushed as a stamp is. Its comment is posted by `issue_comment` as a copy,
+/// where `watchbill.yml` has the pattern; `wb` never reads it back.
+fn on_ref(root: &str, issue: &str, role: &str, round: Option<u64>, err: &mut dyn Write) -> i32 {
+    let limit = |err: &mut dyn Write, why: String| crate::refusal::limit(err, "wb revert", why);
+    if !prompt::is_plain_name(issue) {
+        return limit(err, format!("'{}' is not the name of an issue.", issue.escape_debug()));
+    }
+    let post = match prompt::pattern_of(root, "issue_comment") {
+        Ok(post) => post,
+        Err(why) => return limit(err, format!("{}", why)),
+    };
+    let signing = match crate::stamps::ready(root) {
+        Ok(signing) => signing,
+        Err(why) => return limit(err, format!("{}. Nothing is written.", why)),
+    };
+    let ledger = match crate::stamps::read(root, issue) {
+        Ok(ledger) => ledger,
+        Err(why) => return limit(err, format!("{}.", why)),
+    };
+    let stamps = ledger.stamps();
+    let found = stamps.iter().enumerate().rev().find(|(_, (name, n))| name == role && round.map_or(true, |wanted| wanted == *n));
+    let Some((at, (_, n))) = found else {
+        let which = match round {
+            Some(round) => format!("no `[stamp] {} round {}` that still counts", role, round),
+            None => format!("no `[stamp] {}` that still counts", role),
+        };
+        return limit(err, format!("there is {} on {}, so there is no {} to take back.", which, ledger.full, role));
+    };
+    if stamps[at..].iter().any(|(name, _)| name == "planner") {
+        return limit(
+            err,
+            format!("a later planner took the issue back ({}), so the stamp `{} round {}` before it no longer counts and is not reverted. Nothing is posted.", ledger.full, role, n),
+        );
+    }
+    let marker = format!("[revert] {} round {}\n", role, n);
+    let _ = write!(err, "wb revert: the marker:\n{}From the stamp `{} round {}` up to this marker, no stamp, question or answer counts. Nothing is deleted.\n", marker, role, n);
+    if let Err(why) = crate::stamps::write("wb revert", root, issue, &marker, &crate::stamps::Held::Marker, &signing, err) {
+        return limit(err, format!("{}.", why));
+    }
+    match post {
+        None => {
+            let _ = writeln!(err, "wb revert: watchbill.yml has no `issue_comment`, so no copy of the marker is posted: the marker is the commit on {}.", ledger.full);
+        }
+        Some(line) => {
+            let _ = writeln!(err, "wb revert: will post on issue {}, by `issue_comment` of watchbill.yml, a copy of the marker.", issue);
+            match starter::run(root, "issue_comment", &line.replace("{issue}", issue), Some(marker.as_bytes())) {
+                Ok(said) => {
+                    let _ = err.write_all(&said);
+                }
+                Err(why) => return limit(err, format!("{}. The marker is on {}; its copy may not be posted.", why, ledger.full)),
+            }
+        }
+    }
     let _ = writeln!(err, "wb revert: the commits of the steps taken back stay on the branch, and the issue's file, its acceptance and the change are as they were. Taking commits back is git's.");
     0
 }

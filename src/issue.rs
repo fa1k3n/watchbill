@@ -394,52 +394,18 @@ pub fn for_prompt(root: &Path, issue: &str) -> Result<Option<Used>, String> {
 
 /// The gate of a planner round after the acceptance (#290), for a command that hands out a prompt of the issue or
 /// starts its session, after `for_prompt` found `used` accepted: a planner round started at or after the acceptance
-/// voids it, as `wb status` reads it. `planner` is whether the first lines of the comments, where the command read them
-/// already, hold a `[stamp] planner` that counts. With `None`, for a plan of `wb plan add` only, they are read by
-/// `issue_comments`, as `wb status` reads them; with no `issue_comments` the whole comments are read at once, and with
-/// neither no stamp is read. The stamps' times are read whole, by
-/// `issue_comment_bodies`, only where such a stamp is there. `Err` with why where it is void or a pattern failed;
-/// `Ok(Some(said))` where the times could not be read, as `watchbill.yml` has no `issue_comment_bodies`; else `Ok(None)`.
-pub fn planner_gate(root: &Path, issue: &str, used: &Used, planner: Option<bool>) -> Result<Option<String>, String> {
+/// voids it, as `wb status` reads it. The planner's stamps are read from the job's ref (#236), for every issue, with or
+/// without a plan, and never from a comment. `Err` with why, which names `wb plan accept`, where it is void or the ref
+/// cannot be read.
+pub fn planner_gate(root: &Path, issue: &str, used: &Used) -> Result<(), String> {
     let root_text = root.display().to_string();
-    let planner = match planner {
-        Some(planner) => planner,
-        // A command that read no comments asks the tracker only for a plan of `wb plan add`: an issue with no plan keeps
-        // the gate of `wb accept` as it was, until #282, and `wb prompt` given every value runs no pattern for it.
-        None if !crate::plan::is_plan(&root_text, issue) => return Ok(None),
-        None => match crate::prompt::pattern_of(&root_text, "issue_comments").map_err(|why| format!("{}. No prompt is handed out.", why))? {
-            // With neither pattern no stamp can be read, as `wb status` reads none: nothing more to say.
-            None if crate::prompt::pattern_of(&root_text, "issue_comment_bodies").map_err(|why| format!("{}. No prompt is handed out.", why))?.is_none() => {
-                return Ok(None)
-            }
-            None => true,
-            Some(line) => {
-                if !crate::prompt::is_plain_name(issue) {
-                    return Err(format!("{} is not a plain name that fills `issue_comments`. No prompt is handed out.", self::shown(issue)));
-                }
-                let printed = crate::starter::run_capped(&root_text, "issue_comments", &line.replace("{issue}", issue), crate::bounded::TEXT_CAP)
-                    .map_err(|why| format!("{}. No prompt is handed out.", why))?;
-                if printed.len() as u64 > crate::bounded::TEXT_CAP {
-                    return Err("`issue_comments` printed more than 1 MiB. No prompt is handed out.".to_string());
-                }
-                crate::starter::stamps_in(&String::from_utf8_lossy(&printed)).iter().any(|(role, _)| role == "planner")
-            }
-        },
-    };
-    if !planner {
-        return Ok(None);
+    if !crate::plan::planned_again(&root_text, issue, &used.accepted_time).map_err(|why| format!("{}. No prompt is handed out.", why))? {
+        return Ok(());
     }
-    match crate::plan::planned_again(&root_text, issue, &used.accepted_time).map_err(|why| format!("{}. No prompt is handed out.", why))? {
-        None => Ok(Some("watchbill.yml has no `issue_comment_bodies`, so the times of the planner's stamps were not read, and the acceptance stands".to_string())),
-        Some(false) => Ok(None),
-        Some(true) => {
-            let accepting = if crate::plan::is_plan(&root_text, issue) { "wb plan accept" } else { "wb accept" };
-            Err(format!(
-                "the issue's file {} is not accepted: a planner round started at or after its acceptance, so it was planned again after it. Remove {}/{}.accepted and run `{} {}` again. No prompt is handed out.",
-                used.path, FOLDER, issue, accepting, issue
-            ))
-        }
-    }
+    Err(format!(
+        "the issue's file {} is not accepted: a planner round started at or after its acceptance, so it was planned again after it. Remove {}/{}.accepted and run `wb plan accept {}` again. No prompt is handed out.",
+        used.path, FOLDER, issue, issue
+    ))
 }
 
 impl Used {
@@ -691,9 +657,9 @@ pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: 
     // an SSH key. Without the list nothing is signed, and the acceptance is as it was.
     let keys = crate::signers::load(root);
     match &keys {
-        crate::signers::Keys::Fault(why) => return crate::refusal::limit(err, name, format_args!("{}. Nothing written.", why)),
+        crate::signers::Keys::Fault(why) => return crate::refusal::limit(err, name, format_args!("{}, so no acceptance counts. Nothing written.", why)),
         crate::signers::Keys::List(_) => {
-            if let Err(why) = crate::signers::signing_ready(root) {
+            if let Err(why) = crate::signers::signing_ready(root, crate::signers::ACCEPTANCE_SIGNED) {
                 return crate::refusal::limit(err, name, format_args!("{} Nothing written.", why));
             }
         }

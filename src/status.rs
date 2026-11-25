@@ -274,33 +274,19 @@ pub(crate) fn file_of_issue(root: &str, number: &str, pattern: &str) -> Option<(
     first
 }
 
-/// Whether a line of the comments' first lines is a `[stamp] planner` that still counts.
-fn has_planner(lines: &[String]) -> bool {
-    starter::stamps_in(&lines.join("\n")).iter().any(|(role, _)| role == "planner")
-}
-
 /// Whether the acceptance `body` of the issue `number` is void (#290): a source of its plan added after it, or, where
-/// `planner` says a `[stamp] planner` counts, one whose time, read whole by `issue_comment_bodies`, is not before it.
-/// What decided it is said in `from`.
+/// `planner` says a `[stamp] planner` counts on the job's ref, one whose time is not before it (#236). What decided it is
+/// said in `from`.
 fn voided(root: &str, number: &str, body: &str, planner: bool, from: &mut Vec<String>) -> Result<bool, String> {
     if crate::plan::sources_after_acceptance(root, number, body) {
         from.push(format!("{}{}: a source added after the acceptance", crate::plan::PREFIX, number));
         return Ok(true);
     }
-    if !planner {
-        return Ok(false);
+    if planner && crate::plan::planned_again(root, number, &crate::plan::accepted_time(body))? {
+        from.push("a [stamp] planner not before the acceptance: planned again after it".to_string());
+        return Ok(true);
     }
-    match crate::plan::planned_again(root, number, &crate::plan::accepted_time(body))? {
-        None => {
-            from.push("no `issue_comment_bodies`: the times of the planner's stamps were not read".to_string());
-            Ok(false)
-        }
-        Some(true) => {
-            from.push("a [stamp] planner not before the acceptance: planned again after it".to_string());
-            Ok(true)
-        }
-        Some(false) => Ok(false),
-    }
+    Ok(false)
 }
 
 /// The value of the line `<key>: ` of an acceptance's text.
@@ -448,14 +434,17 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
         let printed = starter::run(root, "issue_comments", &command.replace("{issue}", number), None)?;
         lines = String::from_utf8_lossy(&printed).lines().map(|line| line.trim_end_matches('\r').to_string()).collect();
     }
-    let stamps = starter::stamps_in(&lines.join("\n"));
-    // What a `[revert]` marker took back (#142) counts for no step and no question.
+    // The stamps are the commits on the job's ref that count (#236), with what a marker took back left out; a `[stamp]`
+    // comment is a copy, and decides nothing.
+    let ledger = crate::stamps::read(root, number)?;
+    let stamps = ledger.stamps();
+    // What a `[revert]` marker took back (#142) counts for no question.
     let counted = starter::counted(&lines.join("\n"));
     let (file, acceptance) = on_branches(root, number, pattern, all, &mut from);
     // An acceptance is void after a source added to the plan, or a planner round, later than it (#290).
     let accepted = match &acceptance {
         None => false,
-        Some(body) => !voided(root, number, body, comments.is_some() && has_planner(&lines), &mut from)?,
+        Some(body) => !voided(root, number, body, ledger.has_planner(), &mut from)?,
     };
     let mut acceptances: Vec<String> = acceptance.iter().filter(|_| accepted).map(|body| file_line(body)).collect();
     // The branch that is shown: the first of the issue's branches in the flow, a local one before one at `origin`.
@@ -520,9 +509,12 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
         _ if file => "Planned",
         _ => "Not planned",
     };
+    // The stamps and the markers on the job's ref, each with whether it counts (#236); of the comments, the questions and
+    // the answers. A `[stamp]` or `[revert]` comment is a copy posted out, and is not read.
+    from.extend(ledger.said());
     let gone = starter::taken_back(&lines.join("\n"));
     for (line, gone) in lines.iter().zip(gone) {
-        if ["[stamp] ", "[question] ", "[questions] ", "[answer] ", "[answers] ", "[revert] "].iter().any(|start| line.starts_with(start)) {
+        if ["[question] ", "[questions] ", "[answer] ", "[answers] "].iter().any(|start| line.starts_with(start)) {
             from.push(if gone { format!("{}  (taken back by a [revert] marker)", issue::shown(line)) } else { issue::shown(line) });
         }
     }
@@ -612,7 +604,7 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
         None => flow.iter().filter_map(|full| full.strip_prefix("refs/heads/").or_else(|| full.strip_prefix("refs/remotes/origin/"))).filter_map(|name| issue_of(&patterns.branch, name)).collect(),
     };
     if patterns.comments.is_none() {
-        let _ = writeln!(err, "wb status: watchbill.yml has no `issue_comments`, so no stamp, question or answer is read: an issue is at Accepted or below.");
+        let _ = writeln!(err, "wb status: watchbill.yml has no `issue_comments`, so no question or answer is read; the stamps are read from the jobs' refs.");
     }
     issues.sort_by_key(|number| order(number));
     issues.dedup();

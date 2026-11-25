@@ -206,6 +206,7 @@ pub fn check(root: &std::path::Path) -> Vec<String> {
 }
 
 /// The list as the default branch has it.
+#[derive(Clone)]
 pub struct List {
     /// The default branch, as a person writes it (`main`, `origin/main`).
     pub on: String,
@@ -223,7 +224,7 @@ pub enum Keys {
 
 /// Runs git in `root` with no variable `GIT_*` of this process, as `plan` does, and with no replace ref: what a replace
 /// ref says an object is never decides what the list, a tag or its object is. What it printed, or what it said.
-fn git(root: &str, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>, String> {
+pub(crate) fn git(root: &str, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>, String> {
     let mut command = Command::new("git");
     command.arg("--no-replace-objects").arg("-C").arg(root).args(args);
     for (name, _) in std::env::vars_os() {
@@ -271,7 +272,7 @@ pub fn load(root: &str) -> Keys {
         return Keys::Unchecked("no default branch was found, so no .watchbill/signers is read: no signature is checked".to_string());
     };
     let on = short(&default).to_string();
-    let fault = |why: String| Keys::Fault(format!("{} of {} cannot be read: {}, so no acceptance counts", PATH, on, why));
+    let fault = |why: String| Keys::Fault(format!("{} of {} cannot be read: {}", PATH, on, why));
     let entry = match git(root, &["ls-tree", "-z", &default, "--", PATH], None) {
         Ok(entry) => entry,
         Err(why) => return fault(why),
@@ -388,10 +389,61 @@ fn allowed(signers: &[Signer], keep: &dyn Fn(&Signer) -> bool) -> String {
 /// (the namespace `git`), against the keys of `list` that hold `role`. `Err` where it could not be checked.
 pub fn verify(raw: &[u8], role: &str, list: &List) -> Result<Verdict, String> {
     let Some(start) = signature_start(raw) else { return Ok(Verdict::Unsigned) };
-    if !raw[start..].starts_with(b"-----BEGIN SSH SIGNATURE-----") {
+    let (payload, signature) = raw.split_at(start);
+    verify_parts(payload, signature, role, list)
+}
+
+/// The payload of a commit `raw` (as `git cat-file commit` prints it) and its signature, as git splits them: the
+/// signature is the value of the header `gpgsig` (or `gpgsig-sha256`), each line after its first starting with a space,
+/// and the payload is the commit without that header. `None` where the commit is not signed. A commit with more than
+/// one such header gives an empty signature, which does not check.
+fn commit_parts(raw: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
+    let end = raw.windows(2).position(|pair| pair == b"\n\n").map_or(raw.len(), |at| at + 1);
+    let (header, rest) = raw.split_at(end);
+    let mut payload = Vec::with_capacity(raw.len());
+    let mut signature: Option<Vec<u8>> = None;
+    let mut found = 0;
+    let mut inside = false;
+    for line in header.split_inclusive(|byte| *byte == b'\n') {
+        if inside && line.starts_with(b" ") {
+            if let Some(signature) = signature.as_mut() {
+                signature.extend_from_slice(&line[1..]);
+            }
+            continue;
+        }
+        inside = false;
+        match line.strip_prefix(b"gpgsig ").or_else(|| line.strip_prefix(b"gpgsig-sha256 ")) {
+            Some(value) => {
+                found += 1;
+                inside = true;
+                signature = Some(value.to_vec());
+            }
+            None => payload.extend_from_slice(line),
+        }
+    }
+    payload.extend_from_slice(rest);
+    match found {
+        0 => None,
+        1 => signature.map(|signature| (payload, signature)),
+        _ => Some((payload, Vec::new())),
+    }
+}
+
+/// Checks the signature of the commit `raw` (as `git cat-file commit` prints it), as git signs one with SSH (the
+/// namespace `git`), against the keys of `list` that hold `role` (#236). `Err` where it could not be checked.
+pub fn verify_commit(raw: &[u8], role: &str, list: &List) -> Result<Verdict, String> {
+    let Some((payload, signature)) = commit_parts(raw) else { return Ok(Verdict::Unsigned) };
+    if signature.is_empty() {
+        return Ok(Verdict::Broken);
+    }
+    verify_parts(&payload, &signature, role, list)
+}
+
+/// Checks `signature`, made of `payload`, against the keys of `list` that hold `role`.
+fn verify_parts(payload: &[u8], signature: &[u8], role: &str, list: &List) -> Result<Verdict, String> {
+    if !signature.starts_with(b"-----BEGIN SSH SIGNATURE-----") {
         return Ok(Verdict::NotListed);
     }
-    let (payload, signature) = raw.split_at(start);
     let scratch = Scratch::new()?;
     let sig = scratch.write("signature", signature)?;
     let all = scratch.write("all", allowed(&list.signers, &|_| true).as_bytes())?;
@@ -460,14 +512,17 @@ fn jobs_in(message: &str) -> Vec<&str> {
     message.lines().filter_map(|line| line.strip_prefix("job: ")).collect()
 }
 
-/// Whether git's config of `root` signs a tag with an SSH key: `user.signingkey` is set, and `gpg.format` is `ssh`.
-/// The setting that is not, named, with how to set it.
-pub fn signing_ready(root: &str) -> Result<(), String> {
+/// What an acceptance is where the list is there, as `signing_ready` says it.
+pub const ACCEPTANCE_SIGNED: &str = "an acceptance is a signed tag";
+
+/// Whether git's config of `root` signs with an SSH key: `user.signingkey` is set, and `gpg.format` is `ssh`. The
+/// setting that is not, named, with how to set it; `what` says what is signed where the list is there.
+pub fn signing_ready(root: &str, what: &str) -> Result<(), String> {
     let key = git_line(root, &["config", "user.signingkey"]).unwrap_or_default();
     if key.is_empty() {
         return Err(format!(
-            "git has no signing key set (user.signingkey), and where {} is there an acceptance is a signed tag. Set it with `git config user.signingkey <the path of your SSH key>`.",
-            PATH
+            "git has no signing key set (user.signingkey), and where {} is there {}. Set it with `git config user.signingkey <the path of your SSH key>`.",
+            PATH, what
         ));
     }
     let format = git_line(root, &["config", "gpg.format"]).unwrap_or_default();
@@ -476,6 +531,66 @@ pub fn signing_ready(root: &str) -> Result<(), String> {
         return Err(format!("git signs with an SSH key only where gpg.format is ssh, and it is {}. Set it with `git config gpg.format ssh`.", now));
     }
     Ok(())
+}
+
+/// The public key git signs with, from `user.signingkey` of `root` (#236): the key itself where it is written as
+/// `key::<type> <key>`, else the file it names where that holds a public key, else that file with `.pub` after its
+/// name. As its type and its key in base64, or why it cannot be told.
+pub fn signing_key(root: &str) -> Result<(String, String), String> {
+    let set = git_line(root, &["config", "user.signingkey"]).unwrap_or_default();
+    let public = |text: &str| -> Option<(String, String)> {
+        let words: Vec<&str> = text.split_whitespace().collect();
+        match words.as_slice() {
+            [kind, key, ..] if KINDS.contains(kind) && holds_kind(key, kind) => Some((kind.to_string(), key.to_string())),
+            _ => None,
+        }
+    };
+    if let Some(literal) = set.strip_prefix("key::") {
+        return public(literal).ok_or_else(|| "user.signingkey of git holds key:: and no public key of OpenSSH after it".to_string());
+    }
+    let path = match set.strip_prefix("~/") {
+        Some(rest) => match std::env::var_os("HOME").map(std::path::PathBuf::from).filter(|home| home.is_absolute()) {
+            Some(home) => home.join(rest),
+            None => return Err(format!("user.signingkey of git is {}, and HOME names no folder", crate::issue::shown(&set))),
+        },
+        None => std::path::PathBuf::from(&set),
+    };
+    let read = |path: &std::path::Path| crate::bounded::read_plain(path, CAP).ok().and_then(|bytes| String::from_utf8(bytes).ok());
+    if let Some(found) = read(&path).as_deref().and_then(public) {
+        return Ok(found);
+    }
+    let mut with_pub = path.clone().into_os_string();
+    with_pub.push(".pub");
+    let with_pub = std::path::PathBuf::from(with_pub);
+    read(&with_pub).as_deref().and_then(public).ok_or_else(|| {
+        format!(
+            "the public key git signs with cannot be told: user.signingkey names {}, which is not a public key, and {} is not one either",
+            path.display(),
+            with_pub.display()
+        )
+    })
+}
+
+/// The identity that the list gives the key git signs with (`signing_key`), where it holds `role`; else why not: the
+/// key cannot be told, it is not in the list, or the list holds it without the role. The key is named.
+pub fn signer_for(root: &str, list: &List, role: &str) -> Result<String, String> {
+    let (kind, key) = signing_key(root)?;
+    let shown = format!("{} {}", kind, key);
+    match list.signers.iter().find(|signer| signer.key == key && signer.kind == kind) {
+        None => Err(format!(
+            "the key git signs with, {} (user.signingkey), is not in {} of {}, which a person adds by a change that a person merges",
+            shown, PATH, list.on
+        )),
+        Some(signer) if !signer.roles.iter().any(|held| held == role) => Err(format!(
+            "the key git signs with, {} (user.signingkey), is that of {}, which {} of {} holds without the role {}",
+            shown,
+            crate::issue::shown(&signer.identity),
+            PATH,
+            list.on,
+            role
+        )),
+        Some(signer) => Ok(signer.identity.clone()),
+    }
 }
 
 /// The id of the blob of `bytes`, as git would write it with no filter.
@@ -527,7 +642,7 @@ fn read_tag(root: &str, tag: &str) -> Result<Vec<u8>, String> {
 fn checked(root: &str, keys: &Keys, tag: &str, kind: &str, target: &str, message: &str) -> Signed {
     let list = match keys {
         Keys::Unchecked(why) => return Signed::Unchecked(why.clone()),
-        Keys::Fault(why) => return Signed::Void(why.clone()),
+        Keys::Fault(why) => return Signed::Void(format!("{}, so no acceptance counts", why)),
         Keys::List(list) => list,
     };
     let void = |why: String| Signed::Void(format!("{}: {}, so the acceptance counts for nothing", tag, why));

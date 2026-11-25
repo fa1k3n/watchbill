@@ -294,10 +294,12 @@ impl Stamps {
 }
 
 /// Why a fix is refused when there is no review stamp: the rule table's order, a fix follows a review.
+/// `key` is empty where the stamps were read from the job's ref (#236), and no pattern printed them.
 pub fn no_review(on: &str, key: &str) -> String {
+    let from = if key.is_empty() { String::new() } else { format!(" (from `{}` of watchbill.yml)", key) };
     format!(
-        "a fix follows a review (the rule table: the fix answers the findings of a review), and there is no review stamp on {} (from `{}` of watchbill.yml). The fix has nothing to answer",
-        on, key
+        "a fix follows a review (the rule table: the fix answers the findings of a review), and there is no review stamp on {}{}. The fix has nothing to answer",
+        on, from
     )
 }
 
@@ -311,7 +313,7 @@ pub fn read_stamps(root: &str, key: &str, line: &str, on: &str) -> Result<Stamps
 }
 
 /// The role and the round of a line `<start><role> round <n>`, where `start` is `[stamp] ` or `[revert] `.
-fn role_and_round(start: &str, line: &str) -> Option<(String, u64)> {
+pub(crate) fn role_and_round(start: &str, line: &str) -> Option<(String, u64)> {
     let rest = line.trim_end_matches('\r').strip_prefix(start)?;
     match rest.split(' ').collect::<Vec<_>>().as_slice() {
         [role, "round", n] if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) => Some((role.to_string(), n.parse().ok()?)),

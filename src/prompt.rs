@@ -761,7 +761,16 @@ pub fn derive_with(
         (None, Some(change)) => Some(("change_comments", "change", change.clone())),
         _ => None,
     };
-    if let (true, false, Some((key, word, value))) = (need.round, has(&values, "round"), &on) {
+    // For an issue the stamps are the commits on the job's ref (#236): no pattern is run, and no comment is read.
+    if let (true, false, Some((_, "issue", value))) = (need.round, has(&values, "round"), &on) {
+        plain("issue", value)?;
+        let stamps = crate::stamps::read(root, value).map_err(PromptError)?.as_stamps();
+        let (round, said) = stamps.round_of(role).map_err(PromptError)?;
+        values.push(("round", round.to_string()));
+        worked.said.push(said);
+        worked.stamps = Some(stamps);
+    }
+    if let (true, false, Some((key, word @ "change", value))) = (need.round, has(&values, "round"), &on) {
         match pattern(key)? {
             None if need.strict => {
                 return Err(PromptError(format!(
@@ -959,6 +968,10 @@ pub struct Stamp<'a> {
     pub kept: Option<usize>,
     /// An issue's file is used and the option `--requirements` was given: it won over the file (#76).
     pub requirements_given: bool,
+    /// The hash of each source of the job, in the order they were taken in; none where there is no plan (#236).
+    pub job: &'a [String],
+    /// The commit of `HEAD` the view is made from (#236).
+    pub base: &'a str,
 }
 
 /// `stamp` with the line `issue_text: <hash>` before its parts (#295): the SHA-256 of the issue's text that
@@ -1029,6 +1042,14 @@ pub fn stamp(said: &Stamp, values: &[(&str, &str)], prompt: &Prompt) -> String {
     if said.requirements_given {
         text.push_str("requirements: given\n");
     }
+    // The job and the base (#236): `job: none` where there is no plan, one line for each source where there are more.
+    if said.job.is_empty() {
+        text.push_str("job: none\n");
+    }
+    for job in said.job {
+        text.push_str(&format!("job: {}\n", job));
+    }
+    text.push_str(&if said.base.is_empty() { "base:\n".to_string() } else { format!("base: {}\n", said.base) });
     for part in &prompt.parts {
         text.push_str(&format!("part: {}  {}\n", part.hash, part.path));
     }

@@ -752,6 +752,42 @@ fn test_WB_TASK_36_a_replace_of_the_list_of_main_is_not_trusted() {
     assert!(bench.refs("refs/tags/").is_empty());
 }
 
+#[test]
+fn test_WB_TASK_36_a_replace_of_the_issues_file_by_the_blob_accepted_is_not_followed() {
+    let bench = accepted();
+    let accepted_blob = bench.git(&["rev-parse", &format!("HEAD:{}", YML)]).trim().to_string();
+    let edited = BARE_ISSUE.replace("{issue}", "54").replace("  none", "  fn brake()");
+    bench.put(YML, &edited);
+    bench.git(&["commit", "-q", "-a", "-m", "An edit"]);
+    let edited_blob = bench.git(&["rev-parse", &format!("HEAD:{}", YML)]).trim().to_string();
+    bench.git(&["replace", &edited_blob, &accepted_blob]);
+    let status = bench.status();
+    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(!status.contains("signed by ada@example.org"), "{}", status);
+}
+
+#[test]
+fn test_WB_TASK_36_a_replace_of_a_later_commit_by_the_acceptance_of_the_work_is_not_followed() {
+    let bench = accepted();
+    bench.put("src/work.c", "int work;\n");
+    bench.git(&["add", "--", "src/work.c"]);
+    bench.git(&["commit", "-q", "-m", "The work"]);
+    bench.comments(&["[stamp] tester round 1", "[stamp] build round 1"]);
+    let run = bench.wb(&["accept", "54"]);
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    let record = bench.head();
+    assert!(bench.status().starts_with("Done:\n"), "{}", bench.status());
+    bench.put("src/work.c", "int work = 2;\n");
+    bench.git(&["commit", "-q", "-a", "-m", "Later work"]);
+    let later = bench.head();
+    bench.git(&["replace", &later, &record]);
+    let status = bench.status();
+    assert!(!status.starts_with("Done:\n"), "{}", status);
+    assert!(!status.contains("accepted: the work"), "{}", status);
+    let run = bench.wb(&["revert", "54", "build"]);
+    assert!(!err_of(&run).contains("is done"), "{}", err_of(&run));
+}
+
 // ---- WB-TASK-37: no list, no check ----
 
 #[test]

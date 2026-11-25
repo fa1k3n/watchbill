@@ -194,15 +194,18 @@ fn git(report: &mut Report, host: &Host) {
 pub fn programs_of(line: &str) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
     // Words, each with whether it started a command, and whether it is plain.
-    let mut words: Vec<(String, bool, bool)> = Vec::new();
+    let mut words: Vec<(String, bool, bool, char)> = Vec::new();
     let (mut word, mut plain, mut open) = (String::new(), true, false);
     let mut start = true;
+    // The separator that ended the command before the word, for a pattern of `case`.
+    let mut sep = ' ';
     let mut quote: Option<char> = None;
     let mut chars = line.chars().peekable();
-    let flush = |word: &mut String, plain: &mut bool, open: &mut bool, start: &mut bool, words: &mut Vec<(String, bool, bool)>| {
+    let flush = |word: &mut String, plain: &mut bool, open: &mut bool, start: &mut bool, sep: &mut char, words: &mut Vec<(String, bool, bool, char)>| {
         if *open {
-            words.push((std::mem::take(word), *start, *plain));
+            words.push((std::mem::take(word), *start, *plain, *sep));
             *start = false;
+            *sep = ' ';
         }
         *plain = true;
         *open = false;
@@ -222,13 +225,14 @@ pub fn programs_of(line: &str) -> Vec<String> {
                     plain = false;
                     open = true;
                 }
-                ' ' | '\t' => flush(&mut word, &mut plain, &mut open, &mut start, &mut words),
+                ' ' | '\t' => flush(&mut word, &mut plain, &mut open, &mut start, &mut sep, &mut words),
                 '|' | '&' | ';' | '\n' | '(' | ')' => {
-                    flush(&mut word, &mut plain, &mut open, &mut start, &mut words);
+                    flush(&mut word, &mut plain, &mut open, &mut start, &mut sep, &mut words);
                     start = true;
+                    sep = c;
                 }
                 '<' | '>' => {
-                    flush(&mut word, &mut plain, &mut open, &mut start, &mut words);
+                    flush(&mut word, &mut plain, &mut open, &mut start, &mut sep, &mut words);
                     // The word after a redirection is a file.
                     chars.next_if(|next| *next == c || *next == '&');
                     while chars.next_if(|next| *next == ' ').is_some() {}
@@ -246,10 +250,22 @@ pub fn programs_of(line: &str) -> Vec<String> {
             },
         }
     }
-    flush(&mut word, &mut plain, &mut open, &mut start, &mut words);
+    flush(&mut word, &mut plain, &mut open, &mut start, &mut sep, &mut words);
     // The words that start a command; an assignment and a keyword leave the next word at the start.
     let mut at_start = false;
-    for (word, starts, plain) in words {
+    let mut cases = 0usize;
+    for (at, (word, starts, plain, _)) in words.iter().enumerate() {
+        let (word, starts, plain) = (word.clone(), *starts, *plain);
+        if plain && starts && word == "case" {
+            cases += 1;
+        } else if plain && starts && word == "esac" {
+            cases = cases.saturating_sub(1);
+        }
+        // In a `case`, a word alone before `|` or `)` is a pattern: `a|b)`.
+        if cases > 0 && starts && is_pattern(&words, at) {
+            at_start = false;
+            continue;
+        }
         if starts {
             at_start = true;
         }
@@ -281,6 +297,18 @@ pub fn programs_of(line: &str) -> Vec<String> {
         }
     }
     found
+}
+
+/// Whether the word at `at` stands alone and is followed, through words alone after `|`, by `)`: a pattern of `case`.
+fn is_pattern(words: &[(String, bool, bool, char)], at: usize) -> bool {
+    let mut at = at;
+    loop {
+        match words.get(at + 1) {
+            Some((_, _, _, ')')) => return true,
+            Some((_, true, _, '|')) => at += 1,
+            _ => return false,
+        }
+    }
 }
 
 /// The tools the patterns of `watchbill.yml` call, each on `PATH`, one line each, naming the keys that call it.

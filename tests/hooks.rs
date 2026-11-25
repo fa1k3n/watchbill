@@ -127,7 +127,7 @@ fn bench() -> Bench {
     git(&repo.path, &["branch", "issue-99"]);
     git(&repo.path, &["checkout", "-q", "-b", "issue-54"]);
     put(&repo.path, ".watchbill/issues/54.yml", ISSUE_54);
-    let run = wb(&repo.path, &["accept", "54", "--no-commit"], "");
+    let run = wb(&repo.path, &["plan", "accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     git(&repo.path, &["add", "--", ".watchbill/issues"]);
     git(&repo.path, &["commit", "-q", "-m", "The issue's file of 54"]);

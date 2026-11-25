@@ -140,7 +140,7 @@ fn test_WB_CMD_38_accept_n_does_what_no_commit_does() {
     let folder = on_the_branch();
     let before = count(&folder.path);
 
-    let run = wb(&folder.path, &["accept", "-n", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "-n", "54"], "");
 
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
     assert!(folder.path.join(ACCEPTED).exists());
@@ -155,10 +155,10 @@ fn test_WB_CMD_38_accept_n_passes_the_commit_checks_as_no_commit_does_and_no_oth
     put(&folder.path, "other.txt", "staged\n");
     git(&folder.path, &["add", "--", "other.txt"]);
 
-    let long = wb(&folder.path, &["accept", "--no-commit", "54"], "");
+    let long = wb(&folder.path, &["plan", "accept", "--no-commit", "54"], "");
     let long_out = out_of(&long);
     fs::remove_file(folder.path.join(ACCEPTED)).unwrap();
-    let short = wb(&folder.path, &["accept", "-n", "54"], "");
+    let short = wb(&folder.path, &["plan", "accept", "-n", "54"], "");
 
     // The time of the acceptance is the one thing that differs between two runs.
     let untimed = |out: &str| out.lines().filter(|line| !line.starts_with("time: ")).collect::<Vec<_>>().join("\n");
@@ -392,7 +392,7 @@ fn test_WB_CMD_40_a_refusal_is_said_with_q() {
 fn test_WB_CMD_40_accept_q_says_what_it_will_write_and_leaves_out_the_rest() {
     let folder = on_the_branch();
 
-    let run = wb(&folder.path, &["accept", "-q", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "-q", "54"], "");
 
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
     let out = out_of(&run);
@@ -407,7 +407,7 @@ fn test_WB_CMD_40_accept_q_says_what_it_will_write_and_leaves_out_the_rest() {
 fn test_WB_CMD_40_accept_n_q_keeps_the_command_to_commit_the_acceptance() {
     let folder = on_the_branch();
 
-    let run = wb(&folder.path, &["accept", "-n", "-q", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "-n", "-q", "54"], "");
 
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
     assert!(out_of(&run).contains("will write"), "{}", out_of(&run));
@@ -419,7 +419,7 @@ fn test_WB_CMD_40_accept_n_q_keeps_the_command_to_commit_the_acceptance() {
 fn test_WB_CMD_40_accept_q_of_a_file_that_is_not_there_is_refused_and_said() {
     let folder = set_up();
 
-    let run = wb(&folder.path, &["accept", "-q", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "-q", "54"], "");
 
     assert_ne!(code(&run), Some(0));
     assert!(!err_of(&run).is_empty());

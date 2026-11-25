@@ -130,20 +130,20 @@ const USAGE: &str = "usage:
             the message Edit the issue's file (<name>); where nothing changed
             it commits nothing, and where the editor fails, the file no longer
             holds its form or names another issue, it commits nothing and
-            leaves the edit. wb plan accept <name> [--no-commit | -n] accepts the
-            issue's file as wb accept does. wb plan remove <name> adds a
-            commit with the marker removed after the plan's, moves every name
-            of it there, and rewrites nothing; the name stays taken. It is
-            refused while a branch of any of its names holds work the default
-            branch does not, or this machine keeps a view of it with work not
-            taken back. A name with / has no issue's file until point 15, and
-            show, edit, accept and remove of a name that is no plan are
-            refused. Ends with 0 when it is done or nothing changes, 1 when it
-            is refused, 2 when it was used wrongly or the repository is not
-            set up. -q (--quiet) leaves out the lines that confirm what a
-            subcommand wrote and the lines that say there is nothing to do,
-            and not what it says before it writes, a refusal, that an
-            acceptance holds no longer, or what list and show print
+            leaves the edit. wb plan accept <name> [--no-commit | -n] accepts
+            the issue's file, also one with no plan, as above. wb plan remove
+            <name> adds a commit with the marker removed after the plan's, moves
+            every name of it there, and rewrites nothing; the name stays taken.
+            It is refused while a branch of any of its names holds work the
+            default branch does not, or this machine keeps a view of it with
+            work not taken back. A name with / has no issue's file until point
+            15, and show, edit and remove of a name that is no plan are refused.
+            Ends with 0 when it is done or nothing changes, 1 when it is
+            refused, 2 when it was used wrongly or the repository is not set up.
+            -q (--quiet) leaves out the lines that confirm what a subcommand
+            wrote and the lines that say there is nothing to do, and not what it
+            says before it writes, a refusal, that an acceptance holds no
+            longer, or what list and show print
   prompt    print the prompt of a role on standard output and nothing else: the
             role's text of the pinned revision with each placeholder filled
             from the option of its name, such as --issue for {issue}, then the
@@ -233,18 +233,27 @@ const USAGE: &str = "usage:
             revision is not found or it was used wrongly. Writes nothing. -q
             (--quiet) is taken and changes nothing: what it prints is what a
             script reads
-  accept    accept the issue's file .watchbill/issues/<issue>.yml: read it,
-            hold it to its form, refuse it while it holds a question, say what
-            will be written, and write .watchbill/issues/<issue>.accepted with
-            the SHA-256 of the file, the git user.name and user.email, and the
-            time in UTC. An acceptance that is there is never written over.
-            Then commit it alone, on the issue's branch, with nothing else: it
-            refuses first when the checkout is not on that branch or the
-            issue's file is not committed as it is. --no-commit (-n) only writes it
-            and says the commit. Where a plan of the name is there (wb plan)
-            and is not accepted, it ends with 2 and names wb plan accept
-            <name>. Ends with 0 when it is accepted, 1 when it is refused, 2
-            when it was used wrongly or the repository is not set up. -q
+  accept    accept the work of an issue. The issue's file
+            .watchbill/issues/<issue>.yml is accepted by wb plan accept, which
+            does this: read it, hold it to its form, refuse it while it holds a
+            question, say what will be written, and write
+            .watchbill/issues/<issue>.accepted with the SHA-256 of the file, the
+            git user.name and user.email, and the time in UTC. An acceptance
+            that is there is never written over. Then commit it alone, on the
+            issue's branch, with nothing else: it refuses first when the
+            checkout is not on that branch or the issue's file is not committed
+            as it is. --no-commit (-n) only writes it and says the commit. Where
+            the issue's file is not accepted, a plan or not, wb accept ends with
+            2 and names wb plan accept <name>. Where it is accepted as it
+            stands, it accepts the work: it says first accepting the work
+            <commit> (not run: <roles>), then writes
+            .watchbill/issues/<issue>.finished with the head commit of the
+            branch, who and when, and commits it alone. It ends with 1 when no
+            role has committed work, a question is open, a view is kept with
+            work not taken back, or the change touches classed code, which needs
+            a person as verifier. A later commit on the branch voids it. The job
+            is then done. Ends with 0 when it is accepted, 1 when it is refused,
+            2 when it was used wrongly or the repository is not set up. -q
             (--quiet) leaves out the check of the lists and the lines that
             confirm the write and the commit, and not what it will write or
             commit, the command to commit or push, or a refusal
@@ -262,8 +271,11 @@ const USAGE: &str = "usage:
             planner round after it voided puts the issue under Planned.
             <issue> prints that issue, in the flow or not, with its title
             (issue_address) and what it was worked out from; --stage <heading>
-            prints that heading only, whatever its case. For one issue it also
-            prints a line kept: <role> round <n>, <k> commits not taken,
+            prints that heading only, whatever its case. A job whose work is
+            accepted, or whose change is merged, is done: it is not listed,
+            and <issue> prints Done and what closed it, and a line accepted:
+            for each acceptance, by its object. For one issue it also prints
+            a line kept: <role> round <n>, <k> commits not taken,
             <folder> for each view kept with work not taken back, and cut off:
             <role> round <n>, <folder> for each session whose wb ended before
             it did. With no issue it says on standard error how many such
@@ -310,29 +322,30 @@ const USAGE: &str = "usage:
             change_comment.
             The branch, the issue's file and its acceptance, and the change are
             not touched: taking commits back is git's. The planner is taken
-            back with git, not by a marker. Ends with 0 when the marker is
-            posted, 1 when it was refused or the posting failed, 2 when it was
-            used wrongly or the repository is not set up. -q (--quiet) is
-            taken and changes nothing: what it says, that the commits stay, is
-            what a person must know
+            back with git, not by a marker. A job that is done is refused. Ends
+            with 0 when the marker is posted, 1 when it was refused or the
+            posting failed, 2 when it was used wrongly or the repository is not
+            set up. -q (--quiet) is taken and changes nothing: what it says,
+            that the commits stay, is what a person must know
   clean     remove the views kept on this machine for this repository that
             have nothing left in them: those whose session ended and that hold
             no commit not taken back (a commit a take-back took is taken) and
-            no path left uncommitted. It says first, on standard output,
-            Removing <folder> for each view it will remove and Keeping
+            no path left uncommitted, and those of a job that is done whose
+            commits are all in the default branch. It says first, on standard
+            output, Removing <folder> for each view it will remove and Keeping
             <folder>: <what is left> for each it keeps, then removes.
             --dry-run (-n) says Would remove and removes nothing. <view>, the
             name of the folder of a view or its whole path, as wb view --kept
             prints it, removes that view although work is left in it, and says
             first each commit (20 at most) and each path (20 at most) it
-            loses. Naming a view is the one waiver of the work left in it. A view that git could not read, or whose session runs, is
-            never removed, named or not. It never removes the checkout, a
-            branch or the lines of a session.
-            Ends with 0 when it is done or there is nothing to remove, 1 when
-            a named view is not removed, 2 when it was used wrongly or this
-            folder is not in a git repository. -q (--quiet) leaves out the
-            Keeping lines, and not Removing or Would remove, which it says
-            before it removes
+            loses. Naming a view is the one waiver of the work left in it. A
+            view that git could not read, or whose session runs, is never
+            removed, named or not. It never removes the checkout, a branch or
+            the lines of a session. Ends with 0 when it is done or there is
+            nothing to remove, 1 when a named view is not removed, 2 when it was
+            used wrongly or this folder is not in a git repository. -q (--quiet)
+            leaves out the Keeping lines, and not Removing or Would remove,
+            which it says before it removes
   answer    answer the open questions of an issue: wb answer <issue> reads
             the whole comments by issue_comment_bodies of watchbill.yml, shows
             each open question in full, one at a time, and asks: Enter takes

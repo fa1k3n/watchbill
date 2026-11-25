@@ -87,7 +87,7 @@ fn test_WB_TASK_23_the_acceptance_is_committed_alone_with_the_message_and_the_au
     let folder = on_the_branch();
     let before = count(&folder.path);
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54"], "");
 
     assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
     assert_eq!(count(&folder.path), before + 1);
@@ -103,7 +103,7 @@ fn test_WB_TASK_23_the_acceptance_is_committed_alone_with_the_message_and_the_au
 #[test]
 fn test_WB_TASK_23_wb_accept_pushes_nothing_and_says_the_branch_is_to_be_pushed() {
     let folder = on_the_branch();
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let said = text(&run.stdout);
     assert!(said.contains("issue-54") && said.contains("push"), "{}", said);
@@ -115,7 +115,7 @@ fn test_WB_TASK_24_what_was_staged_before_stays_staged_and_is_not_in_the_commit(
     put(&folder.path, "src/other.rs", "fn other() {}\n");
     git(&folder.path, &["add", "--", "src/other.rs"]);
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54"], "");
 
     assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
     assert_eq!(say(&folder.path, &["show", "--name-only", "--format=", "HEAD"]).trim(), ACCEPTED);
@@ -134,7 +134,7 @@ fn test_WB_TASK_25_it_says_what_it_will_commit_before_it_commits() {
     fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
 
     let run = Command::new(env!("CARGO_BIN_EXE_wb"))
-        .args(["accept", "54"])
+        .args(["plan", "accept", "54"])
         .current_dir(&folder.path)
         .env_clear()
         .envs(env())
@@ -155,7 +155,7 @@ fn test_WB_TASK_26_not_on_the_issues_branch_refuses_with_both_branches_named_and
     let before = files(&folder.path);
     let commits = count(&folder.path);
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54"], "");
 
     assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
     let said = text(&run.stderr);
@@ -171,7 +171,7 @@ fn test_WB_TASK_27_an_issues_file_that_is_not_committed_refuses_with_1_and_write
     git(&folder.path, &["commit", "-q", "-m", "Drop it"]);
     let before = files(&folder.path);
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54"], "");
 
     assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
     assert!(text(&run.stderr).contains(YML) && text(&run.stderr).contains("commit"), "{}", text(&run.stderr));
@@ -184,7 +184,7 @@ fn test_WB_TASK_27_an_issues_file_changed_since_head_refuses_with_1_and_writes_n
     put(&folder.path, YML, &GOOD.replace("The tool reads the file.", "The tool reads it."));
     let before = files(&folder.path);
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54"], "");
 
     assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
     assert!(text(&run.stderr).contains(YML) && text(&run.stderr).contains("commit"), "{}", text(&run.stderr));
@@ -200,7 +200,7 @@ fn test_WB_TASK_28_a_commit_that_fails_leaves_the_acceptance_says_so_and_ends_wi
     fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
     let commits = count(&folder.path);
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54"], "");
 
     assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
     assert!(folder.path.join(ACCEPTED).is_file());
@@ -222,7 +222,7 @@ fn test_WB_TASK_28_what_was_staged_before_stays_staged_after_a_failed_commit() {
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54"], "");
 
     assert_eq!(code(&run), Some(1));
     assert_eq!(say(&folder.path, &["diff", "--cached", "--name-only"]).trim(), "src/other.rs");
@@ -237,7 +237,7 @@ fn test_WB_TASK_28_a_hook_that_adds_another_file_is_refused_and_says_what_the_co
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54"], "");
 
     assert_eq!(code(&run), Some(1), "{}{}", text(&run.stdout), text(&run.stderr));
     let said = text(&run.stdout) + &text(&run.stderr);
@@ -248,7 +248,7 @@ fn test_WB_TASK_28_a_hook_that_adds_another_file_is_refused_and_says_what_the_co
 /// `wb accept 54` run with more of the environment set.
 fn wb_with(folder: &Path, extra: &[(&str, &str)]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_wb"))
-        .args(["accept", "54"])
+        .args(["plan", "accept", "54"])
         .current_dir(folder)
         .env_clear()
         .envs(env())
@@ -269,7 +269,7 @@ fn test_WB_TASK_23_the_author_is_the_identity_of_the_line_by_whatever_the_enviro
 fn test_WB_TASK_26_the_branch_of_the_issue_with_words_after_it_is_taken() {
     let folder = on_the_branch();
     git(&folder.path, &["branch", "-m", "issue-54-words"]);
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54"], "");
     assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
 }
 
@@ -278,7 +278,7 @@ fn test_WB_TASK_26_the_branch_of_issue_541_is_not_the_branch_of_54() {
     let folder = on_the_branch();
     git(&folder.path, &["branch", "-m", "issue-541"]);
     let before = files(&folder.path);
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54"], "");
     assert_eq!(code(&run), Some(1));
     assert!(text(&run.stderr).contains("issue-541") && text(&run.stderr).contains("issue-54"), "{}", text(&run.stderr));
     assert_eq!(files(&folder.path), before);
@@ -289,7 +289,7 @@ fn test_WB_TASK_26_a_detached_head_is_refused_and_nothing_is_written() {
     let folder = on_the_branch();
     git(&folder.path, &["checkout", "-q", "--detach"]);
     let before = files(&folder.path);
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54"], "");
     assert_eq!(code(&run), Some(1));
     assert!(text(&run.stderr).contains("issue-54"), "{}", text(&run.stderr));
     assert_eq!(files(&folder.path), before);
@@ -304,11 +304,11 @@ fn test_WB_TASK_26_without_a_pattern_branch_it_refuses_with_1_and_no_commit_stil
     put(&folder.path, ".watchbill/watchbill.yml", &without);
     commit_config(&folder.path);
     let before = files(&folder.path);
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54"], "");
     assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
     assert!(text(&run.stderr).contains("branch"), "{}", text(&run.stderr));
     assert_eq!(files(&folder.path), before);
-    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
 }
 
@@ -322,7 +322,7 @@ fn test_WB_TASK_6_a_refusal_on_the_plain_path_says_nothing_of_a_write_and_commit
     let before = files(&folder.path);
     let commits = count(&folder.path);
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54"], "");
 
     assert_eq!(code(&run), Some(1));
     assert!(!text(&run.stdout).contains("will write"), "{}", text(&run.stdout));
@@ -336,7 +336,7 @@ fn test_WB_TASK_8_on_the_plain_path_an_acceptance_that_is_there_is_never_written
     put(&folder.path, ACCEPTED, "sha256: old\n");
     let commits = count(&folder.path);
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54"], "");
 
     assert_eq!(code(&run), Some(1));
     assert_eq!(read(&folder.path.join(ACCEPTED)), "sha256: old\n");
@@ -368,7 +368,7 @@ fn test_WB_TASK_30_the_plain_path_writes_nothing_but_the_acceptance_and_commits_
     let folder = on_the_branch();
     let before = files(&folder.path);
 
-    let run = wb(&folder.path, &["accept", "54"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54"], "");
 
     assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
     let after = files(&folder.path);
@@ -383,7 +383,7 @@ fn test_WB_TASK_29_no_commit_writes_the_acceptance_commits_nothing_and_prints_th
     let folder = on_the_branch();
     let commits = count(&folder.path);
 
-    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54", "--no-commit"], "");
 
     assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
     assert!(folder.path.join(ACCEPTED).is_file());

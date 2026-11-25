@@ -230,7 +230,7 @@ fn accepted_of(root: &Path, issue: &str) -> std::path::PathBuf {
 
 /// A folder on the way to the issue files that is a link, or is there and is not a folder: it is named,
 /// and nothing is read or written through it.
-fn way_fault(root: &Path) -> Option<String> {
+pub(crate) fn way_fault(root: &Path) -> Option<String> {
     for name in [".watchbill", FOLDER] {
         match fs::symlink_metadata(root.join(name)) {
             Ok(found) if found.file_type().is_symlink() => {
@@ -465,7 +465,7 @@ impl Used {
 }
 
 /// One value of `git config`, or why there is none.
-fn git_value(root: &str, key: &str) -> Result<String, String> {
+pub(crate) fn git_value(root: &str, key: &str) -> Result<String, String> {
     let none = || format!("git has no {} for this repository. Set it with `git config {} <value>`.", key, key);
     let run = crate::detect::git_output(&["-C", root, "config", key], None).ok_or_else(|| "git could not be run.".to_string())?;
     if !run.status.success() {
@@ -598,17 +598,11 @@ fn check_needs(root: &str, pattern: &str, issue: &Issue) -> Result<Needs, String
     Ok(Needs { run: files.len(), missing })
 }
 
-/// `wb accept <issue>` in the repository at `root`: 0 it is accepted, 1 it is refused, 2 Watchbill is
-/// not set up here. It says what it will write before it writes, and never writes over an acceptance.
-/// With `commit` it also commits the acceptance alone, on the issue's branch (#157), and refuses before it
-/// writes when the checkout is not on that branch or the issue's file is not as `HEAD` has it. Without
-/// `commit` (`--no-commit`) it keeps the form of 0.0.9: it writes the acceptance and says the commit.
-pub fn accept(root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    accept_as("wb accept", root, issue, commit, out, err)
-}
-
-/// The acceptance of the issue's file, as `accept` makes it, with every line said under the command `name`: `wb accept`,
-/// or `wb plan accept` (#290).
+/// `wb plan accept <issue>` in the repository at `root`, with every line said under the command `name`: 0 it is accepted,
+/// 1 it is refused, 2 Watchbill is not set up here. It says what it will write before it writes, and never writes over
+/// an acceptance. With `commit` it also commits the acceptance alone, on the issue's branch (#157), and refuses before
+/// it writes when the checkout is not on that branch or the issue's file is not as `HEAD` has it. Without `commit`
+/// (`--no-commit`) it writes the acceptance and says the commit.
 pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let base = Path::new(root);
     if let Some(why) = way_fault(base) {
@@ -824,7 +818,7 @@ fn commit_message(issue: &str) -> String {
 }
 
 /// The branch the checkout is on, or none when it is detached or git could not be run.
-fn current_branch(root: &str) -> Option<String> {
+pub(crate) fn current_branch(root: &str) -> Option<String> {
     let run = crate::detect::git_output(&["-C", root, "symbolic-ref", "--short", "-q", "HEAD"], None)?;
     if !run.status.success() {
         return None;
@@ -888,7 +882,13 @@ pub(crate) enum NotReady {
 /// `by:`, whatever the environment says. Ok holds the paths the commit holds. When the commit fails, the
 /// acceptance is unstaged again, so the index is as it was; Err holds what git said.
 fn commit_alone(root: &str, issue: &str, name: &str, email: &str) -> Result<Vec<String>, String> {
-    let path = format!("{}/{}.accepted", FOLDER, issue);
+    commit_path(root, &format!("{}/{}.accepted", FOLDER, issue), &commit_message(issue), name, email)
+}
+
+/// Commits the one new file `path` alone with `message`, as `commit_alone` does for an acceptance (#282 uses it for
+/// the record of the final acceptance).
+pub(crate) fn commit_path(root: &str, path: &str, message: &str, name: &str, email: &str) -> Result<Vec<String>, String> {
+    let path = path.to_string();
     let run = |args: &[&str]| -> Result<String, String> {
         let output = std::process::Command::new("git")
             .arg("-C")
@@ -914,7 +914,7 @@ fn commit_alone(root: &str, issue: &str, name: &str, email: &str) -> Result<Vec<
         return Err(why);
     }
     let author = format!("{} <{}>", name, email);
-    if let Err(why) = run(&["commit", "-q", "-m", &commit_message(issue), "--author", &author, "--only", "--", &path]) {
+    if let Err(why) = run(&["commit", "-q", "-m", message, "--author", &author, "--only", "--", &path]) {
         unstage();
         return Err(why);
     }

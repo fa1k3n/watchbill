@@ -1031,3 +1031,34 @@ fn test_WB_BUILD_164_where_the_plan_is_removed_only_job_none_counts() {
     assert!(status_of(&bench, "[stamp] tester round 1").contains("not counted: a stamp of another repository"), "{}", status);
     assert!(status_of(&bench, "[stamp] review round 1").contains("signed by"), "{}", status);
 }
+
+// ---- WB-BUILD-163: no commit at HEAD, no stamp (the review of #326) ----
+
+#[test]
+fn test_WB_BUILD_163_a_start_with_no_commit_at_head_is_refused_with_1_before_anything_is_written() {
+    let bench = listed();
+    bench.git(&["checkout", "-q", "--orphan", "lone"]);
+    let before = bench.git(&["for-each-ref"]);
+
+    let said = bench.start(&["tester", "54", "--ignore-branch"]);
+
+    assert_eq!(said.code, 1, "{}", said.err);
+    assert!(said.err.contains("HEAD"), "{}", said.err);
+    assert_eq!(bench.git(&["for-each-ref"]), before);
+    assert!(tip_of(&bench).is_empty());
+    assert_eq!(bench.sessions(), 0, "{:?}", bench.calls());
+}
+
+#[test]
+fn test_WB_BUILD_163_a_revert_with_no_commit_at_head_is_refused_with_1_and_writes_no_marker() {
+    let bench = listed();
+    ok(&bench.start(&["tester", "54"]));
+    let tip = tip_of(&bench);
+    bench.git(&["checkout", "-q", "--orphan", "lone"]);
+
+    let run = bench.wb(&["revert", "54", "tester"]);
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    assert!(text(&run.stderr).contains("HEAD"), "{}", text(&run.stderr));
+    assert_eq!(tip_of(&bench), tip);
+}

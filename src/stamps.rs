@@ -314,6 +314,11 @@ pub struct Signing {
 /// is `origin`, it is refused too (the review of #322): the lock is the push to `origin`, and a stamp kept local there
 /// would hold none.
 pub fn ready(root: &str) -> Result<Signing, String> {
+    // The stamp names the commit of `HEAD` it is made from (`base:`), and none counts without one (WB-BUILD-163): where
+    // there is none, it is refused before anything is written.
+    if signers::git(root, &["rev-parse", "--verify", "-q", "HEAD^{commit}"], None).is_err() {
+        return Err("there is no commit at HEAD to base the stamp on, and a stamp with no base counts for nothing".to_string());
+    }
     let remotes = remotes(root)?;
     if !remotes.is_empty() && !remotes.iter().any(|remote| remote == "origin") {
         let shown: Vec<String> = remotes.iter().map(|remote| crate::issue::shown(remote)).collect();

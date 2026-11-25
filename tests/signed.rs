@@ -3,7 +3,8 @@
 //!
 //! Run as a person runs `wb`, in a repository made for the test. Each test makes its own SSH keys with `ssh-keygen`, in
 //! a home folder of its own: `HOME`, `XDG_CONFIG_HOME` and `GIT_CONFIG_GLOBAL` point there, and no ssh agent is handed
-//! on, so no person's key, agent or git config is ever read or touched. The patterns of `watchbill.yml` are stand-ins
+//! on, so no person's key, agent or git config is ever read or touched. `wb plan add`, which `wb` as a program runs only
+//! with the organisation's file of `/etc`, runs in a child of this test binary with that same environment. The patterns of `watchbill.yml` are stand-ins
 //! that read and write files of a folder `.tracker/`: never the network.
 
 // A test is named after the requirement it covers, and the ID has capitals.
@@ -195,6 +196,41 @@ impl Bench {
         self.git(&all);
     }
 
+    /// git in the repository with `input` on standard input, which must end with 0; what it printed.
+    fn git_input(&self, args: &[&str], input: &[u8]) -> String {
+        let mut child = Command::new("git")
+            .args(args)
+            .current_dir(&self.repo.path)
+            .env_clear()
+            .envs(env_in(&self.home.path))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(input).unwrap();
+        let run = child.wait_with_output().unwrap();
+        assert!(run.status.success(), "git {:?}: {}", args, text(&run.stderr));
+        text(&run.stdout)
+    }
+
+    /// The tag object `tag`, as git prints it.
+    fn raw(&self, tag: &str) -> String {
+        self.git(&["cat-file", "tag", tag])
+    }
+
+    /// The tag object `tag` up to its SSH signature: what git signed.
+    fn payload(&self, tag: &str) -> String {
+        let raw = self.raw(tag);
+        raw[..raw.find("-----BEGIN SSH SIGNATURE-----").unwrap()].to_string()
+    }
+
+    /// The ref `tag` moved to a tag object made of `raw` by `git mktag`.
+    fn put_tag(&self, tag: &str, raw: &str) {
+        let object = self.git_input(&["mktag"], raw.as_bytes()).trim().to_string();
+        self.git(&["update-ref", tag, &object]);
+    }
+
     fn status(&self) -> String {
         let run = self.wb(&["status", "54"]);
         text(&run.stdout)
@@ -241,6 +277,11 @@ fn bench(signers: Option<&dyn Fn(&Bench) -> String>) -> Bench {
     bench.git(&["branch", "-M", "main"]);
     bench.sign_with("ada");
     bench
+}
+
+/// A bench whose `.watchbill/signers` on `main` is what `lines` gives.
+fn bench_with(lines: &dyn Fn(&Bench) -> String) -> Bench {
+    bench(Some(lines))
 }
 
 /// A bench whose `.watchbill/signers` lets Ada accept.
@@ -305,12 +346,7 @@ fn test_WB_TASK_31_the_message_holds_the_files_sha256_the_job_the_identity_and_t
 #[test]
 fn test_WB_TASK_31_the_message_names_the_hash_of_each_source_of_the_plan() {
     let bench = ada_accepts();
-    let org = bench.home.path.join("organisation.yml");
-    fs::write(&org, ORG).unwrap();
-    let mut yml = read(&config(&bench.repo.path));
-    yml.push_str("confidentiality: internal\n");
-    fs::write(config(&bench.repo.path), yml).unwrap();
-    bench.git(&["commit", "-q", "-a", "-m", "The level"]);
+    let org = with_level(&bench);
     let added = plan_add(&bench, &org, &["add", "54", "-m", "The brakes hold."]);
     assert_eq!(added.0, 0, "{}", added.1);
     bench.job();
@@ -480,6 +516,126 @@ fn test_WB_TASK_34_text_after_a_marker_of_a_signature_in_the_message_makes_it_no
     assert!(status.contains(&format!("{}: its message is not that of the acceptance", tag)), "{}", status);
 }
 
+/// The words `wb status 54` says of the tag of the acceptance, which must count for nothing.
+fn void_by(bench: &Bench, words: &str) {
+    let status = bench.status();
+    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.contains(&format!("{}: {}", bench.tag(), words)), "{}", status);
+    assert_eq!(code(&bench.prompt("tester")), Some(1));
+}
+
+const PGP: &str = "-----BEGIN PGP SIGNATURE-----\n\niQEzBAABCAAdFiEE\n=abcd\n-----END PGP SIGNATURE-----\n";
+
+#[test]
+fn test_WB_TASK_34_a_signed_tag_of_the_name_on_another_object_counts_for_nothing() {
+    let bench = accepted();
+    let tag = bench.tag();
+    let other = bench.git(&["rev-parse", "HEAD:src/brake.c"]).trim().to_string();
+    bench.tag_as(&tag, &["-s"], &bench.message(&tag), &other);
+    void_by(&bench, "it is not on the blob");
+}
+
+#[test]
+fn test_WB_TASK_34_a_lightweight_tag_of_the_name_is_unsigned() {
+    let bench = accepted();
+    let tag = bench.tag();
+    let blob = bench.git(&["rev-parse", &format!("{}^{{}}", tag)]).trim().to_string();
+    bench.git(&["tag", "-f", tag.strip_prefix("refs/tags/").unwrap(), &blob]);
+    void_by(&bench, "unsigned");
+}
+
+#[test]
+fn test_WB_TASK_34_a_signed_tag_whose_message_differs_by_a_line_counts_for_nothing() {
+    let bench = accepted();
+    let tag = bench.tag();
+    let target = bench.git(&["rev-parse", &format!("{}^{{}}", tag)]).trim().to_string();
+    bench.tag_as(&tag, &["-s"], &format!("{}more: a line\n", bench.message(&tag)), &target);
+    void_by(&bench, "its message is not that of the acceptance");
+}
+
+#[test]
+fn test_WB_TASK_34_an_openpgp_signature_alone_or_after_the_ssh_one_is_a_key_not_in_the_list() {
+    let bench = accepted();
+    let tag = bench.tag();
+    let (payload, raw) = (bench.payload(&tag), bench.raw(&tag));
+    bench.put_tag(&tag, &format!("{}{}", raw, PGP));
+    void_by(&bench, "signed by a key that is not in .watchbill/signers of main");
+    bench.put_tag(&tag, &format!("{}{}", payload, PGP));
+    void_by(&bench, "signed by a key that is not in .watchbill/signers of main");
+}
+
+#[test]
+fn test_WB_TASK_34_a_tag_changed_after_it_was_signed_does_not_check() {
+    let bench = accepted();
+    let tag = bench.tag();
+    let raw = bench.raw(&tag);
+    assert!(raw.contains("\ntagger Ada Lovelace <"), "{}", raw);
+    bench.put_tag(&tag, &raw.replace("\ntagger Ada Lovelace <", "\ntagger Ada Lovelacf <"));
+    void_by(&bench, "its signature does not check");
+}
+
+#[test]
+fn test_WB_TASK_34_a_signature_in_another_namespace_than_git_does_not_check() {
+    let bench = accepted();
+    let tag = bench.tag();
+    let payload = bench.payload(&tag);
+    let file = bench.home.path.join("payload");
+    fs::write(&file, &payload).unwrap();
+    let key = bench.key("ada");
+    let run = bench.run("ssh-keygen", &["-q", "-Y", "sign", "-n", "file", "-f", key.to_str().unwrap(), file.to_str().unwrap()], &bench.home.path);
+    assert!(run.status.success(), "{}", text(&run.stderr));
+    let signature = read(&PathBuf::from(format!("{}.sig", file.display())));
+    bench.put_tag(&tag, &format!("{}{}", payload, signature));
+    void_by(&bench, "its signature does not check");
+}
+
+#[test]
+fn test_WB_TASK_36_a_list_on_main_with_a_comma_or_a_pattern_makes_every_acceptance_count_for_nothing() {
+    let bench = accepted();
+    let key = bench.public("ada");
+    bench.signers_on_main(&format!("eve@example.org,ada@example.org roles=\"accept\" {}\n", key));
+    let status = bench.status();
+    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.contains(".watchbill/signers of main cannot be read: line 1:"), "{}", status);
+    assert_eq!(code(&bench.prompt("tester")), Some(1));
+
+    let bench = bench_with(&|bench: &Bench| format!("ada@* roles=\"accept\" {}\n", bench.public("ada")));
+    bench.job();
+    let before = snapshot(&bench);
+    let run = bench.wb(&["plan", "accept", "54"]);
+    assert_eq!(code(&run), Some(1), "{}", out_of(&run));
+    assert!(err_of(&run).contains(".watchbill/signers of main cannot be read: line 1:"), "{}", err_of(&run));
+    assert!(!bench.at(ACCEPTED).exists());
+    assert_eq!(snapshot(&bench), before);
+}
+
+#[test]
+fn test_WB_TASK_34_one_identity_with_two_keys_signs_as_accept_only_with_the_key_that_holds_it() {
+    let bench = bench_with(&|bench: &Bench| {
+        format!("{}{}", bench.line("ada@example.org", "start", "ada"), bench.line("ada@example.org", "accept", "ada-desk"))
+    });
+    bench.job();
+    let before = snapshot(&bench);
+    let run = bench.wb(&["plan", "accept", "54"]);
+    assert_eq!(code(&run), Some(1), "{}", out_of(&run));
+    assert!(err_of(&run).contains("which .watchbill/signers of main holds without the role accept"), "{}", err_of(&run));
+    assert!(err_of(&run).contains("It is removed again"), "{}", err_of(&run));
+    assert_eq!(snapshot(&bench), before);
+    bench.sign_with("ada-desk");
+    bench.accept();
+    assert!(bench.status().contains("signed by ada@example.org, with the role accept"), "{}", bench.status());
+}
+
+#[test]
+fn test_WB_TASK_34_a_tag_larger_than_its_cap_counts_for_nothing() {
+    let bench = accepted();
+    let tag = bench.tag();
+    let target = bench.git(&["rev-parse", &format!("{}^{{}}", tag)]).trim().to_string();
+    let filler = format!("{}\n", "x".repeat(100)).repeat(700);
+    bench.tag_as(&tag, &["-s"], &format!("{}{}", bench.message(&tag), filler), &target);
+    void_by(&bench, "it is larger than 64 KiB");
+}
+
 // ---- WB-TASK-35: no prompt of a later role ----
 
 #[test]
@@ -646,17 +802,17 @@ fn test_WB_TASK_39_plan_accept_posts_the_accepted_notice_by_issue_comment_after_
 
 #[test]
 fn test_WB_TASK_39_an_accepted_comment_is_never_read_back() {
-    let bench = ada_accepts();
-    bench.job();
-    let file = hash_bytes(&fs::read(bench.at(YML)).unwrap());
-    let first = format!("[accepted] 54 {}", file);
-    bench.comments(&[first.as_str()]);
+    // An acceptance committed and signed, whose notice is posted; then its tag is gone, and the notice alone is left.
+    let bench = accepted();
+    let tag = bench.tag();
+    let notice = read(&bench.at(".tracker/54.bodies"));
+    assert!(notice.starts_with("[accepted] 54\n") && notice.contains(&format!("tag: {}\n", tag)), "{}", notice);
+    assert!(read(&bench.at(".tracker/54.comments")).contains("[accepted] 54"));
+    bench.git(&["tag", "-d", tag.strip_prefix("refs/tags/").unwrap()]);
     let status = bench.status();
     assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.contains(&format!("{} is not there", tag)), "{}", status);
     assert_eq!(code(&bench.prompt("tester")), Some(1));
-    // An acceptance signed and committed posts its notice, and counts by its tag alone.
-    bench.accept();
-    assert!(read(&bench.at(".tracker/54.bodies")).starts_with("[accepted] 54\n"));
 }
 
 // ---- WB-TASK-40: `.accepted` stays ----
@@ -678,25 +834,70 @@ fn test_WB_TASK_40_the_accepted_file_is_written_beside_the_tag_and_is_still_read
 
 // ---- WB-TASK-41 and WB-TASK-42: text taken in after the acceptance ----
 
-/// `wb plan add` in the test process, through `watchbill::plan`, with the organisation's file at `org`.
+/// The variables that make this test binary, run as a child, the runner of one `wb plan add` (`plan_add`).
+const CHILD_WORDS: &str = "WB_SIGNED_CHILD_WORDS";
+const CHILD_ORG: &str = "WB_SIGNED_CHILD_ORG";
+const CHILD_SAID: &str = "WB_SIGNED_CHILD_SAID";
+
+/// The test that this binary runs as a child to run `wb plan add`.
+const CHILD_TEST: &str = "test_WB_TASK_41_plan_add_runs_in_a_child_with_the_tests_own_home";
+
+/// `wb plan add` through `watchbill::plan`, with the organisation's file at `org`, which `wb` as a program never takes
+/// (#93). It runs in a child of this test binary, with the environment of the bench (`env_in`), so that git reads the
+/// bench's home and never the person's.
 fn plan_add(bench: &Bench, org: &Path, args: &[&str]) -> (i32, String) {
-    let words: Vec<OsString> = args.iter().map(OsString::from).collect();
-    let mut input = std::io::Cursor::new(Vec::new());
-    let (mut out, mut err) = (Vec::new(), Vec::new());
-    let code = watchbill::plan(&words, &bench.repo.path, org, &mut input, &mut out, &mut err);
-    (code, format!("{}{}", text(&out), text(&err)))
+    let said = bench.home.path.join("plan-add-said");
+    let run = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", CHILD_TEST, "--test-threads=1", "--quiet"])
+        .current_dir(&bench.repo.path)
+        .env_clear()
+        .envs(env_in(&bench.home.path))
+        .env(CHILD_WORDS, args.join("\u{1f}"))
+        .env(CHILD_ORG, org)
+        .env(CHILD_SAID, &said)
+        .stdin(Stdio::null())
+        .output()
+        .expect("the test binary could not be started");
+    let code = run.status.code().unwrap_or(-1);
+    (code, fs::read_to_string(&said).unwrap_or_else(|_| format!("the child said nothing: {}{}", text(&run.stdout), text(&run.stderr))))
 }
 
-/// Job 54 as a plan of one source, accepted by Ada, signed; then other text taken in under its name. The organisation's
-/// file is that of the bench's home.
-fn taken_in_again() -> (Bench, PathBuf) {
+#[test]
+fn test_WB_TASK_41_plan_add_runs_in_a_child_with_the_tests_own_home() {
+    if let (Ok(words), Ok(org), Ok(said)) = (std::env::var(CHILD_WORDS), std::env::var(CHILD_ORG), std::env::var(CHILD_SAID)) {
+        // The child: one `wb plan add` in the folder it was started in, and its status as the status of the process.
+        let words: Vec<OsString> = words.split('\u{1f}').map(OsString::from).collect();
+        let mut input = std::io::Cursor::new(Vec::new());
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let folder = std::env::current_dir().unwrap();
+        let code = watchbill::plan(&words, &folder, Path::new(&org), &mut input, &mut out, &mut err);
+        fs::write(said, format!("{}{}", text(&out), text(&err))).unwrap();
+        std::process::exit(code);
+    }
+    // The parent: the plan is taken in, as the bench's identity, in a child whose home is the bench's.
     let bench = ada_accepts();
+    let org = with_level(&bench);
+    let (code, said) = plan_add(&bench, &org, &["add", "54", "-m", "The brakes hold."]);
+    assert_eq!(code, 0, "{}", said);
+    assert!(bench.git(&["cat-file", "blob", "refs/watchbill/54:job.yml"]).contains("Ada Lovelace"));
+}
+
+/// Sets the repository at the level `internal`, and gives the bench's home the organisation's file: its path.
+fn with_level(bench: &Bench) -> PathBuf {
     let org = bench.home.path.join("organisation.yml");
     fs::write(&org, ORG).unwrap();
     let mut yml = read(&config(&bench.repo.path));
     yml.push_str("confidentiality: internal\n");
     fs::write(config(&bench.repo.path), yml).unwrap();
     bench.git(&["commit", "-q", "-a", "-m", "The level"]);
+    org
+}
+
+/// Job 54 as a plan of one source, accepted by Ada, signed; then other text taken in under its name. The organisation's
+/// file is that of the bench's home.
+fn taken_in_again() -> (Bench, PathBuf) {
+    let bench = ada_accepts();
+    let org = with_level(&bench);
     let (code, said) = plan_add(&bench, &org, &["add", "54", "-m", "The brakes hold."]);
     assert_eq!(code, 0, "{}", said);
     bench.job();
@@ -719,10 +920,8 @@ fn test_WB_TASK_41_after_wb_add_takes_in_changed_text_status_says_the_issue_is_n
 
 #[test]
 fn test_WB_TASK_42_after_wb_add_takes_in_changed_text_prompt_of_a_later_role_refuses_with_1() {
-    let (bench, org) = taken_in_again();
-    let mut args = vec!["tester", "54"];
-    args.extend(REST);
-    let run = prompt_with(&bench.repo.path, &org, &args);
+    let (bench, _org) = taken_in_again();
+    let run = bench.prompt("tester");
     assert_eq!(code(&run), Some(1), "{}", out_of(&run));
     assert!(out_of(&run).is_empty());
     assert!(err_of(&run).contains("names the job") && err_of(&run).contains("No prompt is handed out"), "{}", err_of(&run));

@@ -559,6 +559,26 @@ fn test_WB_TASK_36_check_names_a_line_that_is_not_a_key_of_the_list() {
     assert!(!out.contains("line 1:"), "{}", out);
 }
 
+#[test]
+fn test_WB_TASK_36_a_replace_of_the_list_of_main_is_not_trusted() {
+    let bench = bench(Some(&|bench: &Bench| bench.line("bob@example.org", "accept", "bob")));
+    bench.job();
+    // A replace ref swaps the blob of `main:.watchbill/signers` for a list that holds Ada; `main` itself does not.
+    let other = bench.home.path.join("signers");
+    fs::write(&other, bench.line("ada@example.org", "accept", "ada")).unwrap();
+    let new = bench.git(&["hash-object", "-w", other.to_str().unwrap()]).trim().to_string();
+    let old = bench.git(&["rev-parse", &format!("main:{}", SIGNERS)]).trim().to_string();
+    bench.git(&["replace", &old, &new]);
+    assert!(bench.git(&["show", &format!("main:{}", SIGNERS)]).contains("ada@example.org"));
+    let before = snapshot(&bench);
+    let run = bench.wb(&["plan", "accept", "54"]);
+    assert_eq!(code(&run), Some(1), "{}", out_of(&run));
+    assert!(err_of(&run).contains("not in .watchbill/signers of main"), "{}", err_of(&run));
+    assert!(!bench.at(ACCEPTED).exists());
+    assert_eq!(snapshot(&bench), before);
+    assert!(bench.refs("refs/tags/").is_empty());
+}
+
 // ---- WB-TASK-37: no list, no check ----
 
 #[test]

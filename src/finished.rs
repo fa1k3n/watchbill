@@ -193,7 +193,7 @@ pub fn accept(root: &str, issue: &str, commit: bool, state: Option<&Path>, out: 
     if let Err(error) = result {
         return crate::refusal::limit(err, NAME, format_args!("{} could not be written ({}). Nothing written.", path, error));
     }
-    let _ = writeln!(out, "{}: the work of issue {} is accepted.", NAME, issue::shown(issue));
+    crate::refusal::inform(out, format_args!("{}: the work of issue {} is accepted.", NAME, issue::shown(issue)));
     let command = format!("git add {} && git commit -m \"{}\" -- {}", path, commit_message(issue), path);
     if !commit {
         let _ = writeln!(out, "{}: commit the record alone, so the history holds it:\n  {}", NAME, command);
@@ -203,7 +203,8 @@ pub fn accept(root: &str, issue: &str, commit: bool, state: Option<&Path>, out: 
     let _ = out.flush();
     match issue::commit_path(root, &path, &commit_message(issue), &user, &email) {
         Ok(held) if held.iter().all(|one| *one == path) => {
-            let _ = writeln!(out, "{}: committed {} alone. wb pushes nothing. Push the branch {} so that the history elsewhere holds it.", NAME, path, issue::shown(&branch));
+            crate::refusal::inform(out, format_args!("{}: committed {} alone.", NAME, path));
+            let _ = writeln!(out, "{}: wb pushes nothing. Push the branch {} so that the history elsewhere holds it.", NAME, issue::shown(&branch));
             0
         }
         Ok(held) => crate::refusal::limit(

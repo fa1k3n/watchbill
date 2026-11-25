@@ -525,3 +525,24 @@ fn test_WB_TASK_52_new_work_on_a_branch_of_the_issue_after_the_record_was_merged
     let run = wb(&folder.path, &["revert", "54", "build"], "");
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
 }
+
+#[test]
+fn test_WB_TASK_43_quiet_leaves_out_the_lines_that_confirm_and_n_is_no_commit() {
+    let folder = set_up();
+    job(&folder.path, &BUILT);
+    let run = wb(&folder.path, &["accept", "-q", "54"], "");
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    let out = out_of(&run);
+    assert!(out.starts_with("wb accept: accepting the work "), "{}", out);
+    assert!(out.contains("will write") && out.contains("will commit") && out.contains("Push the branch"), "{}", out);
+    assert!(!out.contains("is accepted") && !out.contains("committed "), "{}", out);
+
+    let other = set_up();
+    job(&other.path, &BUILT);
+    let before = head(&other.path);
+    let run = wb(&other.path, &["accept", "-n", "54"], "");
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    assert_eq!(head(&other.path), before);
+    assert!(other.path.join(RECORD).is_file());
+    assert!(out_of(&run).contains("git add .watchbill/issues/54.finished"), "{}", out_of(&run));
+}

@@ -1062,3 +1062,37 @@ fn test_WB_BUILD_163_a_revert_with_no_commit_at_head_is_refused_with_1_and_write
     assert!(text(&run.stderr).contains("HEAD"), "{}", text(&run.stderr));
     assert_eq!(tip_of(&bench), tip);
 }
+
+// ---- WB-BUILD-165: one line, naming what fails (the review of #326) ----
+
+#[test]
+fn test_WB_BUILD_165_a_stamp_of_another_repository_is_one_line_that_names_the_line_that_fails() {
+    let bench = listed();
+    let base = bench.head();
+    raw_stamp(&bench, &format!("[stamp] tester round 1\nrole: tester\nissue: 54\njob: none\nbase: {}\n", "1".repeat(40)));
+    raw_stamp(&bench, &format!("[stamp] review round 1\nrole: review\nissue: 54\njob: {}\nbase: {}\n", "2".repeat(40), base));
+
+    let status = bench.status();
+
+    let tester = status_of(&bench, "[stamp] tester round 1");
+    let review = status_of(&bench, "[stamp] review round 1");
+    assert!(tester.contains("not counted: a stamp of another repository") && tester.contains("base"), "{}", status);
+    assert!(review.contains("not counted: a stamp of another repository") && review.contains("`job:`"), "{}", status);
+    assert!(!tester.contains("`job:`") && !review.contains("its base"), "{}", status);
+    // One line each: the text of the reason holds no line break.
+    assert_eq!(status.matches("a stamp of another repository").count(), 2, "{}", status);
+}
+
+// ---- WB-BUILD-163: a base is a commit object, not a tag (the review of #326) ----
+
+#[test]
+fn test_WB_BUILD_163_a_base_that_is_a_tag_object_is_not_counted() {
+    let bench = listed();
+    bench.git(&["tag", "-a", "-m", "A tag", "tagged", "HEAD"]);
+    let tag = bench.git(&["rev-parse", "refs/tags/tagged"]).trim().to_string();
+    raw_stamp(&bench, &format!("[stamp] tester round 1\nrole: tester\nissue: 54\njob: none\nbase: {}\n", tag));
+
+    let line = status_of(&bench, "[stamp] tester round 1");
+
+    assert!(line.contains("not counted: a stamp of another repository") && line.contains("base"), "{}", bench.status());
+}

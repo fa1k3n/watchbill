@@ -935,6 +935,45 @@ fn test_WB_TASK_60_check_with_no_list_in_the_working_tree_ends_with_1_naming_it(
     assert_eq!(code(&run), Some(0), "{}{}", out_of(&run), err_of(&run));
 }
 
+/// The lines of a list that holds its form and no key: a comment and an empty line.
+fn no_key(_: &Bench) -> String {
+    "# The keys of the project.\n\n".to_string()
+}
+
+#[test]
+fn test_WB_TASK_60_check_of_a_list_with_no_key_line_ends_with_1_naming_it() {
+    let bench = bench_with(&no_key);
+    let run = bench.wb(&["check"]);
+    assert_eq!(code(&run), Some(1), "{}{}", out_of(&run), err_of(&run));
+    assert!(out_of(&run).contains(".watchbill/signers") && out_of(&run).contains("no key"), "{}", out_of(&run));
+}
+
+#[test]
+fn test_WB_TASK_56_a_list_with_no_key_line_on_main_is_missing_and_plan_accept_makes_no_tag() {
+    let bench = bench_with(&no_key);
+    bench.job();
+    let before = snapshot(&bench);
+    let run = bench.wb(&["plan", "accept", "54"]);
+    assert_eq!(code(&run), Some(1), "{}", out_of(&run));
+    // Refused before any tag is made, not after one is made and removed again.
+    assert!(!out_of(&run).contains("will make the signed tag"), "{}", out_of(&run));
+    let err = err_of(&run);
+    assert!(err.contains(".watchbill/signers on main holds no key") && err.contains("roles=\"accept\""), "{}", err);
+    assert!(!bench.at(ACCEPTED).exists());
+    assert_eq!(snapshot(&bench), before);
+    assert!(bench.refs("refs/tags/").is_empty());
+}
+
+#[test]
+fn test_WB_TASK_59_status_says_a_list_with_no_key_line_counts_nothing() {
+    let bench = bench_with(&no_key);
+    bench.job();
+    accepted_by_hand(&bench);
+    let status = bench.status();
+    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert_eq!(status.matches(".watchbill/signers on main holds no key: nothing is signed, so nothing counts").count(), 1, "{}", status);
+}
+
 #[test]
 fn test_WB_TASK_62_with_no_default_branch_plan_accept_is_refused_as_with_no_list() {
     let bench = ada_accepts();

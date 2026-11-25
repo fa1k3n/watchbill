@@ -172,7 +172,7 @@ fn bench_for(issue_54: &str) -> Bench {
     git(&repo.path, &["branch", "issue-99"]);
     git(&repo.path, &["checkout", "-q", "-b", "issue-54"]);
     put(&repo.path, ".watchbill/issues/54.yml", issue_54);
-    let run = wb(&repo.path, &["accept", "54", "--no-commit"], "");
+    let run = wb(&repo.path, &["plan", "accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     git(&repo.path, &["add", "--", ".watchbill/issues"]);
     git(&repo.path, &["commit", "-q", "-m", "The issue's file of 54"]);
@@ -3298,6 +3298,21 @@ fn test_WB_BUILD_78_take_back_puts_the_commit_of_a_kept_view_on_the_branch_and_s
     assert!(!bench.any_posted() && !bench.started(), "{}", bench.left("calls"));
     // The lines of no new start are written.
     assert_eq!(bench.below("sessions").len(), 1);
+}
+
+#[test]
+fn test_WB_CMD_40_take_back_q_leaves_out_how_to_see_the_commit_and_keeps_what_is_not_pushed() {
+    let bench = bench();
+    let (folder, _) = kept_tester(&bench);
+    commit_in(&folder, "src/brake.c", "int brake(void) { return 8; }\n", "The tests of 54");
+    let run = take_back(&bench, &["-q"]);
+    let err = text_of(&run.stderr);
+    assert_eq!(code(&run), Some(0), "{}", err);
+    assert!(err.contains("will take back") && err.contains("The tests of 54"), "{}", err);
+    assert!(!err.contains("git show --stat"), "{}", err);
+    // What is not pushed, and the command to push it, are said together, and stay.
+    assert!(err.contains("nothing is pushed") && err.contains("to push the branch, run"), "{}", err);
+    assert_eq!(subjects(&bench, 1), vec!["The tests of 54"]);
 }
 
 #[test]

@@ -738,7 +738,7 @@ fn test_WB_JOB_45_help_plan_says_each_subcommand_and_its_statuses() {
         "wb plan list",
         "wb plan show <name>",
         "wb plan edit <name>",
-        "wb plan accept <name> [--no-commit]",
+        "wb plan accept <name> [--no-commit | -n]",
         "wb plan remove <name>",
         "GIT_EDITOR",
         "planned again after the acceptance",

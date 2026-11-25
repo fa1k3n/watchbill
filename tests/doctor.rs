@@ -136,6 +136,23 @@ fn all_hold(run: &Output) {
 }
 
 #[test]
+fn test_WB_CMD_51_q_leaves_out_the_ok_lines_and_keeps_a_warning_and_a_fault() {
+    let bench = bench();
+    bench.add("issue_comments: 'nowhere-wb-tool x'\n");
+
+    let run = bench.doctor_with(&["-q"], &bench.tools.path, &bench.organisation(), &bench.bwrap());
+    let long = bench.doctor_with(&["--quiet"], &bench.tools.path, &bench.organisation(), &bench.bwrap());
+    let twice = bench.doctor_with(&["-q", "--quiet"], &bench.tools.path, &bench.organisation(), &bench.bwrap());
+
+    let out = text(&run.stdout);
+    assert_eq!(code(&run), Some(1), "{}", out);
+    assert!(out.lines().all(|line| !line.starts_with("ok: ")) && out.contains("fault: tools: nowhere-wb-tool"), "{}", out);
+    assert_eq!(text(&long.stdout), out);
+    assert_eq!(code(&twice), Some(2), "{}", text(&twice.stderr));
+    assert!(text(&twice.stderr).contains("'-q' and '--quiet' are both given"), "{}", text(&twice.stderr));
+}
+
+#[test]
 fn test_WB_CMD_51_it_ends_with_0_when_all_holds_and_says_one_line_to_a_check() {
     let bench = bench();
 
@@ -177,7 +194,7 @@ fn test_WB_CMD_51_a_warning_is_not_a_fault() {
 fn test_WB_CMD_51_a_word_is_used_wrongly_and_ends_with_2() {
     let bench = bench();
 
-    for args in [&["now"][..], &["--force"][..], &["-q"][..]] {
+    for args in [&["now"][..], &["--force"][..], &["-x"][..]] {
         let run = bench.doctor_with(args, &bench.tools.path, &bench.organisation(), &bench.bwrap());
 
         assert_eq!(code(&run), Some(2), "{:?}", args);
@@ -643,20 +660,20 @@ fn test_WB_CMD_59_it_asks_nothing_of_the_network() {
 }
 
 #[test]
-fn test_WB_CMD_60_the_usage_and_the_help_name_the_command_and_it_takes_no_flag() {
+fn test_WB_CMD_60_the_usage_and_the_help_name_the_command_and_it_takes_q() {
     let folder = folder();
 
     let run = wb(&folder.path, &["help", "doctor"], "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let out = text(&run.stdout);
-    assert!(out.starts_with("usage:\n  wb doctor\n"), "{}", out);
+    assert!(out.starts_with("usage:\n  wb doctor [-q | --quiet]\n"), "{}", out);
     assert!(out.contains("ports"), "{}", out);
     let help = text(&wb(&folder.path, &["help"], "").stdout);
     assert!(help.contains("doctor    say what on this machine Watchbill needs\n"), "{}", help);
     assert!(!help.contains("doctor (planned"), "{}", help);
     let usage = text(&wb(&folder.path, &["nonsense"], "").stderr);
-    assert!(usage.lines().any(|line| line == "  wb doctor"), "{}", usage);
+    assert!(usage.lines().any(|line| line == "  wb doctor [-q | --quiet]"), "{}", usage);
 }
 
 #[test]

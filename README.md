@@ -106,6 +106,7 @@ The owner set these on 2026-11-20 (#180). They hold in every command.
 - **The plumbing keeps fixed output.** The plumbing is `prompt`, `revision`, `compare` and the output of `check`. They print on standard output as before, and a refusal of `prompt` or `revision` prints nothing there: the label is on standard error alone. The rest is porcelain, and its words may change.
 - **A command that posts refuses everything when any part is wrong.** `wb start` checks everything before it posts its stamp, `wb revert` before its marker, and `wb answer` takes every answer before it posts the first comment.
 - **No `wb config`.** The files are edited by hand.
+- **Short forms are git's (#285).** `-n` is `--dry-run` of `wb upgrade` and `wb clean`, and `--no-commit` of `wb accept` and `wb plan accept`; `-y` is `--yes` of `wb init`. `-q` (`--quiet`) is taken by every command, among its options, before or after the role or the subcommand, and is read in one place. It leaves out only a line that confirms what was done or says there was nothing to do. A line that tells the person something they must act on or know to be safe stays: a refusal, a warning, what is not committed or not pushed, a command to run (commit the acceptance, push the branch), what a command says before it writes, and the output a script reads. Where a command prints nothing of the kind, `-q` is taken and changes nothing. Given twice, it ends with 2.
 - **No auto-accept flag.** If one is ever added, the organisation's file allows it, at the lowest level only, never for classed code, and the stamp says so.
 
 ## Setting it up in a repository
@@ -209,6 +210,8 @@ ok: organisation: /etc/watchbill/organisation.yml is there and reads
 ...
 ```
 
+`-q` (`--quiet`) leaves out the `ok` lines, and not a warning or a fault.
+
 One line to a check: `ok`, `warning` or `fault`, the check's name, and what holds or what is wrong and what to do.
 
 - **bubblewrap** is at `/usr/bin/bwrap`, and **user namespaces** let it make a sandbox, as `wb start` needs.
@@ -226,7 +229,7 @@ The exit status:
 
 - **0**: no check is a fault. A warning is not a fault.
 - **1**: a check is a fault, and each is on standard output.
-- **2**: `wb doctor` was used wrongly (it takes no word), the folder is not in a git repository, or Watchbill is not set up.
+- **2**: `wb doctor` was used wrongly (a word it does not know, or `-q` given twice), the folder is not in a git repository, or Watchbill is not set up.
 
 ## Upgrading it
 
@@ -312,7 +315,7 @@ wb start tester 54            # the work
   The state is `not planned` (no issue's file yet), `not accepted`, `not accepted (edited after the acceptance)`, `not accepted (a source added after the acceptance)`, `not accepted (planned again after the acceptance)`, or `accepted by <who> at <time>`. A plan whose name holds `/` (`github/54`) has no issue's file until point 15 of [docs/revision.md](docs/revision.md), and is `not planned`.
 - **After the acceptance** is decided by time, to the second, against `time:` of `.accepted`. A source added in the same second or later voids it, as an edit does: a planner round lasts longer than a second, so a source of the acceptance's own second was never read by the plan that was accepted. A planner round voids it too, even where the file comes out the same, as a new round is a person asking for the plan to be looked at again: a `[stamp] planner` whose `time:` is the same as the acceptance's or later, read whole by `issue_comment_bodies`. A stamp that a `[revert]` took back counts for nothing. `wb plan show` and `wb status` say so, and `wb start` and `wb prompt` hand out no prompt of the issue and start no session of it. They read the stamps as `wb status` does: from the first lines they read for the round, else, for a plan, by `issue_comments`; then the times by `issue_comment_bodies` where a `[stamp] planner` is there. Without `issue_comment_bodies` the times are not read, the acceptance stands, and the command says so. `wb prompt` of an issue with no plan, given its round (or of a role with no round), reads no comment, so it does not see a planner round after the acceptance; `wb start` and `wb status` do, and `wb prompt` will when the stamps are in git (#236). `wb view` runs no pattern, so it does not read them; it hands out no prompt and starts no session. To accept again, remove `.accepted` and run `wb plan accept`: an acceptance is never written over. The order rests on the clocks of the machines that wrote the times, until point 15.
 - **`wb plan edit <name>`** opens the issue's file in the editor git would use (`GIT_EDITOR`, `core.editor`, `VISUAL`, `EDITOR`), and commits the edit alone, as the person, with the message `Edit the issue's file (<name>)`. As `wb plan accept`, it needs the checkout on the issue's branch and the file as `HEAD` has it, and says so before it opens anything. Where nothing changed, it commits nothing. Where the editor fails, or the file no longer holds its form or names another issue, it commits nothing and leaves the edit in the working tree. Where the file was accepted, it says that the acceptance holds no longer.
-- **`wb plan accept <name> [--no-commit]`** is the acceptance of the issue's file ([The issue's file and its acceptance](#the-issues-file-and-its-acceptance)), with its checks, its `.accepted` and its commit, said as `wb plan accept`. `wb accept <name>` of a plan not accepted, also one whose acceptance a source or a planner round after it voided, ends with 2 and names `wb plan accept <name>`: `wb accept` is to be the acceptance of the work (#282). For a name with no plan, `wb accept` accepts the issue's file as before, until then.
+- **`wb plan accept <name> [--no-commit]`** is the acceptance of the issue's file ([The issue's file and its acceptance](#the-issues-file-and-its-acceptance)), with its checks, its `.accepted` and its commit, said as `wb plan accept`. It also accepts an issue's file with no plan, one written by hand (#282). `wb accept <name>` of a file not accepted, a plan or not, also one whose acceptance a source or a planner round after it voided, ends with 2 and names `wb plan accept <name>`: `wb accept` is the acceptance of the work ([A job is done](#a-job-is-done)).
 - **`wb plan remove <name>`** takes a plan out by a marker: a commit after the plan's whose tree adds `removed`, with the person's git identity and the time, and every name of the plan moved to it in one transaction. Nothing is rewritten, and the name stays taken: `wb plan add` under it is refused, and its text is not taken as that plan's again. It is refused while a role's work on the plan is not done: a branch of any of its names, by the pattern `branch`, holds a commit the default branch does not, or this machine keeps a view of one of them with work not taken back.
 - **The planner reads every source.** `wb start planner <name>` of a plan brings its sources into `.watchbill/issue/<name>.md` of the view, in the order they were added, and runs no `issue_text`. One source is its text as it is; with more, each is under a line `--- source <n>: <hash>, from <source> ---`, and a source kept as its hash alone says so.
 
@@ -368,7 +371,7 @@ An address that ends in `--comments` alone shows the comments and hides both the
 
 ### An issue with a file
 
-The flow of an issue is: the planner reads the issue and writes `.watchbill/issues/<issue>.yml`; a person accepts it with `wb plan accept <issue>` where it is a plan of `wb plan add`, else with `wb accept <issue>`; then the four roles are handed out: `wb prompt tester <issue>`, `build`, `review` and `fix`. For these four, `wb prompt` looks for the issue's file ([below](#the-issues-file-and-its-acceptance)):
+The flow of an issue is: the planner reads the issue and writes `.watchbill/issues/<issue>.yml`; a person accepts it with `wb plan accept <issue>`, a plan of `wb plan add` or a file written by hand; then the four roles are handed out: `wb prompt tester <issue>`, `build`, `review` and `fix`. For these four, `wb prompt` looks for the issue's file ([below](#the-issues-file-and-its-acceptance)):
 
 - **No file:** the role is handed out, and works from the issue's own numbered items (#116). A person may start any role alone. The chain's gates bind once a file is there.
 - **A file that is accepted and committed:** the file and its acceptance must both be committed in `HEAD` and be the same in the working tree, or `wb prompt` prints nothing on standard output, names the file, says to commit it, and ends with 1. The history then holds what the issue was read as before the work it allows. `{requirements}` is its IDs and texts, one to a line (`- 54.1: <text>`). Two parts follow the role's text, before the fixed line and the project's own text: the interface, and what the role may change (`changes`) and read (its own list of `reads`). The file is a part of the prompt: `--parts` and `--stamp` give its SHA-256 and path (`.watchbill/issues/<issue>.yml`) as the second part, after the role. Text of the file is put in as it is and is never read for placeholders.
@@ -525,6 +528,7 @@ wb clean <view>           # removes that view with its work
 - **What it says first:** on standard output, `Removing <folder>` for each view it will remove and `Keeping <folder>: <what is left>` for each view it keeps, all of them before the first removal. The words are those of `git clean`. `--dry-run` (`-n`) says `Would remove` and removes nothing.
 - **A view with work left** is kept unless it is named: `wb clean <view>`, with the name of its folder or its whole path as `wb view --kept` prints it, removes it with its work, and says first each commit (its short name and subject) and each path it loses, 20 of each at most and then `and <k> more commits` or `and <k> more paths`. Naming it is the waiver; there is no `--force`. Only a view of the listing is taken: a path elsewhere, `..` or a link is refused.
 - **Never removed:** a view that git could not read (a FIFO for an object, a view that is not as `wb` made it), and a view whose session runs, named or not. A view whose session was cut off is kept unless it is named. `wb clean` never removes the checkout, a branch or the lines of a session, and it removes only a folder directly below the folder of the views.
+- **A job that is done** (#282): a view that was read, whose session ended and whose commits are all in the default branch, with no path uncommitted, is removed where its job is done ([A job is done](#a-job-is-done)). A commit of a view is in the default branch only where that very commit was merged: a take-back makes new commits, and those it took are not counted as left. A done job's view with a commit that the default branch lacks is kept and named.
 - **Not built here:** the worktrees of sessions out of sight (#140) moved to 0.13.0, so `wb clean` handles kept views only.
 - **A session that is starting:** `wb start` writes `outcome: running`, with its process ID and start time, before it writes the file `folder` and before it posts the stamp, so a view is never without the mark of a `wb` that is alive, and a view named to `wb clean` while its session starts is not removed.
 - **The exit status:** 0 it is done or there is nothing to remove; 1 a named view is not removed (not a view of this repository, not read, its session runs, or it could not be removed), written as `wb clean: limit: …`; 2 it was used wrongly or this folder is not in a git repository.
@@ -778,7 +782,7 @@ With `classed` written, and the patterns of `watchbill.yml` in place:
 
 ```sh
 wb start planner 54     # writes .watchbill/issues/54.yml on the branch issue-54
-wb accept 54        # the person accepts it, and wb commits the acceptance (wb plan accept 54 for a plan)
+wb plan accept 54   # the person accepts it, and wb commits the acceptance
 wb start tester 54        # the tests, red
 wb answer 54        # the person answers what a session asked, any time it asked
 wb start build 54         # the code, committed; wb pushes it and opens the change as a draft
@@ -801,6 +805,14 @@ Each command posts its stamp and starts its session. After the tester, the build
 - Keep the session's last message and hand it on (#88, planned for 0.12.0).
 - Know whether a session of the same role already runs on the issue (#88, planned for 0.12.0).
 - Say what the session does with its prompt. The stamp says what was handed out and started.
+
+## A job is done
+
+`wb accept <issue>` accepts the work (#282). Where the issue's file is accepted as it stands, and a role has committed work on the branch of the issue, a person says that the work is as wanted, at any stage: after the build alone, or after the review and the fix. It says first `accepting the work <commit> (not run: <roles>)`, the commit being the head of the branch, and the roles whose stamp does not count. It then writes `.watchbill/issues/<issue>.finished`, beside `.accepted`, and commits it alone on the branch of the issue: the lines `commit:`, `by:`, `time:` and, where a role did not run, `not run:`. A record is never written over: after a later commit voided it, it is removed in a commit of its own, and `wb accept` is run again. It holds while the tip of the branch is the commit that added it, whose parent is the commit it names: any later commit voids it. The signed tag of the acceptances is #235's, and is made beside the record.
+
+It ends with 1, writing nothing, where a limit is not passed: no tester, build or fix stamp counts (no role has committed work); a question is open; a view is kept with work not taken back; the change of the branch touches classed code, which needs a person as verifier (`classed_code.verifier` of the rule table); the checkout is not on the branch of the issue or differs from `HEAD`; there is no `issue_comments` to read the roles from. Skipping a review is a person's choice; a limit is not. `--no-commit` writes the record and says the commit, which then is not an acceptance until it is committed.
+
+Where a job is to be closed everywhere, `wb accept` is run before the merge: a merged job with no final acceptance, in a clone that holds none of its branches, is not known to be done, and no pattern of the tracker decides it. A job is done by this acceptance or by a merge ([Where each issue stands](#where-each-issue-stands)). Then `wb status` does not list it, `wb revert` of it ends with 1, and `wb clean` removes the views of it whose commits are all in the default branch and that hold nothing uncommitted (#176).
 
 ## Where each issue stands
 
@@ -842,6 +854,7 @@ Questions open:
 - **An issue that is done** is not listed, also when its file is on the default branch. Its branch is done when it is merged into the default branch; or when its whole change is one commit on it, found by `git patch-id --stable` of the diff from the merge base to the branch against each commit since the merge base (a squash merge, as a pull request is merged); or when it is a local branch whose upstream at `origin` is gone, as after `git fetch --prune`. The limits: a squash whose diff differs from the branch's (a branch not brought up to date with the default branch, or a squash edited at the server) is not found, and the issue stays listed; an issue merged since the last fetch stays listed until a fetch, and a branch that is only on the server shows once it is fetched.
 - **The line of an issue:** its number, its branch and, once there is one, its open change from `change_of_branch` as `#<n>`; where the local branch holds commits that the branch at `origin` does not (or `origin` has none of that name), how many: `129  issue-129  #178  1 not pushed`. It says what is, never what to run. No title is printed in the list. A branch with no issue's file on it yet is under `Not planned`.
 - **`wb status <issue>`** prints that issue whatever its state, with its title (the first line of `issue_address`, escaped) last on its line, then, where an `[answers]` first line names a role (#226), `waits for: <role> (<question>)`, for the newest such answer, as `waits for: tester (54.build.q3)`, unless that role has a stamp on the issue newer than the answer (it has acted since; `person` has no stamp), and `waits for: person (…)` where a person is to act. It is a fact about the issue, not a command, and it is read from the comments `wb status` reads already: nothing more of the tracker. An answer of 0.10.0, `[answers] 54.build q3`, closes its question and names no role. Under it `Worked out from:` and the lines it was worked out from: its stamps, questions and answers, and the branch and files it found. An issue that is not in the flow has the line `not in the flow: ...` first.
+- **A job that is done** (#282) is not in the list, not even as a stage. `wb status <issue>` prints `Done:` in place of its step, and what closed it: `merged: into <default branch>`, or the acceptance of the work. It also prints one line for each acceptance that holds, by its object: `accepted: the issue's file <12 hex digits> (<who>, <time>)` and `accepted: the work <12 hex digits> (<who>, <time>; not run: <roles>)`. Done by a merge is read from git alone: a branch of the issue is there, none holds a commit that the default branch lacks (a merge, a squash, or an upstream gone), one holds a commit after the acceptance that changes a path other than the issue's own files, and the default branch holds the issue's file with an acceptance that holds for it. With no branch of the issue left, or with none that holds work, git does not say the change was its, and the job is not done by a merge. A record of the acceptance of the work that is in the default branch beside the file and its acceptance makes the job done, with no branch needed. There is no stage word `Done`: `--stage` knows none.
 - **`wb status --stage <heading>`** prints only that heading, for example `wb status --stage "not planned"`. The names are matched without regard to case; `Questions open` and `Not read` too. A name that is not known is used wrongly.
 - **What it reads:** the branches with git, the issue's file and its acceptance from the branch with `git show`, never by switching branches, and the comments through `issue_comments` and the change through `change_of_branch`, each once for each issue listed (`issue_address` for one issue). It writes nothing, and asks the network only through those patterns.
 - **The exit status:** 0 when every issue could be read; 1 when a pattern failed for an issue (it is listed last, under `Not read`, with why; the others are printed); 2 when it was used wrongly, Watchbill is not set up, or no default branch is found.
@@ -963,19 +976,19 @@ questions: [<what the issue leaves open>]
 - Every key is there, in this order. A list may be empty. A key that is not on the list is refused. A requirement holds `id`, `text`, `source` and, if it has one, `guard`, in that order.
 - `issue` is the name given to `wb accept`. An ID is unique in the file. A path is relative to the root of the repository, has no `..`, and names nothing under `.watchbill/`.
 
-`wb accept <issue>` accepts the file. It reads it, names the first fault of form, and refuses while `questions` holds anything, naming them. It checks the lists ([below](#the-lists-checked-at-acceptance)). Then it says what it will write, writes `.watchbill/issues/<issue>.accepted`, and commits it:
+`wb plan accept <issue>` accepts the file. It reads it, names the first fault of form, and refuses while `questions` holds anything, naming them. It checks the lists ([below](#the-lists-checked-at-acceptance)). Then it says what it will write, writes `.watchbill/issues/<issue>.accepted`, and commits it:
 
 ```
-$ wb accept 54
-wb accept: will write .watchbill/issues/54.accepted:
+$ wb plan accept 54
+wb plan accept: will write .watchbill/issues/54.accepted:
 sha256: 5d41402abc4b2a76b9719d911017c592ae0a1b3c1e2f8d3b0a7c9e4f6d2b8a11
 by: Ada Lovelace <ada@example.org>
 time: 2026-11-18T09:30:00Z
 
-wb accept: .watchbill/issues/54.yml is accepted.
-wb accept: will commit .watchbill/issues/54.accepted alone, with the message "Accept the issue's file (54)", as Ada Lovelace <ada@example.org>.
-wb accept: committed .watchbill/issues/54.accepted alone (3f9a1c2). What was staged before stays staged.
-wb accept: wb pushes nothing. Push the branch issue-54 so that the history elsewhere holds the acceptance.
+wb plan accept: .watchbill/issues/54.yml is accepted.
+wb plan accept: will commit .watchbill/issues/54.accepted alone, with the message "Accept the issue's file (54)", as Ada Lovelace <ada@example.org>.
+wb plan accept: committed .watchbill/issues/54.accepted alone (3f9a1c2). What was staged before stays staged.
+wb plan accept: wb pushes nothing. Push the branch issue-54 so that the history elsewhere holds the acceptance.
 ```
 
 The commit is made by `wb accept`, alone, so the history holds the acceptance before any work it allows. Only that one file is committed: whatever else is staged stays staged. It is made as the `user.name` and `user.email` of git, on the issue's branch. Before it writes anything, `wb accept` refuses with 1 when the checkout is not on that branch (the pattern `branch` of `watchbill.yml`, naming both), or when the issue's file is not committed in `HEAD` or differs from it: the acceptance holds for the file as the history has it. When the commit fails (a hook, a signing key), the acceptance stays written and is unstaged again, `wb accept` says so and ends with 1, and the person commits it with the command it prints. A commit that holds more than the acceptance (a hook of git added a file) is refused with 1 and named. `wb` pushes nothing. `wb accept --no-commit` keeps the form of 0.0.9: it writes the acceptance and prints the command, and makes none of those refusals.
@@ -1022,7 +1035,7 @@ The exit status:
 
 - **0**: the file is accepted.
 - **1**: it is refused: no file, a fault of form, a question, an acceptance that is there, no git identity, a path of `changes` under `build_files`, a list that leaves out what a file needs to build, `needs` that ends with anything but 0, or a `watchbill.yml` the loader refuses.
-- **2**: `wb accept` was used wrongly (no issue, a word that is not known, a name that is not an issue), the folder is not in a git repository, or Watchbill is not set up.
+- **2**: `wb accept` was used wrongly (no issue, a word that is not known, a name that is not an issue), the issue's file is not accepted (`wb plan accept` accepts it), the folder is not in a git repository, or Watchbill is not set up.
 
 ## Installing it
 

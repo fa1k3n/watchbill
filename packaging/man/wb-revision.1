@@ -3,11 +3,17 @@
 wb\-revision \- print the version, the revision and its manifest
 .SH SYNOPSIS
 .nf
-\fBwb\fR revision
+\fBwb\fR revision [\-q | \-\-quiet]
 .fi
 .SH DESCRIPTION
 .PP
 Print the version of the package, the hash of its revision and the manifest: the hash of every file the revision holds. Writes nothing.
+.PP
+\-q (\-\-quiet) is taken and changes nothing: what it prints is what a script reads.
+.SH OPTIONS
+.TP
+.B \-q, \-\-quiet
+Taken, and changes nothing: what the command prints is what a script reads.
 .SH EXIT STATUS
 .TP
 .B 0

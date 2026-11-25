@@ -113,7 +113,7 @@ fn bench() -> Bench {
     git(&repo.path, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
     git(&repo.path, &["checkout", "-q", "-b", "issue-54"]);
     put(&repo.path, ".watchbill/issues/54.yml", ISSUE_54);
-    let run = wb(&repo.path, &["accept", "54", "--no-commit"], "");
+    let run = wb(&repo.path, &["plan", "accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     git(&repo.path, &["add", "--", ".watchbill/issues"]);
     git(&repo.path, &["commit", "-q", "-m", "The issue's file of 54"]);
@@ -286,7 +286,7 @@ fn test_WB_VIEW_43_in_a_folder_prints_the_files_of_the_view_in_it_and_a_count_fo
     let file = ISSUE_54.replace("changes: [src/brake.c, tests/test_brake.c, src/new.c]", "changes: [src/brake.c, docs]");
     put(&bench.repo.path, ".watchbill/issues/54.yml", &file);
     fs::remove_file(bench.repo.path.join(".watchbill/issues/54.accepted")).unwrap();
-    let run = wb(&bench.repo.path, &["accept", "54", "--no-commit"], "");
+    let run = wb(&bench.repo.path, &["plan", "accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     git(&bench.repo.path, &["add", "--", ".watchbill/issues"]);
     git(&bench.repo.path, &["commit", "-q", "-m", "A folder in changes"]);
@@ -713,7 +713,7 @@ fn test_WB_VIEW_87_an_issue_s_file_not_accepted_or_not_committed_ends_with_1() {
     let bench = bench();
     // Not committed: a new issue's file, accepted and left in the working tree.
     put(&bench.repo.path, ".watchbill/issues/55.yml", &ISSUE_54.replace("'54'", "'55'"));
-    let run = wb(&bench.repo.path, &["accept", "55", "--no-commit"], "");
+    let run = wb(&bench.repo.path, &["plan", "accept", "55", "--no-commit"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let run = bench.view(&["55", "build"]);
     assert_eq!(code(&run), Some(1));

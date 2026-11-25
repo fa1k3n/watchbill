@@ -3,7 +3,7 @@
 wb\-compare \- say what changed between two revisions
 .SH SYNOPSIS
 .nf
-\fBwb\fR compare [\-\-from <path>] <revision> <revision>
+\fBwb\fR compare [\-\-from <path>] <revision> <revision> [\-q | \-\-quiet]
 .fi
 .SH DESCRIPTION
 .PP
@@ -12,10 +12,15 @@ Say what changed between two revisions, each named by its version or its hash: o
 When the revisions are the same, nothing is printed. Otherwise there is one line for each file, sorted by path: added:, removed: or changed: and the path. Then, when a file changed, an empty line and the unified diff of each changed file, headed with a/ and b/ and the path, a being the first revision. The diff is made by git diff \-\-no\-index with fixed options and no configuration, so that it is the same for everyone.
 .PP
 Ends with 0 when they are the same, 1 when they differ or the files of a revision are refused, 2 when a revision is not found or it was used wrongly. Writes nothing. It asks nothing of the network.
+.PP
+\-q (\-\-quiet) is taken and changes nothing: what it prints is what a script reads.
 .SH OPTIONS
 .TP
 .B \-\-from <path>
 The root of a repository pinned to the other revision. Its version is the line watchbill: of .watchbill/watchbill.yml, and its files must give the hash of the line revision:.
+.TP
+.B \-q, \-\-quiet
+Taken, and changes nothing: what the command prints is what a script reads.
 .SH EXIT STATUS
 .TP
 .B 0

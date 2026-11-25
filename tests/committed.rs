@@ -58,7 +58,7 @@ fn accepted_apart() -> Folder {
     let folder = set_up();
     commit(&folder.path, &[".watchbill"]);
     put(&folder.path, YML, GOOD);
-    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     folder
 }
@@ -115,7 +115,7 @@ fn test_WB_TASK_13_a_file_that_is_not_committed_is_refused_with_its_name() {
 fn test_WB_TASK_13_nothing_is_committed_when_the_repository_has_no_commit_yet() {
     let folder = set_up();
     put(&folder.path, YML, GOOD);
-    assert_eq!(code(&wb(&folder.path, &["accept", "54", "--no-commit"], "")), Some(0));
+    assert_eq!(code(&wb(&folder.path, &["plan", "accept", "54", "--no-commit"], "")), Some(0));
     refused(&prompt(&folder.path, "build", &[]), YML);
 }
 
@@ -126,7 +126,7 @@ fn test_WB_TASK_13_a_file_changed_in_the_working_tree_after_its_commit_is_refuse
     // Accepted again, so that only the commit can tell that the file is not as it was.
     put(&folder.path, YML, &GOOD.replace("reads the file", "reads a file"));
     std::fs::remove_file(folder.path.join(ACCEPTED)).unwrap();
-    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     for role in ROLES {
         refused(&prompt(&folder.path, role, &[]), YML);
@@ -145,7 +145,7 @@ fn test_WB_TASK_13_a_checkout_that_git_calls_clean_is_not_refused_for_its_line_e
     std::fs::remove_file(folder.path.join(YML)).unwrap();
     git(&folder.path, &["checkout", "--", YML]);
     assert!(read(&folder.path.join(YML)).contains("\r\n"));
-    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     commit(&folder.path, &[ACCEPTED]);
     std::fs::remove_file(folder.path.join(ACCEPTED)).unwrap();
@@ -257,7 +257,7 @@ fn test_WB_TASK_18_breakdown_none_is_refused_for_each_role() {
 fn test_WB_TASK_16_wb_accept_says_that_the_acceptance_is_committed_alone_with_the_command() {
     let folder = set_up();
     put(&folder.path, YML, GOOD);
-    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let said = text(&run.stdout);
     assert!(said.contains("alone"), "{}", said);

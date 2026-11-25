@@ -76,6 +76,10 @@ struct Report {
 
 impl Report {
     fn say(&mut self, kind: Kind, check: &str, text: &str) {
+        // `-q` leaves out the lines that only say all holds (#285).
+        if matches!(kind, Kind::Ok) && crate::refusal::quiet() {
+            return;
+        }
         let word = match kind {
             Kind::Ok => "ok",
             Kind::Warning => "warning",

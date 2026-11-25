@@ -26,6 +26,9 @@ use crate::{answer, issue, prompt, starter};
 /// The headings of the steps, in the order of the flow.
 pub const STEPS: [&str; 7] = ["Not planned", "Planned", "Accepted", "Tested", "Built", "Reviewed", "Fixed"];
 
+/// The heading of a job that is done (#282): printed for `wb status <issue>` alone, never in the list, and not a stage.
+pub const DONE: &str = "Done";
+
 /// The heading after the steps, that lists the questions no person has answered.
 pub const QUESTIONS: &str = "Questions open";
 
@@ -56,6 +59,20 @@ struct Found {
     from: Vec<String>,
     /// The rounds that are known to have brought nothing back (#300), as the role and the number.
     empty: Vec<(String, u64)>,
+    /// The roles whose stamps count, in the order of the stamps.
+    roles: Vec<String>,
+    /// One line for each acceptance that holds, by its object (#282).
+    acceptances: Vec<String>,
+    /// How the job was closed, where it was: by the acceptance of the work or by a merge (#282).
+    closed: Option<Closed>,
+}
+
+/// How a job is done (#282).
+struct Closed {
+    /// The line that says it, for `wb status <issue>`.
+    line: String,
+    /// The sentence that says it, for a refusal.
+    said: String,
 }
 
 /// A branch or a remote branch: how it is read with `git show`, and the name it has.
@@ -269,6 +286,120 @@ fn voided(root: &str, number: &str, body: &str, planner: bool, from: &mut Vec<St
     }
 }
 
+/// The value of the line `<key>: ` of an acceptance's text.
+fn value_of<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+    text.lines().find_map(|line| line.strip_prefix(key))
+}
+
+/// The line `accepted: the issue's file ...` of an acceptance that holds, by its object (#282).
+fn file_line(body: &str) -> String {
+    let hash: String = value_of(body, "sha256: ").unwrap_or("").chars().take(12).collect();
+    format!("accepted: the issue's file {} ({}, {})", issue::shown(&hash), issue::shown(value_of(body, "by: ").unwrap_or("")), issue::shown(value_of(body, "time: ").unwrap_or("")))
+}
+
+/// The name of a ref as a person writes it: without `refs/heads/` and `refs/remotes/`.
+fn short_ref(full: &str) -> &str {
+    full.strip_prefix("refs/heads/").or_else(|| full.strip_prefix("refs/remotes/")).unwrap_or(full)
+}
+
+/// Whether the default branch holds the issue's file and an acceptance that holds for it.
+fn default_holds(root: &str, default: &str, number: &str) -> bool {
+    let file = format!("{}/{}.yml", issue::FOLDER, number);
+    let accepted = format!("{}/{}.accepted", issue::FOLDER, number);
+    let (Some(bytes), Some(body)) = (git(root, &["show", &format!("{}:{}", default, file)]), git(root, &["show", &format!("{}:{}", default, accepted)])) else {
+        return false;
+    };
+    let hash = crate::manifest::hash_bytes(&bytes);
+    String::from_utf8_lossy(&body).lines().find_map(|line| line.strip_prefix("sha256: ")) == Some(hash.as_str())
+}
+
+/// How a job is closed, from git alone (#282): the record of the acceptance of its work holds on a branch of the issue,
+/// or no branch of the issue is in the flow and the default branch holds the issue's file with its acceptance. The
+/// record is read on every branch of the issue, a local one before one at `origin`.
+fn closing(root: &str, number: &str, pattern: &str, all: &[Branch], flow: &[String], default: &str) -> Option<Closed> {
+    let mine = || all.iter().filter(|branch| is_of(pattern, number, &branch.name));
+    let work = |record: &crate::finished::Record, on: &str| {
+        let said = crate::finished::said(&record.commit, &[]);
+        let not_run = if record.not_run.is_empty() { String::new() } else { format!("; not run: {}", issue::shown(&record.not_run.join(", "))) };
+        let line = format!("accepted: {} ({}, {}{})", said, issue::shown(&record.by), issue::shown(&record.time), not_run);
+        Closed { line, said: format!("its work is accepted ({}, on {})", said, issue::shown(on)) }
+    };
+    if let Some((branch, record)) = mine().find_map(|branch| crate::finished::holding(root, number, &branch.full).map(|record| (branch, record))) {
+        return Some(work(&record, &branch.name));
+    }
+    // The record reached the default branch with the merge of the branch: no branch is needed then, but a branch of the
+    // issue in the flow, with a commit after it, puts the job back (#282).
+    if !mine().any(|branch| flow.contains(&branch.full)) && default_holds(root, default, number) {
+        let record = git(root, &["show", &format!("{}:{}", default, crate::finished::path_of(number))]).and_then(|text| crate::finished::parse(&String::from_utf8_lossy(&text)));
+        if let Some(record) = record {
+            return Some(work(&record, short_ref(default)));
+        }
+    }
+    // A branch of the issue is there, none is in the flow, one holds work after the acceptance, and the default branch
+    // holds the file with its acceptance. With no branch left, or one with no work, git does not say that the change
+    // on the default branch was this issue's.
+    if mine().next().is_none() || mine().any(|branch| flow.contains(&branch.full)) || !default_holds(root, default, number) || !mine().any(|branch| has_work(root, number, &branch.full)) {
+        return None;
+    }
+    let into = short_ref(default);
+    Some(Closed { line: format!("merged: into {}", issue::shown(into)), said: format!("its change is merged into {}", issue::shown(into)) })
+}
+
+/// Whether the branch `full` holds work after the commit that added the acceptance: a path other than the issue's own
+/// files changes between that commit and the branch's tip. Trees are compared, so a squash does not hide it.
+fn has_work(root: &str, number: &str, full: &str) -> bool {
+    let accepted = format!("{}/{}.accepted", issue::FOLDER, number);
+    let Some(added) = git(root, &["log", "--diff-filter=A", "--format=%H", "-1", full, "--", &accepted]) else { return false };
+    let added = String::from_utf8_lossy(&added).trim().to_string();
+    if added.is_empty() {
+        return false;
+    }
+    let own: Vec<String> = ["yml", "accepted", "finished"].iter().map(|end| format!("{}/{}.{}", issue::FOLDER, number, end)).collect();
+    let Some(names) = git(root, &["diff", "--name-only", "--no-renames", "-z", &added, full]) else { return false };
+    names.split(|byte| *byte == 0).filter(|name| !name.is_empty()).any(|name| !own.iter().any(|one| one.as_bytes() == name))
+}
+
+/// Why the job `number` is done, in words, or none where it is not or git cannot say (#282): for `wb revert` and for
+/// the views that `wb clean` removes.
+pub(crate) fn done_of(root: &str, number: &str) -> Option<String> {
+    let pattern = prompt::pattern_of(root, "branch").ok().flatten().unwrap_or_else(|| "issue-{issue}".to_string());
+    let default = default_branch(root)?;
+    let flow = in_flow(root, &default, &pattern).ok()?;
+    closing(root, number, &pattern, &branches(root), &flow, &default).map(|closed| closed.said)
+}
+
+/// Whether the commit `commit` (as the views name it) is in the default branch: git says it is an ancestor of it.
+pub(crate) fn in_default(root: &str, commit: &str) -> bool {
+    if !crate::finished::is_object(commit) {
+        return false;
+    }
+    let Some(default) = default_branch(root) else { return false };
+    crate::detect::git_output(&["-C", root, "merge-base", "--is-ancestor", &format!("{}^{{commit}}", commit), &default], None).is_some_and(|run| run.status.code() == Some(0))
+}
+
+/// What `wb accept` needs to know of a job (#282).
+pub(crate) struct Inspected {
+    /// The roles whose stamps count: after the last planner, not taken back, a round that brought nothing back left out.
+    pub roles: Vec<String>,
+    /// The questions no answer has closed.
+    pub questions: Vec<String>,
+}
+
+/// Reads the job `number` as `wb status` does, for `wb accept`: `Err` says why it cannot be read.
+pub(crate) fn inspect(root: &str, number: &str, state: Option<&std::path::Path>) -> Result<Inspected, String> {
+    let get = |key: &str| prompt::pattern_of(root, key).map_err(|why| why.to_string());
+    let branch = get("branch")?.unwrap_or_else(|| "issue-{issue}".to_string());
+    let Some(comments) = get("issue_comments")? else {
+        return Err("watchbill.yml has no `issue_comments`, so the roles that ran and the questions are not known".to_string());
+    };
+    let patterns = Patterns { branch, comments: Some(comments), change_of_branch: None, issue_address: None };
+    let default = default_branch(root).ok_or_else(|| "no default branch was found".to_string())?;
+    let flow = in_flow(root, &default, &patterns.branch)?;
+    let starts = state.map(crate::kept::Starts::read);
+    let found = read_issue(root, number, &patterns, &branches(root), &flow, &default, false, starts.as_ref())?;
+    Ok(Inspected { roles: found.roles, questions: found.questions })
+}
+
 /// Reads one issue, or says why it could not be read.
 fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flow: &[String], default: &str, with_title: bool, starts: Option<&crate::kept::Starts>) -> Result<Found, String> {
     let (comments, pattern) = (patterns.comments.as_deref(), patterns.branch.as_str());
@@ -286,10 +417,11 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
     let counted = starter::counted(&lines.join("\n"));
     let (file, acceptance) = on_branches(root, number, pattern, all, &mut from);
     // An acceptance is void after a source added to the plan, or a planner round, later than it (#290).
-    let accepted = match acceptance {
+    let accepted = match &acceptance {
         None => false,
-        Some(body) => !voided(root, number, &body, comments.is_some() && has_planner(&lines), &mut from)?,
+        Some(body) => !voided(root, number, body, comments.is_some() && has_planner(&lines), &mut from)?,
     };
+    let mut acceptances: Vec<String> = acceptance.iter().filter(|_| accepted).map(|body| file_line(body)).collect();
     // The branch that is shown: the first of the issue's branches in the flow, a local one before one at `origin`.
     let shown = all.iter().find(|branch| is_of(pattern, number, &branch.name) && flow.contains(&branch.full));
     let (mut changes, mut unpushed) = (Vec::new(), 0);
@@ -329,7 +461,21 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
     empty.retain(|round| stamps[since..].iter().any(|(role, number)| *role == round.0 && *number == round.1));
     let stamps: Vec<(String, u64)> = stamps[since..].iter().filter(|(role, round)| !empty.iter().any(|(name, number)| name == role && number == round)).cloned().collect();
     let has = |role: &str| stamps.iter().any(|(name, _)| name == role);
+    let mut roles: Vec<String> = Vec::new();
+    for (name, _) in &stamps {
+        if !roles.contains(name) {
+            roles.push(name.clone());
+        }
+    }
+    let closed = closing(root, number, pattern, all, flow, default);
+    if let Some(closed) = &closed {
+        from.push(format!("done: {}", closed.said));
+        if closed.line.starts_with("accepted: ") {
+            acceptances.push(closed.line.clone());
+        }
+    }
     let step = match stamps.last().map(|(name, _)| name.as_str()) {
+        _ if closed.is_some() => DONE,
         Some("fix") => "Fixed",
         Some("review") => "Reviewed",
         _ if has("build") => "Built",
@@ -346,7 +492,7 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
     }
     let questions = answer::open_names(number, &counted);
     let waits = answer::waits_for(number, &counted);
-    Ok(Found { number: number.to_string(), branch: shown.map(|branch| branch.name.clone()), changes, unpushed, title, step, questions, waits, from, empty })
+    Ok(Found { number: number.to_string(), branch: shown.map(|branch| branch.name.clone()), changes, unpushed, title, step, questions, waits, from, empty, roles, acceptances, closed })
 }
 
 /// The patterns of `watchbill.yml` that `wb status` reads.
@@ -447,11 +593,23 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
     }
 
     let show = |heading: &str| stage.map_or(true, |wanted| wanted == heading);
+    // A job that is done is not listed (#282): only `wb status <issue>`, asked by name, says it.
+    if only.is_none() {
+        read.retain(|found| found.closed.is_none());
+    }
     let mut sections: Vec<String> = Vec::new();
-    for heading in STEPS.iter().filter(|heading| show(heading)) {
+    for heading in STEPS.iter().chain([&DONE]).filter(|heading| show(heading)) {
         let lines: String = read.iter().filter(|found| found.step == *heading).map(line_of).collect();
         if !lines.is_empty() {
             sections.push(format!("{}:\n{}", heading, lines));
+        }
+    }
+    // One issue: each acceptance that holds, by its object, and the merge that closed it (#282).
+    if let (Some(_), None, Some(found)) = (only, stage, read.first()) {
+        let mut lines: Vec<String> = found.acceptances.clone();
+        lines.extend(found.closed.iter().map(|closed| closed.line.clone()).filter(|line| line.starts_with("merged: ")));
+        if !lines.is_empty() {
+            sections.push(lines.iter().map(|line| format!("{}\n", line)).collect());
         }
     }
     if show(QUESTIONS) {

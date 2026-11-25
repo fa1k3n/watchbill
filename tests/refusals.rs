@@ -75,7 +75,7 @@ fn test_WB_CMD_27_a_refusal_of_each_command_starts_with_limit_after_the_command_
     fs::write(&org, "levels: [public]\nrunners:\n  stand-in:\n    tools: this machine\n    model: none\n    agreement: none\n    up_to: public\n    start: [/bin/true]\n").unwrap();
     refused_as(&start_with(at, &org, false, &["start", "build", "174", "--runner", "stand-in"]), "wb start build", "limit");
     // accept: no issue's file.
-    refused_as(&wb(at, &["accept", "999"], ""), "wb accept", "limit");
+    refused_as(&wb(at, &["plan", "accept", "999"], ""), "wb plan accept", "limit");
     // view: an issue with no file.
     refused_as(&wb(at, &["view", "999", "build"], ""), "wb view", "limit");
     // answer: no open question of that name.
@@ -95,7 +95,7 @@ fn test_WB_CMD_27_a_refusal_of_each_command_starts_with_limit_after_the_command_
     refused_as(&wb(at, &["status"], ""), "wb status", "limit");
     refused_as(&wb(at, &["view", "174", "build"], ""), "wb view", "limit");
     // Exit 2, used wrongly or not set up, is no refusal and has no label.
-    for args in [&["accept"][..], &["view", "174"], &["revert", "174"], &["prompt"], &["start"]] {
+    for args in [&["plan", "accept"][..], &["view", "174"], &["revert", "174"], &["prompt"], &["start"]] {
         let run = wb(at, args, "");
         assert_eq!(code(&run), Some(2), "{:?}: {}", args, text(&run.stderr));
         let err = text(&run.stderr);
@@ -117,8 +117,8 @@ fn test_WB_CMD_27_a_refusal_of_wb_revision_starts_with_limit() {
 fn test_WB_CMD_27_a_refusal_of_several_lines_carries_the_label_on_its_first() {
     let folder = set_up();
     put(&folder.path, ".watchbill/issues/175.yml", &BARE_ISSUE.replace("{issue}", "175").replace("questions: []\n", "questions:\n  - Which name?\n  - Which value?\n"));
-    let err = refused_as(&wb(&folder.path, &["accept", "175", "--no-commit"], ""), "wb accept", "limit");
-    let first = err.lines().position(|line| line.starts_with("wb accept: limit: ")).unwrap();
+    let err = refused_as(&wb(&folder.path, &["plan", "accept", "175", "--no-commit"], ""), "wb plan accept", "limit");
+    let first = err.lines().position(|line| line.starts_with("wb plan accept: limit: ")).unwrap();
     assert!(err.lines().nth(first).unwrap().contains("holds 2 questions"), "{}", err);
     assert!(err.lines().nth(first + 1).unwrap().starts_with("  - "), "{}", err);
 }
@@ -135,7 +135,7 @@ fn not_on_the_branch() -> Folder {
 #[test]
 fn test_WB_CMD_28_the_guard_of_wb_accept_names_no_commit_a_flag_of_wb_accept() {
     let folder = not_on_the_branch();
-    let err = refused_as(&wb(&folder.path, &["accept", "54"], ""), "wb accept", "guard");
+    let err = refused_as(&wb(&folder.path, &["plan", "accept", "54"], ""), "wb plan accept", "guard");
     assert!(err.contains("--no-commit"), "{}", err);
     let help = wb(&folder.path, &["help", "accept"], "");
     assert!(text(&help.stdout).contains("--no-commit"), "{}", text(&help.stdout));
@@ -145,7 +145,7 @@ fn test_WB_CMD_28_the_guard_of_wb_accept_names_no_commit_a_flag_of_wb_accept() {
 fn test_WB_CMD_29_no_commit_passes_the_guard_of_wb_accept() {
     assert!(watchbill::refusal::GUARDS.contains(&("accept", "--no-commit")));
     let folder = not_on_the_branch();
-    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
+    let run = wb(&folder.path, &["plan", "accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(labelled(&text(&run.stderr), "wb accept").is_none(), "{}", text(&run.stderr));
     assert!(folder.path.join(".watchbill/issues/54.accepted").is_file());
@@ -331,8 +331,8 @@ fn test_WB_CMD_35_with_no_pattern_branch_wb_accept_refuses_as_a_limit_that_names
     assert_ne!(yml, without);
     fs::write(config(&folder.path), without).unwrap();
     commit_config(&folder.path);
-    let err = refused_as(&wb(&folder.path, &["accept", "54"], ""), "wb accept", "limit");
-    assert!(labelled(&err, "wb accept").unwrap().contains("--no-commit"), "{}", err);
-    let run = wb(&folder.path, &["accept", "54", "--no-commit"], "");
+    let err = refused_as(&wb(&folder.path, &["plan", "accept", "54"], ""), "wb plan accept", "limit");
+    assert!(labelled(&err, "wb plan accept").unwrap().contains("--no-commit"), "{}", err);
+    let run = wb(&folder.path, &["plan", "accept", "54", "--no-commit"], "");
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
 }

@@ -24,6 +24,12 @@ pub fn revert(root: &str, on: On, role: &str, round: Option<u64>, err: &mut dyn 
         On::Issue(issue) => ("issue", issue, "issue_comments", "issue_comment"),
         On::Change(change) => ("change", change, "change_comments", "change_comment"),
     };
+    // A job that is done is not taken back by a marker (#282): its work is accepted, or its change is merged.
+    if let On::Issue(issue) = on {
+        if let Some(why) = crate::status::done_of(root, issue) {
+            return crate::refusal::limit(err, "wb revert", format_args!("issue {} is done: {}, and there is no turning back by a marker. Nothing is posted.", crate::issue::shown(issue), why));
+        }
+    }
     if role == "planner" {
         return crate::refusal::limit(
             err,
@@ -88,6 +94,7 @@ pub fn revert(root: &str, on: On, role: &str, round: Option<u64>, err: &mut dyn 
             return crate::refusal::limit(err, "wb revert", format_args!("{}. The marker may not be posted.", why));
         }
     }
+    // Said with `-q` too: the commits stay, and taking them back is the person's.
     let _ = writeln!(err, "wb revert: the commits of the steps taken back stay on the branch, and the issue's file, its acceptance and the change are as they were. Taking commits back is git's.");
     0
 }

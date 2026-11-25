@@ -30,6 +30,7 @@ pub mod rules;
 pub mod issue;
 pub mod layout;
 pub mod sessions;
+pub mod stamps;
 pub mod signers;
 pub mod starter;
 pub mod status;
@@ -168,7 +169,7 @@ pub const USAGE: &str = "usage:
             (edited after the acceptance), not accepted (a source added after
             the acceptance), not accepted (planned again after the
             acceptance), or accepted by whom and when; the planner's stamps
-            are read whole by issue_comment_bodies. A source or a [stamp]
+            are read from the job's ref. A source or a [stamp]
             planner of the same second as the acceptance or later voids it,
             and no prompt of the issue is handed out until wb plan accept
             again; a stamp that a [revert] took back counts for nothing. wb
@@ -228,12 +229,18 @@ pub const USAGE: &str = "usage:
             and no issue. It checks what prompt checks, that a fix
             follows a review, that no classed code is in its way (classed: of
             watchbill.yml), that the runner has start in the organisation's
-            file, and that standard input and output are a terminal; then say
-            and post the stamp by issue_comment of watchbill.yml (by
-            change_comment for a review or a fix of a change with no issue),
-            and run the runner's start in the root of the checkout. The runner
-            is --runner, or the organisation's default. The round and the
-            change are worked out from issue_comments, change_comments and
+            file, and that standard input and output are a terminal; then
+            write the stamp of an issue as a commit on refs/watchbill/<issue>,
+            signed by a key of .watchbill/signers with start where the list
+            is there, and push it to origin with no force: a push refused as
+            not a fast-forward ends with 1 and starts nothing, and with no
+            origin the stamp stays local, said. Its copy is posted by
+            issue_comment of watchbill.yml where it is there (a review or a
+            fix of a change with no issue posts the stamp by change_comment),
+            and the runner's start is run in the root of the checkout. The
+            runner is --runner, or the organisation's default. The round is
+            worked out from the stamp commits on the job's ref (from
+            change_comments for a change with no issue), the change from
             change_of_branch; --round and --change win. --prompt, --stamp and
             --parts print as prompt does, and post and start nothing. A view
             of the issue kept with work not taken back, from any role, stops the
@@ -313,10 +320,10 @@ pub const USAGE: &str = "usage:
             origin, holds a commit that the default branch of origin does not:
             git alone says which, and fetches nothing. Its line shows the
             branch, the open change as #<n> (change_of_branch) and how many
-            commits are not pushed. The comments come from issue_comments, and
-            for an accepted issue with a [stamp] planner the whole comments
-            from issue_comment_bodies: an acceptance that a source or a
-            planner round after it voided puts the issue under Planned.
+            commits are not pushed. The stamps are the commits on the job's
+            ref that count, the questions and answers come from
+            issue_comments: an acceptance that a source or a planner round
+            after it voided puts the issue under Planned.
             <issue> prints that issue, in the flow or not, with its title
             (issue_address) and what it was worked out from; --stage <heading>
             prints that heading only, whatever its case. A job whose work is
@@ -361,18 +368,19 @@ pub const USAGE: &str = "usage:
             repository is not set up. Writes nothing. -q (--quiet) is taken
             and changes nothing: what it prints is what a script reads
   revert    take an issue back to before a step, deleting nothing:
-            wb revert <issue> <role> [--round <n>] posts, by issue_comment of
-            watchbill.yml, one comment whose first line is
-            [revert] <role> round <n>, for the last stamp of the role, or round
-            <n>. From that stamp up to the marker no stamp, question or answer
-            counts, for wb start <role>, wb prompt and wb status. wb revert
-            --change <n> <role> posts it on a change with no issue, by
-            change_comment.
+            wb revert <issue> <role> [--round <n>] writes one marker whose
+            first line is [revert] <role> round <n>, for the last stamp of the
+            role, or round <n>, as a commit on refs/watchbill/<issue>, signed
+            and pushed to origin as a stamp is, and posts its copy by
+            issue_comment of watchbill.yml where it is there. From that stamp
+            up to the marker no stamp, question or answer counts, for wb start
+            <role>, wb prompt and wb status. wb revert --change <n> <role>
+            posts it on a change with no issue, by change_comment.
             The branch, the issue's file and its acceptance, and the change are
             not touched: taking commits back is git's. The planner is taken
             back with git, not by a marker. A job that is done is refused. Ends
-            with 0 when the marker is posted, 1 when it was refused or the
-            posting failed, 2 when it was used wrongly or the repository is not
+            with 0 when the marker is written, 1 when it was refused or its
+            writing failed, 2 when it was used wrongly or the repository is not
             set up. -q (--quiet) is taken and changes nothing: what it says,
             that the commits stay, is what a person must know
   clean     remove the views kept on this machine for this repository that
@@ -1231,6 +1239,10 @@ struct Handed {
     stamps: Option<starter::Stamps>,
     /// The level of the repository, for a session that runs in a view (#209): the stamp holds it.
     level: Option<String>,
+    /// The hash of each source of the job (#236), none where there is no plan; and the commit of `HEAD` it is handed out
+    /// from, which the view is made from.
+    job: Vec<String>,
+    base: String,
 }
 
 /// Everything `wb prompt` checks and does before it prints, for the words given: the check of `wb check`,
@@ -1323,16 +1335,11 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
         Err(prompt::Derive::Used(why)) => return Err(used(err, name, &why)),
         Err(prompt::Derive::Refused(why)) => return Err(refused(err, &why)),
     };
-    // A planner round after the acceptance voids it (#290), as `wb status` reads it: from the stamps read for the
-    // round where they were read, else by `issue_comments`; the times by `issue_comment_bodies`.
+    // A planner round after the acceptance voids it (#290), as `wb status` reads it: from the stamps on the job's ref
+    // (#236), with or without a plan.
     if let (Some(file), Some(issue)) = (&file, words.get("issue")) {
-        let planner = worked.stamps.as_ref().filter(|stamps| stamps.key == "issue_comments").map(|stamps| stamps.count("planner") > 0);
-        match issue::planner_gate(Path::new(&root), issue, file, planner) {
-            Ok(None) => {}
-            Ok(Some(said)) => {
-                let _ = writeln!(err, "{}: {}.", name, said);
-            }
-            Err(why) => return Err(refused(err, &why)),
+        if let Err(why) = issue::planner_gate(Path::new(&root), issue, file) {
+            return Err(refused(err, &why));
         }
     }
     // What was worked out is said first, so that a person sees it (#84).
@@ -1402,7 +1409,12 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
         }
         Some(level)
     };
-    Ok(Handed { root, values, found, cleared, file, requirements_given, stamps: worked.stamps, level })
+    // The job and the base the stamp names (#236): read with no replace ref, as what counts is read.
+    let job = value_of(&values, "issue").map(|issue| plan::source_hashes(&root, issue)).unwrap_or_default();
+    let base = signers::git(&root, &["rev-parse", "--verify", "-q", "HEAD^{commit}"], None)
+        .map(|printed| String::from_utf8_lossy(&printed).trim().to_string())
+        .unwrap_or_default();
+    Ok(Handed { root, values, found, cleared, file, requirements_given, stamps: worked.stamps, level, job, base })
 }
 
 /// The model and effort a role is handed out with: for the planner those its runner is cleared with, for
@@ -1444,6 +1456,8 @@ fn stamp_of(role: &str, handed: &Handed, runner: &str, local: Option<usize>, kep
         revision: &revision,
         time: &time,
         requirements_given: handed.requirements_given,
+        job: &handed.job,
+        base: &handed.base,
     };
     let given: Vec<(&str, &str)> = handed.values.iter().map(|(name, value)| (*name, value.as_str())).collect();
     Ok(prompt::stamp(&said, &given, &handed.found))
@@ -1776,6 +1790,17 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
         code
     };
     let refused = |lines: &mut sessions::Lines, err: &mut dyn Write, check: &'static str, why: &str| said(lines, err, check, refusal::limit_text(why));
+    // 1a. The stamp of an issue is a commit on its job's ref (#236): where the default branch has `.watchbill/signers`,
+    // git must sign it with a key the list holds with `start`. Before anything is written. A review or a fix of a change
+    // with no issue has no job: its stamp is posted on the change, as before.
+    let job = words.get("issue").map(str::to_string);
+    let signing = match &job {
+        None => None,
+        Some(_) => match stamps::ready(root) {
+            Ok(signing) => Some(signing),
+            Err(why) => return refused(&mut lines, err, "sign", &format!("{}. Nothing is written, and no session is started", why)),
+        },
+    };
     // 1b. A view kept with work not taken back (#222): what a session left there is not on the branch, and the next
     // session would not see it. Before anything is posted. Only `--ignore-kept` passes it.
     if !kept_views.is_empty() && kept_ignored.is_none() {
@@ -1796,9 +1821,14 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
     }
     // 2. The rule table: a fix follows a review. The number of rounds is no rule for a person (#84).
     if role == "fix" {
-        let stamps = match &handed.stamps {
-            Some(stamps) => stamps.clone(),
-            None => {
+        let stamps = match (&handed.stamps, &job) {
+            (Some(stamps), _) => stamps.clone(),
+            // From the job's ref (#236), where the round was given.
+            (None, Some(issue)) => match stamps::read(root, issue) {
+                Ok(ledger) => ledger.as_stamps(),
+                Err(why) => return refused(&mut lines, err, "rule", &why),
+            },
+            (None, None) => {
                 let (key, word) = if alone { ("change_comments", "change") } else { ("issue_comments", "issue") };
                 let line = match prompt::pattern_of(root, key) {
                     Ok(Some(line)) => line,
@@ -1996,18 +2026,28 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
         lines.close(stamp.as_deref().ok(), sessions::Outcome::NotPosted { status: code, message }, err);
         code
     };
-    let line = match prompt::pattern_of(root, post) {
-        Ok(Some(line)) => line,
-        Ok(None) => {
+    // The stamp of an issue is a commit on its job's ref (#236), and the comment only a copy of it, posted where a
+    // tracker is set up; the stamp of a change with no issue is the comment, as before.
+    let line = match (prompt::pattern_of(root, post), &job) {
+        (Ok(Some(line)), _) => Some(line),
+        (Ok(None), Some(_)) => None,
+        (Ok(None), None) => {
             let why = format!("watchbill.yml has no `{}`, so the stamp cannot be posted, and no session is started without it. Add the line (see the README), or use --prompt.", post);
             return not_posted(&mut lines, err, &why);
         }
-        Err(why) => return not_posted(&mut lines, err, &why.to_string()),
+        (Err(why), _) => return not_posted(&mut lines, err, &why.to_string()),
     };
     let stamp = match &stamp {
         Ok(stamp) => stamp,
         Err(why) => return not_posted(&mut lines, err, why),
     };
+    // The stamp of an issue names it, whatever the prompt holds (the review of #322): the commit, its copy and the lines
+    // of the start hold the same text.
+    let named_stamp = match &job {
+        Some(issue) => stamps::with_issue(stamp, issue),
+        None => stamp.clone(),
+    };
+    let stamp = &named_stamp;
     lines.open(Some(stamp), err);
     // `outcome` says `running` first (#222), before `folder` is written (#176): a view is never without the mark of a
     // `wb` that is alive, so a `wb clean` that is told its name does not take the view of a session that is starting.
@@ -2037,14 +2077,44 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
             Err(why) => return not_posted(&mut lines, err, &why),
         }
     };
-    let _ = write!(err, "{}: will post on {} {}, by `{}` of watchbill.yml:\n{}", name, word, on, post, stamp);
-    match starter::run(root, post, &line.replace(&format!("{{{}}}", word), &on), Some(stamp.as_bytes())) {
+    // The stamp of an issue: a commit on the job's ref, pushed with no force before the session (#236). A push that
+    // another start went before is refused, and nothing is started: the push is the lock.
+    // Where origin took the stamp, what a later failure says: the stamp holds the round (the review of #322).
+    let mut pushed_stamp: Option<String> = None;
+    if let (Some(issue), Some(signing)) = (&job, &signing) {
+        let view_list = paths.as_ref().map(|paths| view::list(paths));
+        let file = handed.file.as_ref().and_then(|_| signers::git(root, &["cat-file", "blob", &format!("HEAD:{}", issue_file_of(issue))], None).ok());
+        let held = stamps::Held::Stamp { view: view_list.as_deref(), issue: file.as_deref() };
+        match stamps::write(name, root, issue, stamp, &held, signing, err) {
+            Ok((commit, false)) => pushed_stamp = Some(stamps::round_held(issue, &commit, stamp)),
+            Ok((_, true)) => {}
+            Err(why) => {
+                discard(&prepared);
+                let message = refusal::limit_text(why);
+                let code = refusal::say(err, name, &message);
+                lines.close(None, sessions::Outcome::NotPosted { status: code, message }, err);
+                return code;
+            }
+        }
+    }
+    let posted = match &line {
+        None => {
+            let _ = writeln!(err, "{}: watchbill.yml has no `{}`, so no copy of the stamp is posted: the stamp is the commit on {}.", name, post, stamps::full(&on));
+            Ok(Vec::new())
+        }
+        Some(line) => {
+            let _ = write!(err, "{}: will post on {} {}, by `{}` of watchbill.yml:\n{}", name, word, on, post, stamp);
+            starter::run(root, post, &line.replace(&format!("{{{}}}", word), &on), Some(stamp.as_bytes()))
+        }
+    };
+    match posted {
         Ok(said) => {
             let _ = err.write_all(&said);
         }
         Err(why) => {
             discard(&prepared);
-            let message = refusal::limit_text(format!("{}. The stamp may not be posted, and no session is started.", why));
+            let held = pushed_stamp.as_deref().map(|said| format!(" {}", said)).unwrap_or_default();
+            let message = refusal::limit_text(format!("{}. The stamp may not be posted, and no session is started.{}", why, held));
             let code = refusal::say(err, name, &message);
             lines.close(None, sessions::Outcome::NotPosted { status: code, message }, err);
             return code;

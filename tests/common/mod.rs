@@ -326,3 +326,92 @@ pub fn stand_in(source: &str, program: &Path, args: &[&str]) -> std::process::Ch
     }
     unreachable!()
 }
+
+/// Writes each of `messages` as a commit on the job's ref of `issue`, `refs/watchbill/<issue>`, after the one before,
+/// unsigned, with the tree of the commit before (empty for the first): a stamp or a marker as `wb start` and `wb revert`
+/// write one where no `.watchbill/signers` is there (#236). A message is a first line such as `[stamp] review round 1`
+/// and any lines after it. The ref is moved with no check of what it was.
+pub fn stamps_on_ref(folder: &Path, issue: &str, messages: &[&str]) {
+    let full = format!("refs/watchbill/{}", issue);
+    let run = |args: &[&str], input: &[u8]| -> String {
+        let mut child = Command::new("git")
+            .arg("-C")
+            .arg(folder)
+            .args(args)
+            .env_clear()
+            .envs(env())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("git could not be started");
+        child.stdin.take().unwrap().write_all(input).unwrap();
+        let output = child.wait_with_output().expect("git could not be waited for");
+        assert!(output.status.success(), "git {:?}: {}", args, String::from_utf8_lossy(&output.stderr));
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    };
+    let parent = Command::new("git").arg("-C").arg(folder).args(["rev-parse", "--verify", "-q", &full]).env_clear().envs(env()).stderr(Stdio::null()).output().expect("git could not be started");
+    let mut parent = Some(String::from_utf8_lossy(&parent.stdout).trim().to_string()).filter(|commit| !commit.is_empty());
+    for message in messages {
+        let tree = match &parent {
+            Some(commit) => run(&["rev-parse", &format!("{}^{{tree}}", commit)], b""),
+            None => run(&["mktree"], b""),
+        };
+        let mut args = vec!["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "commit-tree", "--no-gpg-sign", tree.as_str()];
+        if let Some(commit) = &parent {
+            args.push("-p");
+            args.push(commit);
+        }
+        let mut body = if message.ends_with('\n') { message.to_string() } else { format!("{}\n", message) };
+        // Every stamp and marker names its issue, as `wb` writes it: a commit counts only on the ref of its issue.
+        let named = format!("issue: {}", issue);
+        if !body.lines().any(|line| line == named) {
+            let (first, rest) = body.split_once('\n').unwrap_or((body.as_str(), ""));
+            body = format!("{}\n{}\n{}", first, named, rest);
+        }
+        let commit = run(&args, body.as_bytes());
+        run(&["update-ref", &full, &commit], b"");
+        parent = Some(commit);
+    }
+}
+
+/// Sends the pushes of `origin` to a bare repository beside the checkout `repo`, in the folder of the test, while its
+/// fetch address stays as it is: `wb start` pushes the stamp to `origin` before the session (#236), and no push of a
+/// test reaches the network. The bare repository's path.
+pub fn push_beside(repo: &Path) -> PathBuf {
+    let bare = repo.parent().expect("the checkout is in a folder of the test").join("origin.git");
+    git(repo, &["init", "-q", "--bare", bare.to_str().unwrap()]);
+    git(repo, &["config", "remote.origin.pushurl", bare.to_str().unwrap()]);
+    bare
+}
+
+/// The stamps and the markers among `lines`, first lines of comments as a test of an earlier revision gave them, put
+/// where `wb` reads them since #236: as the commits on the job's ref of `issue`, in their order, in place of what the ref
+/// held. A line of another kind is left to the comments. `bodies` gives a whole message for a first line where it has
+/// one (a planner's `time:`); a line with none is given a time long past, as a stamp whose time is not read stood.
+pub fn stamps_from_lines(folder: &Path, issue: &str, lines: &[&str], bodies: &[&str]) {
+    let full = format!("refs/watchbill/{}", issue);
+    // The stamps and markers on the ref go; a plan's commits under them stay.
+    let read = |args: &[&str]| {
+        let run = Command::new("git").arg("-C").arg(folder).args(args).env_clear().envs(env()).stderr(Stdio::null()).output().expect("git could not be started");
+        Some(String::from_utf8_lossy(&run.stdout).trim().to_string()).filter(|out| run.status.success() && !out.is_empty())
+    };
+    while let Some(tip) = read(&["rev-parse", "--verify", "-q", &full]) {
+        let first = read(&["log", "-1", "--format=%s", &tip]).unwrap_or_default();
+        if !first.starts_with("[stamp] ") && !first.starts_with("[revert] ") {
+            break;
+        }
+        match read(&["rev-parse", "--verify", "-q", &format!("{}^", tip)]) {
+            Some(parent) => git(folder, &["update-ref", &full, &parent]),
+            None => git(folder, &["update-ref", "-d", &full]),
+        }
+    }
+    let is_entry = |line: &str| line.starts_with("[stamp] ") || line.starts_with("[revert] ");
+    let messages: Vec<String> = lines
+        .iter()
+        .filter(|line| is_entry(line))
+        .map(|line| bodies.iter().find(|body| body.split('\n').next() == Some(*line)).map_or_else(|| format!("{}\ntime: 2000-01-01T00:00:00Z\n", line), |body| body.to_string()))
+        .collect();
+    let messages: Vec<&str> = messages.iter().map(String::as_str).collect();
+    stamps_on_ref(folder, issue, &messages);
+}

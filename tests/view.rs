@@ -98,6 +98,8 @@ fn bench() -> Bench {
 /// The same, with `issue_54` as the text of the issue's file of 54.
 fn bench_for(issue_54: &str) -> Bench {
     let repo = repository(Some("ssh://example.invalid/brakes/controller.git"));
+    // The stamp is pushed before the session (#236): to a bare repository of the test, never the network.
+    push_beside(&repo.path);
     let log = folder_named("log");
     let org = folder_named("org");
     let home = folder_named("home");
@@ -5391,9 +5393,10 @@ fn pushing() -> (Bench, Folder) {
     git(&origin.path, &["init", "-q", "--bare"]);
     script(
         &origin.path.join("hooks").join("post-receive"),
-        &format!("cat {l}/err > {l}/said-at-push 2>/dev/null\nwhile read old new ref; do echo \"$ref $new\" >> {l}/pushes; done\n"),
+        &format!("cat {l}/err > {l}/said-at-push 2>/dev/null\nwhile read old new ref; do case $ref in refs/watchbill/*) continue;; esac; echo \"$ref $new\" >> {l}/pushes; done\n"),
     );
     git(&bench.repo.path, &["remote", "set-url", "origin", origin.path.to_str().unwrap()]);
+    git(&bench.repo.path, &["config", "remote.origin.pushurl", origin.path.to_str().unwrap()]);
     script(&bench.at("changes.sh"), &format!("echo \"changes $1\" >> {l}/calls\ncat {l}/open 2>/dev/null\nexit 0\n"));
     script(
         &bench.at("draft.sh"),
@@ -5413,9 +5416,16 @@ fn build_session(bench: &Bench, description: Option<&str>) {
 }
 
 /// The refs of the bare `origin`, each as `<ref> <commit>`.
+/// The refs of `origin`, but the jobs' refs, where `wb start` pushes the stamp before the session (#236; tests/stamped.rs).
 fn refs_of(origin: &Folder) -> String {
     let run = Command::new("git").arg("-C").arg(&origin.path).args(["for-each-ref", "--format=%(refname) %(objectname)"]).env_clear().envs(env()).output().unwrap();
-    text_of(&run.stdout)
+    text_of(&run.stdout).lines().filter(|line| !line.starts_with("refs/watchbill/")).map(|line| format!("{}\n", line)).collect()
+}
+
+/// A review stamp on issue 54: since #236 a commit on the job's ref, and the comment a copy that `wb` never reads.
+fn review_stamp(bench: &Bench) {
+    fs::write(bench.at("comments-issue-54"), "[stamp] review round 1\n").unwrap();
+    stamps_on_ref(&bench.repo.path, "54", &["[stamp] review round 1"]);
 }
 
 /// The file `push` of the session's folder.
@@ -5543,8 +5553,11 @@ fn test_WB_PUSH_5_a_push_git_refuses_ends_with_1_says_why_and_opens_no_change() 
         return;
     }
     let (bench, origin) = pushing();
-    // The remote refuses every ref it is given.
-    script(&origin.path.join("hooks").join("pre-receive"), "echo 'no pushes today' >&2\nexit 1\n");
+    // The remote refuses every branch it is given; the stamp's push before the session (#236) goes through.
+    script(
+        &origin.path.join("hooks").join("pre-receive"),
+        "while read old new ref; do case $ref in refs/heads/*) echo 'no pushes today' >&2; exit 1;; esac; done\nexit 0\n",
+    );
     build_session(&bench, Some("What changed.\n"));
 
     let run = bench.start(&["start", "build", "54"]);
@@ -5622,7 +5635,7 @@ fn test_WB_PUSH_7_after_the_tester_and_the_fix_only_the_push() {
     assert_eq!(called(&bench, "draft"), 0);
 
     let (bench, origin) = pushing();
-    fs::write(bench.at("comments-issue-54"), "[stamp] review round 1\n").unwrap();
+    review_stamp(&bench);
     fs::write(bench.at("open"), "174\n").unwrap();
     bench.session("echo 'int brake(void) { return 2; }' > src/brake.c && git commit -q -a -m 'Fix finding 1 of round 1'\n");
     let run = bench.start(&["start", "fix", "54"]);
@@ -5680,6 +5693,7 @@ fn test_WB_PUSH_10_without_draft_change_nothing_is_pushed_and_the_commands_are_s
     let origin = folder_named("origin");
     git(&origin.path, &["init", "-q", "--bare"]);
     git(&bench.repo.path, &["remote", "set-url", "origin", origin.path.to_str().unwrap()]);
+    git(&bench.repo.path, &["config", "remote.origin.pushurl", origin.path.to_str().unwrap()]);
     build_session(&bench, Some("What changed.\n"));
 
     let run = bench.start(&["start", "build", "54"]);
@@ -6025,7 +6039,7 @@ fn test_WB_PUSH_21_every_role_but_the_planner_gets_the_issue_s_text() {
     }
     for role in ["build", "review", "fix"] {
         let bench = bench();
-        fs::write(bench.at("comments-issue-54"), "[stamp] review round 1\n").unwrap();
+        review_stamp(&bench);
         fs::write(bench.at("text-54"), "Brakes: the front one.\n").unwrap();
         reading_session(&bench);
         ok(&bench.start(&["start", role, "54"]));
@@ -6140,7 +6154,7 @@ fn test_WB_PUSH_23_the_diff_holds_only_the_paths_of_the_role_s_lists() {
 #[test]
 fn test_WB_PUSH_24_without_change_text_the_fix_is_refused_naming_the_line_and_wb_upgrade() {
     let bench = bench();
-    fs::write(bench.at("comments-issue-54"), "[stamp] review round 1\n").unwrap();
+    review_stamp(&bench);
     without_line(&bench, "change_text");
     let run = bench.start_by(&pass_through(&bench), &["start", "fix", "54"]);
     refused_before_posting(&bench, &run, &["change_text", "wb upgrade"]);
@@ -6258,7 +6272,7 @@ fn test_WB_PUSH_26_the_fix_s_answers_are_posted_on_the_change_after_its_branch_i
         return;
     }
     let fixing = |bench: &Bench| {
-        fs::write(bench.at("comments-issue-54"), "[stamp] review round 1\n").unwrap();
+        review_stamp(&bench);
         fs::write(bench.at("open"), "174\n").unwrap();
         fs::write(bench.at("write-change_comment"), "1. fixed: Fix finding 1 of round 1\n").unwrap();
         bench.session("echo 'int brake(void) { return 2; }' > src/brake.c && git commit -q -a -m 'Fix finding 1 of round 1'\ncat {log}/write-change_comment > /run/watchbill/change_comment\n");
@@ -6383,7 +6397,7 @@ fn test_WB_PUSH_29_the_folder_wb_brings_in_and_the_files_a_session_writes_are_na
         return;
     }
     let bench = bench();
-    fs::write(bench.at("comments-issue-54"), "[stamp] review round 1\n").unwrap();
+    review_stamp(&bench);
     bench.session("printf '%s' \"$3\" > {log}/prompt\n");
     ok(&bench.start(&["start", "review", "54"]));
     let prompt = bench.left("prompt");
@@ -6480,7 +6494,7 @@ fn test_WB_PUSH_26_a_fix_that_commits_nothing_posts_its_answers() {
         return;
     }
     let (bench, origin) = pushing();
-    fs::write(bench.at("comments-issue-54"), "[stamp] review round 1\n").unwrap();
+    review_stamp(&bench);
     fs::write(bench.at("open"), "174\n").unwrap();
     writing_session(&bench, "change_comment", "1. not fixed: the finding names a bound the issue sets.\n", 0);
 

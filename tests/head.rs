@@ -124,9 +124,14 @@ type Command = fn(&Bench) -> Output;
 /// The commands that run a pattern or read `needs`, each as a function of the bench.
 fn commands() -> Vec<(&'static str, Command)> {
     vec![
-        ("wb start", |b| start_with(&b.repo.path, &b.org, true, &["start", "review", "54", "--change", "9"])),
+        // The change is worked out by `change_of_branch`: since #236 the round runs no pattern.
+        ("wb start", |b| start_with(&b.repo.path, &b.org, true, &["start", "review", "54"])),
         ("wb answer", |b| wb(&b.repo.path, &["answer", "54", "--suggested"], "")),
-        ("wb revert", |b| wb(&b.repo.path, &["revert", "54", "review"], "")),
+        // Since #236 the stamp a marker takes back is a commit on the job's ref; the marker's copy is posted by `issue_comment`.
+        ("wb revert", |b| {
+            stamps_on_ref(&b.repo.path, "54", &["[stamp] review round 1"]);
+            wb(&b.repo.path, &["revert", "54", "review"], "")
+        }),
         ("wb plan accept", |b| {
             put(&b.repo.path, ".watchbill/issues/54.yml", ISSUE);
             wb(&b.repo.path, &["plan", "accept", "--no-commit", "54"], "")
@@ -262,7 +267,8 @@ fn test_WB_BUILD_39_wb_prompt_with_the_file_committed_runs_the_pattern_that_work
     let bench = bench();
     bench.add("needs: 'true'");
     bench.commit();
-    let run = wb(&bench.repo.path, &["prompt", "review", "54", "--change", "9"], "");
+    // The change is worked out by `change_of_branch`: since #236 the round runs no pattern.
+    let run = wb(&bench.repo.path, &["prompt", "review", "54"], "");
     assert!(!text(&run.stderr).contains("a person reads the change"), "{}", text(&run.stderr));
     assert_ne!(bench.ran(), "", "{}", text(&run.stderr));
 }

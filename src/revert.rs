@@ -1,10 +1,12 @@
 //! `wb revert` (#142): takes an issue, or a change with no issue, back to before a step, by one marker that
-//! deletes nothing. The marker is a comment whose first line is `[revert] <role> round <n>`; `starter::counted`
-//! reads it, and from then on the stamps, questions and answers from that stamp up to the marker do not count.
+//! deletes nothing. The marker's first line is `[revert] <role> round <n>`; from then on the stamps, questions and
+//! answers from that stamp up to the marker do not count (`starter::counted`).
 //!
-//! Only the comment is posted, by `issue_comment` (or `change_comment`). The branch, the issue's file and its
-//! acceptance, and the change are not touched: the commits of the steps taken back stay, and taking them back is
-//! git's.
+//! For an issue (#236) the marker is a commit on its job's ref, after the stamps, naming the issue and the job, signed
+//! and pushed to `origin` as a stamp is (`stamps::write`); its copy is posted by `issue_comment` where `watchbill.yml`
+//! has it, and never read back for a round. For a change with no issue it is a comment, posted by `change_comment`.
+//! The branch, the issue's file and its acceptance, and the change are not touched: the commits of the steps taken back
+//! stay, and taking them back is git's.
 
 use std::io::Write;
 
@@ -39,6 +41,10 @@ pub fn revert(root: &str, on: On, role: &str, round: Option<u64>, err: &mut dyn 
     }
     if let Err(why) = starter::held(root) {
         return crate::refusal::limit(err, "wb revert", format_args!("{}.", why));
+    }
+    // The stamps of an issue are commits on its job's ref (#236): so is the marker that takes them back.
+    if let On::Issue(issue) = on {
+        return on_ref(root, issue, role, round, err);
     }
     let mut commands = Vec::new();
     for key in [read, post] {
@@ -95,6 +101,67 @@ pub fn revert(root: &str, on: On, role: &str, round: Option<u64>, err: &mut dyn 
         }
     }
     // Said with `-q` too: the commits stay, and taking them back is the person's.
+    let _ = writeln!(err, "wb revert: the commits of the steps taken back stay on the branch, and the issue's file, its acceptance and the change are as they were. Taking commits back is git's.");
+    0
+}
+
+/// `wb revert` of an issue (#236): the stamp is found among the commits on the job's ref that count, and the marker is
+/// a commit on that ref after them, signed and pushed as a stamp is. Its comment is posted by `issue_comment` as a copy,
+/// where `watchbill.yml` has the pattern; `wb` never reads it back.
+fn on_ref(root: &str, issue: &str, role: &str, round: Option<u64>, err: &mut dyn Write) -> i32 {
+    let limit = |err: &mut dyn Write, why: String| crate::refusal::limit(err, "wb revert", why);
+    if !prompt::is_plain_name(issue) {
+        return limit(err, format!("'{}' is not the name of an issue.", issue.escape_debug()));
+    }
+    let post = match prompt::pattern_of(root, "issue_comment") {
+        Ok(post) => post,
+        Err(why) => return limit(err, format!("{}", why)),
+    };
+    let signing = match crate::stamps::ready(root) {
+        Ok(signing) => signing,
+        Err(why) => return limit(err, format!("{}. Nothing is written.", why)),
+    };
+    let ledger = match crate::stamps::read(root, issue) {
+        Ok(ledger) => ledger,
+        Err(why) => return limit(err, format!("{}.", why)),
+    };
+    let stamps = ledger.stamps();
+    let found = stamps.iter().enumerate().rev().find(|(_, (name, n))| name == role && round.map_or(true, |wanted| wanted == *n));
+    let Some((at, (_, n))) = found else {
+        let which = match round {
+            Some(round) => format!("no `[stamp] {} round {}` that still counts", role, round),
+            None => format!("no `[stamp] {}` that still counts", role),
+        };
+        return limit(err, format!("there is {} on {}, so there is no {} to take back.", which, ledger.full, role));
+    };
+    if stamps[at..].iter().any(|(name, _)| name == "planner") {
+        return limit(
+            err,
+            format!("a later planner took the issue back ({}), so the stamp `{} round {}` before it no longer counts and is not reverted. Nothing is posted.", ledger.full, role, n),
+        );
+    }
+    // The marker names its issue and its job (the review of #322): on the ref of another issue it counts for nothing.
+    let jobs = crate::plan::source_hashes(root, issue);
+    let job_lines: String = if jobs.is_empty() { "job: none\n".to_string() } else { jobs.iter().map(|job| format!("job: {}\n", job)).collect() };
+    let marker = format!("[revert] {} round {}\n{}\n{}", role, n, crate::stamps::issue_line(issue), job_lines);
+    let _ = write!(err, "wb revert: the marker:\n{}From the stamp `{} round {}` up to this marker, no stamp, question or answer counts. Nothing is deleted.\n", marker, role, n);
+    if let Err(why) = crate::stamps::write("wb revert", root, issue, &marker, &crate::stamps::Held::Marker, &signing, err) {
+        return limit(err, format!("{}.", why));
+    }
+    match post {
+        None => {
+            let _ = writeln!(err, "wb revert: watchbill.yml has no `issue_comment`, so no copy of the marker is posted: the marker is the commit on {}.", ledger.full);
+        }
+        Some(line) => {
+            let _ = writeln!(err, "wb revert: will post on issue {}, by `issue_comment` of watchbill.yml, a copy of the marker.", issue);
+            match starter::run(root, "issue_comment", &line.replace("{issue}", issue), Some(marker.as_bytes())) {
+                Ok(said) => {
+                    let _ = err.write_all(&said);
+                }
+                Err(why) => return limit(err, format!("{}. The marker is on {}; its copy may not be posted.", why, ledger.full)),
+            }
+        }
+    }
     let _ = writeln!(err, "wb revert: the commits of the steps taken back stay on the branch, and the issue's file, its acceptance and the change are as they were. Taking commits back is git's.");
     0
 }

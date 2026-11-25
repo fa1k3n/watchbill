@@ -270,7 +270,7 @@ fn text_fault(bytes: &[u8], cap: u64) -> Option<&'static str> {
 }
 
 /// The entries of a tree, each as `mktree` reads it, but those named in `leave`.
-fn entries(root: &str, tree: &str, leave: &[&str]) -> Result<Vec<String>, String> {
+pub(crate) fn entries(root: &str, tree: &str, leave: &[&str]) -> Result<Vec<String>, String> {
     let listed = git(root, &["ls-tree", "-z", tree], None)?;
     let mut kept = Vec::new();
     for entry in listed.split(|byte| *byte == 0).filter(|entry| !entry.is_empty()) {
@@ -284,7 +284,7 @@ fn entries(root: &str, tree: &str, leave: &[&str]) -> Result<Vec<String>, String
 }
 
 /// Makes a tree of entries, as `ls-tree -z` gives them.
-fn mktree(root: &str, entries: &[String]) -> Result<String, String> {
+pub(crate) fn mktree(root: &str, entries: &[String]) -> Result<String, String> {
     let mut input = Vec::new();
     for entry in entries {
         input.extend_from_slice(entry.as_bytes());
@@ -503,24 +503,32 @@ pub fn add(root: &str, folder: &Path, organisation: &Path, add: &Add, input: &mu
 
     // The job the text goes to: the one of the name, or one that has the text already, or a new one.
     let mut existing = None;
+    // The ref of an issue may hold stamps and no job (#236): the job's first commit then goes after them.
+    let mut stamps_only = None;
     if let Some((object, _)) = refs.iter().find(|(_, other)| *other == full) {
         let commit = match commit_of(object) {
             Ok(commit) => commit,
             Err(_) => return limit(err, &format!("{} is not a commit", full)),
         };
         let job = match read_job(root, &commit, &full) {
-            Ok(job) => job,
+            Ok(job) => Some(job),
+            Err(_) if git(root, &["cat-file", "-e", &format!("{}:job.yml", commit)], None).is_err() => {
+                stamps_only = Some(commit.clone());
+                None
+            }
             Err(why) => return limit(err, &why),
         };
-        // A plan removed keeps its name (#290): nothing is taken in under it.
-        if is_removed(root, &commit) {
-            return limit(err, &format!("the plan {} was removed (commit {}), and its name stays taken: give the text another name", name, commit));
+        if let Some(job) = job {
+            // A plan removed keeps its name (#290): nothing is taken in under it.
+            if is_removed(root, &commit) {
+                return limit(err, &format!("the plan {} was removed (commit {}), and its name stays taken: give the text another name", name, commit));
+            }
+            if job.sources.iter().any(|source| source.hash == hash) {
+                crate::refusal::inform(out, format_args!("{}: the text is already a source of the job {}. Nothing to do. Nothing written.", NAME, name));
+                return 0;
+            }
+            existing = Some((commit, job, false));
         }
-        if job.sources.iter().any(|source| source.hash == hash) {
-            crate::refusal::inform(out, format_args!("{}: the text is already a source of the job {}. Nothing to do. Nothing written.", NAME, name));
-            return 0;
-        }
-        existing = Some((commit, job, false));
     } else {
         // Text that is already a job under another name gives that job this name too. A ref that is not a job is passed
         // over, and said once.
@@ -567,6 +575,11 @@ pub fn add(root: &str, folder: &Path, organisation: &Path, add: &Add, input: &mu
             job.sources.push(added.clone());
             let moved = at(&commit);
             (job, Some(commit), moved, None, Some(hash.clone()), format!("plan add {}\n\nsource {}\n", name, hash))
+        }
+        // A new job after the stamps its ref holds (#236): the ref moves to it from them, and their tree is kept.
+        None if stamps_only.is_some() => {
+            let job = Job { name: name.clone(), names: vec![name.clone()], sources: vec![added.clone()] };
+            (job, stamps_only.clone(), vec![full.clone()], None, Some(hash.clone()), format!("plan add {}\n\nsource {}\n", name, hash))
         }
         None => {
             let job = Job { name: name.clone(), names: vec![name.clone()], sources: vec![added.clone()] };
@@ -710,21 +723,12 @@ pub(crate) fn planner_after(bodies: &[String], accepted: &str) -> bool {
     })
 }
 
-/// Whether a planner round voids the acceptance written at `accepted` (#290): the whole comments of `issue`, read by
-/// `issue_comment_bodies` as `wb status` and `wb answer` read them (bounded), hold a `[stamp] planner` that counts and
-/// is not before it. `None` where `watchbill.yml` has no `issue_comment_bodies`, and the stamps' times are not read.
-pub(crate) fn planned_again(root: &str, issue: &str, accepted: &str) -> Result<Option<bool>, String> {
-    let Some(line) = crate::prompt::pattern_of(root, "issue_comment_bodies").map_err(|why| why.to_string())? else {
-        return Ok(None);
-    };
-    if !crate::prompt::is_plain_name(issue) {
-        return Err(format!("{} is not a plain name that fills `issue_comment_bodies`", crate::issue::shown(issue)));
-    }
-    let printed = crate::starter::run_capped(root, "issue_comment_bodies", &line.replace("{issue}", issue), crate::bounded::TEXT_CAP)?;
-    if printed.len() as u64 > crate::bounded::TEXT_CAP {
-        return Err("`issue_comment_bodies` printed more than 1 MiB".to_string());
-    }
-    Ok(Some(planner_after(&crate::answer::split_bodies(&printed), accepted)))
+/// Whether a planner round voids the acceptance written at `accepted` (#290): the stamp commits on the job's ref of
+/// `issue` that count (#236) hold a `[stamp] planner`, not taken back, that is not before it. A `[stamp]` comment is
+/// never read.
+pub(crate) fn planned_again(root: &str, issue: &str, accepted: &str) -> Result<bool, String> {
+    let ledger = crate::stamps::read(root, issue)?;
+    Ok(planner_after(&ledger.bodies(), accepted))
 }
 
 /// The time an acceptance was written, from the text of `.accepted`.
@@ -891,15 +895,12 @@ pub fn show(root: &str, name: &str, out: &mut dyn Write, err: &mut dyn Write) ->
     }
     let state = match state_of(root, name, &plan, &bytes, body.as_deref()) {
         Err(words) => words,
-        // A planner round after the acceptance voids it (the owner, 2026-11-24): its stamp is read whole.
+        // A planner round after the acceptance voids it (the owner, 2026-11-24): its stamp is read whole, from the
+        // job's ref (#236).
         Ok((by, time)) => match planned_again(root, name, &time) {
             Err(why) => return crate::refusal::limit(err, COMMAND, format_args!("{}", why)),
-            Ok(None) => {
-                let _ = writeln!(err, "{}: watchbill.yml has no `issue_comment_bodies`, so the planner's stamps were not read.", COMMAND);
-                format!("accepted by {} at {}", shown(&by), shown(&time))
-            }
-            Ok(Some(true)) => "not accepted (planned again after the acceptance)".to_string(),
-            Ok(Some(false)) => format!("accepted by {} at {}", shown(&by), shown(&time)),
+            Ok(true) => "not accepted (planned again after the acceptance)".to_string(),
+            Ok(false) => format!("accepted by {} at {}", shown(&by), shown(&time)),
         },
     };
     text.push_str(&format!("state: {}\n\n", state));
@@ -972,7 +973,7 @@ pub fn accept_word(root: &str, name: &str, err: &mut dyn Write) -> Option<i32> {
     let body = accepted_in_tree(root, name);
     let accepted = match plain(root, &file).map(|bytes| state_of(root, name, &plan, &bytes, body.as_deref())) {
         // A stamp that cannot be read leaves it to `wb accept`, which refuses an acceptance that is there.
-        Some(Ok((_, time))) => !matches!(planned_again(root, name, &time), Ok(Some(true))),
+        Some(Ok((_, time))) => !matches!(planned_again(root, name, &time), Ok(true)),
         _ => false,
     };
     if accepted {

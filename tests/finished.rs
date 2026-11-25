@@ -47,6 +47,8 @@ fn git_text(folder: &Path, args: &[&str]) -> String {
 fn comments(folder: &Path, issue: &str, lines: &[&str]) {
     let all: String = lines.iter().map(|line| format!("{}\n", line)).collect();
     put(folder, &format!(".tracker/{}.comments", issue), &all);
+    // Since #236 the stamps and the markers are commits on the job's ref, and `wb` reads no `[stamp]` comment.
+    stamps_from_lines(folder, issue, lines, &[]);
 }
 
 fn default_branch(_folder: &Path) -> String {

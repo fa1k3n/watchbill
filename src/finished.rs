@@ -99,9 +99,9 @@ pub fn accept(root: &str, issue: &str, commit: bool, state: Option<&Path>, out: 
     // Where the default branch has `.watchbill/signers`, the acceptance is also a signed tag (#235).
     let keys = crate::signers::load(root);
     match &keys {
-        crate::signers::Keys::Fault(why) => return crate::refusal::limit(err, NAME, format_args!("{}. Nothing written.", why)),
+        crate::signers::Keys::Fault(why) => return crate::refusal::limit(err, NAME, format_args!("{}, so no acceptance counts. Nothing written.", why)),
         crate::signers::Keys::List(_) => {
-            if let Err(why) = crate::signers::signing_ready(root) {
+            if let Err(why) = crate::signers::signing_ready(root, crate::signers::ACCEPTANCE_SIGNED) {
                 return crate::refusal::limit(err, NAME, format_args!("{} Nothing written.", why));
             }
         }

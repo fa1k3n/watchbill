@@ -501,6 +501,26 @@ pub fn object_of(root: &str, tag: &str) -> Option<String> {
     git_line(root, &["rev-parse", "--verify", "-q", tag]).ok()
 }
 
+/// The most a tag of an acceptance may be: far above any message `wb` writes.
+pub const TAG_CAP: u64 = 64 * 1024;
+
+/// The tag object `tag` as `git cat-file tag` prints it, where it is no larger than `TAG_CAP`; else why not.
+fn read_tag(root: &str, tag: &str) -> Result<Vec<u8>, String> {
+    // The object is named once, so that the size asked is that of the object read.
+    let object = git_line(root, &["rev-parse", "--verify", "-q", tag]).map_err(|_| "it cannot be read".to_string())?;
+    let tag = object.as_str();
+    match git_line(root, &["cat-file", "-s", tag]).map(|size| size.parse::<u64>()) {
+        Ok(Ok(size)) if size <= TAG_CAP => {}
+        Ok(Ok(_)) => return Err("it is larger than 64 KiB, and the tag of an acceptance is not".to_string()),
+        Ok(Err(_)) | Err(_) => return Err("git could not say its size".to_string()),
+    }
+    let raw = git(root, &["cat-file", "tag", tag], None).map_err(|why| format!("it cannot be read ({})", why))?;
+    if raw.len() as u64 > TAG_CAP {
+        return Err("it is larger than 64 KiB, and the tag of an acceptance is not".to_string());
+    }
+    Ok(raw)
+}
+
 /// Checks the tag `tag` of an acceptance against `keys`: it is there, is a tag signed by a key of the list with the
 /// role `accept`, on the object `target` of the type `kind`, named `tag`, and its message is `message`. Where the
 /// message differs in its `job:` lines alone, the words say how the job differs.
@@ -516,9 +536,9 @@ fn checked(root: &str, keys: &Keys, tag: &str, kind: &str, target: &str, message
         Ok(found) if found != "tag" => return void("unsigned".to_string()),
         Ok(_) => {}
     }
-    let raw = match git(root, &["cat-file", "tag", tag], None) {
+    let raw = match read_tag(root, tag) {
         Ok(raw) => raw,
-        Err(why) => return void(format!("it cannot be read ({})", why)),
+        Err(why) => return void(why),
     };
     match verify(&raw, "accept", list) {
         Err(why) => return void(format!("its signature could not be checked: {}", why)),
@@ -529,14 +549,16 @@ fn checked(root: &str, keys: &Keys, tag: &str, kind: &str, target: &str, message
         }
         Ok(Verdict::Broken) => return void("its signature does not check: what was signed is not what the tag holds".to_string()),
         Ok(Verdict::Good(identity)) => {
-            let text = String::from_utf8_lossy(&raw).to_string();
-            let Some((head, rest)) = text.split_once("\n\n") else { return void("it is not a tag of an acceptance".to_string()) };
+            // The header, and the message up to where the signature starts as git finds it: the last line that starts
+            // one. Text after an earlier marker is a part of the message.
+            let end = signature_start(&raw).unwrap_or(raw.len());
+            let text = String::from_utf8_lossy(&raw[..end]).to_string();
+            let Some((head, found)) = text.split_once("\n\n") else { return void("it is not a tag of an acceptance".to_string()) };
             let header = |key: &str| head.lines().find_map(|line| line.strip_prefix(key).and_then(|rest| rest.strip_prefix(' ')));
             let short = tag.strip_prefix("refs/tags/").unwrap_or(tag);
             if header("object") != Some(target) || header("type") != Some(kind) || header("tag") != Some(short) {
                 return void(format!("it is not on the {} {} of the acceptance", kind, crate::view::short(target)));
             }
-            let found = rest.split("-----BEGIN SSH SIGNATURE-----").next().unwrap_or("");
             if found != message {
                 let (then, now) = (jobs_in(found), jobs_in(message));
                 let without = |text: &str| text.lines().filter(|line| !line.starts_with("job: ")).collect::<Vec<_>>().join("\n");
@@ -579,7 +601,7 @@ pub fn make(root: &str, keys: &Keys, command: &str, tag: &str, kind: &str, targe
     let _ = out.flush();
     sign(root, tag, target, message).map_err(|why| format!("the signed tag {} could not be made: {}", tag, why))?;
     let made = object_of(root, tag).unwrap_or_default();
-    let raw = git(root, &["cat-file", "tag", tag], None).unwrap_or_default();
+    let raw = read_tag(root, tag).unwrap_or_default();
     let list = match keys {
         Keys::List(list) => list,
         _ => {

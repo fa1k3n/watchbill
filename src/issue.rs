@@ -943,7 +943,7 @@ pub(crate) fn ready_to_commit(root: &str, issue: &str) -> Result<(), NotReady> {
     }
     let path = format!("{}/{}.yml", FOLDER, issue);
     let ask = |args: &[&str]| -> Result<bool, NotReady> {
-        let mut all = vec!["-C", root];
+        let mut all = vec!["--no-replace-objects", "-C", root];
         all.extend(args);
         crate::detect::git_output(&all, None).map(|run| run.status.success()).ok_or_else(|| NotReady::Fault("git could not be run.".to_string()))
     };
@@ -1048,7 +1048,7 @@ pub fn committed(root: &Path, issue: &str) -> Result<(), String> {
         };
         // Git itself says what is committed and what is changed, with its own line ends and filters.
         let ask = |args: &[&str]| -> Result<bool, String> {
-            let mut all = vec!["-C", root_text.as_str()];
+            let mut all = vec!["--no-replace-objects", "-C", root_text.as_str()];
             all.extend(args);
             crate::detect::git_output(&all, None)
                 .map(|run| run.status.success())

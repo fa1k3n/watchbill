@@ -81,8 +81,10 @@ struct Branch {
     name: String,
 }
 
+/// Runs git in `root`, with no replace ref: the files, the acceptances and the commits an acceptance's tag is matched
+/// against are what the objects are, never what a replace ref says they are (#235).
 pub(crate) fn git(root: &str, args: &[&str]) -> Option<Vec<u8>> {
-    let mut all = vec!["-C", root];
+    let mut all = vec!["--no-replace-objects", "-C", root];
     all.extend(args);
     crate::detect::git_output(&all, None).filter(|run| run.status.success()).map(|run| run.stdout)
 }
@@ -408,7 +410,7 @@ pub(crate) fn in_default(root: &str, commit: &str) -> bool {
         return false;
     }
     let Some(default) = default_branch(root) else { return false };
-    crate::detect::git_output(&["-C", root, "merge-base", "--is-ancestor", &format!("{}^{{commit}}", commit), &default], None).is_some_and(|run| run.status.code() == Some(0))
+    crate::detect::git_output(&["--no-replace-objects", "-C", root, "merge-base", "--is-ancestor", &format!("{}^{{commit}}", commit), &default], None).is_some_and(|run| run.status.code() == Some(0))
 }
 
 /// What `wb accept` needs to know of a job (#282).

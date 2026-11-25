@@ -6556,3 +6556,83 @@ fn test_WB_ROLE_119_the_tester_s_prompt_as_handed_out_names_the_files_wb_brings_
     let words: Vec<&str> = prompt.split(|c: char| !c.is_ascii_alphanumeric()).collect();
     assert!(!prompt.contains("address.sh") && !words.contains(&"gh") && !words.contains(&"glab"), "{}", prompt);
 }
+
+// ---- WB-VIEW-149 and 150: what a start says of the network of its view (#195) ----
+
+/// The runner of the bench with `reach` as written, and the forwarder of this build: the test process is not `wb`.
+fn reaching(bench: &Bench, reach: &str) {
+    let text = read(&bench.organisation()).replace("    binds:", &format!("    reach: {}\n    binds:", reach));
+    fs::write(bench.organisation(), text).unwrap();
+    watchbill::reach::use_forwarder(Path::new(env!("CARGO_BIN_EXE_wb")));
+}
+
+/// A port of this machine's loopback that nothing listens on.
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+}
+
+#[test]
+fn test_WB_VIEW_149_the_stamp_the_lines_and_the_start_say_the_endpoints_the_session_reaches() {
+    if !sandbox("test_WB_VIEW_149") {
+        return;
+    }
+    let bench = bench();
+    let port = free_port();
+    reaching(&bench, &format!("['127.0.0.1:{}', api.example.org:443]", port));
+
+    let run = bench.start(&["start", "build", "54"]);
+
+    ok(&run);
+    let posted = bench.posted();
+    let line = format!("\nreach: 127.0.0.1:{} api.example.org:443\n", port);
+    let at = posted.find(&line).unwrap_or_else(|| panic!("{}", posted));
+    assert!(posted.find("\npart: ").is_some_and(|part| at < part), "{}", posted);
+    assert_eq!(read(&bench.lines().join("reach")), format!("127.0.0.1:{}\napi.example.org:443\n", port));
+    let err = text(&run.stderr);
+    let said = format!("wb start build: the session reaches only 127.0.0.1:{}, api.example.org:443, through wb's proxy", port);
+    let said_at = err.find(&said).unwrap_or_else(|| panic!("{}", err));
+    assert!(err.find("wb start build: starts build").is_some_and(|starts| said_at < starts), "{}", err);
+    // `--stamp` starts no session, and has no line `reach:`.
+    let printed = bench.start(&["start", "build", "54", "--stamp"]);
+    assert!(!text(&printed.stdout).contains("reach:"), "{}", text(&printed.stdout));
+}
+
+#[test]
+fn test_WB_VIEW_149_a_runner_with_no_reach_is_said_to_reach_no_network() {
+    if !sandbox("test_WB_VIEW_149") {
+        return;
+    }
+    let bench = bench();
+
+    let run = bench.start(&["start", "build", "54"]);
+
+    ok(&run);
+    assert!(bench.posted().contains("\nreach: none\n"), "{}", bench.posted());
+    assert_eq!(read(&bench.lines().join("reach")), "none\n");
+    let err = text(&run.stderr);
+    assert!(err.contains("wb start build: the session reaches no network: the runner 'stand-in' has no reach"), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_150_after_the_session_wb_says_how_many_connections_were_refused_and_where() {
+    if !sandbox("test_WB_VIEW_150") {
+        return;
+    }
+    let bench = bench();
+    reaching(&bench, &format!("['127.0.0.1:{}']", free_port()));
+    let l = bench.log.path.to_str().unwrap();
+    let ask = "exec 3<>/dev/tcp/127.0.0.1/3128 && printf 'CONNECT example.org:443 HTTP/1.1\\r\\n\\r\\n' >&3 && read -r -t 15 status <&3; exec 3<&-\n";
+    fs::write(bench.at("session.sh"), format!("#!/bin/bash\necho start >> {l}/calls\n{ask}{ask}exit 0\n")).unwrap();
+
+    let run = bench.start(&["start", "build", "54"]);
+
+    // A refusal does not change how the session ended.
+    ok(&run);
+    let err = text(&run.stderr);
+    assert!(err.contains("wb start build: the proxy refused 2 connections"), "{}", err);
+    let file = bench.lines().join("refused");
+    assert!(err.contains(file.to_str().unwrap()), "{}", err);
+    let refused = read(&file);
+    assert_eq!(refused.lines().count(), 2, "{}", refused);
+    assert!(refused.lines().all(|line| line.starts_with("CONNECT example.org:443 HTTP/1.1: ")), "{}", refused);
+}

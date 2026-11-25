@@ -67,11 +67,15 @@ const USAGE: &str = "usage:
             ok, warning or fault: bubblewrap and user namespaces, git, the
             tools the patterns of watchbill.yml call, the organisation's file
             and its default runner, each bind of that runner, each hook of the
-            runner's settings whose program the sandbox does not hold, the
-            command needs run once, and the ports that listen on this machine.
-            A port is a warning, as wb cannot tell whether it has a login, and
-            a session in a view can reach it. It reads only and asks nothing
-            of the network. Ends with 0 when no check is a fault, 1 when one
+            runner's settings whose program the sandbox does not hold, each
+            endpoint of the runner's reach, the command needs run once, and
+            the ports that listen on this machine. A session in a view has a
+            network of its own and reaches only the endpoints of reach,
+            through the proxy of wb: an endpoint on this machine, and a port
+            whose number reach names, are warnings, as wb cannot tell whether
+            it has a login. A runner with no reach is a warning: a session on
+            it reaches no network. It reads only and asks nothing of the
+            network. Ends with 0 when no check is a fault, 1 when one
             is. -q (--quiet) leaves out the ok lines, and not a warning or a fault
   upgrade   pin the repository to the installed revision: copy its files over
             .watchbill/revision/, removing those it does not have, and its

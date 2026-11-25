@@ -5,7 +5,7 @@
 //!   role's `reads`, as they are in `HEAD` of the checkout, in one commit, with no remote and no history.
 //! - **The sandbox** is bubblewrap: the view at the path of the checkout, writable; the system read-only; `/tmp`
 //!   and `/run` of its own; the home folder empty but for the runner's `binds`; the folder of the organisation's
-//!   file covered. The network stays as the runner needs it.
+//!   file covered. A network of its own, with a way out to the runner's `reach` alone, through `wb`'s proxy (#195).
 //! - **What comes back**: each commit of the view, in order, put on the checkout's branch when it keeps to
 //!   `changes`, and refused, with every commit after it, when it does not. `wb` pushes nothing: `wb start <role>` says
 //!   the command that pushes, and a person runs it (#145).
@@ -799,8 +799,9 @@ pub struct Plan<'a> {
 }
 
 /// The system, as the sandbox has it, read-only: `/usr`, the links to it or the folders beside it, `/etc` and
-/// `/sys`; `/proc` and `/dev` of its own; `/tmp` and `/run` empty, but for the folder of the resolver where
-/// `/etc/resolv.conf` points into `/run`, so that the model can be reached.
+/// `/sys`; `/proc` and `/dev` of its own; `/tmp` and `/run` empty. The folder of the resolver is not there, though
+/// `/etc/resolv.conf` may point into `/run`: the sandbox has no network of the machine's to resolve names on, and a
+/// resolver's socket there would be a way out (#195). The proxy resolves the names of `reach`, outside.
 /// The folders of the system a program of a runner may lie in, as the sandbox holds them (`system`); `/sys` and
 /// `/proc` hold no program.
 pub const SYSTEM: [&str; 8] = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/lib32", "/libx32", "/etc"];
@@ -827,16 +828,12 @@ fn system() -> Vec<OsString> {
         add(&["--ro-bind", "/sys", "/sys"]);
     }
     add(&["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", "/run"]);
-    if let Ok(resolver) = fs::canonicalize("/etc/resolv.conf") {
-        if let (true, Some(folder)) = (resolver.starts_with("/run"), resolver.parent().and_then(Path::to_str)) {
-            add(&["--ro-bind", folder, folder]);
-        }
-    }
     words
 }
 
-/// The namespaces of the sandbox: all but the network's.
-const UNSHARE: [&str; 6] = ["--unshare-user", "--unshare-ipc", "--unshare-pid", "--unshare-uts", "--unshare-cgroup-try", "--die-with-parent"];
+/// The namespaces of the sandbox: all of them, the network's among them (#195). With a network of its own the sandbox
+/// has only its own loopback, and its abstract sockets are its own.
+const UNSHARE: [&str; 7] = ["--unshare-user", "--unshare-ipc", "--unshare-pid", "--unshare-net", "--unshare-uts", "--unshare-cgroup-try", "--die-with-parent"];
 
 /// The words bubblewrap is given for a session in a view of the paths of an issue's file.
 pub fn arguments(plan: &Plan) -> Vec<OsString> {
@@ -911,12 +908,30 @@ pub fn arguments_in(plan: &Plan, layout: Layout) -> Vec<OsString> {
 
 /// The same, with `out`, a folder of `wb`'s own, bound writable at `OUT_FOLDER` after the view (#151).
 pub fn arguments_out(plan: &Plan, layout: Layout, out: Option<&Path>) -> Vec<OsString> {
+    arguments_reaching(plan, layout, out, None)
+}
+
+/// The same, with the way out of `net` where the runner has `reach` (#195): the folder of the proxy's socket bound
+/// read-only at `reach::NET_FOLDER`, the program of `wb` at `reach::FORWARDER`, run first, and the proxy named in the
+/// variables `reach::GIVEN`. With none, those variables are taken out, and the session reaches no network. The
+/// variables `reach::AROUND` are taken out either way.
+pub fn arguments_reaching(plan: &Plan, layout: Layout, out: Option<&Path>, net: Option<&crate::reach::Net>) -> Vec<OsString> {
+    use crate::reach;
     let mut words: Vec<OsString> = UNSHARE.iter().map(OsString::from).collect();
     if plan.new_session {
         words.push("--new-session".into());
     }
     words.extend(system());
     let mut add = |more: &[&std::ffi::OsStr]| words.extend(more.iter().map(OsString::from));
+    for name in reach::AROUND {
+        add(&["--unsetenv".as_ref(), name.as_ref()]);
+    }
+    for name in reach::GIVEN {
+        match net {
+            Some(_) => add(&["--setenv".as_ref(), name.as_ref(), reach::PROXY.as_ref()]),
+            None => add(&["--unsetenv".as_ref(), name.as_ref()]),
+        }
+    }
     if let Some(home) = plan.home.filter(|home| home.is_absolute() && *home != Path::new("/")) {
         add(&["--tmpfs".as_ref(), home.as_os_str()]);
     }
@@ -938,6 +953,11 @@ pub fn arguments_out(plan: &Plan, layout: Layout, out: Option<&Path>) -> Vec<OsS
             add(&["--ro-bind".as_ref(), brought.as_os_str(), BROUGHT.as_ref()]);
         }
     }
+    // The way out (#195): the proxy's socket, read-only, and the program of `wb` that runs first.
+    if let Some(net) = net {
+        add(&["--ro-bind".as_ref(), net.folder.as_os_str(), reach::NET_FOLDER.as_ref()]);
+        add(&["--ro-bind".as_ref(), net.exe.as_os_str(), reach::FORWARDER.as_ref()]);
+    }
     add(&["--bind".as_ref(), plan.view.as_os_str(), plan.checkout.as_os_str()]);
     let inside: &[(&str, &str)] = match layout {
         Layout::Listed => &[],
@@ -949,6 +969,9 @@ pub fn arguments_out(plan: &Plan, layout: Layout, out: Option<&Path>) -> Vec<OsS
         add(&[how.as_ref(), from.as_os_str(), to.as_os_str()]);
     }
     add(&["--chdir".as_ref(), plan.checkout.as_os_str(), "--".as_ref()]);
+    if net.is_some() {
+        add(&[reach::FORWARDER.as_ref(), "--".as_ref()]);
+    }
     words.extend(plan.words.iter().map(OsString::from));
     words
 }
@@ -1016,6 +1039,22 @@ pub fn run_out(bwrap: &Path, plan: &Plan, layout: Layout, out: Option<&Path>, na
 /// The same, with the session watched by `watch` while `wb` waits for it (#267): a quiet is said on `err`, and past
 /// `max_minutes` the session is sent the termination, and killed after the grace.
 pub fn run_watched(bwrap: &Path, plan: &Plan, layout: Layout, out: Option<&Path>, watch: Option<&mut crate::watchdog::Watchdog>, name: &str, err: &mut dyn Write) -> Result<ExitStatus, String> {
+    run_reaching(bwrap, plan, layout, out, None, watch, name, err)
+}
+
+/// The same, with the way out of `net` where the runner has `reach` (#195): the forwarder runs first in the sandbox,
+/// and runs the session in its own place, so that the session is still bubblewrap's one child.
+#[allow(clippy::too_many_arguments)]
+pub fn run_reaching(
+    bwrap: &Path,
+    plan: &Plan,
+    layout: Layout,
+    out: Option<&Path>,
+    net: Option<&crate::reach::Net>,
+    watch: Option<&mut crate::watchdog::Watchdog>,
+    name: &str,
+    err: &mut dyn Write,
+) -> Result<ExitStatus, String> {
     use std::os::fd::AsRawFd;
     use std::os::unix::process::{CommandExt, ExitStatusExt};
     let held = crate::interrupt::hold();
@@ -1027,7 +1066,7 @@ pub fn run_watched(bwrap: &Path, plan: &Plan, layout: Layout, out: Option<&Path>
         .filter(|(number, _)| !crate::interrupt::was_ignored(*number))
         .map(|(_, name)| name)
         .collect();
-    let mut words = arguments_out(plan, layout, out);
+    let mut words = arguments_reaching(plan, layout, out, net);
     // Without `env` the signals cannot be given back to the session, and bubblewrap ignores none, as before #257.
     let ignore = back.is_empty() || Path::new(ENV).is_file();
     if ignore && !back.is_empty() {

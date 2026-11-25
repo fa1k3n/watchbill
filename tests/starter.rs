@@ -377,7 +377,10 @@ fn test_WB_BUILD_5_the_stamp_is_posted_on_the_issue_with_its_first_line_and_the_
     assert_eq!(first, "[stamp] review round 2");
     let stamp = bench.prompt(&["review", "54", "--change", "174", "--round", "2", "--runner", "stand-in", "--stamp"]);
     ok(&stamp);
-    assert_eq!(timeless(rest), timeless(&text(&stamp.stdout)));
+    // The stamp of a start adds the line `reach:` (#195): `wb prompt --stamp` starts no session.
+    assert!(rest.contains("\nreach: none\n"), "{}", rest);
+    let rest: String = rest.lines().filter(|line| !line.starts_with("reach: ")).map(|line| format!("{}\n", line)).collect();
+    assert_eq!(timeless(&rest), timeless(&text(&stamp.stdout)));
     // Posted once, then started once.
     let calls = bench.calls();
     assert_eq!(calls.iter().filter(|call| call.starts_with("post ")).collect::<Vec<_>>(), ["post issue 54"]);

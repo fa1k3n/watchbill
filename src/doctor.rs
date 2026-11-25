@@ -5,7 +5,7 @@
 //! what to do>`. Only a fault ends the command with 1. The checks reuse what `wb start` does: the sandbox's own check
 //! (`view::works`), the organisation's file, the runner's binds and the login of the code host (`push::login_of`),
 //! the hooks of the runner (`hooks::said`, #160) and the command `needs` of `watchbill.yml`. What is new is the
-//! tools the patterns call, and the ports that listen on this machine.
+//! tools the patterns call, the runner's `reach` (#195), and the ports that listen on this machine.
 
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
@@ -152,8 +152,9 @@ pub fn doctor(root: &str, host: &Host, out: &mut dyn Write, err: &mut dyn Write)
     let runner = runner(&mut report, &organisation);
     let binds = binds(&mut report, host, runner);
     hooks_of(&mut report, root, host, runner, &binds);
+    reach(&mut report, runner);
     needs(&mut report, root);
-    ports(&mut report, host);
+    ports(&mut report, host, runner);
     for line in &report.lines {
         let _ = writeln!(out, "{}", line);
     }
@@ -175,7 +176,7 @@ fn sandbox(report: &mut Report, host: &Host) {
     }
     report.ok("bubblewrap", &format!("{} is there", host.sandbox.display()));
     match view::works(host.sandbox) {
-        Ok(()) => report.ok("user namespaces", "bubblewrap makes a sandbox here"),
+        Ok(()) => report.ok("user namespaces", "bubblewrap makes a sandbox here, with a network of its own"),
         Err(why) => report.fault("user namespaces", &flat(&why)),
     }
 }
@@ -487,6 +488,35 @@ fn hooks_of(report: &mut Report, root: &str, host: &Host, runner: Option<&Runner
     }
 }
 
+/// The runner's `reach` (#195): what a session in a view reaches, through `wb`'s proxy. A name is not resolved: `wb
+/// doctor` asks nothing of the network.
+fn reach(report: &mut Report, runner: Option<&Runner>) {
+    let Some(runner) = runner else {
+        report.warning("reach", "not looked at: there is no default runner");
+        return;
+    };
+    if runner.reach.is_empty() {
+        report.warning(
+            "reach",
+            &format!(
+                "the runner {} has no `reach`, so a session in a view on it reaches no network, the API of its model among them. Name what it needs in `reach` of the runner, in the organisation's file",
+                runner.name
+            ),
+        );
+        return;
+    }
+    for endpoint in &runner.reach {
+        if endpoint.on_this_machine() {
+            report.warning(
+                "reach",
+                &format!("{} is on this machine: a session in a view reaches the service there, through wb's proxy, and wb cannot tell whether it has a login", endpoint),
+            );
+        } else {
+            report.ok("reach", &format!("a session in a view reaches {}, through wb's proxy", endpoint));
+        }
+    }
+}
+
 /// The command `needs` of `watchbill.yml`, run once, for the file of `watchbill.yml` itself.
 fn needs(report: &mut Report, root: &str) {
     let settings = match starter::settings(root) {
@@ -568,10 +598,11 @@ fn listening(text: &str, six: bool) -> Vec<Socket> {
     found
 }
 
-/// The ports that listen on this machine, from `/proc/net/tcp` and `tcp6`, read through a cap. A session in a view
-/// shares the machine's network, and `wb` cannot tell whether a port has a login, so it names every one. It warns and
-/// refuses nothing.
-fn ports(report: &mut Report, host: &Host) {
+/// The ports that listen on this machine, from `/proc/net/tcp` and `tcp6`, read through a cap, each named. A session in
+/// a view has a network of its own (#195), and reaches a port of this machine only through `reach` of its runner: a
+/// port is a warning where an endpoint of the default runner's `reach` has its number, whatever its host, as no name is
+/// resolved, and `wb` cannot tell whether it has a login. It refuses nothing.
+fn ports(report: &mut Report, host: &Host, runner: Option<&Runner>) {
     let mut sockets: BTreeSet<Socket> = BTreeSet::new();
     for (name, six) in [("tcp", false), ("tcp6", true)] {
         let path = host.net.join(name);
@@ -601,14 +632,18 @@ fn ports(report: &mut Report, host: &Host) {
         report.ok("ports", "no port is listening on this machine");
         return;
     }
-    for (_, shown, at) in sockets.iter().take(NAMED) {
-        report.warning(
-            "ports",
-            &format!(
-                "{} listens on {}; wb cannot tell whether it has a login, and a session in a view can reach it (a view shares this machine's network, until #195)",
-                shown, at
+    let reach = runner.map(|runner| runner.reach.as_slice()).unwrap_or_default();
+    for (port, shown, at) in sockets.iter().take(NAMED) {
+        match reach.iter().find(|endpoint| endpoint.port() == *port) {
+            Some(endpoint) => report.warning(
+                "ports",
+                &format!(
+                    "{} listens on {}; `reach` of the runner names {}, with this port: where it leads to this machine, a session in a view reaches it, and wb cannot tell whether it has a login",
+                    shown, at, endpoint
+                ),
             ),
-        );
+            None => report.ok("ports", &format!("{} listens on {}; a session in a view does not reach it: the view has a network of its own", shown, at)),
+        }
     }
     if sockets.len() > NAMED {
         report.warning("ports", &format!("and {} more ports are listening", sockets.len() - NAMED));

@@ -12,7 +12,7 @@ use crate::yamlfile::{self, Document, Part, YamlError};
 /// The organisation's file. It is laid out by the organisation's own means, outside every repository.
 pub const ORGANISATION_FILE: &str = "/etc/watchbill/organisation.yml";
 
-const RUNNER_FIELDS: [&str; 7] = ["tools", "model", "agreement", "up_to", "planner", "start", "binds"];
+const RUNNER_FIELDS: [&str; 8] = ["tools", "model", "agreement", "up_to", "planner", "start", "binds", "reach"];
 const RUNNER_NEEDS: [&str; 4] = ["tools", "model", "agreement", "up_to"];
 const PLANNER_FIELDS: [&str; 3] = ["up_to", "model", "effort"];
 
@@ -42,6 +42,9 @@ pub struct Runner {
     /// The paths the runner needs for itself in a view (#126): its program, its settings, its login. None
     /// when the runner has no `binds`.
     pub binds: Vec<Bind>,
+    /// The endpoints a session on this runner reaches from a view, through `wb`'s proxy (#195). None when the runner
+    /// has no `reach`: the session reaches no network.
+    pub reach: Vec<crate::reach::Endpoint>,
 }
 
 /// A path a runner needs for itself, put in the view at the same path (#126): read-only unless it is marked
@@ -151,7 +154,28 @@ fn read_runner(doc: &Document, name: &str, levels: &[String]) -> Result<Runner, 
     if doc.has(&list) {
         binds = read_binds(doc, &list)?;
     }
-    Ok(Runner { name: name.to_string(), tools, model, agreement, up_to, planner, start, binds })
+    let mut reach = Vec::new();
+    let list = with(&place, "reach");
+    if doc.has(&list) {
+        reach = read_reach(doc, &list)?;
+    }
+    Ok(Runner { name: name.to_string(), tools, model, agreement, up_to, planner, start, binds, reach })
+}
+
+/// A runner's `reach` (#195): a list of texts, each `<host>:<port>` (`reach::endpoint`), each once. An empty list is
+/// no `reach`.
+fn read_reach(doc: &Document, place: &[Part]) -> Result<Vec<crate::reach::Endpoint>, YamlError> {
+    let texts = doc.texts(place, true)?;
+    let mut reach: Vec<crate::reach::Endpoint> = Vec::new();
+    for (index, text) in texts.iter().enumerate() {
+        let here = with(place, index);
+        let endpoint = crate::reach::endpoint(text).map_err(|why| doc.fail(&here, &format!("the endpoint '{}' of `reach` {}", text.escape_debug(), why), false))?;
+        if reach.contains(&endpoint) {
+            return Err(doc.fail(&here, &format!("the endpoint {} is written twice in `reach`; each is written once", endpoint), false));
+        }
+        reach.push(endpoint);
+    }
+    Ok(reach)
 }
 
 /// A runner's `binds` (#126): a list, each a path, read-only, or `{writable: <path>}`. A path starts with `/`,

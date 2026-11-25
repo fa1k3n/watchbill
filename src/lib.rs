@@ -23,6 +23,7 @@ pub mod manifest;
 pub mod plan;
 pub mod prompt;
 pub mod push;
+pub mod reach;
 pub mod refusal;
 pub mod revert;
 pub mod rules;
@@ -99,11 +100,15 @@ pub const USAGE: &str = "usage:
             ok, warning or fault: bubblewrap and user namespaces, git, the
             tools the patterns of watchbill.yml call, the organisation's file
             and its default runner, each bind of that runner, each hook of the
-            runner's settings whose program the sandbox does not hold, the
-            command needs run once, and the ports that listen on this machine.
-            A port is a warning, as wb cannot tell whether it has a login, and
-            a session in a view can reach it. It reads only and asks nothing
-            of the network. Ends with 0 when no check is a fault, 1 when one
+            runner's settings whose program the sandbox does not hold, each
+            endpoint of the runner's reach, the command needs run once, and
+            the ports that listen on this machine. A session in a view has a
+            network of its own and reaches only the endpoints of reach,
+            through the proxy of wb: an endpoint on this machine, and a port
+            whose number reach names, are warnings, as wb cannot tell whether
+            it has a login. A runner with no reach is a warning: a session on
+            it reaches no network. It reads only and asks nothing of the
+            network. Ends with 0 when no check is a fault, 1 when one
             is. -q (--quiet) leaves out the ok lines, and not a warning or a fault
   upgrade   pin the repository to the installed revision: copy its files over
             .watchbill/revision/, removing those it does not have, and its
@@ -1981,6 +1986,8 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
         (Ok(text), None) => Ok(text.clone()),
         (Err(why), _) => Err(why.clone()),
     };
+    // What the session reaches (#195): the stamp of a start says it, before its parts.
+    let stamp: Result<String, String> = stamp.map(|text| prompt::with_reach(&text, &chosen.reach));
     // The pattern that posts the stamp. From here, a fault leaves the stamp not posted, and no view.
     let not_posted = |lines: &mut sessions::Lines, err: &mut dyn Write, why: &str| {
         discard(&prepared);
@@ -2008,6 +2015,7 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
     if let Some(paths) = &paths {
         lines.write("view", &view::list(paths), err);
     }
+    lines.write("reach", &reach_list(&chosen.reach), err);
     // Where the view is, and what it was made from (#222): a `wb` ended before its session leaves no `back`, and the
     // view is found by this file.
     if let Some(text) = kept::folder_text(&prepared.view, words.get("issue")) {
@@ -2017,6 +2025,18 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
         let named: String = found.iter().map(|local| format!("{}\n", issue::shown(&local.path))).collect();
         lines.write("local", &named, err);
     }
+    // The way out of the view (#195), for a runner with `reach`: the proxy listens before the stamp is posted, so that a
+    // proxy that cannot be started leaves the stamp not posted.
+    let net = if chosen.reach.is_empty() {
+        None
+    } else {
+        let folder = prepared.out.join(reach::SOCKET_FOLDER);
+        let started = reach::program().and_then(|exe| reach::Proxy::start(&folder, &chosen.reach, lines.file("refused").as_deref()).map(|proxy| (proxy, exe)));
+        match started {
+            Ok((proxy, exe)) => Some((proxy, reach::Net { folder, exe })),
+            Err(why) => return not_posted(&mut lines, err, &why),
+        }
+    };
     let _ = write!(err, "{}: will post on {} {}, by `{}` of watchbill.yml:\n{}", name, word, on, post, stamp);
     match starter::run(root, post, &line.replace(&format!("{{{}}}", word), &on), Some(stamp.as_bytes())) {
         Ok(said) => {
@@ -2067,6 +2087,13 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
             organisation.display()
         );
     }
+    // What the session reaches (#195), said before it starts.
+    if chosen.reach.is_empty() {
+        let _ = writeln!(err, "{}: the session reaches no network: the runner '{}' has no reach", name, runner);
+    } else {
+        let all: Vec<String> = chosen.reach.iter().map(ToString::to_string).collect();
+        let _ = writeln!(err, "{}: the session reaches only {}, through wb's proxy (reach of the runner '{}')", name, all.join(", "), runner);
+    }
     let _ = writeln!(
         err,
         "{}: starts {} on the runner {}, in a view of {} at {}, in bubblewrap",
@@ -2088,7 +2115,29 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
     };
     // The `wb` that waits is the watchdog (#267): what the view holds now is where its quiet starts from.
     let mut watch = watchdog::Watchdog::new(limits, &prepared.view.folder, paths.as_deref().unwrap_or(&[]), lines.folder());
-    let status = match view::run_watched(machine.sandbox, &plan, layout, Some(&prepared.out), Some(&mut watch), name, err) {
+    let (proxy, net) = match net {
+        Some((proxy, net)) => (Some(proxy), Some(net)),
+        None => (None, None),
+    };
+    let ran = view::run_reaching(machine.sandbox, &plan, layout, Some(&prepared.out), net.as_ref(), Some(&mut watch), name, err);
+    // The proxy ends with the session (#195), before anything is taken back, and its refusals are said once.
+    if let Some(count) = proxy.map(reach::Proxy::stop).filter(|count| *count > 0) {
+        let named = match lines.file("refused").filter(|file| file.is_file()) {
+            Some(file) => format!("each is named in {}", file.display()),
+            None => "the lines of this start were not written, so they are not named".to_string(),
+        };
+        let _ = writeln!(
+            err,
+            "{}: the proxy refused {} {} that the session asked for, as reach of the runner '{}' does not let {} through; {}",
+            name,
+            count,
+            if count == 1 { "connection" } else { "connections" },
+            runner,
+            if count == 1 { "it" } else { "them" },
+            named
+        );
+    }
+    let status = match ran {
         Ok(status) => status,
         Err(why) => {
             push::remove_out(&prepared.out);
@@ -2426,6 +2475,14 @@ fn prepare_view(
         }
     };
     Ok(Prepared { view: made, binds: resolved, build_files, size, at, out })
+}
+
+/// The endpoints of `reach`, one to a line, as the file `reach` of the lines holds them, or `none` (#195).
+fn reach_list(endpoints: &[reach::Endpoint]) -> String {
+    if endpoints.is_empty() {
+        return "none\n".to_string();
+    }
+    endpoints.iter().map(|endpoint| format!("{}\n", endpoint)).collect()
 }
 
 /// `wb plan`, with the words after `plan`, in the repository of `folder`, with the organisation's file at `organisation`

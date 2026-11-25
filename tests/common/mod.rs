@@ -326,3 +326,45 @@ pub fn stand_in(source: &str, program: &Path, args: &[&str]) -> std::process::Ch
     }
     unreachable!()
 }
+
+/// Writes each of `messages` as a commit on the job's ref of `issue`, `refs/watchbill/<issue>`, after the one before,
+/// unsigned, with the tree of the commit before (empty for the first): a stamp or a marker as `wb start` and `wb revert`
+/// write one where no `.watchbill/signers` is there (#236). A message is a first line such as `[stamp] review round 1`
+/// and any lines after it. The ref is moved with no check of what it was.
+pub fn stamps_on_ref(folder: &Path, issue: &str, messages: &[&str]) {
+    let full = format!("refs/watchbill/{}", issue);
+    let run = |args: &[&str], input: &[u8]| -> String {
+        let mut child = Command::new("git")
+            .arg("-C")
+            .arg(folder)
+            .args(args)
+            .env_clear()
+            .envs(env())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("git could not be started");
+        child.stdin.take().unwrap().write_all(input).unwrap();
+        let output = child.wait_with_output().expect("git could not be waited for");
+        assert!(output.status.success(), "git {:?}: {}", args, String::from_utf8_lossy(&output.stderr));
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    };
+    let parent = Command::new("git").arg("-C").arg(folder).args(["rev-parse", "--verify", "-q", &full]).env_clear().envs(env()).stderr(Stdio::null()).output().expect("git could not be started");
+    let mut parent = Some(String::from_utf8_lossy(&parent.stdout).trim().to_string()).filter(|commit| !commit.is_empty());
+    for message in messages {
+        let tree = match &parent {
+            Some(commit) => run(&["rev-parse", &format!("{}^{{tree}}", commit)], b""),
+            None => run(&["mktree"], b""),
+        };
+        let mut args = vec!["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "commit-tree", "--no-gpg-sign", tree.as_str()];
+        if let Some(commit) = &parent {
+            args.push("-p");
+            args.push(commit);
+        }
+        let body = if message.ends_with('\n') { message.to_string() } else { format!("{}\n", message) };
+        let commit = run(&args, body.as_bytes());
+        run(&["update-ref", &full, &commit], b"");
+        parent = Some(commit);
+    }
+}

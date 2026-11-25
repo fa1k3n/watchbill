@@ -1,0 +1,616 @@
+//! A stamp is a signed commit on the job's ref, and its push is the lock (#236; `docs/revision.md`, points 12 and 15).
+//!
+//! Each test makes its repository, its stand-ins and, where it signs, its own SSH keys, in folders of its own: `HOME`,
+//! `XDG_CONFIG_HOME` and `GIT_CONFIG_GLOBAL` point at a home folder of the test, and no ssh agent is handed on, so no
+//! person's key, agent or git config is ever read or touched. `wb start`, `wb prompt` and `wb plan add`, which `wb` as a
+//! program runs only with the organisation's file of `/etc` and at a terminal, run in a child of this test binary with
+//! that same environment. The remote, where there is one, is a bare repository in a folder of the test: never the
+//! network. The patterns of `watchbill.yml` are stand-ins that write what they were given in a folder of the test.
+
+// A test is named after the requirement it covers, and the ID has capitals.
+#![allow(non_snake_case)]
+
+mod common;
+
+use common::*;
+use std::ffi::OsString;
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
+
+const YML: &str = ".watchbill/issues/54.yml";
+const SIGNERS: &str = ".watchbill/signers";
+const JOB: &str = "refs/watchbill/54";
+
+/// The options `wb prompt` of a role needs beside the issue.
+const REST: [&str; 8] = ["--branch", "issue-54", "--issue_address", "tracker 54", "--change", "34", "--change_address", "server 34"];
+
+/// The organisation's file: `stand-in` has `start`, with the folder of the stand-ins bound writable.
+const ORG: &str = "levels: [public, internal, confidential]
+runners:
+  stand-in:
+    tools: this machine
+    model: a stand-in
+    agreement: none
+    up_to: internal
+    start: ['{log}/start.sh', '{model}', '{effort}', '{prompt}']
+    binds: [{writable: '{log}'}]
+default: stand-in
+";
+
+/// A repository of a test, the folder of its stand-ins, the home folder its git and `wb` run in, and the
+/// organisation's file.
+struct Bench {
+    repo: Folder,
+    log: Folder,
+    home: Folder,
+    org: PathBuf,
+    _org: Folder,
+    _origin: Option<Folder>,
+}
+
+/// The environment of a test: that of `common::env`, with the home, git's config and the ssh agent of the test's own.
+fn env_in(home: &Path) -> Vec<(String, String)> {
+    let own = ["HOME", "XDG_CONFIG_HOME", "SSH_AUTH_SOCK", "SSH_AGENT_PID", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "GNUPGHOME"];
+    let mut vars: Vec<(String, String)> = env().into_iter().filter(|(name, _)| !own.contains(&name.as_str())).collect();
+    let at = |below: &str| home.join(below).display().to_string();
+    vars.push(("HOME".to_string(), home.display().to_string()));
+    vars.push(("XDG_CONFIG_HOME".to_string(), at(".config")));
+    vars.push(("GIT_CONFIG_GLOBAL".to_string(), at(".gitconfig")));
+    vars.push(("GIT_CONFIG_NOSYSTEM".to_string(), "1".to_string()));
+    vars.push(("GNUPGHOME".to_string(), at(".gnupg")));
+    vars
+}
+
+fn script(path: &Path, body: &str) {
+    fs::write(path, format!("#!/bin/sh\n{}", body)).unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// The variables that make this test binary, run as a child, the runner of one command of `wb` (`Bench::child`).
+const CHILD_COMMAND: &str = "WB_STAMPED_CHILD_COMMAND";
+const CHILD_WORDS: &str = "WB_STAMPED_CHILD_WORDS";
+const CHILD_ORG: &str = "WB_STAMPED_CHILD_ORG";
+const CHILD_SAID: &str = "WB_STAMPED_CHILD_SAID";
+const CHILD_TEST: &str = "a_helper_that_runs_wb_for_the_stamp_tests_and_checks_nothing";
+
+/// The child: one command of `wb` in the folder it was started in, what it wrote in the file `CHILD_SAID` (standard
+/// output, a line `--`, standard error), and its status as the status of the process. Run alone, it checks nothing.
+#[test]
+fn a_helper_that_runs_wb_for_the_stamp_tests_and_checks_nothing() {
+    let (Ok(command), Ok(words), Ok(org), Ok(said)) = (std::env::var(CHILD_COMMAND), std::env::var(CHILD_WORDS), std::env::var(CHILD_ORG), std::env::var(CHILD_SAID)) else {
+        return;
+    };
+    let words: Vec<String> = words.split('\u{1f}').map(str::to_string).collect();
+    let folder = std::env::current_dir().unwrap();
+    let org = PathBuf::from(org);
+    let run = match command.as_str() {
+        "start" => {
+            let state = folder_named("state");
+            let args: Vec<&str> = std::iter::once("start").chain(words.iter().map(String::as_str)).collect();
+            start_in(&folder, &org, true, Some(&state.path), &args)
+        }
+        "prompt" => {
+            let args: Vec<&str> = words.iter().map(String::as_str).collect();
+            prompt_with(&folder, &org, &args)
+        }
+        _ => {
+            use std::os::unix::process::ExitStatusExt;
+            let words: Vec<OsString> = words.iter().map(OsString::from).collect();
+            let mut input = std::io::Cursor::new(Vec::new());
+            let (mut out, mut err) = (Vec::new(), Vec::new());
+            let code = watchbill::plan(&words, &folder, &org, &mut input, &mut out, &mut err);
+            Output { status: std::process::ExitStatus::from_raw(code << 8), stdout: out, stderr: err }
+        }
+    };
+    fs::write(said, format!("{}--\n{}", text(&run.stdout), text(&run.stderr))).unwrap();
+    std::process::exit(run.status.code().unwrap_or(-1));
+}
+
+/// What a child said: its status, its standard output and its standard error.
+struct Said {
+    code: i32,
+    out: String,
+    err: String,
+}
+
+impl Bench {
+    fn run_in(&self, program: &str, args: &[&str], dir: &Path) -> Output {
+        Command::new(program).args(args).current_dir(dir).env_clear().envs(env_in(&self.home.path)).stdin(Stdio::null()).output().expect("a program could not be started")
+    }
+
+    /// git in `dir`, which must end with 0; what it printed.
+    fn git_in(&self, dir: &Path, args: &[&str]) -> String {
+        let run = self.run_in("git", args, dir);
+        assert!(run.status.success(), "git {:?}: {}", args, text(&run.stderr));
+        text(&run.stdout)
+    }
+
+    fn git(&self, args: &[&str]) -> String {
+        self.git_in(&self.repo.path, args)
+    }
+
+    /// `wb` as the program, in the repository.
+    fn wb(&self, args: &[&str]) -> Output {
+        self.run_in(env!("CARGO_BIN_EXE_wb"), args, &self.repo.path)
+    }
+
+    /// One command of `wb` in a child of this test binary, in `dir`, with the bench's home and organisation's file.
+    fn child_in(&self, dir: &Path, command: &str, args: &[&str]) -> Said {
+        let said = self.home.path.join(format!("said-{}", std::process::id()));
+        let _ = fs::remove_file(&said);
+        let run = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", CHILD_TEST, "--test-threads=1", "--quiet", "--nocapture"])
+            .current_dir(dir)
+            .env_clear()
+            .envs(env_in(&self.home.path))
+            .env(CHILD_COMMAND, command)
+            .env(CHILD_WORDS, args.join("\u{1f}"))
+            .env(CHILD_ORG, &self.org)
+            .env(CHILD_SAID, &said)
+            .stdin(Stdio::null())
+            .output()
+            .expect("the test binary could not be started");
+        let written = fs::read_to_string(&said).unwrap_or_else(|_| format!("--\nthe child said nothing: {}{}", text(&run.stdout), text(&run.stderr)));
+        let (out, err) = written.split_once("--\n").unwrap_or(("", &written));
+        Said { code: run.status.code().unwrap_or(-1), out: out.to_string(), err: err.to_string() }
+    }
+
+    fn start(&self, args: &[&str]) -> Said {
+        self.child_in(&self.repo.path, "start", args)
+    }
+
+    fn prompt(&self, args: &[&str]) -> Said {
+        self.child_in(&self.repo.path, "prompt", args)
+    }
+
+    /// `wb plan add 54 -m <text>`, which must end with 0.
+    fn plan(&self, text: &str) {
+        let said = self.child_in(&self.repo.path, "plan", &["add", "54", "-m", text]);
+        assert_eq!(said.code, 0, "{}", said.err);
+    }
+
+    /// What the stand-ins were run with, one line for each run, in order.
+    fn calls(&self) -> Vec<String> {
+        fs::read_to_string(self.log.path.join("calls")).unwrap_or_default().lines().map(str::to_string).collect()
+    }
+
+    fn sessions(&self) -> usize {
+        self.calls().iter().filter(|call| *call == "start").count()
+    }
+
+    fn posted(&self) -> Option<String> {
+        fs::read_to_string(self.log.path.join("posted-issue-54")).ok()
+    }
+
+    /// The comments on issue 54, as `issue_comments` prints them.
+    fn comments(&self, lines: &[&str]) {
+        fs::write(self.log.path.join("comments-issue-54"), lines.iter().map(|line| format!("{}\n", line)).collect::<String>()).unwrap();
+    }
+
+    /// The commits of the job's ref, newest first.
+    fn on_ref(&self) -> Vec<String> {
+        let run = self.run_in("git", &["rev-list", "--first-parent", JOB], &self.repo.path);
+        text(&run.stdout).lines().map(str::to_string).collect()
+    }
+
+    /// The message of a commit.
+    fn message(&self, commit: &str) -> String {
+        self.git(&["cat-file", "commit", commit]).split_once("\n\n").map(|(_, message)| message.to_string()).unwrap_or_default()
+    }
+
+    fn head(&self) -> String {
+        self.git(&["rev-parse", "HEAD"]).trim().to_string()
+    }
+
+    /// The private key of `name`, made the first time it is asked for.
+    fn key(&self, name: &str) -> PathBuf {
+        let folder = self.home.path.join("keys");
+        fs::create_dir_all(&folder).unwrap();
+        let path = folder.join(name);
+        if !path.exists() {
+            let run = self.run_in("ssh-keygen", &["-q", "-t", "ed25519", "-N", "", "-C", name, "-f", path.to_str().unwrap()], &self.home.path);
+            assert!(run.status.success(), "ssh-keygen: {}", text(&run.stderr));
+        }
+        path
+    }
+
+    /// The public key of `name`, as `<type> <base64>`.
+    fn public(&self, name: &str) -> String {
+        let key = self.key(name);
+        let line = read(&PathBuf::from(format!("{}.pub", key.display())));
+        line.split_whitespace().take(2).collect::<Vec<_>>().join(" ")
+    }
+
+    /// Signs with the key of `name` from now on, as git's config of the repository.
+    fn sign_with(&self, name: &str) {
+        let key = self.key(name);
+        self.git(&["config", "gpg.format", "ssh"]);
+        self.git(&["config", "user.signingkey", key.to_str().unwrap()]);
+    }
+
+    /// Commits `.watchbill/signers` on `main` with the line of `name` and `roles`, and comes back to `issue-54`.
+    fn signers(&self, name: &str, roles: &str) {
+        self.git(&["checkout", "-q", "main"]);
+        put(&self.repo.path, SIGNERS, &format!("{}@example.org roles=\"{}\" {}\n", name, roles, self.public(name)));
+        self.git(&["add", "--", SIGNERS]);
+        self.git(&["commit", "-q", "-m", "The project's keys"]);
+        self.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+        self.git(&["checkout", "-q", "issue-54"]);
+        self.git(&["merge", "-q", "--ff-only", "main"]);
+    }
+
+    /// An issue's file of 54, accepted and committed with its acceptance on `issue-54`.
+    fn issue_file(&self) {
+        put(&self.repo.path, YML, &BARE_ISSUE.replace("{issue}", "54").replace("  tester: []", "  tester: [src/brake.c]"));
+        let run = self.wb(&["plan", "accept", "--no-commit", "54"]);
+        assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+        self.git(&["add", "--", ".watchbill/issues"]);
+        self.git(&["commit", "-q", "-m", "The issue's file"]);
+    }
+
+    /// `wb status 54`: what it printed.
+    fn status(&self) -> String {
+        let run = self.wb(&["status", "54"]);
+        text(&run.stdout)
+    }
+}
+
+/// A repository set up by `wb init --yes` (which writes `classed: []`), with the level `public`, the patterns of the
+/// issue's text and its whole comments as stand-ins, and `tracker` the stamp's copy and the comments too; committed on
+/// `main`, with `origin/HEAD` naming `main`, and the branch `issue-54` checked out. `origin` is a bare repository of the
+/// test where `remote` is true, and there is none where it is false.
+fn bench(tracker: bool, remote: bool) -> Bench {
+    let repo = repository(None);
+    let log = folder_named("log");
+    let home = folder_named("home");
+    fs::write(home.path.join(".gitconfig"), "").unwrap();
+    let l = log.path.to_str().unwrap().to_string();
+    let l = l.as_str();
+    script(&log.path.join("post.sh"), &format!("echo \"post $1 $2\" >> {l}/calls\ncat > {l}/posted-$1-$2\nexit 0\n"));
+    script(&log.path.join("comments.sh"), &format!("echo \"comments $1 $2\" >> {l}/calls\ncat {l}/comments-$1-$2 2>/dev/null\nexit 0\n"));
+    script(&log.path.join("text.sh"), &format!("echo \"text $1\" >> {l}/calls\necho \"The text of issue $1.\"\nexit 0\n"));
+    script(&log.path.join("bodies.sh"), &format!("echo \"bodies $1\" >> {l}/calls\nexit 0\n"));
+    script(&log.path.join("start.sh"), &format!("echo start >> {l}/calls\nexit 0\n"));
+    let org_folder = folder_named("org");
+    let org = org_folder.path.join("organisation.yml");
+    fs::write(&org, ORG.replace("{log}", l)).unwrap();
+    let bench = Bench { repo, log, home, org, _org: org_folder, _origin: None };
+    for (key, value) in [("user.name", "Ada Lovelace"), ("user.email", "ada@example.org"), ("commit.gpgsign", "false"), ("tag.gpgsign", "false")] {
+        bench.git(&["config", key, value]);
+    }
+    let run = bench.wb(&["init", "--yes"]);
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let mut yml = read(&config(&bench.repo.path));
+    yml.push_str(&format!("issue_text: '{}/text.sh {{issue}}'\nissue_comment_bodies: '{}/bodies.sh {{issue}}'\nconfidentiality: public\n", l, l));
+    if tracker {
+        yml.push_str(&format!("issue_comment: '{}/post.sh issue {{issue}}'\nissue_comments: '{}/comments.sh issue {{issue}}'\n", l, l));
+    }
+    fs::write(config(&bench.repo.path), yml).unwrap();
+    put(&bench.repo.path, "src/brake.c", "int brake(void) { return 1; }\n");
+    bench.git(&["add", "--", ".watchbill", "src/brake.c"]);
+    bench.git(&["commit", "-q", "-m", "Watchbill"]);
+    bench.git(&["branch", "-M", "main"]);
+    bench.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    bench.git(&["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+    bench.git(&["checkout", "-q", "-b", "issue-54"]);
+    if !remote {
+        return bench;
+    }
+    let origin = folder_named("origin.git");
+    bench.git_in(&origin.path, &["init", "-q", "--bare"]);
+    bench.git(&["remote", "add", "origin", origin.path.to_str().unwrap()]);
+    bench.git(&["push", "-q", "origin", "main", "issue-54"]);
+    Bench { _origin: Some(origin), ..bench }
+}
+
+/// The hash of the text of a source, as `wb plan add` stores it.
+fn blob(bench: &Bench, text: &str) -> String {
+    let path = bench.home.path.join("source");
+    fs::write(&path, text).unwrap();
+    bench.git(&["hash-object", "-t", "blob", path.to_str().unwrap()]).trim().to_string()
+}
+
+fn ok(said: &Said) {
+    assert_eq!(said.code, 0, "{}", said.err);
+}
+
+// ---- WB-BUILD-43: the stamp is a commit on the job's ref, after the one before ----
+
+#[test]
+fn test_WB_BUILD_43_a_start_writes_one_commit_on_the_jobs_ref_with_the_stamp_job_and_base_after_the_plan() {
+    let bench = bench(false, true);
+    bench.plan("The brakes hold.");
+    let plan = bench.on_ref()[0].clone();
+    let base = bench.head();
+
+    ok(&bench.start(&["tester", "54"]));
+
+    let commits = bench.on_ref();
+    assert_eq!(commits.len(), 2, "{:?}", commits);
+    assert_eq!(bench.git(&["rev-parse", &format!("{}^", commits[0])]).trim(), plan);
+    let message = bench.message(&commits[0]);
+    assert!(message.starts_with("[stamp] tester round 1\nrole: tester\n"), "{}", message);
+    assert!(message.contains(&format!("\njob: {}\n", blob(&bench, "The brakes hold.\n"))), "{}", message);
+    assert!(message.contains(&format!("\nbase: {}\n", base)), "{}", message);
+    assert_eq!(bench.sessions(), 1);
+}
+
+#[test]
+fn test_WB_BUILD_43_a_second_start_names_the_first_stamp_before_it() {
+    let bench = bench(false, false);
+    ok(&bench.start(&["tester", "54"]));
+    let first = bench.on_ref()[0].clone();
+    ok(&bench.start(&["tester", "54"]));
+    let commits = bench.on_ref();
+    assert_eq!(commits.len(), 2, "{:?}", commits);
+    assert_eq!(bench.git(&["rev-parse", &format!("{}^", commits[0])]).trim(), first);
+    assert!(bench.message(&commits[0]).contains("\njob: none\n"), "{}", bench.message(&commits[0]));
+}
+
+// ---- WB-BUILD-44: the tree of a stamp holds the job's tree, the view's list and the issue's file ----
+
+#[test]
+fn test_WB_BUILD_44_the_stamps_tree_holds_the_jobs_tree_the_views_list_and_the_issues_file() {
+    let bench = bench(false, false);
+    bench.plan("The brakes hold.");
+    // A source of the acceptance's own second counts as after it (#290): the acceptance comes in the next second.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    bench.issue_file();
+
+    ok(&bench.start(&["tester", "54"]));
+
+    let tree = bench.git(&["ls-tree", "-r", "--name-only", JOB]);
+    let names: Vec<&str> = tree.lines().collect();
+    let source = format!("sources/{}", blob(&bench, "The brakes hold.\n"));
+    assert_eq!(names, ["issue.yml", "job.yml", source.as_str(), "view"], "{}", tree);
+    assert_eq!(bench.git(&["cat-file", "blob", &format!("{}:issue.yml", JOB)]), read(&bench.repo.path.join(YML)));
+    assert!(bench.git(&["cat-file", "blob", &format!("{}:view", JOB)]).contains("src/brake.c"), "{}", bench.git(&["cat-file", "blob", &format!("{}:view", JOB)]));
+}
+
+// ---- WB-BUILD-45: the push is the lock ----
+
+#[test]
+fn test_WB_BUILD_45_a_second_start_from_a_clone_that_did_not_fetch_the_first_is_refused_with_1_and_starts_nothing() {
+    let bench = bench(false, true);
+    let origin = bench._origin.as_ref().unwrap().path.clone();
+    let other = folder_named("other");
+    let clone = other.path.join("brake-controller");
+    bench.git_in(&other.path, &["clone", "-q", "-b", "issue-54", origin.to_str().unwrap(), clone.to_str().unwrap()]);
+    for (key, value) in [("user.name", "Grace Hopper"), ("user.email", "grace@example.org"), ("commit.gpgsign", "false")] {
+        bench.git_in(&clone, &["config", key, value]);
+    }
+
+    let first = bench.child_in(&clone, "start", &["tester", "54"]);
+    ok(&first);
+    assert_eq!(bench.sessions(), 1);
+    let pushed = bench.git_in(&origin, &["rev-parse", JOB]).trim().to_string();
+
+    let second = bench.start(&["tester", "54"]);
+
+    assert_eq!(second.code, 1, "{}", second.err);
+    assert!(second.err.contains("another start went first"), "{}", second.err);
+    assert!(second.err.contains("Nothing is started"), "{}", second.err);
+    assert_eq!(bench.sessions(), 1, "{:?}", bench.calls());
+    // Neither the remote's ref nor the local one moved.
+    assert_eq!(bench.git_in(&origin, &["rev-parse", JOB]).trim(), pushed);
+    assert!(bench.on_ref().is_empty(), "{:?}", bench.on_ref());
+}
+
+#[test]
+fn test_WB_BUILD_45_a_start_pushes_its_stamp_to_origin_before_the_session() {
+    let bench = bench(false, true);
+    let origin = bench._origin.as_ref().unwrap().path.clone();
+    let said = bench.start(&["tester", "54"]);
+    ok(&said);
+    assert_eq!(bench.git_in(&origin, &["rev-parse", JOB]).trim(), bench.on_ref()[0]);
+    let pushed = said.err.find("pushed it to origin").unwrap_or_else(|| panic!("{}", said.err));
+    let started = said.err.find("starts tester on the runner").unwrap_or_else(|| panic!("{}", said.err));
+    assert!(pushed < started, "{}", said.err);
+}
+
+// ---- WB-BUILD-46: with no remote the stamp is local ----
+
+#[test]
+fn test_WB_BUILD_46_with_no_remote_the_stamp_is_local_the_start_goes_on_and_says_so() {
+    let bench = bench(false, false);
+    let said = bench.start(&["tester", "54"]);
+    ok(&said);
+    assert_eq!(bench.on_ref().len(), 1);
+    assert!(said.err.contains("there is no remote origin, so the stamp"), "{}", said.err);
+    assert!(said.err.contains(&format!("is on the local {} alone", JOB)), "{}", said.err);
+    assert_eq!(bench.sessions(), 1);
+}
+
+// ---- WB-BUILD-47: the round is counted from the stamp commits ----
+
+#[test]
+fn test_WB_BUILD_47_two_stamps_of_the_tester_give_round_2_with_no_tracker_set_up() {
+    let bench = bench(false, false);
+    ok(&bench.start(&["tester", "54"]));
+    let second = bench.start(&["tester", "54"]);
+    ok(&second);
+    assert!(bench.message(&bench.on_ref()[0]).starts_with("[stamp] tester round 2\n"), "{}", bench.message(&bench.on_ref()[0]));
+    assert!(second.err.contains(&format!("round 2 (1 tester stamp on {})", JOB)), "{}", second.err);
+    assert!(second.err.contains("so no copy of the stamp is posted"), "{}", second.err);
+    assert!(!bench.calls().iter().any(|call| call.starts_with("post ") || call.starts_with("comments ")), "{:?}", bench.calls());
+}
+
+// ---- WB-BUILD-48: a stamp that does not check is not a stamp ----
+
+#[test]
+fn test_WB_BUILD_48_an_unsigned_stamp_commit_is_not_counted_and_status_says_so() {
+    let bench = bench(false, false);
+    bench.signers("ada", "start");
+    bench.sign_with("ada");
+    stamps_on_ref(&bench.repo.path, "54", &["[stamp] tester round 1\nrole: tester\n", "[stamp] review round 1\nrole: review\n"]);
+
+    let said = bench.start(&["tester", "54"]);
+
+    ok(&said);
+    assert!(bench.message(&bench.on_ref()[0]).starts_with("[stamp] tester round 1\n"), "{}", said.err);
+    let status = bench.status();
+    assert!(!status.contains("Reviewed:"), "{}", status);
+    assert!(status.contains("[stamp] tester round 1  (on refs/watchbill/54, not counted: unsigned"), "{}", status);
+}
+
+#[test]
+fn test_WB_BUILD_48_a_stamp_signed_by_a_key_not_in_the_list_with_start_is_not_counted() {
+    let bench = bench(false, false);
+    bench.signers("ada", "start");
+    // Bob's key is in no list; Ada signs the next start.
+    bench.sign_with("bob");
+    let tree = bench.git(&["write-tree"]).trim().to_string();
+    let forged = bench.git(&["commit-tree", "-S", "-m", "[stamp] tester round 1", &tree]).trim().to_string();
+    bench.git(&["update-ref", JOB, &forged]);
+    bench.sign_with("ada");
+
+    let said = bench.start(&["tester", "54"]);
+
+    ok(&said);
+    assert!(bench.message(&bench.on_ref()[0]).starts_with("[stamp] tester round 1\n"), "{}", said.err);
+    assert!(bench.status().contains("not counted: signed by a key that is not in .watchbill/signers of origin/main"), "{}", bench.status());
+}
+
+// ---- WB-BUILD-49: the comment is a copy, never read back ----
+
+#[test]
+fn test_WB_BUILD_49_the_stamp_comment_is_posted_as_a_copy_of_the_commit() {
+    let bench = bench(true, false);
+    ok(&bench.start(&["tester", "54"]));
+    let posted = bench.posted().expect("no copy was posted");
+    assert_eq!(posted, bench.message(&bench.on_ref()[0]));
+}
+
+#[test]
+fn test_WB_BUILD_49_a_forged_stamp_comment_changes_no_round() {
+    let bench = bench(true, false);
+    bench.comments(&["[stamp] tester round 1", "[stamp] tester round 2", "[stamp] review round 1"]);
+
+    let said = bench.start(&["tester", "54"]);
+
+    ok(&said);
+    assert!(bench.message(&bench.on_ref()[0]).starts_with("[stamp] tester round 1\n"), "{}", bench.message(&bench.on_ref()[0]));
+    assert!(!bench.calls().iter().any(|call| call.starts_with("comments ")), "{:?}", bench.calls());
+    assert!(!bench.status().contains("Reviewed:"), "{}", bench.status());
+}
+
+// ---- WB-BUILD-50: the stamp is signed by the starter ----
+
+#[test]
+fn test_WB_BUILD_50_with_the_list_the_stamp_is_signed_by_the_starters_key_and_counts() {
+    let bench = bench(false, false);
+    bench.signers("ada", "start");
+    bench.sign_with("ada");
+
+    ok(&bench.start(&["tester", "54"]));
+
+    let commit = bench.on_ref()[0].clone();
+    let allowed = bench.home.path.join("allowed");
+    fs::write(&allowed, format!("ada@example.org {}\n", bench.public("ada"))).unwrap();
+    let setting = format!("gpg.ssh.allowedSignersFile={}", allowed.display());
+    let verified = bench.run_in("git", &["-c", &setting, "verify-commit", &commit], &bench.repo.path);
+    assert!(verified.status.success(), "{}", text(&verified.stderr));
+    assert!(bench.status().contains("[stamp] tester round 1  (on refs/watchbill/54, signed by ada@example.org)"), "{}", bench.status());
+    let second = bench.start(&["tester", "54"]);
+    ok(&second);
+    assert!(bench.message(&bench.on_ref()[0]).starts_with("[stamp] tester round 2\n"));
+}
+
+// ---- WB-BUILD-51: with no list the stamp is unsigned and counts ----
+
+#[test]
+fn test_WB_BUILD_51_with_no_list_the_stamp_is_unsigned_counts_and_status_says_no_signature_is_checked() {
+    let bench = bench(false, false);
+    ok(&bench.start(&["tester", "54"]));
+    let raw = bench.git(&["cat-file", "commit", &bench.on_ref()[0]]);
+    assert!(!raw.contains("gpgsig"), "{}", raw);
+    let status = bench.status();
+    assert!(status.contains("Tested:"), "{}", status);
+    assert!(status.contains("no .watchbill/signers on origin/main: no signature is checked"), "{}", status);
+}
+
+// ---- WB-BUILD-52 and WB-BUILD-53: refused before anything is written ----
+
+#[test]
+fn test_WB_BUILD_52_with_the_list_and_no_signing_key_the_start_is_refused_with_1_naming_the_setting() {
+    let bench = bench(true, false);
+    bench.signers("ada", "start");
+    let before = bench.git(&["for-each-ref"]);
+
+    let said = bench.start(&["tester", "54"]);
+
+    assert_eq!(said.code, 1, "{}", said.err);
+    assert!(said.err.contains("user.signingkey"), "{}", said.err);
+    assert_eq!(bench.git(&["for-each-ref"]), before);
+    assert!(bench.calls().iter().all(|call| !call.starts_with("post ") && call != "start"), "{:?}", bench.calls());
+}
+
+#[test]
+fn test_WB_BUILD_53_with_the_list_and_a_key_not_in_it_with_start_the_start_is_refused_with_1_naming_the_key() {
+    let bench = bench(true, false);
+    bench.signers("ada", "accept");
+    let before = bench.git(&["for-each-ref"]);
+
+    bench.sign_with("ada");
+    let said = bench.start(&["tester", "54"]);
+    assert_eq!(said.code, 1, "{}", said.err);
+    assert!(said.err.contains(&bench.public("ada")) && said.err.contains("without the role start"), "{}", said.err);
+
+    bench.sign_with("bob");
+    let said = bench.start(&["tester", "54"]);
+    assert_eq!(said.code, 1, "{}", said.err);
+    assert!(said.err.contains(&bench.public("bob")) && said.err.contains("is not in .watchbill/signers"), "{}", said.err);
+
+    assert_eq!(bench.git(&["for-each-ref"]), before);
+    assert!(bench.calls().iter().all(|call| !call.starts_with("post ") && call != "start"), "{:?}", bench.calls());
+}
+
+// ---- WB-PROMPT-58 and WB-PROMPT-59: `job:` and `base:` ----
+
+#[test]
+fn test_WB_PROMPT_58_stamp_prints_the_job_none_without_a_plan_and_its_hash_with_one() {
+    let bench = bench(false, false);
+    let mut args = vec!["tester", "54", "--stamp", "--round", "1"];
+    args.extend(REST);
+    let said = bench.prompt(&args);
+    ok(&said);
+    assert!(said.out.contains("\njob: none\n"), "{}", said.out);
+
+    bench.plan("The brakes hold.");
+    let said = bench.prompt(&args);
+    ok(&said);
+    assert!(said.out.contains(&format!("\njob: {}\n", blob(&bench, "The brakes hold.\n"))), "{}", said.out);
+}
+
+#[test]
+fn test_WB_PROMPT_59_stamp_prints_the_base_the_commit_of_head() {
+    let bench = bench(false, false);
+    let mut args = vec!["tester", "54", "--stamp", "--round", "1"];
+    args.extend(REST);
+    let said = bench.prompt(&args);
+    ok(&said);
+    assert!(said.out.contains(&format!("\nbase: {}\n", bench.head())), "{}", said.out);
+    let job = said.out.find("\njob: ").unwrap();
+    let base = said.out.find("\nbase: ").unwrap();
+    let part = said.out.find("\npart: ").unwrap_or(said.out.len());
+    assert!(job < base && base < part, "{}", said.out);
+}
+
+// ---- WB-JOB-42: a planner round after the acceptance, read from the job's ref ----
+
+#[test]
+fn test_WB_JOB_42_a_planner_round_after_the_acceptance_voids_it_for_prompt_of_an_issue_with_no_plan() {
+    let bench = bench(false, false);
+    bench.issue_file();
+    stamps_on_ref(&bench.repo.path, "54", &["[stamp] planner round 2\nrole: planner\ntime: 2999-01-01T00:00:00Z\n"]);
+
+    let mut args = vec!["build", "54", "--round", "1"];
+    args.extend(REST);
+    let said = bench.prompt(&args);
+
+    assert_eq!(said.code, 1, "{}", said.err);
+    assert!(said.out.is_empty(), "{}", said.out);
+    assert!(said.err.contains("wb plan accept 54"), "{}", said.err);
+}

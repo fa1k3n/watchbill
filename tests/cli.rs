@@ -13,6 +13,7 @@ use std::process::{Command, Output};
 const USAGE: &str = "usage:
   wb init [--yes]
   wb check
+  wb doctor
   wb upgrade [--dry-run]
   wb plan add [<name>] (-F <file> | -m <text>... | --from <adapter> <number>)
             [--source <address>] [--level <level>] [--hash-only]
@@ -57,6 +58,16 @@ const USAGE: &str = "usage:
             revision against the installed wb, and the project text for a
             placeholder the revision does not know. Ends with 0 when all of it
             holds, 1 when something differs. Writes nothing
+  doctor    say what on this machine Watchbill needs, one line to a check, each
+            ok, warning or fault: bubblewrap and user namespaces, git, the
+            tools the patterns of watchbill.yml call, the organisation's file
+            and its default runner, each bind of that runner, each hook of the
+            runner's settings whose program the sandbox does not hold, the
+            command needs run once, and the ports that listen on this machine.
+            A port is a warning, as wb cannot tell whether it has a login, and
+            a session in a view can reach it. It reads only and asks nothing
+            of the network. Ends with 0 when no check is a fault, 1 when one
+            is
   upgrade   pin the repository to the installed revision: copy its files over
             .watchbill/revision/, removing those it does not have, and its
             manifest to .watchbill/revision.sha256, set the lines watchbill:

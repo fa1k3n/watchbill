@@ -13,6 +13,7 @@ pub mod check;
 pub mod compare;
 pub mod confidentiality;
 pub mod detect;
+pub mod doctor;
 pub mod hooks;
 pub mod init;
 pub mod interrupt;
@@ -42,6 +43,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const USAGE: &str = "usage:
   wb init [--yes]
   wb check
+  wb doctor
   wb upgrade [--dry-run]
   wb plan add [<name>] (-F <file> | -m <text>... | --from <adapter> <number>)
             [--source <address>] [--level <level>] [--hash-only]
@@ -86,6 +88,16 @@ pub const USAGE: &str = "usage:
             revision against the installed wb, and the project text for a
             placeholder the revision does not know. Ends with 0 when all of it
             holds, 1 when something differs. Writes nothing
+  doctor    say what on this machine Watchbill needs, one line to a check, each
+            ok, warning or fault: bubblewrap and user namespaces, git, the
+            tools the patterns of watchbill.yml call, the organisation's file
+            and its default runner, each bind of that runner, each hook of the
+            runner's settings whose program the sandbox does not hold, the
+            command needs run once, and the ports that listen on this machine.
+            A port is a warning, as wb cannot tell whether it has a login, and
+            a session in a view can reach it. It reads only and asks nothing
+            of the network. Ends with 0 when no check is a fault, 1 when one
+            is
   upgrade   pin the repository to the installed revision: copy its files over
             .watchbill/revision/, removing those it does not have, and its
             manifest to .watchbill/revision.sha256, set the lines watchbill:
@@ -489,6 +501,18 @@ fn run_command(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, 
         }
         "init" => run_init(&mut parser, input, out, err),
         "check" => run_check(&mut parser, out, err),
+        "doctor" => {
+            let home = home_folder();
+            let path = std::env::var_os("PATH");
+            let host = doctor::Host {
+                organisation: Path::new(confidentiality::ORGANISATION_FILE),
+                sandbox: Path::new(view::BWRAP),
+                home: home.as_deref(),
+                path: path.as_deref(),
+                net: Path::new(doctor::NET),
+            };
+            run_doctor(&mut parser, None, &host, out, err)
+        }
         "upgrade" => run_upgrade(&mut parser, out, err),
         "prompt" => run_prompt(&mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), out, err),
         "plan" => run_plan(&mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), input, out, err),
@@ -526,8 +550,8 @@ fn run_command(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, 
 
 /// The commands of the layout that are built, each with an arm in `run`. A test holds that it is the
 /// layout without `layout::PLANNED`, so a piece that builds a command adds it here with its arm.
-pub const ARMS: [&str; 14] =
-    ["init", "check", "upgrade", "plan", "accept", "start", "status", "view", "answer", "revert", "clean", "prompt", "revision", "compare"];
+pub const ARMS: [&str; 15] =
+    ["init", "check", "doctor", "upgrade", "plan", "accept", "start", "status", "view", "answer", "revert", "clean", "prompt", "revision", "compare"];
 
 /// `wb help`, and `wb help <command>`. `--help` and `-h` are this command too, and read the words after them.
 /// A word after the command is refused with 2.
@@ -619,6 +643,30 @@ fn run_check(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i
             2
         }
         Ok(Some(root)) => check::check(&root, VERSION, Path::new(manifest::PACKAGE_FOLDER), out, err),
+    }
+}
+
+/// `wb doctor`, with the words after `doctor`, in the repository of `folder`, on the machine `host` says: `run` gives the
+/// folder it runs in and what is fixed in `wb`; this is so that a test can give its own, as `view_command` does.
+pub fn doctor(args: &[OsString], folder: &Path, host: &doctor::Host, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    refusal::begin();
+    let code = run_doctor(&mut Parser::from_args(args.iter().cloned()), Some(folder), host, out, err);
+    refusal::ended(code, err)
+}
+
+/// `wb doctor`: what this machine needs, one line to a check. It reads only (#178).
+fn run_doctor(parser: &mut Parser, folder: Option<&Path>, host: &doctor::Host, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let refused = match next(parser) {
+        Ok(None) => None,
+        Ok(Some(found)) => Some(named(found, parser)),
+        Err(refused) => Some(refused),
+    };
+    if let Some(refused) = refused {
+        return used(err, "wb doctor", &format!("'{}' is not known", refused));
+    }
+    match root_for("wb doctor", folder, err) {
+        Err(code) => code,
+        Ok(root) => doctor::doctor(&root, host, out, err),
     }
 }
 

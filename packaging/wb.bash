@@ -4,7 +4,7 @@
 # writes nothing: it reads file names and asks git for the root of the checkout. The lists below are
 # held to the commands, the usage and the roles of wb by tests/completion.rs.
 
-_wb_commands="init check upgrade plan accept start status view answer revert clean prompt revision compare"
+_wb_commands="init check doctor upgrade plan accept start status view answer revert clean prompt revision compare"
 _wb_roles="build fix planner review tester"
 _wb_stages=("Not planned" Planned Accepted Tested Built Reviewed Fixed "Questions open" "Not read")
 

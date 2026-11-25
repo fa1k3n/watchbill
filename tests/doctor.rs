@@ -527,8 +527,8 @@ fn test_WB_CMD_58_no_listening_port_is_an_ok_line() {
 fn test_WB_CMD_58_a_port_that_listens_twice_is_named_once_and_twenty_are_named_at_most() {
     let bench = bench();
     let mut tcp = String::from(HEADER);
-    tcp.push_str(&socket("0100007F:1F90", "0A"));
-    tcp.push_str(&socket("0100007F:1F90", "0A"));
+    tcp.push_str(&socket("0100007F:03E8", "0A"));
+    tcp.push_str(&socket("0100007F:03E8", "0A"));
     for port in 1..=25 {
         tcp.push_str(&socket(&format!("0100007F:{:04X}", 2000 + port), "0A"));
     }
@@ -538,7 +538,7 @@ fn test_WB_CMD_58_a_port_that_listens_twice_is_named_once_and_twenty_are_named_a
 
     all_hold(&run);
     let lines = lines_of(&run, "ports");
-    assert_eq!(lines.iter().filter(|line| line.contains("127.0.0.1:8080")).count(), 1, "{:?}", lines);
+    assert_eq!(lines.iter().filter(|line| line.contains("127.0.0.1:1000")).count(), 1, "{:?}", lines);
     assert_eq!(lines.iter().filter(|line| line.contains(" listens ")).count(), 20, "{:?}", lines);
     assert!(lines.iter().any(|line| line.contains("and 6 more ports")), "{:?}", lines);
 }

@@ -66,6 +66,7 @@ install -d %{buildroot}%{_mandir}/man1
 install -m 0644 packaging/man/wb.1 %{buildroot}%{_mandir}/man1/wb.1
 install -m 0644 packaging/man/wb-init.1 %{buildroot}%{_mandir}/man1/wb-init.1
 install -m 0644 packaging/man/wb-check.1 %{buildroot}%{_mandir}/man1/wb-check.1
+install -m 0644 packaging/man/wb-doctor.1 %{buildroot}%{_mandir}/man1/wb-doctor.1
 install -m 0644 packaging/man/wb-upgrade.1 %{buildroot}%{_mandir}/man1/wb-upgrade.1
 install -m 0644 packaging/man/wb-plan.1 %{buildroot}%{_mandir}/man1/wb-plan.1
 install -m 0644 packaging/man/wb-accept.1 %{buildroot}%{_mandir}/man1/wb-accept.1

@@ -9,7 +9,7 @@
 
 A harness for AI agents in embedded software development, deployed at a fixed revision onto a project that already exists.
 
-**Status: 0.10.0. Built: `wb init`, `wb check`, `wb upgrade`, `wb prompt`, `wb accept`, `wb status`, `wb view`, `wb answer`, `wb revert`, `wb clean`, `wb revision` and `wb start`, which starts a session of a role at a person's terminal. For an issue with an accepted file the session runs in a view: only the files its work needs, and none of the history. A person starts each role. Nothing hands work from one role to the next yet. A command that is planned is marked with its release.**
+**Status: 0.10.0. Built: `wb init`, `wb check`, `wb doctor`, `wb upgrade`, `wb prompt`, `wb accept`, `wb status`, `wb view`, `wb answer`, `wb revert`, `wb clean`, `wb revision` and `wb start`, which starts a session of a role at a person's terminal. For an issue with an accepted file the session runs in a view: only the files its work needs, and none of the history. A person starts each role. Nothing hands work from one role to the next yet. A command that is planned is marked with its release.**
 
 ## What Watchbill is for
 
@@ -88,7 +88,7 @@ At 0.12.0. An issue that changes a verdict changes its row.
 
 | Group | Commands |
 |---|---|
-| set up | `init`, `check`, `doctor` (planned for 0.12.0, #178), `upgrade` |
+| set up | `init`, `check`, `doctor` ([Checking the machine](#checking-the-machine)), `upgrade` |
 | work | `plan` ([Taking a job in](#taking-a-job-in)), `accept`, `start`, `run` (planned for 0.12.0, #183) |
 | see | `status`, `view` ([Seeing a view first](#seeing-a-view-first)), `log` (planned for 0.12.0, #177), `answer` |
 | take back | `revert`, `clean` ([Taking away what is done](#taking-away-what-is-done)) |
@@ -193,6 +193,40 @@ The exit status:
 - **0**: all of it holds.
 - **1**: something differs, a placeholder in the project's text is not known, or the file `watchbill.yml` is refused. Each difference is on standard output.
 - **2**: `wb check` was used wrongly, the folder is not in a git repository, or `.watchbill/watchbill.yml` is not there, so Watchbill is not set up. The reason is on standard error.
+
+## Checking the machine
+
+`wb doctor` says what on this machine Watchbill needs for this repository, before a session fails on it (#178). Run it anywhere inside the repository. It reads only and asks nothing of the network. It runs one command of the repository, `needs`, once.
+
+```
+$ wb doctor
+ok: bubblewrap: /usr/bin/bwrap is there
+ok: user namespaces: bubblewrap makes a sandbox here
+ok: git: /usr/bin/git
+ok: tools: gh at /usr/bin/gh, called by issue_comment, issue_comments
+fault: tools: jq, called by issue_comments, is on no folder of PATH. Install it, or change the pattern
+ok: organisation: /etc/watchbill/organisation.yml is there and reads
+...
+```
+
+One line to a check: `ok`, `warning` or `fault`, the check's name, and what holds or what is wrong and what to do.
+
+- **bubblewrap** is at `/usr/bin/bwrap`, and **user namespaces** let it make a sandbox, as `wb start` needs.
+- **git** is on `PATH`.
+- **tools**: the program of each command of each pattern of `watchbill.yml` is on `PATH` (the first word of each command of a pipeline, outside quotes; a word that holds a variable or a substitution is passed over), one line each, naming the patterns that call it.
+- **organisation**: the organisation's file is there and reads. **default runner**: it names one (none is a warning, as `--runner` may name it), and the program of its `start` is on `PATH` and in what the sandbox holds.
+- **binds**: each bind of the default runner is there, and none holds or lies in a login of the code host, as `wb start` refuses.
+- **hooks**: each hook of the runner's settings whose program the sandbox does not hold, as `wb start` says it (#160), with the checkout standing for the view.
+- **needs**: the pattern `needs` of `watchbill.yml`, run once, for `watchbill.yml` itself. A command that ends with anything but 0 is a fault.
+- **ports**: the sockets that listen in `/proc/net/tcp` and `tcp6`, each as a warning, read through a cap of 1 MiB. A session in a view shares the machine's network, so it can reach a port that listens on loopback or on any address. `wb` cannot tell whether a port has a login, so it names every one, and says it cannot tell, until the sandbox has a network of its own (#195). It warns and refuses nothing.
+
+Every pattern and key comes from `watchbill.yml` as `HEAD` has it, as for `wb status`; where the working tree's file differs, a line on standard error says so.
+
+The exit status:
+
+- **0**: no check is a fault. A warning is not a fault.
+- **1**: a check is a fault, and each is on standard output.
+- **2**: `wb doctor` was used wrongly (it takes no word), the folder is not in a git repository, or Watchbill is not set up.
 
 ## Upgrading it
 

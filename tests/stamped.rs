@@ -463,13 +463,17 @@ fn test_WB_BUILD_48_an_unsigned_stamp_commit_is_not_counted_and_status_says_so()
     bench.signers("ada", "start");
     bench.sign_with("ada");
     unsigned_stamps_on_ref(&bench.repo.path, "54", &["[stamp] tester round 1\nrole: tester\n", "[stamp] review round 1\nrole: review\n"]);
+    let before = bench.git(&["for-each-ref"]);
 
     let said = bench.start(&["tester", "54"]);
 
-    ok(&said);
-    assert!(bench.message(&bench.on_ref()[0]).starts_with("[stamp] tester round 1\n"), "{}", said.err);
+    // Since #327 an unsigned commit makes the job's ref not as `wb` writes it: the start is refused, and writes nothing.
+    assert_eq!(said.code, 1, "{}", said.err);
+    assert!(said.err.contains("is not as wb writes it"), "{}", said.err);
+    assert_eq!(bench.git(&["for-each-ref"]), before);
+    assert_eq!(bench.sessions(), 0, "{:?}", bench.calls());
     let status = bench.status();
-    assert!(!status.contains("Reviewed:"), "{}", status);
+    assert!(!status.contains("Tested:") && !status.contains("Reviewed:"), "{}", status);
     assert!(status.contains("[stamp] tester round 1  (on refs/watchbill/54, not counted: unsigned"), "{}", status);
 }
 
@@ -483,11 +487,17 @@ fn test_WB_BUILD_48_a_stamp_signed_by_a_key_not_in_the_list_with_start_is_not_co
     let forged = bench.git(&["commit-tree", "-S", "-m", "[stamp] tester round 1", &tree]).trim().to_string();
     bench.git(&["update-ref", JOB, &forged]);
     bench.sign_with("ada");
+    let before = bench.git(&["for-each-ref"]);
 
     let said = bench.start(&["tester", "54"]);
 
-    ok(&said);
-    assert!(bench.message(&bench.on_ref()[0]).starts_with("[stamp] tester round 1\n"), "{}", said.err);
+    // Since #327 a commit signed by a key not in the list makes the job's ref not as `wb` writes it: the start is
+    // refused, and writes nothing.
+    assert_eq!(said.code, 1, "{}", said.err);
+    assert!(said.err.contains("is not as wb writes it") && said.err.contains("signed by a key that is not in"), "{}", said.err);
+    assert_eq!(bench.git(&["for-each-ref"]), before);
+    assert_eq!(bench.sessions(), 0, "{:?}", bench.calls());
+    assert!(!bench.status().contains("Tested:"), "{}", bench.status());
     assert!(bench.status().contains("not counted: signed by a key that is not in .watchbill/signers of origin/main"), "{}", bench.status());
 }
 
@@ -803,12 +813,10 @@ fn raw_stamp(bench: &Bench, message: &str) -> String {
     commit
 }
 
-/// A bench with Ada's line, with `start`, on `main`, and git signing with her key.
+/// A bench with Ada's line, with `accept` and `start`, on `main`, and git signing with her key: since #327 a commit of
+/// `wb plan` is signed by a key with `accept`, so her line keeps `accept` as `bench` writes it.
 fn listed() -> Bench {
-    let bench = bench(false, false);
-    bench.signers("ada", "start");
-    bench.sign_with("ada");
-    bench
+    bench(false, false)
 }
 
 /// The line of `wb status 54` that holds `first`.
@@ -1254,7 +1262,10 @@ fn test_WB_BUILD_166_a_line_of_commits_as_wb_writes_them_counts_as_before_and_pl
     let bench = bench(false, false);
     bench.plan("The brakes hold.");
     ok(&bench.start(&["tester", "54"]));
-    bench.plan("And they hold in the wet.");
+    // It says how the commit is signed before it writes it (WB-JOB-14).
+    let added = bench.child_in(&bench.repo.path, "plan", &["add", "54", "-m", "And they hold in the wet."]);
+    assert_eq!(added.code, 0, "{}", added.err);
+    assert!(added.out.contains("signed by ada@example.org, with the role accept in .watchbill/signers"), "{}", added.out);
     ok(&bench.start(&["tester", "54"]));
     assert!(bench.message(&bench.on_ref()[0]).starts_with("[stamp] tester round 2\n"), "{}", bench.message(&bench.on_ref()[0]));
 
@@ -1272,15 +1283,19 @@ fn test_WB_BUILD_166_a_line_of_commits_as_wb_writes_them_counts_as_before_and_pl
         let verified = bench.run_in("git", &["-c", &setting, "verify-commit", plan], &bench.repo.path);
         assert!(verified.status.success(), "{}", text(&verified.stderr));
     }
-    // A plan removed by `wb plan remove`, and a stamp after it: the line still counts.
+    // A plan removed by `wb plan remove`, and a stamp after it: the line still counts. The stamps of the plan no longer
+    // do (WB-BUILD-164), so the new stamp is round 1 again, and counts.
     let said = bench.child_in(&bench.repo.path, "plan", &["remove", "54"]);
     assert_eq!(said.code, 0, "{}", said.err);
+    assert!(said.out.contains("signed by ada@example.org, with the role accept in .watchbill/signers"), "{}", said.out);
     let removed = bench.on_ref()[0].clone();
     let verified = bench.run_in("git", &["-c", &setting, "verify-commit", &removed], &bench.repo.path);
     assert!(verified.status.success(), "{}", text(&verified.stderr));
     ok(&bench.start(&["tester", "54"]));
-    assert!(not_as_written(&bench).is_empty(), "{}", bench.status());
-    assert!(status_of(&bench, "[stamp] tester round 3").contains("signed by"), "{}", bench.status());
+    let status = bench.status();
+    assert!(not_as_written(&bench).is_empty(), "{}", status);
+    assert!(status.contains("[stamp] tester round 1  (on refs/watchbill/54, signed by ada@example.org)"), "{}", status);
+    assert!(status.contains("Tested:"), "{}", status);
 }
 
 #[test]
@@ -1337,6 +1352,29 @@ fn test_WB_BUILD_169_with_no_list_plan_add_is_refused_with_1_naming_the_file_and
     assert_eq!(said.code, 1, "{}", said.err);
     assert!(said.err.contains("no .watchbill/signers on origin/main"), "{}", said.err);
     assert!(said.err.contains("roles=\"accept\""), "{}", said.err);
+    assert_eq!(bench.git(&["for-each-ref"]), before);
+}
+
+#[test]
+fn test_WB_TASK_56_with_no_list_plan_add_and_remove_are_refused_with_1_and_write_nothing() {
+    let bench = bench(false, false);
+    bench.plan("The brakes hold.");
+    // The list gone from `main`.
+    bench.git(&["checkout", "-q", "main"]);
+    bench.git(&["rm", "-q", "--", SIGNERS]);
+    bench.git(&["commit", "-q", "-m", "No keys"]);
+    bench.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    bench.git(&["checkout", "-q", "issue-54"]);
+    let before = bench.git(&["for-each-ref"]);
+
+    let added = bench.child_in(&bench.repo.path, "plan", &["add", "54", "-m", "And they hold in the wet."]);
+    let removed = bench.child_in(&bench.repo.path, "plan", &["remove", "54"]);
+
+    for said in [&added, &removed] {
+        assert_eq!(said.code, 1, "{}", said.err);
+        assert!(said.err.contains("no .watchbill/signers on origin/main") && said.err.contains("roles=\"accept\""), "{}", said.err);
+        assert!(!said.out.contains("It writes:"), "{}", said.out);
+    }
     assert_eq!(bench.git(&["for-each-ref"]), before);
 }
 

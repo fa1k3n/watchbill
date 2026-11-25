@@ -78,6 +78,8 @@ fn git(root: &str, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>, Strin
             command.env_remove(name);
         }
     }
+    // As `signers::git`: what the job's ref holds decides which stamps count (#324, #327), and a read never fetches.
+    command.env("GIT_NO_LAZY_FETCH", "1");
     command.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn().map_err(|error| format!("git could not be run: {}", error))?;
     if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
@@ -293,9 +295,62 @@ pub(crate) fn mktree(root: &str, entries: &[String]) -> Result<String, String> {
     git_line(root, &["mktree", "-z"], Some(&input))
 }
 
+/// What a commit of `wb plan` is, as `signers::signing_ready` says it.
+const PLAN_SIGNED: &str = "a commit of wb plan is signed by a key with the role accept";
+
+/// How a commit of `wb plan` on the job's ref is signed (#327): by the key git signs with, which the list of the default
+/// branch holds with `accept`, for this identity.
+struct Signing {
+    list: crate::signers::List,
+    identity: String,
+}
+
+/// What a commit of `wb plan` is signed with, worked out before anything is written (#327), as a stamp's is (#236): git
+/// must sign with an SSH key that `.watchbill/signers` of the default branch holds with `accept`. A list that is missing
+/// (#323) or cannot be read is refused. `Err` says why, and names the setting, the key, or how to add one.
+fn signing(root: &str) -> Result<Signing, String> {
+    use crate::signers::{self, Keys};
+    match signers::load(root) {
+        keys @ Keys::Missing(_) => Err(signers::missing(&keys, "accept").unwrap_or_default()),
+        Keys::Fault(why) => Err(format!("{}, so no commit of wb plan would count", why)),
+        Keys::List(list) => {
+            signers::signing_ready(root, PLAN_SIGNED)?;
+            let identity = signers::signer_for(root, &list, "accept")?;
+            Ok(Signing { list, identity })
+        }
+    }
+}
+
+/// The words of what is written that say how the commit is signed.
+fn signed_line(signing: &Signing) -> String {
+    format!("signed by {}, with the role accept in {}", crate::issue::shown(&signing.identity), crate::signers::PATH)
+}
+
+/// Checks the commit `commit` that `wb plan` made against the list it was signed for: `Err` says why it does not check.
+fn check_signed(root: &str, commit: &str, signing: &Signing) -> Result<(), String> {
+    use crate::signers::{self, Verdict};
+    let raw = signers::git(root, &["cat-file", "commit", commit], None)?;
+    match signers::verify_commit(&raw, "accept", &signing.list) {
+        Ok(Verdict::Good(_)) => Ok(()),
+        Ok(Verdict::Unsigned) => Err(format!("git made the commit {} unsigned", commit)),
+        Ok(_) => Err(format!("the commit {} does not check against {} of {}", commit, signers::PATH, signing.list.on)),
+        Err(why) => Err(format!("the signature of the commit {} could not be checked: {}", commit, why)),
+    }
+}
+
+/// Where the job's ref `full` is there and not as `wb` writes it (#327), why: nothing is written on it then.
+fn ref_fault(root: &str, full: &str) -> Result<(), String> {
+    let Some(name) = full.strip_prefix(PREFIX) else { return Ok(()) };
+    match crate::stamps::not_as_written(root, name) {
+        Ok(None) => Ok(()),
+        Ok(Some(why)) | Err(why) => Err(why),
+    }
+}
+
 /// The commit of a job: `job.yml` of `job`, the texts of the commit before, `old`, and `text`, the hash of a text to add
-/// to them; the other entries of the tree before are kept as they are. Its message is `message`.
-fn write_commit(root: &str, job: &Job, old: Option<&str>, text: Option<&str>, message: &str) -> Result<String, String> {
+/// to them; the other entries of the tree before are kept as they are. Its message is `message`. It is signed, and
+/// checked against the list it is signed for (#327).
+fn write_commit(root: &str, job: &Job, old: Option<&str>, text: Option<&str>, message: &str, signing: &Signing) -> Result<String, String> {
     let yml = job_yml(job);
     let yml_hash = git_line(root, &["hash-object", "-t", "blob", "-w", "--stdin"], Some(yml.as_bytes()))?;
     let mut texts = match old {
@@ -316,12 +371,14 @@ fn write_commit(root: &str, job: &Job, old: Option<&str>, text: Option<&str>, me
         top.push(format!("040000 tree {}\tsources", mktree(root, &texts)?));
     }
     let tree = mktree(root, &top)?;
-    let mut args = vec!["commit-tree", tree.as_str()];
+    let mut args = vec!["commit-tree", "-S", tree.as_str()];
     if let Some(commit) = old {
         args.push("-p");
         args.push(commit);
     }
-    git_line(root, &args, Some(message.as_bytes()))
+    let commit = git_line(root, &args, Some(message.as_bytes()))?;
+    check_signed(root, &commit, signing)?;
+    Ok(commit)
 }
 
 /// Moves each ref of `moved` from `old` to `new`, and makes `made` at `new`, in one transaction of `update-ref`: either
@@ -339,7 +396,7 @@ fn move_refs(root: &str, moved: &[String], made: Option<&str>, old: &str, new: &
 
 /// Says what will be written: the blob of the text, or none, `job.yml`, the tree and the commit, the refs it moves to
 /// the commit from the one before, and the ref it makes.
-fn say(out: &mut dyn Write, job: &Job, text: Option<&str>, kept: &[&str], old: Option<&str>, moved: &[String], made: Option<&str>) {
+fn say(out: &mut dyn Write, job: &Job, text: Option<&str>, kept: &[&str], old: Option<&str>, moved: &[String], made: Option<&str>, signing: &Signing) {
     let _ = writeln!(out, "It writes:");
     if let Some(line) = text {
         let _ = writeln!(out, "  {}", line);
@@ -352,10 +409,10 @@ fn say(out: &mut dyn Write, job: &Job, text: Option<&str>, kept: &[&str], old: O
     let _ = writeln!(out, "  a tree of {}", tree.join(", "));
     match old {
         Some(commit) => {
-            let _ = writeln!(out, "  a commit after {}", commit);
+            let _ = writeln!(out, "  a commit after {}, {}", commit, signed_line(signing));
         }
         None => {
-            let _ = writeln!(out, "  a commit, the first of the job");
+            let _ = writeln!(out, "  a commit, the first of the job, {}", signed_line(signing));
         }
     }
     for name in moved {
@@ -594,7 +651,18 @@ pub fn add(root: &str, folder: &Path, organisation: &Path, add: &Add, input: &mu
         None if adds_source => Some(format!("no blob of the text: --hash-only keeps its hash {} and its source alone", hash)),
         None => None,
     };
-    say(out, &job, blob_line.as_deref(), &kept, old.as_deref(), &moved, made.as_deref());
+    // The commit is signed by a key with `accept`, and the ref it goes on is as `wb` writes it (#327): both before
+    // anything is written.
+    let signing = match signing(root) {
+        Ok(signing) => signing,
+        Err(why) => return limit(err, why.trim_end_matches('.')),
+    };
+    if let Some(full) = moved.first() {
+        if let Err(why) = ref_fault(root, full) {
+            return limit(err, &why);
+        }
+    }
+    say(out, &job, blob_line.as_deref(), &kept, old.as_deref(), &moved, made.as_deref(), &signing);
 
     crate::interrupt::writing();
     let failed = |err: &mut dyn Write, why: String| crate::refusal::limit(err, NAME, format_args!("{}. No ref is written.", why));
@@ -605,7 +673,7 @@ pub fn add(root: &str, folder: &Path, organisation: &Path, add: &Add, input: &mu
             Err(why) => return failed(err, why),
         }
     }
-    let commit = match write_commit(root, &job, old.as_deref(), text.as_deref(), &message) {
+    let commit = match write_commit(root, &job, old.as_deref(), text.as_deref(), &message, &signing) {
         Ok(commit) => commit,
         Err(why) => return failed(err, why),
     };
@@ -858,6 +926,12 @@ pub fn show(root: &str, name: &str, out: &mut dyn Write, err: &mut dyn Write) ->
             shown(&source.by),
             shown(&source.time)
         ));
+    }
+    // Where the job's ref is not as `wb` writes it, nothing on it counts (#327): said on one line.
+    match crate::stamps::not_as_written(root, name) {
+        Ok(None) => {}
+        Ok(Some(why)) => text.push_str(&format!("{}\n", why)),
+        Err(why) => return crate::refusal::limit(err, COMMAND, format_args!("{}", why)),
     }
     if !crate::issue::is_name(name) {
         text.push_str(&format!(
@@ -1122,6 +1196,14 @@ pub fn remove(root: &str, name: &str, state: Option<&Path>, out: &mut dyn Write,
     let Ok(seconds) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|time| time.as_secs()) else {
         return limit(err, "the clock of this machine reads before 1970 or cannot be read. Nothing written.".to_string());
     };
+    // The commit is signed by a key with `accept`, and the ref is as `wb` writes it (#327): before anything is written.
+    let signing = match signing(root) {
+        Ok(signing) => signing,
+        Err(why) => return limit(err, format!("{}. Nothing written.", why.trim_end_matches('.'))),
+    };
+    if let Err(why) = ref_fault(root, &format!("{}{}", PREFIX, name)) {
+        return limit(err, format!("{}. Nothing written.", why));
+    }
     let marker = format!("by: {}\ntime: {}\n", by, crate::prompt::utc(seconds));
     let moved: Vec<String> = match git_line(root, &["for-each-ref", "--points-at", &plan.commit, "--format=%(refname)", PREFIX], None) {
         Ok(listed) => listed.lines().map(str::to_string).collect(),
@@ -1133,7 +1215,7 @@ pub fn remove(root: &str, name: &str, state: Option<&Path>, out: &mut dyn Write,
         let _ = writeln!(out, "    {}", line);
     }
     let _ = writeln!(out, "  a tree of what the plan's commit holds, and {}", REMOVED);
-    let _ = writeln!(out, "  a commit after {}", plan.commit);
+    let _ = writeln!(out, "  a commit after {}, {}", plan.commit, signed_line(&signing));
     for full in &moved {
         let _ = writeln!(out, "  the ref {} moved to it from that commit", full);
     }
@@ -1153,10 +1235,13 @@ pub fn remove(root: &str, name: &str, state: Option<&Path>, out: &mut dyn Write,
         Err(why) => return failed(err, why),
     };
     let message = format!("plan remove {}\n", name);
-    let commit = match git_line(root, &["commit-tree", &tree, "-p", &plan.commit], Some(message.as_bytes())) {
+    let commit = match git_line(root, &["commit-tree", "-S", &tree, "-p", &plan.commit], Some(message.as_bytes())) {
         Ok(commit) => commit,
         Err(why) => return failed(err, why),
     };
+    if let Err(why) = check_signed(root, &commit, &signing) {
+        return failed(err, why);
+    }
     if let Err(why) = move_refs(root, &moved, None, &plan.commit, &commit) {
         return failed(err, why);
     }

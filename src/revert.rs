@@ -125,6 +125,10 @@ fn on_ref(root: &str, issue: &str, role: &str, round: Option<u64>, err: &mut dyn
         Ok(ledger) => ledger,
         Err(why) => return limit(err, format!("{}.", why)),
     };
+    // A job's ref that is not as `wb` writes it (#327): no marker is written after it until a person repairs it.
+    if let Some(why) = &ledger.broken {
+        return limit(err, format!("{}. Nothing is written.", why));
+    }
     let stamps = ledger.stamps();
     let found = stamps.iter().enumerate().rev().find(|(_, (name, n))| name == role && round.map_or(true, |wanted| wanted == *n));
     let Some((at, (_, n))) = found else {

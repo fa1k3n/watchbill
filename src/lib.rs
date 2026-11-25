@@ -1802,6 +1802,14 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
             Err(why) => return refused(&mut lines, err, "sign", &format!("{}. Nothing is written, and no session is started", why)),
         },
     };
+    // A job's ref that is not as `wb` writes it (#327): nothing on it counts, and no stamp is written after it until a
+    // person repairs it.
+    if let Some(issue) = &job {
+        match stamps::not_as_written(root, issue) {
+            Ok(None) => {}
+            Ok(Some(why)) | Err(why) => return refused(&mut lines, err, "sign", &format!("{}. Nothing is written, and no session is started", why)),
+        }
+    }
     // 1b. A view kept with work not taken back (#222): what a session left there is not on the branch, and the next
     // session would not see it. Before anything is posted. Only `--ignore-kept` passes it.
     if !kept_views.is_empty() && kept_ignored.is_none() {

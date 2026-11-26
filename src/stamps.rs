@@ -464,6 +464,11 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
                 (Some(Err(why)), Some(_)) => note(&commit, format!("is {}, and {}", what, why)),
                 _ => {}
             }
+            // A needs_person is written by `wb start` with the first line `[needs_person] <issue>` or `[needs_person] <issue>.<role>`,
+            // the role one of the roles that start a session; another first line is not as `wb` writes it (#311).
+            if kind == Some(Kind::NeedsPerson) && !is_needs_person_line(&first, name) {
+                note(&commit, format!("is a needs_person commit, and its first line is not `[needs_person] {0}` or `[needs_person] {0}.<role>`", crate::issue::shown(name)));
+            }
             // The tree of a stamp is its parent's with `view` and `issue.yml` alone put in or taken out, and the tree of a
             // marker is its parent's, as `make` writes them (the review of #328): a stamp cannot change the plan. So is the
             // tree of the questions of a session and of an answer (#238).
@@ -529,6 +534,13 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
         ledger.broken = Some(said(format!("its commit {} {}", commit, crate::issue::shown(&why))));
     }
     Ok(ledger)
+}
+
+/// Whether `first` is a first line that `wb start` writes for a needs_person on the ref of `issue`: `[needs_person] <issue>`
+/// for the planner, `[needs_person] <issue>.<role>` for a role of `ROLES` (#311).
+fn is_needs_person_line(first: &str, issue: &str) -> bool {
+    let Some(rest) = first.strip_prefix("[needs_person] ").and_then(|rest| rest.strip_prefix(issue)) else { return false };
+    rest.is_empty() || rest.strip_prefix('.').is_some_and(|role| crate::issue::ROLES.contains(&role))
 }
 
 /// Checks the tree `tree` of a stamp or a marker whose first line is `first` against `parent`, the tree of the commit

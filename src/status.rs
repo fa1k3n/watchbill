@@ -577,13 +577,26 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
     })
 }
 
-/// A reason as one line (#311): each run of white space as one space, cut at `REASON_LIMIT` characters with `...`, and
-/// escaped as every text of `wb status` is.
+/// A reason as one line (#311): each run of white space as one space, escaped as every text of `wb status` is, and cut
+/// so that the line is at most `REASON_LIMIT` characters as printed, the `...` among them. The cut is made between the
+/// escaped characters, never inside an escape.
 fn reason_line(reason: &str) -> String {
     let one: String = reason.split_whitespace().collect::<Vec<_>>().join(" ");
-    let cut = one.chars().count() > REASON_LIMIT;
-    let kept: String = one.chars().take(REASON_LIMIT).collect();
-    format!("{}{}", issue::shown(&kept), if cut { "..." } else { "" })
+    let pieces: Vec<String> = one.chars().map(|c| issue::shown(&c.to_string())).collect();
+    if pieces.iter().map(|piece| piece.chars().count()).sum::<usize>() <= REASON_LIMIT {
+        return pieces.concat();
+    }
+    let mut kept = String::new();
+    let mut length = 0;
+    for piece in &pieces {
+        let more = piece.chars().count();
+        if length + more > REASON_LIMIT - 3 {
+            break;
+        }
+        kept.push_str(piece);
+        length += more;
+    }
+    format!("{}...", kept)
 }
 
 /// The patterns of `watchbill.yml` that `wb status` reads.
@@ -736,7 +749,7 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
         }
     }
     if show(PERSON) {
-        let lines: String = read.iter().filter_map(|found| found.person.as_ref().map(|reason| format!("  {}  {}\n", issue::shown(&found.number), reason))).collect();
+        let lines: String = read.iter().filter_map(|found| found.person.as_ref().map(|reason| if reason.is_empty() { format!("  {}\n", issue::shown(&found.number)) } else { format!("  {}  {}\n", issue::shown(&found.number), reason) })).collect();
         if !lines.is_empty() {
             sections.push(format!("{}:\n{}", PERSON, lines));
         }

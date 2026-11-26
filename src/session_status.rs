@@ -1,5 +1,5 @@
 //! `wb status --session <hash>` (#239; `docs/revision.md`, point 15): what one session was given, how it ended and what
-//! came back, from git alone, offline. It reads and writes nothing, and asks nothing of the network.
+//! came back, from git alone, offline. It only reads: it writes nothing, and asks nothing of the network.
 //!
 //! `<hash>` names the commit of a stamp on a job's ref (#236), in full or as a unique start of 12 to 64 hex digits, and
 //! only a stamp that counts: signed with `start` by a key of `.watchbill/signers`, of this issue and repository, on a
@@ -59,6 +59,9 @@ struct Named {
     commits: Vec<(String, String)>,
     /// How many objects that a note of the stamp names are no commit of this repository.
     left_out: usize,
+    /// The listed commits that do not descend from the stamp's base, in the order listed: a hint for a person, which
+    /// decides nothing and counts for nothing.
+    not_from_base: Vec<String>,
 }
 
 /// `wb status --session <hash>` in the repository at `root`: 0 the session is printed, 1 `hash` names no stamp that
@@ -74,6 +77,9 @@ pub fn run(root: &str, hash: &str, state: Option<&Path>, out: &mut dyn Write, er
     };
     // A prefix names an object of the repository; git lists those that start so, whatever they are.
     let found = if hash.len() > MOST { Ok(Vec::new()) } else { objects_starting(root, &hash) };
+    // Git cuts a prefix down to the length of its own hashes, so 41 to 64 digits in a SHA-1 repository would name the
+    // object that the first 40 do: only a name that starts with the whole hash given is one.
+    let found = found.map(|names| names.into_iter().filter(|name| name.starts_with(&hash)).collect::<Vec<String>>());
     let found = match found {
         Ok(found) => found,
         Err(why) => return refusal::limit(err, name, format_args!("git could not say what {} names: {}", hash, shown(&why))),
@@ -134,11 +140,11 @@ pub fn run(root: &str, hash: &str, state: Option<&Path>, out: &mut dyn Write, er
     let gone = crate::starter::taken_back(&ledger.lines());
     let taken_back = counting.iter().position(|held| *held == at).and_then(|place| gone.get(place).copied()).unwrap_or(false);
     // Everything is read before anything is printed: a note that cannot be read leaves nothing half said.
-    let named = match named_by_notes(root, &stamp) {
+    let base = entry.message.lines().find_map(|line| line.strip_prefix("base: ")).map(str::to_string);
+    let named = match named_by_notes(root, &stamp, base.as_deref()) {
         Ok(named) => named,
         Err(why) => return refusal::limit(err, name, format_args!("the notes of {} cannot be read: {}", crate::notes::REF, shown(&why))),
     };
-    let base = entry.message.lines().find_map(|line| line.strip_prefix("base: ")).map(str::to_string);
     let ended = crate::kept::ended(state, &entry.message);
 
     let mut text = String::new();
@@ -155,11 +161,18 @@ pub fn run(root: &str, hash: &str, state: Option<&Path>, out: &mut dyn Write, er
         None => text.push_str("Base: none\n"),
     }
     if named.commits.is_empty() {
-        text.push_str(&format!("Commits: none, no note of {} names this stamp\n", crate::notes::REF));
+        text.push_str(&format!(
+            "Commits: none, no note of {} names this stamp (notes are not signed: a note removed or never fetched is not seen)\n",
+            crate::notes::REF
+        ));
     } else {
         text.push_str(&format!("Commits (named by a note in {}, which is not signed: an index, and nothing counts from it), newest last:\n", crate::notes::REF));
         for (commit, subject) in &named.commits {
-            text.push_str(&format!("  {}  {}\n", commit, shown(subject)));
+            if subject.is_empty() {
+                text.push_str(&format!("  {}\n", commit));
+            } else {
+                text.push_str(&format!("  {}  {}\n", commit, shown(subject)));
+            }
         }
     }
     match named.left_out {
@@ -167,8 +180,11 @@ pub fn run(root: &str, hash: &str, state: Option<&Path>, out: &mut dyn Write, er
         1 => text.push_str("Left out: 1 object named by a note is not a commit of this repository, and is left out\n"),
         n => text.push_str(&format!("Left out: {} objects named by a note are not commits of this repository, and are left out\n", n)),
     }
+    for commit in &named.not_from_base {
+        text.push_str(&format!("Not from Base: {}, a commit that does not descend from Base\n", commit));
+    }
     if let Some((last, _)) = named.commits.last() {
-        text.push_str(&format!("Last: {}\n", last));
+        text.push_str(&format!("Last: {} (from a note, which is not signed)\n", last));
     }
     match ended {
         Ended::Unknown => text.push_str("Ended: not known on this machine\n"),
@@ -237,8 +253,8 @@ fn kinds(root: &str, objects: &[String]) -> Result<Vec<(String, u64)>, String> {
 
 /// The commits that a note of `refs/notes/watchbill` names for `stamp`: those whose note starts with the line
 /// `stamp: <stamp>`, that are commits of this repository, newest last. A notes ref that is not there names none.
-fn named_by_notes(root: &str, stamp: &str) -> Result<Named, String> {
-    let empty = Named { commits: Vec::new(), left_out: 0 };
+fn named_by_notes(root: &str, stamp: &str, base: Option<&str>) -> Result<Named, String> {
+    let empty = Named { commits: Vec::new(), left_out: 0, not_from_base: Vec::new() };
     if signers::git(root, &["rev-parse", "--verify", "-q", crate::notes::REF], None).is_err() {
         return Ok(empty);
     }
@@ -265,7 +281,7 @@ fn named_by_notes(root: &str, stamp: &str) -> Result<Named, String> {
     let commits: Vec<String> = names.iter().zip(&types).filter(|(_, (kind, _))| kind == "commit").map(|(object, _)| object.clone()).collect();
     let left_out = names.len() - commits.len();
     if commits.is_empty() {
-        return Ok(Named { commits: Vec::new(), left_out });
+        return Ok(Named { commits: Vec::new(), left_out, not_from_base: Vec::new() });
     }
     // Newest last: git's `--topo-order` puts a commit before its parents, so its reverse puts a commit after them. No time
     // is read.
@@ -274,21 +290,35 @@ fn named_by_notes(root: &str, stamp: &str) -> Result<Named, String> {
     let wanted: HashSet<&str> = commits.iter().map(String::as_str).collect();
     let mut ordered: Vec<String> = String::from_utf8_lossy(&walked).lines().filter(|line| wanted.contains(*line)).map(str::to_string).collect();
     ordered.reverse();
-    // The subjects, as `rev-list --format=%s` prints them: a line `commit <hash>` and the subject, one commit to two lines.
+    // The subjects, with NUL between the hash and the subject and after it, so that an empty subject cannot lose the place.
+    // They are for the eye alone: where git does not print them as asked, they are left empty, and nothing else changes.
     let input: String = ordered.iter().map(|commit| format!("{}\n", commit)).collect();
-    let printed = signers::git(root, &["rev-list", "--no-walk=unsorted", "--stdin", "--format=%s"], Some(input.as_bytes()))?;
+    let printed = signers::git(root, &["log", "-z", "--no-walk=unsorted", "--stdin", "--no-show-signature", "--no-notes", "--format=%H%x00%s"], Some(input.as_bytes())).unwrap_or_default();
     let printed = String::from_utf8_lossy(&printed).to_string();
-    let mut lines = printed.lines();
+    let mut tokens = printed.split('\0');
+    let mut in_place = true;
     let mut commits = Vec::new();
-    for commit in ordered {
-        let header = lines.next().unwrap_or("");
-        if header != format!("commit {}", commit) {
-            return Err("git rev-list printed the subjects in another order than it was asked".to_string());
+    for commit in &ordered {
+        let mut subject = String::new();
+        if in_place {
+            match (tokens.next(), tokens.next()) {
+                (Some(hash), Some(said)) if hash == commit => subject = said.chars().take(SUBJECT_CAP).collect(),
+                _ => in_place = false,
+            }
         }
-        let subject: String = lines.next().unwrap_or("").chars().take(SUBJECT_CAP).collect();
-        commits.push((commit, subject));
+        commits.push((commit.clone(), subject));
     }
-    Ok(Named { commits, left_out })
+    // The listed commits that do not descend from the base: those that `rev-list --ancestry-path` of `base..` does not
+    // reach. A hint for a person; where git cannot say, none is marked.
+    let mut not_from_base = Vec::new();
+    if let Some(base) = base.filter(|base| !base.is_empty() && base.len() <= MOST && base.chars().all(|c| c.is_ascii_hexdigit())) {
+        let input: String = ordered.iter().map(|commit| format!("{}\n", commit)).chain(std::iter::once(format!("^{}\n", base))).collect();
+        if let Ok(reached) = signers::git(root, &["rev-list", "--ancestry-path", "--stdin"], Some(input.as_bytes())) {
+            let reached: HashSet<String> = String::from_utf8_lossy(&reached).lines().map(str::to_string).collect();
+            not_from_base = ordered.iter().filter(|commit| !reached.contains(*commit)).cloned().collect();
+        }
+    }
+    Ok(Named { commits, left_out, not_from_base })
 }
 
 /// The first line of each blob of `blobs` (note blobs, each of `NOTE_CAP` bytes or less), by the blob.

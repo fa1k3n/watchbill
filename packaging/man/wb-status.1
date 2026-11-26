@@ -15,7 +15,7 @@ The stamps are the commits on the job's ref that count. The questions and answer
 .PP
 Writes nothing but a temporary repository in $TMPDIR, removed after, where it reads a kept view.
 .PP
-\-\-session <hash>, with no issue and no \-\-stage, prints one session from git alone: the lines of its stamp, Base: the commit it was made from, the commits that a note names for it, newest last, Last: the newest of them, and Ended: how its start ended where this machine holds the lines of the start, else 'not known on this machine'. <hash> is the commit of a stamp that counts, on a job's ref, or a unique start of it of 12 or more hex digits. A note is not signed and counts for nothing: it is only where the commits are found. A hash that names no stamp that counts, or not one only, ends with 1, and fewer than 12 digits with 2. It writes nothing and asks nothing of the network.
+\-\-session <hash>, with no issue and no \-\-stage, prints one session from git alone: the lines of its stamp, Base: the commit it was made from, the commits that a note names for it, newest last, Last: the newest of them, and Ended: how its start ended where this machine holds the lines of the start, else 'not known on this machine'. <hash> is the commit of a stamp that counts, on a job's ref, or a unique start of it of 12 or more hex digits. A note is not signed and counts for nothing: it is only where the commits are found. A hash that names no stamp that counts, or not one only, ends with 1, and fewer than 12 digits with 2. It only reads: it writes nothing and asks nothing of the network.
 .PP
 \-q (\-\-quiet) is taken and changes nothing: what it prints is what a script reads.
 .SH OPTIONS
@@ -34,7 +34,7 @@ Taken, and changes nothing: what the command prints is what a script reads.
 .SH EXIT STATUS
 .TP
 .B 0
-Every issue could be read.
+Every issue could be read. With \-\-session: the session is printed.
 .TP
 .B 1
 A pattern failed for one issue. It is listed under Not read. With \-\-session: the hash names no stamp that counts, or not one only, or the notes cannot be read.

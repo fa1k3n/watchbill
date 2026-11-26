@@ -369,9 +369,9 @@ pub const USAGE: &str = "usage:
             digits. A note is not signed and counts for nothing: it is only
             where the commits are found. A hash that names no stamp that
             counts, or not one only, ends with 1, and fewer than 12 digits
-            with 2. It writes nothing and asks nothing of the network. -q
-            (--quiet) is taken and changes nothing: what
-            it prints is what a script reads
+            with 2. It only reads: it writes nothing and asks nothing of
+            the network. -q (--quiet) is taken and changes nothing: what it
+            prints is what a script reads
   view      show what a session of a role will see, before it starts. wb view
             <issue> <role> prints the paths of its view, one to a line, the
             list the start makes the view from, and nothing else. --in

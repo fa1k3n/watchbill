@@ -550,8 +550,9 @@ fn test_WB_PROMPT_18_an_option_of_where_the_work_is_is_taken_and_filled_in() {
 
 // ---- `wb prompt <role> --stamp` (#68) ----
 
-const STAMP_NAMES: [&str; 13] =
-    ["role", "model", "effort", "runner", "version", "revision", "issue", "change", "round", "branch", "checkout", "time", "view"];
+// The line `ran:` follows `model:` (#336).
+const STAMP_NAMES: [&str; 14] =
+    ["role", "model", "ran", "effort", "runner", "version", "revision", "issue", "change", "round", "branch", "checkout", "time", "view"];
 
 const ROLES: [&str; 4] = ["build", "fix", "review", "tester"];
 
@@ -615,15 +616,15 @@ fn test_WB_PROMPT_19_a_stamp_is_the_thirteen_lines_in_order_and_the_parts_for_ea
         let has_level = ["tester", "build", "review", "fix"].contains(&role);
         assert_eq!(found.iter().any(|(name, _)| name == "level"), has_level, "{}: {}", role, out);
         found.retain(|(name, _)| name != "level");
-        let names: Vec<&str> = found.iter().take(13).map(|(name, _)| name.as_str()).collect();
+        let names: Vec<&str> = found.iter().take(14).map(|(name, _)| name.as_str()).collect();
         assert_eq!(names, STAMP_NAMES, "{}", role);
-        assert!(found.len() > 13, "{}: {}", role, out);
+        assert!(found.len() > 14, "{}: {}", role, out);
         // The line `requirements: given` stands before the parts, as the file of the issue is used (#97).
-        assert_eq!(found[13], ("requirements".to_string(), "given".to_string()), "{}: {}", role, out);
+        assert_eq!(found[14], ("requirements".to_string(), "given".to_string()), "{}: {}", role, out);
         // The lines `job:` and `base:` follow it, before the parts (#236).
-        assert_eq!(found[14].0, "job", "{}: {}", role, out);
-        assert_eq!(found[15].0, "base", "{}: {}", role, out);
-        assert!(found.iter().skip(16).all(|(name, _)| name == "part"), "{}: {}", role, out);
+        assert_eq!(found[15].0, "job", "{}: {}", role, out);
+        assert_eq!(found[16].0, "base", "{}: {}", role, out);
+        assert!(found.iter().skip(17).all(|(name, _)| name == "part"), "{}: {}", role, out);
         assert!(out.ends_with('\n'), "{}", role);
         assert_eq!(value(&found, "role"), role);
         // A value the prompt does not hold is written empty: it was not handed out.
@@ -635,6 +636,8 @@ fn test_WB_PROMPT_19_a_stamp_is_the_thirteen_lines_in_order_and_the_parts_for_ea
             assert_eq!(value(&found, name), expected, "{} {}", role, name);
         }
         assert_eq!(value(&found, "runner"), "", "{}", role);
+        // With no runner given, what ran is not known (#336).
+        assert_eq!(value(&found, "ran"), "unknown", "{}", role);
         // The prompt itself is not in the stamp.
         assert!(!out.contains("Everyone"), "{}", role);
     }

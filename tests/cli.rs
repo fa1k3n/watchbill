@@ -12,6 +12,7 @@ use std::process::{Command, Output};
 
 const USAGE: &str = "usage:
   wb init [--yes | -y] [-q | --quiet]
+            or --survey [--runner <name>] [-q | --quiet]
   wb check [-q | --quiet]
   wb doctor [-q | --quiet]
   wb upgrade [--dry-run | -n] [-q | --quiet]
@@ -33,6 +34,7 @@ const USAGE: &str = "usage:
             or --session <hash> [-q | --quiet]
   wb view <issue> (<role> [--in | --out] | <path>) [-q | --quiet]
             or --kept [-v | --verbose]
+  wb log <issue> [--oneline] [-q | --quiet]
   wb answer (<issue> | --change <n>) [--show | [--suggested] [<question> <answer>]...]
             [-q | --quiet]
   wb revert (<issue> | --change <n>) <role> [--round <n>] [-q | --quiet]
@@ -55,9 +57,17 @@ const USAGE: &str = "usage:
             origin, a folder of requirements, the CI driver), ask one line per
             answer, show the file and write .watchbill/watchbill.yml at the
             root of the repository. --yes (-y) takes what it found and asks
-            nothing. A file that is already there is never changed. -q
-            (--quiet) leaves out the lines that confirm what was written, and
-            not what it says before it writes or the advice after
+            nothing. A file that is already there is never changed. It also
+            writes .watchbill/project/all.md, the project's style files and
+            the facts of its code as HEAD has them, where HEAD gives any. Where
+            no runner of the organisation's file is marked local: true, it
+            says so on standard error. --survey drafts
+            .watchbill/project/style.md (naming, comments, errors) by a
+            session on a local runner (--runner, else the default), in a view
+            of HEAD that is read-only but .watchbill/project/, and with a
+            network of its own; it takes back that file alone and commits
+            nothing. -q (--quiet) leaves out the lines that confirm what was
+            written, and not what it says before it writes or the advice after
   check     say whether the repository still is at the revision it is pinned to:
             each file under .watchbill/revision/ against the manifest, the
             manifest against the revision line of watchbill.yml, and that
@@ -387,6 +397,26 @@ const USAGE: &str = "usage:
             was used wrongly (a file given as the folder too) or the
             repository is not set up. Writes nothing. -q (--quiet) is taken
             and changes nothing: what it prints is what a script reads
+  log       show what was done to an issue, as git log shows a branch, from
+            the job's ref and git alone: wb log <issue> prints one entry for
+            each commit of refs/watchbill/<issue> that counts, oldest first. A
+            stamp says its role, round, model, effort, revision and time, who
+            signed it, and, where this machine holds the lines of its start,
+            how the session ended, else 'not known on this machine'; the
+            commits that a note of refs/notes/watchbill names for it are
+            listed and said to be notes, which are not signed: they count for
+            nothing and are no entry. The questions, the answers and a
+            needs_person commit are entries that name which, or the reason; a
+            [revert] marker says what it took back, and a stamp it took back
+            stays and says so. A commit that does not
+            count is no entry: it is said on standard error, and a job's ref
+            that is not as wb writes it prints nothing and says so, as wb
+            status does. --oneline gives one line to each entry. Ends with 0
+            when the history is printed, 1 when the issue has none or a commit
+            did not count, 2 when it was used wrongly or the repository is not
+            set up. It only reads: it writes nothing and asks nothing of the
+            network or of a tracker. -q (--quiet) is taken and changes
+            nothing: what it prints is what a script reads
   revert    take an issue back to before a step, deleting nothing:
             wb revert <issue> <role> [--round <n>] writes one marker whose
             first line is [revert] <role> round <n>, for the last stamp of the

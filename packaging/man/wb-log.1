@@ -1,0 +1,35 @@
+.TH WB\-LOG 1 "" "watchbill"
+.SH NAME
+wb\-log \- show what was done to an issue
+.SH SYNOPSIS
+.nf
+\fBwb\fR log <issue> [\-\-oneline] [\-q | \-\-quiet]
+.fi
+.SH DESCRIPTION
+.PP
+Show what was done to an issue, as git log shows a branch, from the job's ref and git alone: wb log <issue> prints one entry for each commit of refs/watchbill/<issue> that counts, oldest first. A stamp says its role, round, model, effort, revision and time, who signed it, and, where this machine holds the lines of its start, how the session ended, else 'not known on this machine'; the commits that a note of refs/notes/watchbill names for it are listed and said to be notes, which are not signed: they count for nothing and are no entry. The questions, the answers and a needs_person commit are entries that name which, or the reason; a [revert] marker says what it took back, and a stamp it took back stays and says so.
+.PP
+A commit that does not count is no entry: it is said on standard error, and a job's ref that is not as wb writes it prints nothing and says so, as wb status does. \-\-oneline gives one line to each entry. Ends with 0 when the history is printed, 1 when the issue has none or a commit did not count, 2 when it was used wrongly or the repository is not set up.
+.PP
+It only reads: it writes nothing and asks nothing of the network or of a tracker. \-q (\-\-quiet) is taken and changes nothing: what it prints is what a script reads.
+.SH OPTIONS
+.TP
+.B \-\-oneline
+Give one line to each entry: the start of its commit, what it is, and what the stamp says of the session.
+.TP
+.B \-q, \-\-quiet
+Taken, and changes nothing: what the command prints is what a script reads.
+.SH EXIT STATUS
+.TP
+.B 0
+The history is printed.
+.TP
+.B 1
+The issue has no history, or a commit of its job's ref did not count and is no entry, or git could not be read.
+.TP
+.B 2
+It was used wrongly or the repository is not set up.
+.SH SEE ALSO
+.BR wb (1) ,
+.BR wb\-status (1) ,
+.BR wb\-revert (1)

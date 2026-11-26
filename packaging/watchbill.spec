@@ -77,6 +77,7 @@ install -m 0644 packaging/man/wb-accept.1 %{buildroot}%{_mandir}/man1/wb-accept.
 install -m 0644 packaging/man/wb-start.1 %{buildroot}%{_mandir}/man1/wb-start.1
 install -m 0644 packaging/man/wb-status.1 %{buildroot}%{_mandir}/man1/wb-status.1
 install -m 0644 packaging/man/wb-view.1 %{buildroot}%{_mandir}/man1/wb-view.1
+install -m 0644 packaging/man/wb-log.1 %{buildroot}%{_mandir}/man1/wb-log.1
 install -m 0644 packaging/man/wb-answer.1 %{buildroot}%{_mandir}/man1/wb-answer.1
 install -m 0644 packaging/man/wb-revert.1 %{buildroot}%{_mandir}/man1/wb-revert.1
 install -m 0644 packaging/man/wb-clean.1 %{buildroot}%{_mandir}/man1/wb-clean.1

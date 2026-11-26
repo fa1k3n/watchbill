@@ -874,6 +874,20 @@ impl Document {
         Err(self.fail(place, &format!("{}, but {}", need, what), false))
     }
 
+    /// A truth value, written plain as `true` or `false` alone (#289): `yes`, `True`, a text in quotes and every other
+    /// form YAML 1.1 or 1.2 reads otherwise are refused, so that the file means the same to every reader.
+    pub fn truth(&self, place: &[Part]) -> Result<bool, YamlError> {
+        let what = match &self.value(place)?.value {
+            Value::Plain(text, Reading::Boolean) if text == "true" => return Ok(true),
+            Value::Plain(text, Reading::Boolean) if text == "false" => return Ok(false),
+            Value::Plain(text, read) => format!("{} (written as `{}`)", read.words(), text),
+            Value::Quoted(_) => "a text in quotes".to_string(),
+            Value::List(_) => "a list".to_string(),
+            Value::Table(_) => "a mapping".to_string(),
+        };
+        Err(self.fail(place, &format!("`true` or `false` is expected, written plain, but {} is here", what), false))
+    }
+
     /// A list of texts, each held as `text` is. An empty list only when `empty`.
     pub fn texts(&self, place: &[Part], empty: bool) -> Result<Vec<String>, YamlError> {
         let count = match &self.value(place)?.value {

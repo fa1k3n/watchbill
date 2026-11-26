@@ -4,26 +4,40 @@ wb\-init \- set Watchbill up in this repository
 .SH SYNOPSIS
 .nf
 \fBwb\fR init [\-\-yes | \-y] [\-q | \-\-quiet]
+.br
+or \-\-survey [\-\-runner <name>] [\-q | \-\-quiet]
 .fi
 .SH DESCRIPTION
 .PP
-Set Watchbill up in the git repository of this folder: propose what the repository says about itself (its name, the git server of origin, a folder of requirements, the CI driver), ask one line per answer, show the file and write .watchbill/watchbill.yml at the root of the repository. \-\-yes (\-y) takes what it found and asks nothing. A file that is already there is never changed.
+Set Watchbill up in the git repository of this folder: propose what the repository says about itself (its name, the git server of origin, a folder of requirements, the CI driver), ask one line per answer, show the file and write .watchbill/watchbill.yml at the root of the repository. \-\-yes (\-y) takes what it found and asks nothing. A file that is already there is never changed. It also writes .watchbill/project/all.md, the project's style files and the facts of its code as HEAD has them, where HEAD gives any. Where no runner of the organisation's file is marked local: true, it says so on standard error. \-\-survey drafts .watchbill/project/style.md (naming, comments, errors) by a session on a local runner (\-\-runner, else the default), in a view of HEAD that is read\-only but .watchbill/project/, and with a network of its own; it takes back that file alone and commits nothing.
+.PP
+The file all.md holds the rules of the project's own style files (.editorconfig, .clang\-format, the naming rules of .clang\-tidy, rustfmt.toml, .pylintrc, a MISRA deviation file, CODING_STYLE.md, CONTRIBUTING.md and the like), each under its path, and the facts of a bounded sample of its code (the indent, the line endings, the longest line), each with the number of files it was seen in. Only HEAD is read. A line a prompt would read as a placeholder is left out and counted.
+.PP
+Where no runner of the organisation's file /etc/watchbill/organisation.yml is marked local: true, or there is no such file, it says so on standard error, with what to put there, and goes on.
+.PP
+\-\-survey drafts .watchbill/project/style.md: the naming, the structure of comments and the handling of errors, with examples from the code. It runs a session on a runner the organisation marks local: true (\-\-runner, else the default runner), whose reach stays on this machine, in bubblewrap with a network of its own, in a view of the whole tree of HEAD that is read\-only but .watchbill/project/. It takes back that file alone, as a plain UTF\-8 file, into the working tree, and commits nothing. A line of the draft that a prompt would read as a placeholder, or that holds a control character, is left out and counted. Once a person commits it, wb prompt adds it to the prompt of every role, after all.md; until then wb prompt and wb start refuse it, as it is not as HEAD has it. It never writes over a style.md that is there.
 .PP
 \-q (\-\-quiet) leaves out the lines that confirm what was written, and not what it says before it writes or the advice after.
 .SH OPTIONS
 .TP
 .B \-\-yes, \-y
-Take what it found and ask nothing.
+Take what it found and ask nothing. Not taken with \-\-survey.
+.TP
+.B \-\-survey
+Draft .watchbill/project/style.md by a session on a local runner, in a repository that is set up.
+.TP
+.B \-\-runner \fIname\fR
+The runner of the survey, which must be marked local: true. Taken only with \-\-survey.
 .TP
 .B \-q, \-\-quiet
 Leave out the lines that only confirm what was done or say there was nothing to do; never a refusal, a warning, what is said before a write, or a command the person has to run.
 .SH EXIT STATUS
 .TP
 .B 0
-The file is written.
+The files are written, or with \-\-survey the draft is.
 .TP
 .B 1
-It was refused.
+It was refused, or with \-\-survey the session did not end with 0 or left no draft.
 .TP
 .B 2
 It was used wrongly or the repository is not set up.

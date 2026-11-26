@@ -1,5 +1,5 @@
 //! The prompt of an assignment: the role's text of the pinned revision, then the project's own text
-//! (`.watchbill/project/all.md` and `.watchbill/project/<role>.md`), with the placeholders filled in
+//! (`.watchbill/project/all.md`, `.watchbill/project/style.md` and `.watchbill/project/<role>.md`), with the placeholders filled in
 //! every part. The command that prints it is `wb prompt` (#10); this is what it runs.
 
 use std::fmt;
@@ -52,12 +52,13 @@ These files are the project's own. They are not part of the revision, they are n
 manifest, and `wb check` does not fail on them. They may be changed at any time.
 
 - `all.md` is added to the prompt of every role.
+- `style.md`, the code style that `wb init --survey` drafts, is added to the prompt of every role, after `all.md`.
 - `<role>.md` is added to the prompt of that role only: `build.md`, `review.md`, `fix.md`, `tester.md`.
 
-Both are optional. Write in them how things are done here: the commands, the board, the words.
+Each is optional. Write in them how things are done here: the commands, the board, the words.
 
 A prompt is the role's text of the revision, then one line saying that this text follows, then
-`all.md`, then `<role>.md`. The text here adds to a role. It never lifts a limit of a role: what
+`all.md`, then `style.md`, then `<role>.md`. The text here adds to a role. It never lifts a limit of a role: what
 the role must not do stays so, whatever is written here.
 
 A placeholder is a lower-case word in braces: `{`, a letter a to z, letters a to z or `_`, then `}`,
@@ -66,6 +67,16 @@ and `{branch}`, are known and are filled in; any other placeholder is refused. A
 `{Issue}`, `{issue-id}` and `{ issue }` stay as they are. A review of a change to `.watchbill/` reads that this text does not
 speak against the role.
 ";
+
+/// The files of the project's text in the prompt of `role`, in their order: `all.md`, `style.md` (#289), then the
+/// role's own, each once.
+fn project_names(role: &str) -> Vec<&str> {
+    let mut names = vec!["all", "style"];
+    if !names.contains(&role) {
+        names.push(role);
+    }
+    names
+}
 
 /// One part of a prompt: where it came from and the SHA-256 of the file as it is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -198,7 +209,9 @@ pub(crate) fn placeholder_names(text: &str) -> Vec<&str> {
 /// the project's own text. A part that cannot be read gives none here; putting the prompt together names it.
 pub fn used_by(root: &Path, role: &str) -> Vec<&'static str> {
     let mut texts = Vec::new();
-    for path in [format!("{}/{}.md", ROLES_FOLDER, role), format!("{}/all.md", PROJECT_FOLDER), format!("{}/{}.md", PROJECT_FOLDER, role)] {
+    let mut paths = vec![format!("{}/{}.md", ROLES_FOLDER, role)];
+    paths.extend(project_names(role).into_iter().map(|name| format!("{}/{}.md", PROJECT_FOLDER, name)));
+    for path in paths {
         if let Ok(Some(part)) = read_part(root, path) {
             texts.push(part.text);
         }
@@ -235,11 +248,11 @@ fn read_project_part(root: &Path, path: String) -> Result<Option<Read>, PromptEr
     }
 }
 
-/// The refusals, one for each file, of the project's text of `role` (`all.md` and `<role>.md`) where it is not as
+/// The refusals, one for each file, of the project's text of `role` (`all.md`, `style.md` and `<role>.md`) where it is not as
 /// `HEAD` has it (#211). Empty where each is. It reads nothing but `HEAD`, and is made before a pattern runs.
 pub fn project_refusals(root: &Path, role: &str) -> Vec<String> {
     let mut found = Vec::new();
-    for name in ["all", role] {
+    for name in project_names(role) {
         // A role that is no plain name is refused later, as no role of the revision.
         if name.is_empty() || name.starts_with('.') || name.contains('/') {
             continue;
@@ -320,7 +333,7 @@ pub fn assemble_with(
     }
     let mut parts = vec![first];
     let mut refusals = Vec::new();
-    for name in ["all", role] {
+    for name in project_names(role) {
         match read_project_part(root, format!("{}/{}.md", PROJECT_FOLDER, name)) {
             Ok(Some(part)) => parts.push(part),
             Ok(None) => {}
@@ -418,14 +431,14 @@ pub fn unknown_in(path: &str, text: &str) -> Vec<String> {
         .collect()
 }
 
-/// What the project's own text holds that the revision does not know: `project/all.md` and
+/// What the project's own text holds that the revision does not know: `project/all.md`, `project/style.md` (#289) and
 /// `project/<role>.md` for each role of the manifest, as `wb prompt` takes them, read the way it
 /// reads them. A file that is not there is no difference; one that `wb prompt` would refuse (a link,
 /// not a plain file, not UTF-8) is named as it names it. A link is never followed.
 pub fn unknown_in_project(root: &Path) -> Vec<String> {
-    let mut names = vec!["all".to_string()];
+    let mut names = vec!["all".to_string(), "style".to_string()];
     if let Ok(found) = roles(root) {
-        names.extend(found.into_iter().map(|(role, _)| role));
+        names.extend(found.into_iter().map(|(role, _)| role).filter(|role| role != "all" && role != "style"));
     }
     let mut found = Vec::new();
     for name in names {

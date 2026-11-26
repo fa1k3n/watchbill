@@ -54,14 +54,14 @@ pub fn is_given_rightly(given: &str) -> bool {
 }
 
 /// What a note names.
-struct Named {
+pub(crate) struct Named {
     /// The commits of the session, newest last, each with its subject.
-    commits: Vec<(String, String)>,
+    pub commits: Vec<(String, String)>,
     /// How many objects that a note of the stamp names are no commit of this repository.
-    left_out: usize,
+    pub left_out: usize,
     /// The listed commits that do not descend from the stamp's base, in the order listed: a hint for a person, which
     /// decides nothing and counts for nothing.
-    not_from_base: Vec<String>,
+    pub not_from_base: Vec<String>,
 }
 
 /// `wb status --session <hash>` in the repository at `root`: 0 the session is printed, 1 `hash` names no stamp that
@@ -290,7 +290,7 @@ fn kinds(root: &str, objects: &[String]) -> Result<Vec<(String, u64)>, String> {
 
 /// The commits that a note of `refs/notes/watchbill` names for `stamp`: those whose note starts with the line
 /// `stamp: <stamp>`, that are commits of this repository, newest last. A notes ref that is not there names none.
-fn named_by_notes(root: &str, stamp: &str, base: Option<&str>) -> Result<Named, String> {
+pub(crate) fn named_by_notes(root: &str, stamp: &str, base: Option<&str>) -> Result<Named, String> {
     let empty = Named { commits: Vec::new(), left_out: 0, not_from_base: Vec::new() };
     if signers::git(root, &["rev-parse", "--verify", "-q", crate::notes::REF], None).is_err() {
         return Ok(empty);

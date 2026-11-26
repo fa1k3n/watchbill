@@ -9,6 +9,8 @@ wb\-check \- say whether the repository is at its revision
 .PP
 Say whether the repository still is at the revision it is pinned to: each file under .watchbill/revision/ against the manifest, the manifest against the revision line of watchbill.yml, and that revision against the installed wb, and the project text for a placeholder the revision does not know. Ends with 0 when all of it holds, 1 when something differs. Writes nothing. A limit of session_limits in watchbill.yml higher than the rule table's, one that is not a whole number of at least 1, or a role or a key it does not know, is a difference too. So is each line of .watchbill/signers in the working tree that does not hold its form (<identity> roles="<role>,..." <key type> <key>), among them a role that is not accept, start, handover or answer, named by its line. So is a .watchbill/signers that is not in the working tree, or one with no key line: without a list on the default branch nothing that needs a signature counts, and wb prompt and wb start, which run this check, hand out nothing.
 .PP
+Where all of it holds, .watchbill/project/style.md is neither in the working tree nor in HEAD, and no runner of the organisation's file is marked local: true, it says on standard error, as wb init does, that the code style cannot be surveyed by a model on this machine, and what to put there. It still ends with 0.
+.PP
 \-q (\-\-quiet) leaves out the line that says all holds, and no difference.
 .SH OPTIONS
 .TP

@@ -12,7 +12,7 @@ use crate::yamlfile::{self, Document, Part, YamlError};
 /// The organisation's file. It is laid out by the organisation's own means, outside every repository.
 pub const ORGANISATION_FILE: &str = "/etc/watchbill/organisation.yml";
 
-const RUNNER_FIELDS: [&str; 8] = ["tools", "model", "agreement", "up_to", "planner", "start", "binds", "reach"];
+const RUNNER_FIELDS: [&str; 9] = ["tools", "model", "agreement", "up_to", "local", "planner", "start", "binds", "reach"];
 const RUNNER_NEEDS: [&str; 4] = ["tools", "model", "agreement", "up_to"];
 const PLANNER_FIELDS: [&str; 3] = ["up_to", "model", "effort"];
 
@@ -35,6 +35,9 @@ pub struct Runner {
     pub model: String,
     pub agreement: String,
     pub up_to: String,
+    /// Whether the organisation marks the runner `local: true` (#289): its tools and its model run on this machine.
+    /// Only this field says it, never the runner's name or its other words.
+    pub local: bool,
     pub planner: Option<Planner>,
     /// The command that starts a session on this runner, as a list of words with `{model}`, `{effort}` and
     /// `{prompt}` to fill (#84). `None` when the runner has none: `wb start <role>` then starts nothing on it.
@@ -106,6 +109,7 @@ fn read_runner(doc: &Document, name: &str, levels: &[String]) -> Result<Runner, 
     let model = doc.text(&with(&place, "model"))?;
     let agreement = doc.text(&with(&place, "agreement"))?;
     let up_to = level(doc, &with(&place, "up_to"), levels)?;
+    let local = if doc.has(&with(&place, "local")) { doc.truth(&with(&place, "local"))? } else { false };
     let mut planner = None;
     let inner = with(&place, "planner");
     if doc.has(&inner) {
@@ -159,7 +163,7 @@ fn read_runner(doc: &Document, name: &str, levels: &[String]) -> Result<Runner, 
     if doc.has(&list) {
         reach = read_reach(doc, &list)?;
     }
-    Ok(Runner { name: name.to_string(), tools, model, agreement, up_to, planner, start, binds, reach })
+    Ok(Runner { name: name.to_string(), tools, model, agreement, up_to, local, planner, start, binds, reach })
 }
 
 /// A runner's `reach` (#195): a list of texts, each `<host>:<port>` or `http://<host>:<port>` (`reach::entry`, #336),

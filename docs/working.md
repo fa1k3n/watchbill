@@ -69,6 +69,13 @@ Every builder is given this, with the issue's number, its branch from the curren
 
 The numbers are for a laptop of 7.3 GB, shared with a browser and other sessions. A larger machine may raise them; a smaller one must lower them.
 
+On the server of 8 cores and 31 GB, the numbers are these instead:
+
+- **Two heavy builds at once at most:** a container, a capped `cargo test`, or `rpm.sh`. While Ollama has a model loaded, one at a time.
+- **Each build:** `MemoryMax=4G` with `MemorySwapMax=0` on the host, `--memory=4g --memory-swap=4g` in a container, and `-j 4`.
+
+The rest of this section holds on both.
+
 - **One heavy build at a time, in total:** a container, a capped `cargo test`, or `rpm.sh`. Two capped builds of 2 GB at once ran the machine out of memory on 2026-11-25, and the kernel ended a session. Before a build, wait until `podman ps -q` is empty, and start no second builder until the first has handed back.
 - **Every `cargo` on the host** runs in a capped scope, with two jobs:
   `systemd-run --user --scope -p MemoryMax=2G -p MemorySwapMax=0 cargo test -j 2 …`

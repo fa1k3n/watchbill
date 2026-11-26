@@ -12,6 +12,7 @@ Watchbill: a harness for AI agents in embedded software development, deployed at
 
 ## The work
 
+- How the work is run (the scope of a milestone, the briefs of builders and reviewers, releases, the limits of the machine) is in [docs/working.md](docs/working.md). Read it before running a piece or a milestone.
 - Each piece of work is an issue, and the issue is the spec: build what it says, and write any deviation into the issue before or with the code.
 - An issue starts with its Run line: the model, the effort, what it needs that a session cannot do alone, and the issues it depends on. Read it first. If the session's model differs, say so before starting. An issue is started only when the issues it depends on are closed.
 - Tests first, from the issue's list, with Rust's own test harness (`cargo test`). No test crate. Every new test is red before the code. A test that does not compile because the code is not there yet is red.

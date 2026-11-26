@@ -83,6 +83,11 @@ fn with_two_commits() -> (Folder, Session) {
     (folder, Session { stamp, base, commits })
 }
 
+/// The line `Last:` of a commit: it says in the line that it comes from a note, which is not signed.
+fn last(commit: &str) -> String {
+    format!("Last: {} (from a note, which is not signed)", commit)
+}
+
 fn status(folder: &Path, args: &[&str]) -> (String, String, Option<i32>) {
     let mut all = vec!["status"];
     all.extend(args);
@@ -132,7 +137,7 @@ fn test_WB_STATUS_46_a_session_with_two_commits_prints_the_stamp_the_base_and_bo
     let first = lines.iter().position(|line| *line == format!("  {}  Write the first test", session.commits[0])).unwrap_or_else(|| panic!("{}", out));
     let second = lines.iter().position(|line| *line == format!("  {}  Write the second test", session.commits[1])).unwrap_or_else(|| panic!("{}", out));
     assert_eq!(first + 1, second, "{}", out);
-    assert!(lines.contains(&format!("Last: {}", session.commits[1]).as_str()), "{}", out);
+    assert!(lines.contains(&last(&session.commits[1]).as_str()), "{}", out);
     // Where the commits come from is said: a note is not signed.
     assert!(out.contains(NOTES) && out.contains("not signed"), "{}", out);
 }
@@ -182,7 +187,7 @@ fn test_WB_STATUS_46_a_commit_is_listed_only_where_a_note_names_this_stamp() {
     assert_eq!(status, Some(0), "{}", err);
     assert!(!out.contains(&theirs[0]) && !out.contains("Write the code") && !out.contains("Nobody's"), "{}", out);
     let (out, _, _) = self::status(&folder.path, &["--session", &other]);
-    assert!(out.contains(&format!("Last: {}", theirs[0])), "{}", out);
+    assert!(out.contains(&last(&theirs[0])), "{}", out);
     assert!(!out.contains("Write the first test"), "{}", out);
 }
 
@@ -197,7 +202,7 @@ fn test_WB_STATUS_46_an_object_that_a_note_names_and_that_is_no_commit_of_this_r
     assert!(out.contains("1 object named by a note is not a commit of this repository, and is left out"), "{}", out);
     // The commits are as they were, and the blob is not one of them.
     assert!(!out.contains(&blob), "{}", out);
-    assert!(out.contains(&format!("Last: {}", session.commits[1])), "{}", out);
+    assert!(out.contains(&last(&session.commits[1])), "{}", out);
 }
 
 #[test]
@@ -207,6 +212,43 @@ fn test_WB_STATUS_46_a_session_that_a_revert_marker_took_back_says_so() {
     let (out, err, status) = status(&folder.path, &["--session", &session.stamp]);
     assert_eq!(status, Some(0), "{}", err);
     assert!(out.lines().any(|line| line == "Taken back: by a [revert] marker"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_46_a_listed_commit_that_does_not_descend_from_the_base_has_a_line_of_its_own() {
+    let (folder, session) = with_two_commits();
+    // A commit with no parent, which a forged note names for the stamp: it is listed as the notes say, and marked.
+    let tree = git_text(&folder.path, &["rev-parse", &format!("{}^{{tree}}", session.base)]);
+    let orphan = git_text(&folder.path, &["commit-tree", &tree, "-m", "Not the session's"]);
+    note(&folder.path, &orphan, &session.stamp, "tester");
+    let (out, err, status) = status(&folder.path, &["--session", &session.stamp]);
+    assert_eq!(status, Some(0), "{}", err);
+    let lines: Vec<&str> = out.lines().collect();
+    assert!(lines.contains(&format!("  {}  Not the session's", orphan).as_str()), "{}", out);
+    assert!(lines.contains(&format!("Not from Base: {}, a commit that does not descend from Base", orphan).as_str()), "{}", out);
+    // The commits that do descend from it have no such line, and nothing is decided: the status is 0 and `Last:` is the
+    // newest listed.
+    assert_eq!(lines.iter().filter(|line| line.starts_with("Not from Base:")).count(), 1, "{}", out);
+    // And with only the commits of the session there is none.
+    let (clean, _, _) = self::status(&folder.path, &["--session", &session.stamp[..12]]);
+    assert_eq!(clean, out);
+}
+
+#[test]
+fn test_WB_STATUS_46_no_line_of_a_session_with_commits_says_not_from_base_where_all_descend_from_it() {
+    let (folder, session) = with_two_commits();
+    let (out, _, _) = status(&folder.path, &["--session", &session.stamp]);
+    assert!(!out.contains("Not from Base"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_47_where_no_note_names_the_stamp_the_line_says_notes_are_not_signed() {
+    let folder = set_up();
+    let (stamp, _) = stamp(&folder.path, "12", "tester");
+    let (out, err, status) = status(&folder.path, &["--session", &stamp]);
+    assert_eq!(status, Some(0), "{}", err);
+    let line = out.lines().find(|line| line.starts_with("Commits: none")).unwrap_or_else(|| panic!("{}", out));
+    assert!(line.contains("notes are not signed: a note removed or never fetched is not seen"), "{}", line);
 }
 
 // ---- WB-STATUS-47: a session with no commits ----
@@ -251,7 +293,7 @@ fn test_WB_STATUS_48_a_session_that_ran_here_says_how_it_ended_from_the_lines_of
     assert_eq!(&lines[at + 1..at + 4], ["  outcome: ended", "  status: 0", "  seconds: 5"], "{}", out);
     assert!(lines[at].contains("diagnostics"), "{}", out);
     // The lines decide nothing: what the commits and the base are does not change with them.
-    assert!(out.lines().any(|line| line == format!("Last: {}", session.commits[1])), "{}", out);
+    assert!(out.lines().any(|line| line == last(&session.commits[1])), "{}", out);
 }
 
 #[test]

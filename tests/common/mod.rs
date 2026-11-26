@@ -528,7 +528,12 @@ pub fn test_public(folder: &Path, name: &str) -> String {
 
 /// Ada's line of `.watchbill/signers`, with the roles `accept` and `start`.
 pub fn ada_line(folder: &Path) -> String {
-    format!("ada@example.org roles=\"accept,start\" {}\n", test_public(folder, "ada"))
+    ada_line_with(folder, "accept,start")
+}
+
+/// Ada's line of `.watchbill/signers` with the roles given, as `accept,start,answer` (#238).
+pub fn ada_line_with(folder: &Path, roles: &str) -> String {
+    format!("ada@example.org roles=\"{}\" {}\n", roles, test_public(folder, "ada"))
 }
 
 /// Writes `.watchbill/signers` with Ada's line in the working tree alone, as a person writes it after `wb init`:
@@ -552,6 +557,11 @@ pub fn default_branch(folder: &Path) -> Option<String> {
 /// where that branch is checked out (or no branch is there yet), else onto the branch's ref, the checkout left as it
 /// is. Where the default branch holds a list, it is the test's own, and nothing is done.
 pub fn signing(folder: &Path) {
+    signing_as(folder, "accept,start");
+}
+
+/// As `signing`, with Ada's line holding the roles given: `accept,start,answer` for a test of the answers (#238).
+pub fn signing_as(folder: &Path, roles: &str) {
     let key = test_key(folder, "ada");
     let keys = keys_folder(folder);
     let program = keys.join("ssh-keygen");
@@ -580,7 +590,7 @@ pub fn signing(folder: &Path) {
             return;
         }
     }
-    let line = ada_line(folder);
+    let line = ada_line_with(folder, roles);
     let head = git_text(folder, &["symbolic-ref", "-q", "HEAD"]);
     let identity = ["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false"];
     // The checkout's commit where it is that of the default branch (as after a clone): the list is committed in the

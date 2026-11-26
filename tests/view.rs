@@ -5395,7 +5395,7 @@ fn pushing() -> (Bench, Folder) {
     git(&origin.path, &["init", "-q", "--bare"]);
     script(
         &origin.path.join("hooks").join("post-receive"),
-        &format!("cat {l}/err > {l}/said-at-push 2>/dev/null\nwhile read old new ref; do case $ref in refs/watchbill/*|refs/notes/watchbill) continue;; esac; echo \"$ref $new\" >> {l}/pushes; done\n"),
+        &format!("cat {l}/err > {l}/said-at-push 2>/dev/null\nwhile read old new ref; do case $ref in refs/watchbill/*) continue;; esac; echo \"$ref $new\" >> {l}/pushes; done\n"),
     );
     git(&bench.repo.path, &["remote", "set-url", "origin", origin.path.to_str().unwrap()]);
     git(&bench.repo.path, &["config", "remote.origin.pushurl", origin.path.to_str().unwrap()]);
@@ -5418,11 +5418,10 @@ fn build_session(bench: &Bench, description: Option<&str>) {
 }
 
 /// The refs of the bare `origin`, each as `<ref> <commit>`.
-/// The refs of `origin`, but the jobs' refs, where `wb start` pushes the stamp before the session (#236; tests/stamped.rs),
-/// and the notes' ref, where it pushes the notes after the commits are taken back (#237).
+/// The refs of `origin`, but the jobs' refs, where `wb start` pushes the stamp before the session (#236; tests/stamped.rs).
 fn refs_of(origin: &Folder) -> String {
     let run = Command::new("git").arg("-C").arg(&origin.path).args(["for-each-ref", "--format=%(refname) %(objectname)"]).env_clear().envs(env()).output().unwrap();
-    text_of(&run.stdout).lines().filter(|line| !line.starts_with("refs/watchbill/") && !line.starts_with("refs/notes/watchbill ")).map(|line| format!("{}\n", line)).collect()
+    text_of(&run.stdout).lines().filter(|line| !line.starts_with("refs/watchbill/")).map(|line| format!("{}\n", line)).collect()
 }
 
 /// A review stamp on issue 54: since #236 a commit on the job's ref, and the comment a copy that `wb` never reads.
@@ -5453,7 +5452,9 @@ fn test_WB_PUSH_1_after_a_build_the_issue_s_branch_is_pushed_once_to_origin() {
 
     ok(&run);
     let tip = bench.git_text(&["rev-parse", "issue-54"]).trim().to_string();
-    assert_eq!(bench.left("pushes"), format!("refs/heads/issue-54 {}\n", tip), "{}", text_of(&run.stderr));
+    // The notes ref goes after the branch, where the branch was pushed (#237, WB-VIEW-41).
+    let notes = bench.git_text(&["rev-parse", "refs/notes/watchbill"]).trim().to_string();
+    assert_eq!(bench.left("pushes"), format!("refs/heads/issue-54 {}\nrefs/notes/watchbill {}\n", tip, notes), "{}", text_of(&run.stderr));
 }
 
 #[test]
@@ -5469,7 +5470,9 @@ fn test_WB_PUSH_2_only_the_stamp_s_branch_is_pushed_at_the_last_commit_taken_bac
     ok(&run);
     let tip = bench.git_text(&["rev-parse", "issue-54"]).trim().to_string();
     assert_eq!(subjects(&bench, 1), vec!["More"]);
-    assert_eq!(refs_of(&origin), format!("refs/heads/issue-54 {}\n", tip));
+    // The branch, and the notes ref of #237 after it, as the branch was pushed (WB-VIEW-41).
+    let notes = bench.git_text(&["rev-parse", "refs/notes/watchbill"]).trim().to_string();
+    assert_eq!(refs_of(&origin), format!("refs/heads/issue-54 {}\nrefs/notes/watchbill {}\n", tip, notes));
 }
 
 #[test]
@@ -6745,6 +6748,7 @@ fn test_WB_VIEW_36_a_commit_taken_back_later_carries_the_note_of_the_stamp_the_k
     // A take-back pushes nothing, so no note: the command is said.
     assert!(!git_in(&origin_of(&bench), &["rev-parse", "--verify", "-q", NOTES]).0);
     assert!(text_of(&run.stderr).contains(&format!("git push origin {}", NOTES)), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stderr).contains("a `git fetch` of origin before they are pushed replaces them"), "{}", text_of(&run.stderr));
 }
 
 #[test]
@@ -6904,4 +6908,45 @@ fn test_WB_VIEW_42_a_refused_push_of_the_notes_is_said_ends_with_1_and_leaves_th
     assert_eq!(git_in(&bare, &["rev-parse", NOTES]).1.trim(), other);
     // And it says that a plain fetch would replace the notes that are not at origin.
     assert!(err.contains("git fetch"), "{}", err);
+}
+
+#[test]
+fn test_WB_VIEW_41_where_wb_does_not_push_the_branch_it_does_not_push_the_notes_and_says_their_command_beside_the_branch_command() {
+    if !sandbox("test_WB_VIEW_41") {
+        return;
+    }
+    // A session that did not end with 0, a review: the branch is held back, so are the notes.
+    for (name, role, session) in [
+        ("did not end with 0", "build", "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\nexit 3\n"),
+        ("a review", "review", "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\n"),
+    ] {
+        let (bench, origin) = pushing();
+        if role == "review" {
+            review_stamp(&bench);
+        }
+        bench.session(session);
+
+        let run = bench.start(&["start", role, "54"]);
+
+        let err = text_of(&run.stderr);
+        assert_eq!(refs_of(&origin), "", "{}: {}", name, err);
+        assert!(err.contains(&format!("git push origin {0}:{0}", NOTES)), "{}: {}", name, err);
+        assert!(err.contains("the notes are not pushed"), "{}: {}", name, err);
+        // The notes are written, and stay.
+        assert!(git_in(&bench.repo.path, &["rev-parse", "--verify", "-q", NOTES]).0, "{}: no note was written", name);
+    }
+}
+
+#[test]
+fn test_WB_VIEW_41_no_push_says_that_a_fetch_before_the_push_replaces_the_notes() {
+    if !sandbox("test_WB_VIEW_41") {
+        return;
+    }
+    let bench = bench();
+    two_commits(&bench);
+
+    let run = bench.start(&["start", "build", "54", "--no-push"]);
+
+    ok(&run);
+    assert!(text_of(&run.stderr).contains("a `git fetch` of origin before they are pushed replaces them"), "{}", text_of(&run.stderr));
 }

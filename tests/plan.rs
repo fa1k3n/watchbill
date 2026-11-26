@@ -1055,3 +1055,122 @@ fn test_WB_VIEW_40_upgrade_leaves_the_fetch_line_of_the_notes_where_it_is_there(
     assert!(text(&run.stdout).contains("Nothing to do"), "{}", text(&run.stdout));
     assert_eq!(fetch_lines(&folder.path).iter().filter(|line| *line == NOTES_FETCH).count(), 1);
 }
+
+// ---- WB-STATUS-52: a source that changed since wb plan add is said, and nothing is taken in ----
+
+/// What `wb status <name>` printed, and what it ended with.
+fn status_of(bench: &Bench, name: &str) -> (String, i32) {
+    let run = wb(&bench.repo.path, &["status", name], "");
+    (format!("{}{}", text(&run.stdout), text(&run.stderr)), code(&run).unwrap_or(-1))
+}
+
+/// The stand-in that `issue_text` runs now prints other text.
+fn change_text(bench: &Bench) {
+    let l = bench.log.path.to_str().unwrap().to_string();
+    script(&bench.at("text.sh"), &format!("echo \"text $1\" >> {l}/calls\necho \"The text of issue $1, changed.\"\nexit 0\n"));
+}
+
+/// The text of issue 54 as `issue_text` prints it, taken in as the job `54` with the command that read it as its source,
+/// which is how a person who pipes the text in names it.
+fn taken_in(bench: &Bench) {
+    let command = format!("{} 54", bench.at("text.sh").display());
+    ok(&bench.plan(&["add", "54", "-F", "-", "--source", &command], "The text of issue 54.\n"));
+}
+
+#[test]
+fn test_WB_STATUS_52_status_says_a_source_read_by_issue_text_has_changed_and_takes_nothing_in() {
+    let bench = bench();
+    taken_in(&bench);
+    let before = (bench.refs(), bench.commit_of("54"), bench.git(&["for-each-ref"]));
+    change_text(&bench);
+
+    let (shown, status) = status_of(&bench, "54");
+
+    assert_eq!(status, 0, "{}", shown);
+    assert!(shown.contains("source changed"), "{}", shown);
+    assert!(shown.contains(&bench.hash_of("The text of issue 54.\n")[..12]), "{}", shown);
+    assert!(shown.contains("wb plan add"), "{}", shown);
+    assert_eq!((bench.refs(), bench.commit_of("54"), bench.git(&["for-each-ref"])), before, "status took something in");
+}
+
+#[test]
+fn test_WB_STATUS_52_a_job_taken_in_by_from_is_looked_at_under_the_tracker_and_the_number() {
+    let bench = bench();
+    ok(&bench.plan(&["add", "--from", "github", "54"], ""));
+    change_text(&bench);
+
+    let (shown, status) = status_of(&bench, "54");
+
+    assert_eq!(status, 0, "{}", shown);
+    assert!(shown.contains("source changed"), "{}", shown);
+}
+
+#[test]
+fn test_WB_STATUS_52_a_source_that_has_not_changed_is_not_said_to_have() {
+    let bench = bench();
+    taken_in(&bench);
+
+    let (shown, status) = status_of(&bench, "54");
+
+    assert_eq!(status, 0, "{}", shown);
+    assert!(!shown.contains("source changed"), "{}", shown);
+    assert_eq!(texts_read(&bench), ["text 54"]);
+}
+
+#[test]
+fn test_WB_STATUS_52_with_no_issue_text_nothing_is_said_and_nothing_is_run() {
+    let bench = bench();
+    taken_in(&bench);
+    change_text(&bench);
+    bench.set("issue_text", "");
+
+    let (shown, status) = status_of(&bench, "54");
+
+    assert_eq!(status, 0, "{}", shown);
+    assert!(!shown.contains("source changed"), "{}", shown);
+    assert!(texts_read(&bench).is_empty(), "{:?}", bench.calls());
+}
+
+#[test]
+fn test_WB_STATUS_52_a_source_that_issue_text_did_not_read_is_not_run_or_said_to_have_changed() {
+    let bench = bench();
+    ok(&bench.plan(&["add", "54", "-F", "-", "--source", "https://tracker.example/54"], TEXT));
+    change_text(&bench);
+
+    let (shown, status) = status_of(&bench, "54");
+
+    assert_eq!(status, 0, "{}", shown);
+    assert!(!shown.contains("source changed"), "{}", shown);
+    assert!(texts_read(&bench).is_empty(), "{:?}", bench.calls());
+}
+
+#[test]
+fn test_WB_STATUS_52_the_list_runs_no_issue_text() {
+    let bench = bench();
+    taken_in(&bench);
+    change_text(&bench);
+    let run = wb(&bench.repo.path, &["status"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(!text(&run.stdout).contains("source changed"), "{}", text(&run.stdout));
+    assert!(texts_read(&bench).is_empty(), "{:?}", bench.calls());
+}
+
+/// The runs of `issue_text` so far.
+fn texts_read(bench: &Bench) -> Vec<String> {
+    bench.calls().into_iter().filter(|call| call.starts_with("text ")).collect()
+}
+
+#[test]
+fn test_WB_STATUS_52_a_pattern_that_fails_is_said_and_the_status_is_the_same() {
+    let bench = bench();
+    taken_in(&bench);
+    let l = bench.log.path.to_str().unwrap().to_string();
+    script(&bench.at("text.sh"), &format!("echo \"text $1\" >> {l}/calls\nexit 1\n"));
+
+    let (shown, status) = status_of(&bench, "54");
+
+    assert_eq!(status, 0, "{}", shown);
+    assert!(shown.contains("the source of 54 was not looked at"), "{}", shown);
+    assert!(!shown.contains("source changed"), "{}", shown);
+}

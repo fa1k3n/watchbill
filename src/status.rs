@@ -697,6 +697,17 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
             sections.push(lines.iter().map(|line| format!("{}\n", line)).collect());
         }
     }
+    // One issue: a source that changed since `wb plan add` took it in is said, and nothing is taken in (#240). A pattern
+    // that fails is said on standard error, and the status is the same.
+    if let (Some(number), None) = (only, stage) {
+        match crate::plan::changed_source(root, number) {
+            Ok(Some(line)) => sections.push(format!("{}\n", line)),
+            Ok(None) => {}
+            Err(why) => {
+                let _ = writeln!(err, "wb status: the source of {} was not looked at: {}", issue::shown(number), issue::shown(&why));
+            }
+        }
+    }
     if show(QUESTIONS) {
         let lines: String =
             read.iter().filter(|found| !found.questions.is_empty()).map(|found| format!("  {}  {}\n", issue::shown(&found.number), found.questions.iter().map(|name| issue::shown(name)).collect::<Vec<_>>().join(", "))).collect();

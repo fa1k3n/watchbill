@@ -951,6 +951,44 @@ fn state_of(root: &str, name: &str, plan: &Plan, bytes: &[u8], body: Option<&str
     Ok((line_of(body, "by").unwrap_or("").to_string(), time))
 }
 
+/// Whether the newest source of the plan of `issue` has changed since `wb plan add` took it in (#240): the line that says
+/// so, or `None`. Only a source that `issue_text` of `watchbill.yml` read is looked at: its source is that pattern with
+/// the issue filled, as `--from` writes it, or as a person who pipes the text in gives it with `--source`. The plan is
+/// the one named `issue`, or `<tracker>/<issue>` as `--from` names it. The pattern is run as `wb plan add --from` runs it,
+/// through the cap of a text file, and its text is hashed as a blob; nothing is written, and nothing is taken in.
+pub(crate) fn changed_source(root: &str, issue: &str) -> Result<Option<String>, String> {
+    if !crate::prompt::is_plain_name(issue) {
+        return Ok(None);
+    }
+    let Some(pattern) = crate::prompt::pattern_of(root, "issue_text").map_err(|why| why.to_string())? else {
+        return Ok(None);
+    };
+    let filled = pattern.replace("{issue}", issue);
+    let mut names = vec![issue.to_string()];
+    if let Some(tracker) = crate::starter::settings(root)?.text(&[Part::from("tracker")]).ok() {
+        names.push(format!("{}/{}", tracker, issue));
+    }
+    for name in names {
+        let Some(plan) = plan_of(root, &name).filter(|plan| !plan.removed) else {
+            continue;
+        };
+        let Some(source) = plan.job.sources.last().filter(|source| source.source == filled) else {
+            continue;
+        };
+        let bytes = crate::starter::run_capped(root, "issue_text", &filled, crate::bounded::TEXT_CAP)?;
+        let now = git_line(root, &["hash-object", "-t", "blob", "--stdin"], Some(&bytes))?;
+        if now == source.hash {
+            return Ok(None);
+        }
+        let short: String = source.hash.chars().take(12).collect();
+        return Ok(Some(format!(
+            "source changed: `issue_text` prints other text now than the source {} of the job {}, taken in on {}. wb status takes nothing in: run `wb plan add` again to take the new text in",
+            short, name, source.time
+        )));
+    }
+    Ok(None)
+}
+
 /// The hash of each source of the plan of `name`, in the order they were added: the job's hash, which the tag of an
 /// acceptance names (#235). None where there is no plan of the name, or it is removed.
 pub(crate) fn source_hashes(root: &str, name: &str) -> Vec<String> {

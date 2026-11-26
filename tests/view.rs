@@ -4765,7 +4765,8 @@ fn test_WB_BUILD_139_the_new_questions_of_the_file_are_posted_in_one_comment_by_
     planner_writes(&bench, TWO_QUESTIONS);
     ok(&bench.start(&["start", "planner", "54"]));
     assert_eq!(posts_on_54(&bench), 2, "{:?}", bench.calls());
-    assert_eq!(bench.posted(), TWO_POSTED);
+    // The copy names the commit of the questions (#240).
+    assert_eq!(bench.posted(), format!("{}commit: {}\n", TWO_POSTED, bench.git_text(&["rev-parse", "refs/watchbill/54"]).trim()));
 
     // A question that stands on the job's ref already is not posted again (#238): the tracker is not read for it.
     let bench = crate::bench();
@@ -4774,7 +4775,7 @@ fn test_WB_BUILD_139_the_new_questions_of_the_file_are_posted_in_one_comment_by_
     ok(&bench.start(&["start", "planner", "54"]));
     assert_eq!(posts_on_54(&bench), 2, "{:?}", bench.calls());
     let q2 = TWO_POSTED.split_once("q2: ").unwrap().1;
-    assert_eq!(bench.posted(), format!("[questions] 54 q2\nq2: {}", q2));
+    assert_eq!(bench.posted(), format!("[questions] 54 q2\nq2: {}commit: {}\n", q2, bench.git_text(&["rev-parse", "refs/watchbill/54"]).trim()));
 }
 
 #[test]
@@ -4868,9 +4869,9 @@ fn test_WB_ANSWER_21_the_planner_s_questions_are_a_commit_on_the_job_s_ref_after
     let tip = bench.git_text(&["rev-parse", "refs/watchbill/54"]).trim().to_string();
     assert!(bench.git_text(&["cat-file", "commit", &tip]).contains("\ngpgsig "));
     assert_eq!(bench.git_text(&["rev-parse", &format!("{}^{{tree}}", tip)]), bench.git_text(&["rev-parse", &format!("{}^^{{tree}}", tip)]));
-    // Pushed to origin with the stamp, and the copy posted.
+    // Pushed to origin with the stamp, and the copy posted, with the line that names the commit (#240).
     assert_eq!(bench.git_text(&["--git-dir", &bare_of(&bench), "rev-parse", "refs/watchbill/54"]).trim(), tip);
-    assert_eq!(bench.posted(), TWO_POSTED);
+    assert_eq!(bench.posted(), format!("{}commit: {}\n", TWO_POSTED, tip));
     // `wb status` shows them open from the ref, and runs no `issue_comments` for the issue.
     let before = called(&bench, "comments");
     let run = wb(&bench.repo.path, &["status", "54"], "");
@@ -5233,7 +5234,7 @@ fn test_WB_BUILD_146_the_questions_are_read_from_the_commit_taken_back_not_the_w
 
     assert_eq!(posted, Ok(()), "{}", text_of(&err));
     assert_eq!(posts_on_54(&bench), 1, "{:?}", bench.calls());
-    assert_eq!(bench.posted(), TWO_POSTED);
+    assert_eq!(bench.posted(), format!("{}commit: {}\n", TWO_POSTED, bench.git_text(&["rev-parse", "refs/watchbill/54"]).trim()));
 }
 
 // ---- #296: a take-back goes onto the stamp's branch, never onto the branch checked out ----
@@ -6477,11 +6478,14 @@ fn test_WB_PUSH_25_the_questions_written_are_posted_once_in_one_comment_after_th
 
     ok(&run);
     assert_eq!(posts_on_54(&bench), 2, "{:?}", bench.calls());
-    assert_eq!(bench.posted(), TESTER_POSTED);
+    // The copy is the questions and a last line that names their commit (#240).
+    let tip = String::from_utf8_lossy(&std::process::Command::new("git").arg("-C").arg(&bench.repo.path).args(["rev-parse", "refs/watchbill/54"]).output().unwrap().stdout).trim().to_string();
+    let copy = format!("{}commit: {}\n", TESTER_POSTED, tip);
+    assert_eq!(bench.posted(), copy);
     let calls = bench.calls();
     let start = calls.iter().position(|call| call == "start").unwrap();
     assert_eq!(calls.iter().rposition(|call| call == "post issue 54").map(|at| at > start), Some(true), "{:?}", calls);
-    let said = format!("wb start tester: will post on issue 54, by `issue_comment` of watchbill.yml:\n{}", TESTER_POSTED);
+    let said = format!("wb start tester: will post on issue 54, by `issue_comment` of watchbill.yml:\n{}", copy);
     assert!(text_of(&run.stderr).contains(&said), "{}", text_of(&run.stderr));
 
     // A question that stands on the job's ref already is not posted again (#238).
@@ -7272,6 +7276,23 @@ fn test_WB_ANSWER_47_the_questions_commit_of_a_session_runs_no_issue_comments_fo
     assert!(!text_of(&run.stderr).contains("at the tracker"), "{}", text_of(&run.stderr));
     // The questions are the commit on the ref all the same.
     assert!(ref_messages(&bench)[1].starts_with("[questions] 54.tester q1 q2\n"), "{:?}", ref_messages(&bench));
+}
+
+#[test]
+fn test_WB_PUSH_13_the_copy_of_the_questions_ends_with_the_hash_of_their_commit() {
+    if !sandbox("test_WB_PUSH_13") {
+        return;
+    }
+    let bench = bench();
+    writing_session(&bench, "questions", TESTER_QUESTIONS, 0);
+
+    ok(&bench.start(&["start", "tester", "54"]));
+
+    let posted = bench.posted();
+    let run = std::process::Command::new("git").arg("-C").arg(&bench.repo.path).args(["rev-parse", "refs/watchbill/54"]).output().unwrap();
+    let tip = String::from_utf8_lossy(&run.stdout).trim().to_string();
+    assert!(posted.starts_with("[questions] 54.tester q1 q2\n"), "{}", posted);
+    assert_eq!(posted.lines().last(), Some(format!("commit: {}", tip).as_str()), "{}", posted);
 }
 
 #[test]

@@ -111,6 +111,18 @@ fn held_lines(message: &str, kind: Kind) -> String {
     }
 }
 
+/// A notice posted out as the copy of a commit (#240): `text`, ended by a line break, and a last line `commit: <hash>` that
+/// names the commit on the job's ref that it copies. The line is added to the copy and never to the commit, and no
+/// reader of `wb` takes it for part of a stamp, a question or an answer.
+pub fn with_commit(text: &str, commit: &str) -> String {
+    let mut copy = text.to_string();
+    if !copy.ends_with('\n') {
+        copy.push('\n');
+    }
+    copy.push_str(&format!("commit: {}\n", commit));
+    copy
+}
+
 /// The form a commit of questions or answers is posted out in, as its copy and as what a session is brought: the first
 /// line, then what follows the header.
 pub fn copy_of(message: &str) -> String {

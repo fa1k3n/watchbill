@@ -1,6 +1,6 @@
 # The push after a session
 
-What `wb` does with the issue's branch and the change once the commits of a session are taken back. The session holds no login to the code host.
+What `wb` sends out after a session: the branch, the change and the notices. The session holds no login to the code host.
 
 | ID | Requirement | Ver | Status |
 |---|---|---|---|
@@ -16,8 +16,8 @@ What `wb` does with the issue's branch and the change once the commits of a sess
 | WB-PUSH-10 | Without `change_of_branch` or `draft_change` in `watchbill.yml`, or with `--no-push`, `wb start` shall push nothing, say why, say the commands of WB-VIEW-14 and WB-VIEW-15, and run none of them. Issue: #151. | T | Implemented |
 | WB-PUSH-11 | After a session of the tester, the build or the fix of an issue, the session's folder shall hold a file `push`: `pushed: <commit>` or `not pushed: <why>`, and after a build that was pushed `change: <number>` or `change: not opened: <why>`. Issue: #151. | T | Implemented |
 | WB-PUSH-12 | No login of the code host shall be inside the sandbox of a session: the variables of the logins of `gh`, `glab` and ssh, the secrets GitLab CI hands a job, and the address of the session bus are not handed in, and a runner's bind that holds or lies in a login of the code host (below the home, below `XDG_CONFIG_HOME`, a keyring below `XDG_RUNTIME_DIR`, the folder of the ssh agent's socket), or that is or holds `XDG_RUNTIME_DIR`, is refused with 1 before anything is posted. Issue: #151. | T | Implemented |
-| WB-PUSH-13 | Each notice `wb` posts to a tracker (a stamp made, a session's findings, a handover, questions, answers, done) shall name the hash of the commit on the job's ref that it copies. Issue: #240. | T | Draft |
-| WB-PUSH-14 | `wb` shall read back none of the notices it posts to a tracker. Issue: #240. | T | Draft |
+| WB-PUSH-13 | Each notice `wb` posts to a tracker that copies a commit (a stamp, questions, answers and a marker of `wb revert`, each a commit on the job's ref; and the `[accepted]` notice, which names `HEAD` of the issue's branch after the commit that holds the acceptance) shall end with a line `commit: <hash>` that names the commit it copies, in full, and where that commit cannot be named, with no such line. The line is in the copy and never in the commit. A session's findings, and the stamp of a change with no issue, copy no commit and carry none; a handover is not a notice yet. Issue: #240. | T | Implemented |
+| WB-PUSH-14 | For a job whose ref holds a stamp, a commit of `wb plan` or a questions commit, `wb` shall read back none of the notices it posts to a tracker: no pattern that reads a comment is run for it by `wb status`, `wb answer`, `wb accept` or a start, and no `[stamp]`, `[questions]`, `[answers]`, `[revert]` or `[accepted]` comment changes what any of them says. A job begun before 0.12.0, whose ref holds none of them, is read from the tracker until its first stamp on the ref (WB-ANSWER-52), and so is a change with no issue. Issue: #240. | T | Implemented |
 | WB-PUSH-15 | Where the session did not end with 0, `wb start` shall push nothing and say why. Issue: #151. | T | Implemented |
 | WB-PUSH-16 | `wb start` shall push only after the tester, the build and the fix of an issue; after any other session it shall say the commands of WB-VIEW-14 and WB-VIEW-15, and run none of them. Issue: #151. | T | Implemented |
 | WB-PUSH-17 | A description file that is not a plain file, is over 64 KiB, is not UTF-8, holds a control character but a line break or a tab, a line separator or a bidirectional control, or holds `-` alone once white space is trimmed, shall open no change, and `wb start` shall end with 1, saying why. Issue: #151. | T | Implemented |

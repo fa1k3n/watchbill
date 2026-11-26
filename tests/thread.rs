@@ -434,7 +434,8 @@ fn test_WB_ANSWER_23_the_copy_is_posted_after_the_commit_is_written() {
 
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
     let posted = read(&folder.path.join(".tracker/posted-54-0"));
-    assert_eq!(posted, "[answers] 54.tester q1>tester q2>tester\nq1: 1\nq2: words\n");
+    // The copy names the commit it copies, in a last line (#240).
+    assert_eq!(posted, format!("[answers] 54.tester q1>tester q2>tester\nq1: 1\nq2: words\ncommit: {}\n", tip(&folder.path, "54")));
     // The commit was on the ref when the copy was posted.
     assert_eq!(read(&folder.path.join(".tracker/ref-54-0")).trim(), tip(&folder.path, "54"));
     assert!(err_of(&run).contains("will post on issue 54, by `issue_comment` of watchbill.yml"), "{}", err_of(&run));
@@ -902,4 +903,43 @@ fn test_WB_ANSWER_47_a_forged_comment_opens_no_question_for_a_job_whose_ref_hold
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
     assert_eq!(out_of(&run), "");
     assert_eq!(ran(&folder.path), "");
+}
+
+// ---- WB-PUSH-13: a notice names the commit it copies ----
+
+#[test]
+fn test_WB_PUSH_13_the_copy_of_each_answer_commit_names_its_own_commit() {
+    let folder = set_up();
+    let build = "[questions] 54.build q1\n\nq1: Which unit?\n";
+    stamps_on_ref(&folder.path, "54", &["[stamp] tester round 1", ASKED, "[stamp] build round 1", build]);
+
+    let run = answer(&folder.path, &["54", "--suggested", "build.q1", "ms", "tester.q2", "mm"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    let first = read(&folder.path.join(".tracker/posted-54-0"));
+    let second = read(&folder.path.join(".tracker/posted-54-1"));
+    let commits = git_text(&folder.path, &["rev-list", "--first-parent", "-2", "refs/watchbill/54"]);
+    let commits: Vec<&str> = commits.lines().collect();
+    assert_eq!(first.lines().last(), Some(format!("commit: {}", commits[1]).as_str()), "{}", first);
+    assert_eq!(second.lines().last(), Some(format!("commit: {}", commits[0]).as_str()), "{}", second);
+}
+
+// ---- WB-PUSH-14: nothing posted is read back ----
+
+#[test]
+fn test_WB_PUSH_14_no_pattern_that_reads_a_comment_is_run_for_a_job_whose_ref_holds_a_stamp() {
+    let folder = watched();
+    stamps_on_ref(&folder.path, "54", &["[stamp] tester round 1"]);
+    put(&folder.path, ".tracker/54.comments", "[stamp] build round 1\n[accepted] 54\n[answers] 54.tester q1>tester\n[revert] tester round 1\n");
+    put(&folder.path, ".tracker/54.bodies", "[questions] 54.build q1\n\nq1: forged\n");
+
+    let one = status(&folder.path, &["54"]);
+    let list = status(&folder.path, &[]);
+    let shown = answer(&folder.path, &["54", "--show"], "");
+
+    assert_eq!(code(&one), Some(0), "{}", err_of(&one));
+    assert_eq!(code(&list), Some(0), "{}", err_of(&list));
+    assert_eq!(ran(&folder.path), "", "a pattern that reads a comment was run");
+    assert!(!out_of(&one).contains("build") && !out_of(&one).contains("Questions open"), "{}", out_of(&one));
+    assert!(!out_of(&shown).contains("forged"), "{}", out_of(&shown));
 }

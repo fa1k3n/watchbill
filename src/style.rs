@@ -87,7 +87,7 @@ fn is_style_file(path: &str) -> bool {
 /// Whether a line may go into a prompt as it is: no control character but a tab, no line or paragraph separator, no
 /// bidirectional control, and nothing a prompt reads as a placeholder.
 pub(crate) fn fit(line: &str) -> bool {
-    let control = |c: char| (c.is_control() && c != '\t') || matches!(c, '\u{2028}' | '\u{2029}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}');
+    let control = |c: char| (c.is_control() && c != '\t') || matches!(c, '\u{2028}' | '\u{2029}' | '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}');
     !line.chars().any(control) && crate::prompt::placeholder_names(line).is_empty()
 }
 

@@ -21,7 +21,7 @@ const GROUPS: [(&str, &[&str]); 5] = [
 /// gave them after 0.0.9: 0.10.0, 0.11.0, 0.12.0. `view` (#173), `upgrade` (#174), `compare` (#179), `clean` (#176) and `doctor` (#178) and `log` (#177) are built. The four of
 /// 0.11.0 moved to 0.12.0 with the plan of 2026-11-22 (#230).
 const PLANNED: [(&str, &str, &str); 1] = [
-    ("run", "0.12.0", "#183"),
+    ("run", "0.13.0", "#183"),
 ];
 
 fn built() -> Vec<&'static str> {
@@ -270,4 +270,34 @@ fn test_WB_CMD_15_the_usage_lists_the_built_commands_in_the_order_of_help() {
         .filter(|name| !name.starts_with("--"))
         .collect();
     assert_eq!(listed, built(), "{}", usage);
+}
+
+// ---- WB-CMD-61: the README says what is built and what is planned ----
+
+fn readme() -> String {
+    fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("README.md")).unwrap()
+}
+
+#[test]
+fn test_WB_CMD_61_the_status_line_names_the_version_and_the_built_commands() {
+    let readme = readme();
+    let status = readme.lines().find(|line| line.starts_with("**Status: ")).expect("the README has no Status line");
+
+    assert!(status.starts_with(&format!("**Status: {}.", env!("CARGO_PKG_VERSION"))), "{}", status);
+    for name in built() {
+        assert!(status.contains(&format!("`wb {}`", name)), "the Status line does not name wb {}", name);
+    }
+}
+
+#[test]
+fn test_WB_CMD_61_no_line_of_the_README_plans_a_command_for_another_release() {
+    let readme = readme();
+    for (name, release, issue) in PLANNED {
+        for line in readme.lines().filter(|line| line.contains(&format!("`{}`", name)) || line.contains(&format!("`wb {}`", name)) || line.contains(issue)) {
+            for word in line.split(|c: char| !(c.is_ascii_digit() || c == '.')) {
+                let is_version = word.split('.').count() == 3 && word.split('.').all(|part| !part.is_empty());
+                assert!(!is_version || word == release, "{} is planned for {}, a line says {}: {}", name, release, word, line);
+            }
+        }
+    }
 }

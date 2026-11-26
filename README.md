@@ -111,7 +111,7 @@ The owner set these on 2026-11-20 (#180). They hold in every command.
 
 ## Before you start: signing
 
-`wb` needs git to sign with an SSH key. Two settings of git say so: `gpg.format` is `ssh`, and `user.signingkey` names the key. The default branch's `.watchbill/signers` holds its public key, with the roles the person needs ([The signed acceptance](#the-signed-acceptance)). Without these, no start and no acceptance works (#323).
+`wb` needs git to sign with an SSH key. Two settings of git say so: `gpg.format` is `ssh`, and `user.signingkey` names the key. The default branch's `.watchbill/signers` holds its public key, with the roles the person needs ([The signed acceptance](#the-signed-acceptance)). Without these, no start, acceptance, answer, plan commit or revert of an issue works (#323).
 
 - **`wb` only reads the two settings.** It never sets them, and it writes nothing of a person's signing setup. It signs through git itself (`git tag -s`, `git commit-tree -S`), so the person's ssh agent, `gpg.ssh.program` and passphrase apply as they are.
 - **A person who signs commits with an SSH key already** reuses that key as it is. Only the line in `.watchbill/signers` is new.

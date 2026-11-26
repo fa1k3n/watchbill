@@ -11,7 +11,7 @@ The words `wb` and its documents use, one line each, and how they are like git. 
 - **Runner:** the tool and model a session runs with, named and cleared in the organisation's file. Its `start` is the command.
 - **Level:** how confidential code is. The organisation's to set.
 - **Classed code:** paths that need a person as verifier.
-- **Job:** the text of what is to be built, stored in git under the hash of its content; its name is a ref under `refs/watchbill/`. An issue is the tracker's thing a job may come from. `wb plan add` takes one in (#234); the rest of point 15 is built in 0.12.0 ([revision.md](revision.md)). Until then the other commands take an issue.
+- **Job:** the text of what is to be built, stored in git under the hash of its content; its name is a ref under `refs/watchbill/`. An issue is the tracker's thing a job may come from. `wb plan add` takes one in (#234), and `wb status`, `wb log` and `wb answer` read the job's ref ([revision.md](revision.md), point 15).
 - **Plan:** a job of `wb plan add`, with the issue's file the planner writes for it. `wb plan` lists, shows, edits, accepts and removes it (#290). Its state is `planned` until a person accepts it with `wb plan accept`.
 - **Source:** one text of a job, each under its own hash. A job may have several.
 - **Issue's file:** `.watchbill/issues/<issue>.yml`: the requirements, the interface, `changes` and each role's `reads`.
@@ -29,7 +29,7 @@ The words `wb` and its documents use, one line each, and how they are like git. 
 - **Guard:** a refusal that protects a person's time, passed by the flag named for it, and by that flag alone. Said as `<command>: guard: <why>`, naming the flag (#180). The flags are `--ignore-local` (a local change under `reads`), `--ignore-kept` (a kept view) and `--ignore-branch` (a checkout on a branch that is neither the stamp's nor the default branch) of `wb start`, and `--no-commit` of `wb accept` and `wb plan accept` (the checks of its commit). After `--no-commit` the acceptance is written and not committed, and the limit of #97 still holds: no prompt is handed out and no session started until the issue's file and its acceptance are committed.
 - **Plumbing and porcelain:** output that is fixed, for scripts, and wording, for people.
 - **Captain:** the person who decides what is built.
-- **Officer:** the watch officer, the agent role that is given issues and hands them on. Not built (#86, planned for 0.12.0).
+- **Officer:** the watch officer, the agent role that is given issues and hands them on. Not built (#86, planned for 0.13.0).
 
 ## Likeness with git
 
@@ -52,9 +52,9 @@ The words `wb` and its documents use, one line each, and how they are like git. 
 | `plan remove` | `git remote remove`, `git worktree remove` | a marker added, nothing rewritten |
 | `accept` | `git tag -s` | a person's word, committed |
 | `start` | `git worktree add`, then run | makes a view, no history |
-| `run` (planned for 0.12.0, #183) | `git rebase` | stops at gates, no `--continue` |
+| `run` (planned for 0.13.0, #183) | `git rebase` | stops at gates, no `--continue` |
 | `answer` | resolving, then continuing | writes a signed commit on the job's ref, and posts a copy where `issue_comment` is set up; a job begun before the refs is answered at the tracker |
-| `revert` | `git revert` | takes back a step and every step after it, by a marker on the issue; nothing is deleted |
+| `revert` | `git revert` | takes back a step and every step after it, by a signed marker on the job's ref, with a copy posted where `issue_comment` is set up; nothing is deleted |
 | `clean` | `git clean`, `git worktree prune` | removes the kept views whose work is all taken back, and says each first; `-n` and `--dry-run` as git; a view named is removed with its work, no `--force` |
 | `view --kept` | `git status` | the kept views, what each holds |
 | `view --in` | `git ls-files` | |
@@ -70,30 +70,30 @@ The words `wb` and its documents use, one line each, and how they are like git. 
 | `watchbill.yml` | `.git/config` | shared by the team |
 | the organisation's file | `/etc/gitconfig` | a team cannot override it |
 | view | worktree | no object store, no remote |
-| stamp | commit trailer | lives at the tracker |
+| stamp | signed commit | on the job's ref, a copy at the tracker where `issue_comment` is set up |
 | job (point 15) | blob, its name a branch | its ref is under `refs/watchbill/` |
 | acceptance (decided, point 15) | signed tag | checked against the project's keys |
 | adapter (not built) | remote | declarative, for each tool |
 | `--ignore-local` | `--force` | waives one named guard only |
 
-Only `run` is not built: it is planned for 0.12.0 (#183).
+Only `run` is not built: it is planned for 0.13.0 (#183).
 
 ## `wb status` and `git status`
 
 `wb status` is made to look like `git status` (#284). It lists jobs where git lists files.
 
-- **Headings:** by whose move it is next: "Jobs waiting for you" and "Jobs in the flow", as git has "Changes not staged" and "Changes to be committed". A heading with no job is not printed.
+- **Headings:** by whose move it is next: "Jobs waiting for you" and "Jobs in the flow", as git has "Changes not staged for commit" and "Changes to be committed". A third heading, "Not read", lists a job that could not be read. A heading with no job is not printed. The headings and the hints are plain, as in git.
 - **Colour:** the first heading's lines red and the second's green, as git colours what is not staged and what is. Only on a terminal. `--color[=<when>]` is the flag of `git diff` and `git log` (`always`, `never` or `auto`, the default); alone it is `always`. `git status` has no `--color`.
+- **The stage:** a word on each line in the long form; in `-s` and `--porcelain` a letter (P A T B R F) in git's first column, and the letter of why a person must move in the second.
 - **Short and porcelain:** `-s` and `--short` print one line to a job, as `git status -s`. `--porcelain` prints the same with no colour and no hint, for a script. Of the two, the one given last wins, as in git.
 - **Hints:** lines in git's form, `(use "wb answer <issue>..." to answer its questions)`, as `advice.statusHints` gives in git. They are on unless `status_hints: false` is written in `watchbill.yml`. Only `true` and `false` are values.
 
-Where it differs, on purpose:
+What is listed is the issues in the flow: an issue whose branch, local or at origin, holds a commit the default branch of origin does not. A job with no issue's file is listed where a person's move is open, `wb` has begun it, or commits are not pushed. Where it differs, on purpose:
 
 - A job that could not be read is `**` and its number in the short form, never `??`, which is git's word for untracked. Its reason goes to standard error.
 - The colour settings of git (`color.status`, `color.ui`) are not read.
-- Jobs are in the order of their stage, then of their number, not of their path. The stage is a word on each line.
-- The hints and the headings are not coloured.
-- A job is in the flow when its branch holds a commit the default branch of origin does not. A job that is done is not listed.
+- Jobs are in the order of their stage, then of their number, not of their path.
+- A job that is done is not listed.
 
 ## The words of the flags
 
@@ -109,7 +109,7 @@ These are kept as they are, on purpose (#285):
 | `--ignore-local`, `--ignore-kept`, `--ignore-branch`, `--take-back` | named waivers: no general `--force`; no likeness in git |
 | `wb prompt --parts`, `--stamp` | plumbing; no likeness in git |
 
-`-n` is `--dry-run` for `wb upgrade` and `wb clean`, and `--no-commit` for `wb accept` and `wb plan accept`, as `git cherry-pick -n` and `git revert -n` have it. `-q` is taken by every command. It leaves out only a line that confirms what was done, says there was nothing to do, or only informs. A refusal, a warning, what is said before a write and the output a script reads stay.
+`-n` is `--dry-run` for `wb upgrade` and `wb clean`, and `--no-commit` for `wb accept` and `wb plan accept`, as `git cherry-pick -n` and `git revert -n` have it. `-q` is taken by every command but `help`. It leaves out only a line that confirms what was done, says there was nothing to do, or only informs. A refusal, a warning, what is said before a write and the output a script reads stay.
 
 ## The exit statuses
 

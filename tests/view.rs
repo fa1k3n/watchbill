@@ -5193,8 +5193,10 @@ fn test_WB_BUILD_146_the_questions_are_read_from_the_commit_taken_back_not_the_w
     // The checkout's working tree holds the older file, with no question.
     git(&bench.repo.path, &["reset", "-q", "--hard", "HEAD~1"]);
     let mut err = Vec::new();
+    // The questions are written as a commit on the job's ref (#238), signed as a start signs.
+    let signing = watchbill::stamps::ready(&bench.root()).expect("the bench signs as the starter");
 
-    let posted = watchbill::brought::post_questions("wb start planner", &bench.root(), "54", &commit, &mut err);
+    let posted = watchbill::brought::post_questions("wb start planner", &bench.root(), "54", &commit, &signing, &mut err);
 
     assert_eq!(posted, Ok(()), "{}", text_of(&err));
     assert_eq!(posts_on_54(&bench), 1, "{:?}", bench.calls());

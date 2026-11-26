@@ -364,7 +364,7 @@ fn test_WB_ANSWER_22_the_questions_are_taken_from_the_ref_and_the_typed_answers_
     let folder = no_tracker();
     stamps_on_ref(&folder.path, "54", &["[stamp] tester round 1", ASKED]);
 
-    let run = answer(&folder.path, &["54"], "1\nmillimetres\n");
+    let run = answer(&folder.path, &["54"], "1\nmillimetres\n\n");
 
     assert_eq!(code(&run), Some(0), "{}{}", out_of(&run), err_of(&run));
     assert!(out_of(&run).contains("2 open questions on issue 54."), "{}", out_of(&run));
@@ -620,7 +620,7 @@ fn test_WB_ANSWER_21_only_the_lines_of_the_header_name_the_issue_and_the_base_no
 
 #[test]
 fn test_WB_ANSWER_21_a_first_line_that_is_the_old_form_of_one_question_is_no_commit_of_wb() {
-    let folder = set_up();
+    let folder = no_tracker();
     stamps_on_ref(&folder.path, "54", &["[stamp] tester round 1", "[question] 54.tester.q1\n\nWhich brake?\n"]);
 
     let out = out_of(&status(&folder.path, &["54"]));

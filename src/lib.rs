@@ -2319,8 +2319,9 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
     if !back.taken.is_empty() {
         // The planner posts nothing (#295): its new questions, written in full in the issue's file, are posted here.
         // They are read from the last commit taken back, not from the working tree, which need not hold it (#296).
-        if let (true, Some(issue), Some((commit, _))) = (role == "planner", value_of(&handed.values, "issue"), back.taken.last()) {
-            if let Err(why) = brought::post_questions(name, root, issue, commit, err) {
+        // They are written as a commit on the job's ref after the stamp, and the copy is posted (#238).
+        if let (true, Some(issue), Some((commit, _)), Some(signing)) = (role == "planner", value_of(&handed.values, "issue"), back.taken.last(), signing.as_ref()) {
+            if let Err(why) = brought::post_questions(name, root, issue, commit, signing, err) {
                 refusal::limit(err, name, format_args!("the questions of the issue's file are not posted: {}", why));
                 // not a refusal: the limit is said just above, after the session; the code says it too.
                 code = 1;
@@ -2337,6 +2338,7 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
             round: value_of(&handed.values, "round"),
             ended_well,
             held: fix_held_back(&back, value_of(&handed.values, "issue"), pushed.lines.as_deref()),
+            signing: signing.as_ref(),
         },
         written,
         err,

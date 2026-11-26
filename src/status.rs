@@ -65,6 +65,11 @@ struct Found {
     acceptances: Vec<String>,
     /// How the job was closed, where it was: by the acceptance of the work or by a merge (#282).
     closed: Option<Closed>,
+    /// Whether the questions are not known: they are on the tracker (the ref holds no questions commit), and the
+    /// pattern that reads it is not there (#238).
+    tracker_unread: bool,
+    /// Whether the questions are read from the ref and one is open: an answer at the tracker is not read (#238).
+    tracker_not_read: bool,
 }
 
 /// How a job is done (#282).
@@ -418,14 +423,17 @@ pub(crate) struct Inspected {
 pub(crate) fn inspect(root: &str, number: &str, state: Option<&std::path::Path>) -> Result<Inspected, String> {
     let get = |key: &str| prompt::pattern_of(root, key).map_err(|why| why.to_string());
     let branch = get("branch")?.unwrap_or_else(|| "issue-{issue}".to_string());
-    let Some(comments) = get("issue_comments")? else {
-        return Err("watchbill.yml has no `issue_comments`, so the roles that ran and the questions are not known".to_string());
-    };
-    let patterns = Patterns { branch, comments: Some(comments), change_of_branch: None, issue_address: None };
+    let comments = get("issue_comments")?;
+    let patterns = Patterns { branch, comments, change_of_branch: None, issue_address: None };
     let default = default_branch(root).ok_or_else(|| "no default branch was found".to_string())?;
     let flow = in_flow(root, &default, &patterns.branch)?;
     let starts = state.map(crate::kept::Starts::read);
     let found = read_issue(root, number, &patterns, &branches(root), &flow, &default, false, starts.as_ref())?;
+    // A job whose ref holds no questions commit has its questions on the tracker, and they are not known without the
+    // pattern (#238); one whose ref holds one has them on the ref.
+    if found.tracker_unread {
+        return Err("watchbill.yml has no `issue_comments`, so the roles that ran and the questions are not known".to_string());
+    }
     Ok(Inspected { roles: found.roles, questions: found.questions })
 }
 
@@ -434,19 +442,23 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
     let (comments, pattern) = (patterns.comments.as_deref(), patterns.branch.as_str());
     let mut from = Vec::new();
     let mut lines = Vec::new();
-    if let Some(command) = comments {
+    // The stamps are the commits on the job's ref that count (#236), with what a marker took back left out; a `[stamp]`
+    // comment is a copy, and decides nothing.
+    let ledger = crate::stamps::read(root, number)?;
+    // Where the ref holds a questions commit, the questions and the answers are on the ref too (#238), and the tracker
+    // is not read for them: no pattern is run. Else they are read from the tracker, as for a job begun before.
+    let on_ref = ledger.has_questions();
+    if let (Some(command), false) = (comments, on_ref) {
         if !prompt::is_plain_name(number) {
             return Err(format!("{} is not a plain name that fills `issue_comments`", issue::shown(number)));
         }
         let printed = starter::run(root, "issue_comments", &command.replace("{issue}", number), None)?;
         lines = String::from_utf8_lossy(&printed).lines().map(|line| line.trim_end_matches('\r').to_string()).collect();
     }
-    // The stamps are the commits on the job's ref that count (#236), with what a marker took back left out; a `[stamp]`
-    // comment is a copy, and decides nothing.
-    let ledger = crate::stamps::read(root, number)?;
     let stamps = ledger.stamps();
-    // What a `[revert]` marker took back (#142) counts for no question.
-    let counted = starter::counted(&lines.join("\n"));
+    // What a `[revert]` marker took back (#142) counts for no question: on the ref, the markers in its order; at the
+    // tracker, the `[stamp]` and `[revert]` lines of the comments.
+    let counted = if on_ref { starter::counted(&ledger.lines()) } else { starter::counted(&lines.join("\n")) };
     let (file, acceptance) = on_branches(root, number, pattern, all, &mut from);
     // An acceptance is void after a source added to the plan, or a planner round, later than it (#290).
     let accepted = match &acceptance {
@@ -532,7 +544,25 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
     }
     let questions = answer::open_names(number, &counted);
     let waits = answer::waits_for(number, &counted);
-    Ok(Found { number: number.to_string(), branch: shown.map(|branch| branch.name.clone()), changes, unpushed, title, step, questions, waits, from, empty, roles, acceptances, closed })
+    let tracker_unread = !on_ref && comments.is_none();
+    let tracker_not_read = on_ref && !questions.is_empty();
+    Ok(Found {
+        number: number.to_string(),
+        branch: shown.map(|branch| branch.name.clone()),
+        changes,
+        unpushed,
+        title,
+        step,
+        questions,
+        waits,
+        from,
+        empty,
+        roles,
+        acceptances,
+        closed,
+        tracker_unread,
+        tracker_not_read,
+    })
 }
 
 /// The patterns of `watchbill.yml` that `wb status` reads.
@@ -616,7 +646,7 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
         None => flow.iter().filter_map(|full| full.strip_prefix("refs/heads/").or_else(|| full.strip_prefix("refs/remotes/origin/"))).filter_map(|name| issue_of(&patterns.branch, name)).collect(),
     };
     if patterns.comments.is_none() {
-        let _ = writeln!(err, "wb status: watchbill.yml has no `issue_comments`, so no question or answer is read; the stamps are read from the jobs' refs.");
+        let _ = writeln!(err, "wb status: watchbill.yml has no `issue_comments`, so no question or answer is read from the tracker; the stamps, and the questions and answers of a job whose ref holds a questions commit, are read from the jobs' refs.");
     }
     issues.sort_by_key(|number| order(number));
     issues.dedup();
@@ -632,6 +662,11 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
         }
     }
 
+    // An open question that is read from the job's ref: an answer typed at the tracker is not read (#238).
+    for found in read.iter().filter(|found| found.tracker_not_read && (only.is_some() || found.closed.is_none())) {
+        let shown = issue::shown(&found.number);
+        let _ = writeln!(err, "wb status: issue {} has an open question: an answer typed at the tracker is not read, and is given with `wb answer {}`.", shown, shown);
+    }
     let show = |heading: &str| stage.map_or(true, |wanted| wanted == heading);
     // A job that is done is not listed (#282): only `wb status <issue>`, asked by name, says it.
     if only.is_none() {

@@ -21,17 +21,17 @@ What `wb answer` shows and posts, and the form the questions and answers take on
 | WB-ANSWER-15 | `wb answer` shall show and answer a question of revision 0.0.8, posted as its own comment whose first line is `[question] <name>`, as it does a question of a `[questions]` comment. Issue: #145. | T | Implemented |
 | WB-ANSWER-16 | `wb status` shall count no `[questions]` and no `[answers]` comment from a reverted stamp up to its `[revert]` marker. Issue: #145. | T | Implemented |
 | WB-ANSWER-17 | `wb answer` shall show no question, and take no answer, from a reverted stamp up to its `[revert]` marker. Issue: #145. | T | Implemented |
-| WB-ANSWER-18 | `wb answer` shall end with 1 and post nothing where `watchbill.yml` has no `issue_comment_bodies` or no `issue_comment` (`change_comment_bodies` or `change_comment` with `--change`), and name the line. Issue: #145. | T | Implemented |
+| WB-ANSWER-18 | `wb answer` shall end with 1 and post nothing where `watchbill.yml` has no `issue_comment_bodies` or no `issue_comment` (`change_comment_bodies` or `change_comment` with `--change`), and name the line, for an issue whose job has no questions commit on its ref and for a change; for an issue whose job has one it needs neither, and posts the copy only where `issue_comment` is there (#238). Issue: #145, #238. | T | Implemented |
 | WB-ANSWER-19 | `wb answer` shall end with 2 when it is used wrongly: no issue and no `--change`, an issue and `--change` together, `--suggested` with a question named, a question named with no answer, an issue that is not a name, or a word it does not take. Issue: #145. | T | Implemented |
 | WB-ANSWER-20 | `wb answer` shall end with 0, post nothing and say so when the issue has no open question. Issue: #145. | T | Implemented |
-| WB-ANSWER-21 | When a session ends, `wb start` shall write its `[questions]` as a commit on the job's ref, after its stamp, with the questions in the form point 13 gives them. Issue: #238. | T | Draft |
-| WB-ANSWER-22 | `wb answer` shall write the answers as a commit on the job's ref, signed by the person with a key that `.watchbill/signers` lists with the role `answer`, and push it. Issue: #238. | T | Draft |
-| WB-ANSWER-23 | After it has written the commit, `wb answer` shall post the `[answers]` copy where a tracker is set up. Issue: #238. | T | Draft |
-| WB-ANSWER-24 | An `[answers]` comment on the tracker alone shall answer no question. Issue: #238. | T | Draft |
-| WB-ANSWER-25 | For an issue whose job has no questions commit on its ref, or that has no job ref, `wb` shall still read the `[questions]` and `[answers]` forms of 0.0.8 and 0.0.9 from the tracker. Issue: #238. | T | Draft |
-| WB-ANSWER-26 | For an issue whose job has a questions commit on its ref, `wb` shall read no `[questions]` or `[answers]` from the tracker. Issue: #238. | T | Draft |
-| WB-ANSWER-27 | Where `.watchbill/signers` is there, an answer commit that is unsigned or signed by a key without `answer` shall answer nothing, and `wb status` shall say so. Issue: #238. | T | Draft |
-| WB-ANSWER-28 | Where `.watchbill/signers` is not there, an answer commit shall answer nothing, and `wb status` shall say once that nothing is signed, so nothing counts (#323). Issue: #238, #323. | T | Draft |
+| WB-ANSWER-21 | When a session ends, `wb start` shall write its `[questions]` as a commit on the job's ref, after its stamp, with the questions in the form point 13 gives them. Issue: #238. | T | Implemented |
+| WB-ANSWER-22 | `wb answer` shall write the answers as a commit on the job's ref, signed by the person with a key that `.watchbill/signers` lists with the role `answer`, and push it. Issue: #238. | T | Implemented |
+| WB-ANSWER-23 | After it has written the commit, `wb answer` shall post the `[answers]` copy where a tracker is set up. Issue: #238. | T | Implemented |
+| WB-ANSWER-24 | An `[answers]` comment on the tracker alone shall answer no question. Issue: #238. | T | Implemented |
+| WB-ANSWER-25 | For an issue whose job has no questions commit on its ref, or that has no job ref, `wb` shall still read the `[questions]` and `[answers]` forms of 0.0.8 and 0.0.9 from the tracker. Issue: #238. | T | Implemented |
+| WB-ANSWER-26 | For an issue whose job has a questions commit on its ref, `wb` shall read no `[questions]` or `[answers]` from the tracker. Issue: #238. | T | Implemented |
+| WB-ANSWER-27 | Where `.watchbill/signers` is there, an answer commit that is unsigned or signed by a key without `answer` shall answer nothing, and `wb status` shall say so. Issue: #238. | T | Implemented |
+| WB-ANSWER-28 | Where `.watchbill/signers` is not there, an answer commit shall answer nothing, and `wb status` shall say once that nothing is signed, so nothing counts (#323). Issue: #238, #323. | T | Implemented |
 | WB-ANSWER-29 | `wb answer <issue> --show` shall print each open question of the issue in full, in the order asked, as `wb answer` lays it out when it asks, to standard output, ask nothing, post nothing and end with 0. Issue: #225. | T | Implemented |
 | WB-ANSWER-30 | `wb answer <issue> --show` shall print only the questions that are open, none that an answer names. Issue: #225. | T | Implemented |
 | WB-ANSWER-31 | `wb answer <issue> --show` shall say that no question is open, and end with 0, when none is. Issue: #225. | T | Implemented |

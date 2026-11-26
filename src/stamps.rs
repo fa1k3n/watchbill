@@ -18,6 +18,14 @@
 //! the remote, so two starts of one role cannot both go on. The rounds are counted from these commits, never from a
 //! comment: a `[stamp]` comment is a copy posted out, and `wb` never reads it back.
 //!
+//! The questions and the answers are commits on the ref too (#238). A questions commit is written by `wb start` after a
+//! session, signed with the role `start`: its first line is `[questions] <prefix> q1 q2 …`. An answers commit is written
+//! by `wb answer`, signed with the role `answer`: its first line is `[answers] <prefix> q1>role …`. Each holds the tree of
+//! the commit before it, and a header of `issue:`, `job:` and `base:` as a stamp has, then one blank line and the form
+//! of the comment that is posted out as its copy. Only the header is read for the three lines: what a question says
+//! counts for nothing there. Where a job's ref holds a questions commit, the questions and the answers are read from the
+//! ref alone and the tracker is not read for them (`Ledger::has_questions`).
+//!
 //! Every read that decides what counts runs git with no replace ref and no variable `GIT_*` of this process
 //! (`signers::git`); the push runs as the person, as the push of a branch does (#151).
 
@@ -50,15 +58,76 @@ fn git_line(root: &str, args: &[&str], input: Option<&[u8]>) -> Result<String, S
     signers::git(root, args, input).map(|printed| String::from_utf8_lossy(&printed).trim_end_matches('\n').to_string())
 }
 
-/// Whether a first line is that of a stamp or of a marker of `wb revert`.
-fn is_entry(first: &str) -> bool {
-    crate::starter::role_and_round("[stamp] ", first).is_some() || crate::starter::role_and_round("[revert] ", first).is_some()
+/// What a commit of the ref that counts, or would, is: a stamp, a marker of `wb revert`, a commit of questions or of
+/// answers (#238).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    Stamp,
+    Marker,
+    Questions,
+    Answers,
+    /// A commit over the cap, which is not read.
+    Unread,
+}
+
+/// What a first line says its commit is, or none: it is a commit of `wb plan`, or not `wb`'s.
+fn kind_of(first: &str) -> Option<Kind> {
+    if crate::starter::role_and_round("[stamp] ", first).is_some() {
+        Some(Kind::Stamp)
+    } else if crate::starter::role_and_round("[revert] ", first).is_some() {
+        Some(Kind::Marker)
+    } else if first.starts_with("[questions] ") {
+        Some(Kind::Questions)
+    } else if first.starts_with("[answers] ") {
+        Some(Kind::Answers)
+    } else {
+        None
+    }
+}
+
+/// The most a message of a questions commit or an answers commit may be: a commit over `CAP` is not read, and breaks
+/// the ref, so a larger one is never written.
+pub const MESSAGE_LIMIT: usize = 48 * 1024;
+
+/// The lines of a message that the checks read: the whole message of a stamp or a marker, and for a commit of questions
+/// or answers its first line and its header, up to the first blank line, so that a line in what a question says is never
+/// taken for one of the header.
+fn held_lines(message: &str, kind: Kind) -> String {
+    match kind {
+        Kind::Questions | Kind::Answers => {
+            let mut kept: Vec<&str> = Vec::new();
+            for (at, line) in message.split('\n').enumerate() {
+                if at > 0 && line.trim_end_matches('\r').is_empty() {
+                    break;
+                }
+                kept.push(line);
+            }
+            let mut text = kept.join("\n");
+            text.push('\n');
+            text
+        }
+        _ => message.to_string(),
+    }
+}
+
+/// The form a commit of questions or answers is posted out in, as its copy and as what a session is brought: the first
+/// line, then what follows the header.
+pub fn copy_of(message: &str) -> String {
+    let mut lines = message.split('\n');
+    let first = lines.next().unwrap_or("");
+    let rest: Vec<&str> = lines.skip_while(|line| !line.trim_end_matches('\r').is_empty()).skip(1).collect();
+    let mut text = format!("{}\n{}", first, rest.join("\n"));
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text
 }
 
 /// One commit of a job's ref that is a stamp or a marker.
 #[derive(Clone, Debug)]
 pub struct Entry {
     pub commit: String,
+    pub kind: Kind,
     /// The first line of its message.
     pub first: String,
     /// Its whole message.
@@ -112,9 +181,36 @@ impl Ledger {
         crate::starter::Stamps { on: self.full.clone(), key: String::new(), found: self.stamps() }
     }
 
-    /// The whole messages of the commits that count, in order: what the times of the planner's stamps are read from.
+    /// The whole messages of the stamps and markers that count, in order: what the times of the planner's stamps are read from.
     pub fn bodies(&self) -> Vec<String> {
-        self.entries.iter().filter(|entry| entry.counts.is_ok()).map(|entry| entry.message.clone()).collect()
+        self.entries.iter().filter(|entry| entry.counts.is_ok() && matches!(entry.kind, Kind::Stamp | Kind::Marker)).map(|entry| entry.message.clone()).collect()
+    }
+
+    /// Whether a commit of the ref is a questions commit, whether it counts or not (#238). Then the questions and the
+    /// answers are read from the ref alone: a commit that does not count shuts the tracker out all the same, so that a
+    /// comment cannot take its place.
+    pub fn has_questions(&self) -> bool {
+        self.entries.iter().any(|entry| entry.kind == Kind::Questions)
+    }
+
+    /// What the questions and answers are read from, as the whole comments of the tracker are: each commit that counts,
+    /// in order, a commit of questions or answers in the form of its copy and the others as they are, so that a marker
+    /// takes back what follows the stamp it names (`answer::open_questions`).
+    pub fn comments(&self) -> Vec<String> {
+        self.entries
+            .iter()
+            .filter(|entry| entry.counts.is_ok())
+            .map(|entry| if matches!(entry.kind, Kind::Questions | Kind::Answers) { copy_of(&entry.message) } else { entry.message.clone() })
+            .collect()
+    }
+
+    /// The commits of questions and answers that count and that no marker took back, in order, each in the form of its
+    /// copy: what a session is brought of its own questions and answers.
+    pub fn thread(&self) -> Vec<String> {
+        let counting: Vec<&Entry> = self.entries.iter().filter(|entry| entry.counts.is_ok()).collect();
+        let firsts: String = counting.iter().map(|entry| format!("{}\n", entry.first)).collect();
+        let gone = crate::starter::taken_back(&firsts);
+        counting.iter().zip(gone).filter(|(entry, gone)| !gone && matches!(entry.kind, Kind::Questions | Kind::Answers)).map(|(entry, _)| copy_of(&entry.message)).collect()
     }
 
     /// Whether a `[stamp] planner` counts.
@@ -297,19 +393,21 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
                 note(&commit, format!("is larger than 64 KiB ({} bytes), so it is not read", size));
                 let first = format!("commit {}", commit);
                 let counts = Err(format!("larger than 64 KiB ({} bytes), so it is not read", size));
-                ledger.entries.push(Entry { commit, first, message: String::new(), counts, again: false });
+                ledger.entries.push(Entry { commit, kind: Kind::Unread, first, message: String::new(), counts, again: false });
                 continue;
             }
         };
         let message = raw.windows(2).position(|pair| pair == b"\n\n").map(|split| String::from_utf8_lossy(&raw[split + 2..]).to_string()).unwrap_or_default();
         let first = message.split('\n').next().unwrap_or("").trim_end_matches('\r').to_string();
-        // The role the commit needs: `start` for a stamp or a marker, `accept` for a commit of `wb plan` (#327).
-        let (what, role) = if is_entry(&first) {
-            ("a stamp or a marker", Some("start"))
-        } else if is_plan_commit(&first) {
-            ("a commit of wb plan", Some("accept"))
-        } else {
-            ("neither a stamp, a marker of wb revert nor a commit of wb plan", None)
+        // The role the commit needs: `start` for a stamp, a marker or the questions of a session, `answer` for an answer,
+        // `accept` for a commit of `wb plan` (#327, #238).
+        let kind = kind_of(&first);
+        let (what, role) = match kind {
+            Some(Kind::Stamp | Kind::Marker) => ("a stamp or a marker", Some("start")),
+            Some(Kind::Questions) => ("a questions commit", Some("start")),
+            Some(Kind::Answers) => ("an answer commit", Some("answer")),
+            _ if is_plan_commit(&first) => ("a commit of wb plan", Some("accept")),
+            _ => ("neither a stamp, a marker of wb revert, a commit of wb plan, a questions commit nor an answer commit", None),
         };
         let verdict = match (&keys, role) {
             (Keys::List(list), Some(role)) => Some(signed_as(&raw, role, list)),
@@ -322,23 +420,22 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
                 _ => {}
             }
             // The tree of a stamp is its parent's with `view` and `issue.yml` alone put in or taken out, and the tree of a
-            // marker is its parent's, as `make` writes them (the review of #328): a stamp cannot change the plan.
-            if is_entry(&first) && parents.len() <= 1 {
+            // marker is its parent's, as `make` writes them (the review of #328): a stamp cannot change the plan. So is the
+            // tree of the questions of a session and of an answer (#238).
+            if let (Some(kind), true) = (kind, parents.len() <= 1) {
                 // The parent's tree, or none for the first commit; a parent that was not read is said for itself.
                 let parent_tree = match parents.first() {
                     None => Some(None),
                     Some(parent) => trees.get(parent).map(|tree| Some(tree.as_str())),
                 };
                 if let (Some(tree), Some(parent_tree)) = (trees.get(&commit), parent_tree) {
-                    if let Err(why) = tree_as_written(root, &first, tree, parent_tree) {
+                    if let Err(why) = tree_as_written(root, kind, tree, parent_tree) {
                         note(&commit, format!("is {}, and {}", what, why));
                     }
                 }
             }
         }
-        if !is_entry(&first) {
-            continue;
-        }
+        let Some(kind) = kind else { continue };
         let signed = match (&keys, verdict) {
             (Keys::Missing(_), _) => Err(NOTHING_SIGNED.to_string()),
             (Keys::Fault(why), _) => Err(format!("{}, so no stamp counts", why)),
@@ -348,13 +445,15 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
         let signed_ok = signed.is_ok();
         // The label of a plan removed goes only to a stamp before the commit that removed it.
         let label = if after_removal { None } else { removed.as_ref().map(|(_, short, before)| (short.clone(), before.clone())) };
+        // The header alone names the issue, the job and the base of a commit of questions or answers.
+        let held = held_lines(&message, kind);
         let counts = signed.and_then(|by| {
-            of_this_issue(&message, name)?;
-            of_this_repository(root, &message, &sources, label.as_ref())?;
+            of_this_issue(&held, name)?;
+            of_this_repository(root, &held, &sources, label.as_ref())?;
             Ok(by)
         });
-        let again = counts.is_err() && signed_ok && of_this_issue(&message, name).is_ok() && of_this_repository(root, &message, &[], None).is_ok();
-        ledger.entries.push(Entry { commit, first, message, counts, again });
+        let again = counts.is_err() && signed_ok && of_this_issue(&held, name).is_ok() && of_this_repository(root, &held, &[], None).is_ok();
+        ledger.entries.push(Entry { commit, kind, first, message, counts, again });
     }
     // The first commit that is not as `wb` writes it, on the line of first parents from the oldest (the review of #328):
     // a merge is one in itself, so a side chain is named by its merge, and the commit before the one named is always
@@ -387,7 +486,7 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
 /// Checks the tree `tree` of a stamp or a marker whose first line is `first` against `parent`, the tree of the commit
 /// before it, or none for the first commit of the ref (the review of #328): a stamp's tree is the parent's with only
 /// `view` and `issue.yml` put in, changed or taken out, each a plain file; a marker's tree is the parent's as it is.
-fn tree_as_written(root: &str, first: &str, tree: &str, parent: Option<&str>) -> Result<(), String> {
+fn tree_as_written(root: &str, kind: Kind, tree: &str, parent: Option<&str>) -> Result<(), String> {
     let listed = |tree: Option<&str>| -> Result<Vec<String>, String> {
         let Some(tree) = tree else { return Ok(Vec::new()) };
         let printed = signers::git(root, &["ls-tree", "-z", tree], None)?;
@@ -396,8 +495,14 @@ fn tree_as_written(root: &str, first: &str, tree: &str, parent: Option<&str>) ->
     let name_of = |entry: &str| entry.split_once('\t').map(|(_, name)| name.to_string()).unwrap_or_default();
     let own = |entry: &String| [VIEW_ENTRY, ISSUE_ENTRY].contains(&name_of(entry).as_str());
     let (mine, before) = (listed(Some(tree))?, listed(parent)?);
-    if crate::starter::role_and_round("[revert] ", first).is_some() {
-        return if mine == before { Ok(()) } else { Err("its tree is not the tree of the commit before it, as a marker's is".to_string()) };
+    let same = match kind {
+        Kind::Marker => Some("a marker's"),
+        Kind::Questions => Some("a questions commit's"),
+        Kind::Answers => Some("an answer commit's"),
+        Kind::Stamp | Kind::Unread => None,
+    };
+    if let Some(whose) = same {
+        return if mine == before { Ok(()) } else { Err(format!("its tree is not the tree of the commit before it, as {} is", whose)) };
     }
     if mine.iter().filter(|entry| own(entry)).any(|entry| !entry.starts_with("100644 blob ")) {
         return Err(format!("its tree holds {} or {} as other than a plain file", VIEW_ENTRY, ISSUE_ENTRY));
@@ -485,11 +590,34 @@ pub fn base_line(root: &str) -> String {
     if base.is_empty() { "base:\n".to_string() } else { format!("base: {}\n", base) }
 }
 
+/// The message of a commit of questions or of answers (#238), made of the form of its copy: the first line of `copy`, the
+/// header of the issue, the job and the base as a stamp has them, one blank line, and the rest of `copy`. `Err` where it
+/// would be over `MESSAGE_LIMIT`, or holds a NUL: no such commit is written.
+pub fn thread_message(root: &str, job: &str, copy: &str) -> Result<String, String> {
+    let (first, rest) = copy.split_once('\n').unwrap_or((copy, ""));
+    let jobs = crate::plan::source_hashes(root, job);
+    let job_lines: String = if jobs.is_empty() { "job: none\n".to_string() } else { jobs.iter().map(|hash| format!("job: {}\n", hash)).collect() };
+    let message = format!("{}\n{}\n{}{}\n{}", first, issue_line(job), job_lines, base_line(root), rest);
+    if message.contains('\0') {
+        return Err("it holds a NUL byte".to_string());
+    }
+    if message.len() > MESSAGE_LIMIT {
+        return Err(format!(
+            "it is {} bytes, and a message of the ref may be {} KiB at most (a commit over {} KiB is not read, and breaks the ref)",
+            message.len(),
+            MESSAGE_LIMIT / 1024,
+            CAP / 1024
+        ));
+    }
+    Ok(message)
+}
+
 /// How the stamp is signed, as worked out before anything is written: by the key git signs with, which the list holds
-/// with `start` for this identity.
+/// with the role for this identity: `start` for a stamp, a marker or the questions of a session, `answer` for an answer.
 pub struct Signing {
     list: signers::List,
     identity: String,
+    role: &'static str,
 }
 
 /// What the stamp's commit is signed with, before anything is written (WB-BUILD-50 to 53): git must sign with an SSH
@@ -498,27 +626,41 @@ pub struct Signing {
 /// is `origin`, it is refused too (the review of #322): the lock is the push to `origin`, and a stamp kept local there
 /// would hold none.
 pub fn ready(root: &str) -> Result<Signing, String> {
-    // The stamp names the commit of `HEAD` it is made from (`base:`), and none counts without one (WB-BUILD-163): where
+    ready_as(root, "start", ("stamp", "a stamp", STAMP_SIGNED))
+}
+
+/// What an answer commit is, as `signers::signing_ready` says it.
+pub const ANSWER_SIGNED: &str = "an answer is a commit signed by the person who answers";
+
+/// As `ready`, for the commit of an answer (#238): the key git signs with must be held by the list with `answer`.
+pub fn ready_for_answer(root: &str) -> Result<Signing, String> {
+    ready_as(root, "answer", ("answer commit", "an answer commit", ANSWER_SIGNED))
+}
+
+/// `ready` for the `role` a commit needs, with the words `(noun, noun with its article, what it is)` a refusal uses.
+fn ready_as(root: &str, role: &'static str, (noun, with_article, what): (&str, &str, &str)) -> Result<Signing, String> {
+    // The commit names the commit of `HEAD` it is made from (`base:`), and none counts without one (WB-BUILD-163): where
     // there is none, it is refused before anything is written.
     if signers::git(root, &["rev-parse", "--verify", "-q", "HEAD^{commit}"], None).is_err() {
-        return Err("there is no commit at HEAD to base the stamp on, and a stamp with no base counts for nothing".to_string());
+        return Err(format!("there is no commit at HEAD to base the {} on, and {} with no base counts for nothing", noun, with_article));
     }
     let remotes = remotes(root)?;
     if !remotes.is_empty() && !remotes.iter().any(|remote| remote == "origin") {
         let shown: Vec<String> = remotes.iter().map(|remote| crate::issue::shown(remote)).collect();
         return Err(format!(
-            "the stamp is pushed to the remote origin, whose ref is the lock, and this repository has the remote{} {} and none named origin. Name the shared remote origin (git remote rename <name> origin)",
+            "the {} is pushed to the remote origin, whose ref is the lock, and this repository has the remote{} {} and none named origin. Name the shared remote origin (git remote rename <name> origin)",
+            noun,
             if remotes.len() == 1 { "" } else { "s" },
             shown.join(", ")
         ));
     }
     match signers::load(root) {
-        keys @ Keys::Missing(_) => Err(signers::missing(&keys, "start").unwrap_or_default()),
-        Keys::Fault(why) => Err(format!("{}, so no stamp would count", why)),
+        keys @ Keys::Missing(_) => Err(signers::missing(&keys, role).unwrap_or_default()),
+        Keys::Fault(why) => Err(format!("{}, so no {} would count", why, noun)),
         Keys::List(list) => {
-            signers::signing_ready(root, STAMP_SIGNED)?;
-            let identity = signers::signer_for(root, &list, "start")?;
-            Ok(Signing { list, identity })
+            signers::signing_ready(root, what)?;
+            let identity = signers::signer_for(root, &list, role)?;
+            Ok(Signing { list, identity, role })
         }
     }
 }
@@ -548,6 +690,10 @@ pub enum Held<'a> {
     Stamp { view: Option<&'a str>, issue: Option<&'a [u8]> },
     /// A marker of `wb revert`: the tree of the commit before, as it is.
     Marker,
+    /// The questions of a session (#238): the tree of the commit before, as it is.
+    Questions,
+    /// The answers of `wb answer` (#238): the tree of the commit before, as it is.
+    Answers,
 }
 
 impl Held<'_> {
@@ -555,6 +701,8 @@ impl Held<'_> {
         match self {
             Held::Stamp { .. } => "stamp",
             Held::Marker => "marker",
+            Held::Questions => "questions commit",
+            Held::Answers => "answer commit",
         }
     }
 }
@@ -562,7 +710,7 @@ impl Held<'_> {
 /// Says on `err`, after `name`, what `make` will write: the commit and how it is signed, and where it goes.
 pub fn say(name: &str, root: &str, job: &str, held: &Held, signing: &Signing, err: &mut dyn Write) {
     let full = full(job);
-    let how = format!("signed by {}, with the role start in {}", crate::issue::shown(&signing.identity), signers::PATH);
+    let how = format!("signed by {}, with the role {} in {}", crate::issue::shown(&signing.identity), signing.role, signers::PATH);
     let after = match tip(root, &full) {
         Ok(Some(commit)) => format!("after {}", commit),
         _ => "the first on it".to_string(),
@@ -578,8 +726,8 @@ pub fn make(root: &str, job: &str, message: &str, held: &Held, signing: &Signing
     let full = full(job);
     let old = tip(root, &full)?;
     let tree = match (held, &old) {
-        (Held::Marker, Some(commit)) => git_line(root, &["rev-parse", "--verify", "-q", &format!("{}^{{tree}}", commit)], None)?,
-        (Held::Marker, None) => crate::plan::mktree(root, &[])?,
+        (Held::Marker | Held::Questions | Held::Answers, Some(commit)) => git_line(root, &["rev-parse", "--verify", "-q", &format!("{}^{{tree}}", commit)], None)?,
+        (Held::Marker | Held::Questions | Held::Answers, None) => crate::plan::mktree(root, &[])?,
         (Held::Stamp { view, issue }, _) => {
             let mut top = match &old {
                 Some(commit) => crate::plan::entries(root, &format!("{}^{{tree}}", commit), &[VIEW_ENTRY, ISSUE_ENTRY])?,
@@ -602,14 +750,15 @@ pub fn make(root: &str, job: &str, message: &str, held: &Held, signing: &Signing
     args.push("-S");
     // Every stamp and marker names its issue (the review of #322), whatever the prompt holds.
     let message = with_issue(message, job);
-    let commit = git_line(root, &args, Some(message.as_bytes())).map_err(|why| format!("the commit of the stamp could not be made: {}", why))?;
+    let word = held.word();
+    let commit = git_line(root, &args, Some(message.as_bytes())).map_err(|why| format!("the commit of the {} could not be made: {}", word, why))?;
     let list = &signing.list;
     let raw = signers::git(root, &["cat-file", "commit", &commit], None)?;
-    match signers::verify_commit(&raw, "start", list) {
+    match signers::verify_commit(&raw, signing.role, list) {
         Ok(Verdict::Good(_)) => {}
-        Ok(Verdict::Unsigned) => return Err("git made the commit of the stamp unsigned".to_string()),
-        Ok(_) => return Err(format!("the commit of the stamp does not check against {} of {}", signers::PATH, list.on)),
-        Err(why) => return Err(format!("the signature of the stamp could not be checked: {}", why)),
+        Ok(Verdict::Unsigned) => return Err(format!("git made the commit of the {} unsigned", word)),
+        Ok(_) => return Err(format!("the commit of the {} does not check against {} of {}", word, signers::PATH, list.on)),
+        Err(why) => return Err(format!("the signature of the {} could not be checked: {}", word, why)),
     }
     let moved = match &old {
         Some(commit) => {
@@ -732,6 +881,8 @@ pub fn write(name: &str, root: &str, job: &str, message: &str, held: &Held, sign
     let (word, nothing, other) = match held {
         Held::Stamp { .. } => ("stamp", "Nothing is started", "another start went first"),
         Held::Marker => ("marker", "Nothing is posted", "another start or marker went first"),
+        Held::Questions => ("questions commit", "The questions are not written", "another start or answer went first"),
+        Held::Answers => ("answer commit", "No more answers are written and nothing is posted", "another start or answer went first"),
     };
     say(name, root, job, held, signing, err);
     let made = make(root, job, message, held, signing)?;

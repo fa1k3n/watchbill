@@ -174,8 +174,9 @@ fn test_WB_CMD_21_the_stage_words_of_the_completion_are_the_headings_of_wb_statu
     let line_of = |start: &str| source.lines().find(|line| line.starts_with(start)).unwrap_or_else(|| panic!("{} not found", start)).to_string();
     let mut headings = quoted(line_of("pub const STEPS").split_once('=').unwrap().1);
     headings.extend(quoted(&line_of("pub const QUESTIONS")));
+    headings.extend(quoted(&line_of("pub const PERSON")));
     headings.extend(quoted(&line_of("pub const NOT_READ")));
-    assert_eq!(headings.len(), 9);
+    assert_eq!(headings.len(), 10);
     // `_wb_stages=("Not planned" Planned Accepted ...)`: words in double quotes, or bare.
     let text = completion();
     let line = text.lines().find(|line| line.starts_with("_wb_stages=(")).expect("no _wb_stages");

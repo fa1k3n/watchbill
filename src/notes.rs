@@ -8,8 +8,8 @@
 //! **Nothing is counted from a note.** Git writes a notes commit with no signature, and anyone who can push to `origin`
 //! can write any note, so `wb` counts nothing from them: no round, stamp, plan, acceptance, handover or session. What
 //! counts of a session is its stamp, signed, on the job's ref (`stamps`). The notes are an index for a person or a
-//! script. Only `wb status --session` reads them (`session_status`, #239), to list the commits that name a stamp that
-//! counts, and says so.
+//! script. Only `wb status --session` (`session_status`, #239) and `wb log` (`log`, #177) read them, to list the commits that
+//! name a stamp that counts, and say so.
 //!
 //! A stamp of a change with no issue is a comment, not a commit, so a session of it has nothing to name and gets no
 //! note, which is said. Each note is written with `git notes add` and no `-f`: a note that is there is not overwritten.

@@ -635,15 +635,20 @@ fn line_of(found: &Found) -> String {
 /// `HEAD`. Where the file is not in `HEAD` at all, the repository is not set up: 2, and no refusal; a file of `HEAD` over
 /// its bound is a limit (#261), 1. Shared with `wb status --session` (#239).
 pub(crate) fn read_only(root: &str, err: &mut dyn Write) -> Result<starter::ReadOnly, i32> {
+    read_only_as("wb status", root, err)
+}
+
+/// `read_only` for the command `name` (`wb log`, #177 reads as `wb status` does).
+pub(crate) fn read_only_as(name: &str, root: &str, err: &mut dyn Write) -> Result<starter::ReadOnly, i32> {
     match starter::read_only(root) {
         Err(not_read) if not_read.status == 2 => {
-            let _ = writeln!(err, "wb status: {}.", not_read.why);
+            let _ = writeln!(err, "{}: {}.", name, not_read.why);
             Err(not_read.status)
         }
-        Err(not_read) => Err(crate::refusal::limit(err, "wb status", format_args!("{}.", not_read.why))),
+        Err(not_read) => Err(crate::refusal::limit(err, name, format_args!("{}.", not_read.why))),
         Ok((guard, differs)) => {
             if differs {
-                let _ = writeln!(err, "{}", starter::drift_line("wb status"));
+                let _ = writeln!(err, "{}", starter::drift_line(name));
             }
             Ok(guard)
         }

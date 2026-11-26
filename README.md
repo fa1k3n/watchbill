@@ -9,7 +9,7 @@
 
 A harness for AI agents in embedded software development, deployed at a fixed revision onto a project that already exists.
 
-**Status: 0.10.0. Built: `wb init`, `wb check`, `wb doctor`, `wb upgrade`, `wb prompt`, `wb accept`, `wb status`, `wb view`, `wb answer`, `wb revert`, `wb clean`, `wb revision` and `wb start`, which starts a session of a role at a person's terminal. For an issue with an accepted file the session runs in a view: only the files its work needs, and none of the history. A person starts each role. Nothing hands work from one role to the next yet. A command that is planned is marked with its release.**
+**Status: 0.10.0. Built: `wb init`, `wb check`, `wb doctor`, `wb upgrade`, `wb prompt`, `wb accept`, `wb status`, `wb view`, `wb log`, `wb answer`, `wb revert`, `wb clean`, `wb revision` and `wb start`, which starts a session of a role at a person's terminal. For an issue with an accepted file the session runs in a view: only the files its work needs, and none of the history. A person starts each role. Nothing hands work from one role to the next yet. A command that is planned is marked with its release.**
 
 ## What Watchbill is for
 
@@ -90,7 +90,7 @@ At 0.12.0. An issue that changes a verdict changes its row.
 |---|---|
 | set up | `init`, `check`, `doctor` ([Checking the machine](#checking-the-machine)), `upgrade` |
 | work | `plan` ([Taking a job in](#taking-a-job-in)), `accept`, `start`, `run` (planned for 0.12.0, #183) |
-| see | `status`, `view` ([Seeing a view first](#seeing-a-view-first)), `log` (planned for 0.12.0, #177), `answer` |
+| see | `status`, `view` ([Seeing a view first](#seeing-a-view-first)), `log` ([Seeing the history of an issue](#seeing-the-history-of-an-issue)), `answer` |
 | take back | `revert`, `clean` ([Taking away what is done](#taking-away-what-is-done)) |
 | plumbing | `prompt`, `revision`, `compare` |
 
@@ -543,6 +543,15 @@ wb view 54 src/brake.c        # in or out, for each role, and why
 - **It only reads.** It makes no view, runs no pattern of `watchbill.yml`, posts nothing, writes nothing, not in the state folder either, and asks nothing of the network. `watchbill.yml` is read as `HEAD` has it (#186): where the working tree's file differs, `wb view` says so in one line on standard error and goes on with the file of `HEAD` (#254); a file missing from the working tree but in `HEAD` counts as differing; where it is not in `HEAD`, it ends with 2. A word that is not known, or a path that starts with `/`, holds `..` or names the root, ends with 2.
 
 - **`wb view --kept`** lists the views kept on this machine for this repository (#176), one to a line, and takes no other word but `-v`. A kept view is the folder a session left, with work in it that was not taken back, or with nothing left. For each view whose session does not run it prints `<folder> <role> round <n> issue <issue> <k> commits not taken <m> paths uncommitted`, or `<folder> <role> round <n> issue <issue> not read` where git could not read the view within its bound, and nothing else, so that a script can read it. The words are fixed. **`-v`** (`--verbose`, as `git branch -v`) adds below each line, indented: `why:` it was kept (read from the `back` of its session: a commit refused, commits not taken, paths left uncommitted, a take-back that failed, a session cut off, or that nothing is left in it), `commit <short> <subject>` for each commit not taken back (the first 200, then `and <k> more`), `uncommitted <path>` for each path left, and `not read: <why>`. It reads only the state folder of this machine and the objects of a view, and writes nothing. The files that a commit changes are the commit's own: they are not listed. A view of another repository on the same machine is not listed.
+
+### Seeing the history of an issue
+
+`wb log <issue>` prints what was done to an issue, as `git log` prints a branch (#177): one entry for each commit of its job's ref that counts, oldest first. A stamp says its role, round, model, effort, revision and time, and who signed it; where this machine holds the lines of its start, how the session ended, else that it is not known here. The commits that a note names for a stamp are listed and said to be notes: a note is not signed, so they count for nothing and are no entry. The questions and the answers are entries that say which; a `[revert]` marker says what it took back, and the stamp it took back stays in the log and says so. A commit that does not count is no entry and is said on standard error, and a ref that is not as `wb` writes it prints nothing, as `wb status` says it. `--oneline` gives one line to each entry. It reads git alone and writes nothing, and ends with 0 when the history is printed, 1 when there is none or a commit did not count, and 2 when it was used wrongly.
+
+```
+wb log 54             # every step of issue 54, oldest first
+wb log 54 --oneline   # one line to each step
+```
 
 ### Taking away what is done
 

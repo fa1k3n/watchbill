@@ -182,7 +182,7 @@ fn test_WB_STATUS_98_the_commits_that_a_note_names_are_said_to_be_notes_and_are_
     let (folder, commits) = with_history();
     let taken = commits_with_notes(&folder.path, "12", &commits[0], "tester", &["Write the first test", "Write the second test"]);
     // A note that names the stamp of the build does not name these for the tester.
-    let other = commits_with_notes(&folder.path, "12", &commits[3], "build", &["Build it"]);
+    let other = commits_with_notes(&folder.path, "12b", &commits[3], "build", &["Build it"]);
     let (out, err, status) = log(&folder.path, &["12"]);
     assert_eq!(status, Some(0), "{}", err);
     let lines: Vec<&str> = out.lines().collect();

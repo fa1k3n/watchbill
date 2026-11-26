@@ -30,6 +30,7 @@ pub mod revert;
 pub mod rules;
 pub mod issue;
 pub mod layout;
+pub mod log;
 pub mod session_status;
 pub mod sessions;
 pub mod stamps;
@@ -68,6 +69,7 @@ pub const USAGE: &str = "usage:
             or --session <hash> [-q | --quiet]
   wb view <issue> (<role> [--in | --out] | <path>) [-q | --quiet]
             or --kept [-v | --verbose]
+  wb log <issue> [--oneline] [-q | --quiet]
   wb answer (<issue> | --change <n>) [--show | [--suggested] [<question> <answer>]...]
             [-q | --quiet]
   wb revert (<issue> | --change <n>) <role> [--round <n>] [-q | --quiet]
@@ -405,6 +407,25 @@ pub const USAGE: &str = "usage:
             was used wrongly (a file given as the folder too) or the
             repository is not set up. Writes nothing. -q (--quiet) is taken
             and changes nothing: what it prints is what a script reads
+  log       show what was done to an issue, as git log shows a branch, from
+            the job's ref and git alone: wb log <issue> prints one entry for
+            each commit of refs/watchbill/<issue> that counts, oldest first. A
+            stamp says its role, round, model, effort, revision and time, who
+            signed it, and, where this machine holds the lines of its start,
+            how the session ended, else 'not known on this machine'; the
+            commits that a note of refs/notes/watchbill names for it are
+            listed and said to be notes, which are not signed: they count for
+            nothing and are no entry. The questions and the answers are
+            entries that name which; a [revert] marker says what it took back,
+            and a stamp it took back stays and says so. A commit that does not
+            count is no entry: it is said on standard error, and a job's ref
+            that is not as wb writes it prints nothing and says so, as wb
+            status does. --oneline gives one line to each entry. Ends with 0
+            when the history is printed, 1 when the issue has none or a commit
+            did not count, 2 when it was used wrongly or the repository is not
+            set up. It only reads: it writes nothing and asks nothing of the
+            network or of a tracker. -q (--quiet) is taken and changes
+            nothing: what it prints is what a script reads
   revert    take an issue back to before a step, deleting nothing:
             wb revert <issue> <role> [--round <n>] writes one marker whose
             first line is [revert] <role> round <n>, for the last stamp of the
@@ -661,6 +682,7 @@ fn run_command(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, 
         "plan" => run_plan(&mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), input, out, err),
         "accept" => run_accept(&mut parser, out, err),
         "status" => run_status(&mut parser, out, err),
+        "log" => run_log(&mut parser, out, err),
         "view" => run_view(&mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), out, err),
         "revert" => run_revert(&mut parser, err),
         "clean" => run_clean(&mut parser, out, err),
@@ -693,8 +715,8 @@ fn run_command(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, 
 
 /// The commands of the layout that are built, each with an arm in `run`. A test holds that it is the
 /// layout without `layout::PLANNED`, so a piece that builds a command adds it here with its arm.
-pub const ARMS: [&str; 15] =
-    ["init", "check", "doctor", "upgrade", "plan", "accept", "start", "status", "view", "answer", "revert", "clean", "prompt", "revision", "compare"];
+pub const ARMS: [&str; 16] =
+    ["init", "check", "doctor", "upgrade", "plan", "accept", "start", "status", "view", "log", "answer", "revert", "clean", "prompt", "revision", "compare"];
 
 /// `wb help`, and `wb help <command>`. `--help` and `-h` are this command too, and read the words after them.
 /// A word after the command is refused with 2.
@@ -3047,6 +3069,59 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
                 Err(code) => code,
             },
             None => status::status(&root, issue.as_deref(), stage, sessions::state_folder().as_deref(), out, err),
+        },
+    }
+}
+
+/// `wb log <issue> [--oneline]` (#177): what was done to an issue, from the job's ref and git alone. It only reads.
+fn run_log(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let name = "wb log";
+    let mut issue: Option<String> = None;
+    let mut oneline = false;
+    let mut quiet: Option<&'static str> = None;
+    loop {
+        let found = match next(parser) {
+            Ok(None) => break,
+            Ok(Some(found)) => found,
+            Err(refused) => return used(err, name, &format!("'{}' is not known", refused)),
+        };
+        match quiet_of(&found, &mut quiet) {
+            Quiet::Taken => continue,
+            Quiet::Twice(why) => return used(err, name, &why),
+            Quiet::Not => {}
+        }
+        match found {
+            Word::Value(value) if issue.is_none() => issue = Some(word(value.as_bytes())),
+            Word::Value(value) => return used(err, name, &format!("one issue is taken, and '{}' is a second", word(value.as_bytes()).escape_debug())),
+            Word::Long(option) if option == "oneline" && oneline => return used(err, name, "'--oneline' is given twice"),
+            Word::Long(option) if option == "oneline" => match parser.optional_value() {
+                Some(value) => return used(err, name, &format!("'--oneline={}' is not known: it takes no value", word(value.as_bytes()).escape_debug())),
+                None => oneline = true,
+            },
+            found => {
+                let refused = named(found, parser);
+                return used(err, name, &format!("'{}' is not known", refused));
+            }
+        }
+    }
+    let Some(issue) = issue else {
+        return used(err, name, "an issue is needed");
+    };
+    if !issue::is_name(&issue) {
+        return used(err, name, &format!("'{}' is not an issue: an issue is letters, digits, '.', '_' and '-', and does not start with '.'", issue.escape_debug()));
+    }
+    match init::repository_root(None) {
+        Err(why) => {
+            let _ = writeln!(err, "{}: {}.", name, why);
+            2
+        }
+        Ok(None) => {
+            let _ = writeln!(err, "{}: this folder is not in a git repository. Watchbill is set up in one.", name);
+            2
+        }
+        Ok(Some(root)) => match status::read_only_as(name, &root, err) {
+            Ok(_guard) => log::run(&root, &issue, oneline, sessions::state_folder().as_deref(), out, err),
+            Err(code) => code,
         },
     }
 }

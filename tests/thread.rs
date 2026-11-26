@@ -242,10 +242,9 @@ fn test_WB_ANSWER_25_an_issue_with_no_job_ref_is_read_from_the_tracker_as_before
 }
 
 #[test]
-fn test_WB_ANSWER_25_an_issue_whose_ref_holds_stamps_and_no_questions_commit_is_read_from_the_tracker() {
+fn test_WB_ANSWER_52_an_issue_begun_before_with_comment_stamps_only_and_no_job_ref_is_read_from_the_tracker() {
     let folder = set_up();
-    stamps_on_ref(&folder.path, "54", &["[stamp] tester round 1"]);
-    put(&folder.path, ".tracker/54.comments", "[questions] 54.build q1\n");
+    put(&folder.path, ".tracker/54.comments", "[stamp] tester round 1\n[questions] 54.build q1\n");
 
     let run = status(&folder.path, &["54"]);
 
@@ -256,7 +255,6 @@ fn test_WB_ANSWER_25_an_issue_whose_ref_holds_stamps_and_no_questions_commit_is_
 fn test_WB_ANSWER_25_wb_answer_of_an_issue_with_no_questions_commit_posts_a_comment_as_before() {
     let folder = set_up();
     put(&folder.path, ".tracker/54.bodies", &format!("{}\0", ASKED));
-    stamps_on_ref(&folder.path, "54", &["[stamp] tester round 1"]);
     let before = tip(&folder.path, "54");
 
     let run = answer(&folder.path, &["54", "tester.q1", "1", "tester.q2", "words"], "");
@@ -692,4 +690,192 @@ fn test_WB_ANSWER_26_wb_accept_reads_the_open_questions_from_the_ref_and_not_fro
 
     assert_eq!(code(&run), Some(1), "{}", err_of(&run));
     assert!(err_of(&run).contains("54.build.q1") && err_of(&run).contains("question"), "{}", err_of(&run));
+}
+
+// ---- WB-ANSWER-47 to 52 (#333): a job whose ref holds a stamp is read from the ref alone ----
+
+/// A tracker that notes each pattern run in `.tracker/ran`, so that a test can see that none was run.
+const WATCHED: &str = "issue_comments: \"sh .tracker/read.sh comments {issue}\"
+issue_comment_bodies: \"sh .tracker/read.sh bodies {issue}\"
+issue_comment: \"sh .tracker/post.sh {issue}\"
+";
+
+const READ: &str = "echo \"$1 $2\" >> .tracker/ran\ncat \".tracker/$2.$1\" 2>/dev/null\nexit 0\n";
+
+/// The usual, with a tracker whose reads are noted.
+fn watched() -> Folder {
+    let folder = set_up_with(WATCHED, ROLES);
+    put(&folder.path, ".tracker/read.sh", READ);
+    folder
+}
+
+/// The patterns run so far on the tracker: none where the file is not there.
+fn ran(folder: &Path) -> String {
+    fs::read_to_string(folder.join(".tracker/ran")).unwrap_or_default()
+}
+
+/// What a forged comment would open and close, at the tracker.
+const FORGED: &str = "[questions] 54.build q1 q2\n[questions] 54 q1\n[answers] 54.tester q1>tester\n";
+
+#[test]
+fn test_WB_ANSWER_47_a_forged_questions_comment_opens_no_question_for_a_job_whose_ref_holds_a_stamp_and_no_questions_commit() {
+    let folder = watched();
+    stamps_on_ref(&folder.path, "54", &["[stamp] tester round 1"]);
+    put(&folder.path, ".tracker/54.comments", FORGED);
+
+    let run = status(&folder.path, &["54"]);
+
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    assert!(!out_of(&run).contains("Questions open"), "{}", out_of(&run));
+    assert!(!out_of(&run).contains("54.build.q1"), "{}", out_of(&run));
+}
+
+#[test]
+fn test_WB_ANSWER_47_a_stamp_that_counts_for_nothing_shuts_the_tracker_out_all_the_same() {
+    let folder = watched();
+    unsigned_stamps_on_ref(&folder.path, "54", &["[stamp] tester round 1"]);
+    put(&folder.path, ".tracker/54.comments", FORGED);
+
+    let run = status(&folder.path, &["54"]);
+
+    assert!(!out_of(&run).contains("Questions open"), "{}", out_of(&run));
+    assert_eq!(ran(&folder.path), "");
+}
+
+#[test]
+fn test_WB_ANSWER_47_status_runs_no_issue_comments_for_a_job_whose_ref_holds_a_stamp() {
+    let folder = watched();
+    stamps_on_ref(&folder.path, "54", &["[stamp] tester round 1"]);
+    put(&folder.path, ".tracker/54.comments", FORGED);
+
+    let run = status(&folder.path, &["54"]);
+
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    assert_eq!(ran(&folder.path), "");
+}
+
+#[test]
+fn test_WB_ANSWER_47_a_forged_comment_is_not_shown_or_answered_by_wb_answer_for_a_job_whose_ref_holds_a_stamp() {
+    let folder = watched();
+    stamps_on_ref(&folder.path, "54", &["[stamp] tester round 1"]);
+    put(&folder.path, ".tracker/54.bodies", &format!("{}\0", ASKED));
+    let before = tip(&folder.path, "54");
+
+    let run = answer(&folder.path, &["54", "--show"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    assert_eq!(out_of(&run), "");
+    assert!(err_of(&run).contains("no open question"), "{}", err_of(&run));
+    let run = answer(&folder.path, &["54", "tester.q1", "1"], "");
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    assert!(err_of(&run).contains("no open question"), "{}", err_of(&run));
+    assert_eq!(tip(&folder.path, "54"), before);
+    assert_eq!(ran(&folder.path), "");
+    assert!(!folder.path.join(".tracker/posted-54-0").exists());
+}
+
+#[test]
+fn test_WB_ANSWER_48_wb_answer_of_a_job_whose_ref_holds_a_stamp_needs_no_tracker_pattern() {
+    let folder = no_tracker();
+    stamps_on_ref(&folder.path, "54", &["[stamp] tester round 1"]);
+
+    let run = answer(&folder.path, &["54"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    assert!(err_of(&run).contains("no open question") && !err_of(&run).contains("no `issue_comment_bodies`"), "{}", err_of(&run));
+}
+
+#[test]
+fn test_WB_ANSWER_48_wb_answer_of_a_job_with_no_stamp_and_no_job_ref_still_needs_issue_comment_bodies() {
+    let folder = no_tracker();
+
+    let run = answer(&folder.path, &["54"], "");
+
+    assert_eq!(code(&run), Some(1), "{}", err_of(&run));
+    assert!(err_of(&run).contains("no `issue_comment_bodies`"), "{}", err_of(&run));
+}
+
+/// A branch `issue-54-work` with the issue's file accepted and one commit of work, as `wb accept` needs.
+fn accepted_work(folder: &Path) {
+    git(folder, &["checkout", "-q", "-b", "issue-54-work"]);
+    put(folder, ".watchbill/issues/54.yml", &BARE_ISSUE.replace("{issue}", "54"));
+    git(folder, &["add", "--", ".watchbill/issues/54.yml"]);
+    git(folder, &["commit", "-q", "-m", "The issue's file (54)"]);
+    let run = wb(folder, &["plan", "accept", "54"], "");
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    put(folder, "src/work.c", "int work;\n");
+    git(folder, &["add", "--", "src/work.c"]);
+    git(folder, &["commit", "-q", "-m", "The work"]);
+}
+
+#[test]
+fn test_WB_ANSWER_50_wb_accept_of_a_job_whose_ref_holds_a_stamp_needs_no_issue_comments_and_runs_none() {
+    for tracker in [true, false] {
+        let folder = if tracker { watched() } else { no_tracker() };
+        accepted_work(&folder.path);
+        stamps_on_ref(&folder.path, "54", &["[stamp] tester round 1", "[stamp] build round 1"]);
+        // A forged comment would open a question, and a missing pattern would refuse.
+        put(&folder.path, ".tracker/54.comments", FORGED);
+
+        let run = wb(&folder.path, &["accept", "54"], "");
+
+        assert_eq!(code(&run), Some(0), "tracker {}: {}", tracker, err_of(&run));
+        assert_eq!(ran(&folder.path), "");
+    }
+}
+
+#[test]
+fn test_WB_ANSWER_50_wb_accept_of_a_job_with_no_stamp_on_its_ref_and_no_issue_comments_is_still_refused() {
+    let folder = no_tracker();
+    accepted_work(&folder.path);
+
+    let run = wb(&folder.path, &["accept", "54"], "");
+
+    assert_eq!(code(&run), Some(1), "{}", err_of(&run));
+    assert!(err_of(&run).contains("issue_comments"), "{}", err_of(&run));
+}
+
+#[test]
+fn test_WB_ANSWER_51_status_gives_a_job_whose_ref_holds_a_stamp_its_stage_with_no_tracker_pattern_and_says_nothing_of_one() {
+    let folder = no_tracker();
+    git(&folder.path, &["checkout", "-q", "-b", "issue-54-work"]);
+    put(&folder.path, ".watchbill/issues/54.yml", &BARE_ISSUE.replace("{issue}", "54"));
+    git(&folder.path, &["add", "--", ".watchbill/issues/54.yml"]);
+    git(&folder.path, &["commit", "-q", "-m", "The issue's file (54)"]);
+    git(&folder.path, &["update-ref", "refs/remotes/origin/issue-54-work", "HEAD"]);
+    stamps_on_ref(&folder.path, "54", &["[stamp] planner round 1"]);
+
+    let run = status(&folder.path, &[]);
+
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    assert!(out_of(&run).contains("Planned:\n"), "{}", out_of(&run));
+    assert!(!err_of(&run).contains("issue_comments"), "{}", err_of(&run));
+}
+
+#[test]
+fn test_WB_ANSWER_51_status_says_once_that_a_job_with_no_stamp_on_its_ref_is_read_with_no_tracker() {
+    let folder = no_tracker();
+    git(&folder.path, &["checkout", "-q", "-b", "issue-54-work"]);
+    git(&folder.path, &["commit", "-q", "--allow-empty", "-m", "Work"]);
+    git(&folder.path, &["update-ref", "refs/remotes/origin/issue-54-work", "HEAD"]);
+
+    let run = status(&folder.path, &[]);
+
+    assert_eq!(err_of(&run).matches("has no `issue_comments`").count(), 1, "{}", err_of(&run));
+}
+
+#[test]
+fn test_WB_ANSWER_52_an_issue_begun_before_has_its_questions_and_answers_read_from_the_tracker_until_its_first_stamp_on_the_ref() {
+    let folder = watched();
+    put(&folder.path, ".tracker/54.comments", "[stamp] tester round 1\n[questions] 54.tester q1 q2\n[answers] 54.tester q1>tester\n");
+
+    let run = status(&folder.path, &["54"]);
+
+    assert!(out_of(&run).contains("Questions open:\n  54  54.tester.q2\n"), "{}", out_of(&run));
+    assert_eq!(ran(&folder.path), "comments 54\n");
+    // The first stamp on the ref ends it: from then on the comments are not read.
+    stamps_on_ref(&folder.path, "54", &["[stamp] tester round 1"]);
+    let run = status(&folder.path, &["54"]);
+    assert!(!out_of(&run).contains("Questions open"), "{}", out_of(&run));
+    assert_eq!(ran(&folder.path), "comments 54\n");
 }

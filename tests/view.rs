@@ -7256,3 +7256,105 @@ fn test_WB_VIEW_41_no_push_says_that_a_fetch_before_the_push_replaces_the_notes(
     ok(&run);
     assert!(text_of(&run.stderr).contains("a `git fetch` of origin before they are pushed replaces them"), "{}", text_of(&run.stderr));
 }
+
+// ---- #333: a job whose ref holds a stamp is read from the ref alone, and a project with no tracker runs it ----
+
+#[test]
+fn test_WB_ANSWER_47_a_forged_comment_is_not_brought_into_the_planner_of_a_job_whose_ref_holds_a_stamp() {
+    if !sandbox("test_WB_ANSWER_47") {
+        return;
+    }
+    let bench = bench();
+    stamps_on_ref(&bench.repo.path, "54", &["[stamp] tester round 1"]);
+    fs::write(bench.at("bodies-54"), "[questions] 54 q9\nq9: forged\0\n[answers] 54 q1>planner\nq1: 1\0\n").unwrap();
+    bench.session("cat .watchbill/issue/54.questions > {log}/questions\n");
+
+    ok(&bench.start(&["start", "planner", "54"]));
+
+    assert_eq!(bench.left("questions"), "", "{}", bench.left("questions"));
+    assert!(!bench.calls().iter().any(|call| call == "bodies 54" || call == "comments issue 54"), "{:?}", bench.calls());
+}
+
+#[test]
+fn test_WB_ANSWER_47_a_forged_comment_is_not_brought_into_a_role_of_a_job_whose_ref_holds_a_stamp() {
+    if !sandbox("test_WB_ANSWER_47") {
+        return;
+    }
+    let bench = bench();
+    stamps_on_ref(&bench.repo.path, "54", &["[stamp] tester round 1"]);
+    fs::write(bench.at("bodies-54"), "[questions] 54.tester q9\nq9: forged\0\n").unwrap();
+    reading_session(&bench);
+
+    ok(&bench.start(&["start", "tester", "54"]));
+
+    assert_eq!(bench.left("in-questions"), "", "{}", bench.left("in-questions"));
+    assert!(!bench.calls().iter().any(|call| call == "bodies 54" || call == "comments issue 54"), "{:?}", bench.calls());
+}
+
+#[test]
+fn test_WB_ANSWER_47_the_questions_commit_of_a_session_runs_no_issue_comments_for_a_job_whose_ref_holds_a_stamp() {
+    if !sandbox("test_WB_ANSWER_47") {
+        return;
+    }
+    let bench = bench();
+    // The tracker holds the question open, as an older job's would, and is not read to say so.
+    fs::write(bench.at("comments-issue-54"), "[questions] 54.tester q1\n").unwrap();
+    writing_session(&bench, "questions", TESTER_QUESTIONS, 0);
+
+    let run = bench.start(&["start", "tester", "54"]);
+
+    ok(&run);
+    assert!(!bench.calls().iter().any(|call| call == "comments issue 54"), "{:?}", bench.calls());
+    assert!(!text_of(&run.stderr).contains("at the tracker"), "{}", text_of(&run.stderr));
+}
+
+#[test]
+fn test_WB_ANSWER_49_a_project_with_no_issue_comments_or_issue_comment_bodies_runs_the_planner_the_tester_and_the_build() {
+    if !sandbox("test_WB_ANSWER_49") {
+        return;
+    }
+    let bench = bench();
+    for key in ["issue_comments", "issue_comment_bodies", "issue_comment"] {
+        without_line(&bench, key);
+    }
+    plan_add(&bench, &["add", "54", "-m", "Brakes: the front one."]);
+    next_second();
+    plan_accept_again(&bench);
+
+    // The planner's first round: its job has a ref and no stamp, and brings in no question.
+    bench.session("cat .watchbill/issue/54.questions > {log}/questions\n");
+    ok(&bench.start(&["start", "planner", "54"]));
+    assert_eq!(bench.left("questions"), "");
+    next_second();
+    plan_accept_again(&bench);
+    // The two roles after it read the ref alone.
+    ok(&bench.start(&["start", "tester", "54"]));
+    ok(&bench.start(&["start", "build", "54"]));
+
+    let messages = ref_messages(&bench);
+    for (at, role) in ["planner", "tester", "build"].iter().enumerate() {
+        assert!(messages[at].starts_with(&format!("[stamp] {} round 1\n", role)), "{:?}", messages);
+    }
+    let run = wb(&bench.repo.path, &["status", "54"], "");
+    assert_eq!(code(&run), Some(0), "{}", text_of(&run.stderr));
+    assert!(!text_of(&run.stderr).contains("issue_comments"), "{}", text_of(&run.stderr));
+    assert!(!bench.calls().iter().any(|call| call.starts_with("bodies") || call.starts_with("comments") || call.starts_with("post issue")), "{:?}", bench.calls());
+}
+
+#[test]
+fn test_WB_ANSWER_52_a_job_begun_before_is_brought_the_questions_of_the_tracker_in_its_first_session() {
+    if !sandbox("test_WB_ANSWER_52") {
+        return;
+    }
+    let bench = bench();
+    // Comment stamps only, and no stamp on the ref: the tracker is read, as #238 left it.
+    fs::write(bench.at("bodies-54"), "[stamp] planner round 1\0\n[questions] 54.tester q1\nq1: Which brake?\0\n[answers] 54.tester q1>tester\nq1: 1\0\n").unwrap();
+    reading_session(&bench);
+
+    ok(&bench.start(&["start", "tester", "54"]));
+
+    let seen = bench.left("in-questions");
+    assert!(seen.contains("[questions] 54.tester q1\nq1: Which brake?") && seen.contains("[answers] 54.tester q1>tester\nq1: 1"), "{}", seen);
+    assert!(!seen.contains("[stamp]"), "{}", seen);
+    assert!(bench.calls().iter().any(|call| call == "bodies 54"), "{:?}", bench.calls());
+}

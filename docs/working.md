@@ -14,7 +14,7 @@ This is the practice behind the rules of [CLAUDE.md](../CLAUDE.md). It holds for
 
 The owner may give one session the running of a milestone. That session:
 
-- briefs a builder for each piece, in a worktree of its own;
+- briefs a builder for each piece, in a worktree of its own, as its working folder ([Work that can be followed](#work-that-can-be-followed));
 - has each piece reviewed by a fresh session, then answered, then looked at a second time;
 - runs `packaging/rpm.sh` once at the head, posts `[ready]`, and merges with a squash.
 
@@ -44,7 +44,7 @@ Every builder is given this, with the issue's number, its branch from the curren
 ## The reviewer's brief
 
 - A fresh session, one level above the builder (CLAUDE.md). It starts from the issue and the diff. It reads the pull request's body only to check its claims.
-- Check out the branch in a worktree of its own under `/var/tmp`, and remove it at the end.
+- Work in a worktree of its own on the piece's branch, detached, as its working folder, never the builder's ([Work that can be followed](#work-that-can-be-followed)). Remove it at the end.
 - Look for:
   - what the issue asks that is missing or different;
   - bugs;
@@ -93,6 +93,21 @@ The rest of this section holds on both.
 - Never `pkill`, stop a container, or delete what another session made.
 - An agent that has reported can wake on an old message. Stop it before its work is given to another, or two will push to one branch.
 - When a session is ended by the machine (`journalctl -k | grep -i 'killed process'`), the last command in its record is usually the cause. Start again from the state of GitHub: the pull requests, their comments, and what is pushed.
+
+## Work that can be followed
+
+How `wb` is developed is shaped so that a tool that only watches can tell which issue and which role each step belongs to. It is this project's own choice: `wb` asks none of it of a team, and none of it is in what `wb` installs.
+
+1. **Each agent works in its own worktree, as its working folder.** The session that runs a release starts each builder and reviewer in the agents' worktree mode. It never has one `cd` into a folder from the main checkout, which shows every step as the main checkout's. Build output and `TMPDIR` stay under `/var/tmp` (see [The machine](#the-machine)).
+2. **A reviewer has a worktree of its own** on the piece's branch, detached, never the builder's.
+3. **Each commit names its issue and its role** in two trailers, beside `Co-Authored-By`:
+   ```
+   Issue: #<n>
+   Role: <tester | build | review | fix | release>
+   ```
+   A squash merge keeps the pull request's commits on GitHub, so the trailers can still be read there.
+4. **Each step on GitHub says what it is** on the first line of its comment: `[review]`, `[answer]`, `[ready]` on a pull request, and `[session]` on an issue.
+5. **The session that runs a release works on `main`** and coordinates. Its own commits are never on an issue's branch.
 
 ## Words
 

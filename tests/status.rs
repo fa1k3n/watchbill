@@ -1855,3 +1855,44 @@ fn test_WB_STATUS_116_a_job_whose_ref_is_broken_is_under_not_read_with_its_reaso
         assert!(text(&run.stderr).contains("issue 7 was not read") && text(&run.stderr).contains("not as wb writes it"), "{:?}: {}", args, text(&run.stderr));
     }
 }
+
+/// Job 7 with an accepted issue's file and a ref that an unsigned stamp breaks, or one that a forged needs_person breaks.
+fn broken_7(kind: usize) -> Folder {
+    let folder = set_up();
+    open(&folder.path, &["7"]);
+    comments(&folder.path, "7", &[]);
+    branch(&folder.path, "7", true);
+    let forged = ["[stamp] build round 1\ntime: 2000-01-01T00:00:00Z\n", "[needs_person] 7.build\n\nA reason \u{1b}[31mred\n"];
+    unsigned_stamps_on_ref(&folder.path, "7", &[forged[kind]]);
+    folder
+}
+
+#[test]
+fn test_WB_STATUS_116_a_job_asked_for_by_name_whose_ref_is_broken_is_not_read_as_in_the_list() {
+    for kind in 0..2 {
+        let folder = broken_7(kind);
+        for (args, want) in [(&["7"][..], "Not read:\n  7  "), (&["-s", "7"][..], "** 7\n"), (&["--porcelain", "7"][..], "** 7\n")] {
+            let run = run_status(&folder.path, args);
+            let out = text(&run.stdout);
+            assert_eq!(code(&run), Some(1), "{} {:?}: {}", kind, args, out);
+            assert!(out.starts_with(want), "{} {:?}: {}", kind, args, out);
+            // Nothing read from a ref that does not count reaches the output: no stage, no hint, no escape, no line of its stamps.
+            for word in ["accepted", "built", "planned", "(use", "Jobs", "Worked out", "Sessions", "waits for", "\u{1b}", "issue-7-work"] {
+                assert!(!out.contains(word), "{} {:?} has {:?}: {}", kind, args, word, out);
+            }
+            assert_eq!(out.contains("not as wb writes it"), args.len() == 1, "{} {:?}: {}", kind, args, out);
+            assert!(text(&run.stderr).contains("issue 7 was not read") && text(&run.stderr).contains("not as wb writes it"), "{} {:?}: {}", kind, args, text(&run.stderr));
+        }
+    }
+}
+
+#[test]
+fn test_WB_STATUS_116_with_stage_a_job_that_is_not_read_still_says_why_on_standard_error() {
+    let folder = broken_7(0);
+    for args in [&["--stage", "built"][..], &["-s", "--stage", "built"], &["--stage", "not read"]] {
+        let run = run_status(&folder.path, args);
+        assert_eq!(code(&run), Some(1), "{:?}", args);
+        assert!(text(&run.stderr).contains("issue 7 was not read") && text(&run.stderr).contains("not as wb writes it"), "{:?}: {}", args, text(&run.stderr));
+        assert_eq!(text(&run.stdout).is_empty(), args[args.len() - 1] == "built", "{:?}: {}", args, text(&run.stdout));
+    }
+}

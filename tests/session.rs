@@ -66,7 +66,7 @@ fn commits_with_notes(folder: &Path, issue: &str, stamp: &str, role: &str, subje
     git(folder, &["checkout", "-q", "-b", &format!("issue-{}-work", issue)]);
     let mut commits = Vec::new();
     for subject in subjects {
-        git(folder, &["commit", "-q", "--allow-empty", "-m", subject]);
+        git(folder, &["commit", "-q", "--allow-empty", "--allow-empty-message", "-m", subject]);
         let commit = git_text(folder, &["rev-parse", "HEAD"]);
         note(folder, &commit, stamp, role);
         commits.push(commit);
@@ -135,6 +135,24 @@ fn test_WB_STATUS_46_a_session_with_two_commits_prints_the_stamp_the_base_and_bo
     assert!(lines.contains(&format!("Last: {}", session.commits[1]).as_str()), "{}", out);
     // Where the commits come from is said: a note is not signed.
     assert!(out.contains(NOTES) && out.contains("not signed"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_46_a_commit_with_an_empty_subject_does_not_lose_the_place_or_change_the_status() {
+    // A real session commit with an empty message, and a note on an empty-message commit: git prints no subject line for
+    // either, and a reader that counts lines would take the next commit's header for a subject and end with 1.
+    let folder = set_up();
+    let (stamp, _) = stamp(&folder.path, "12", "tester");
+    let commits = commits_with_notes(&folder.path, "12", &stamp, "tester", &["", "Write the first test", "", "Write the second test", ""]);
+    let (out, err, status) = status(&folder.path, &["--session", &stamp]);
+    assert_eq!(status, Some(0), "{}", err);
+    let lines: Vec<&str> = out.lines().collect();
+    let at = lines.iter().position(|line| *line == format!("  {}", commits[0])).unwrap_or_else(|| panic!("{}", out));
+    assert_eq!(lines[at + 1], format!("  {}  Write the first test", commits[1]), "{}", out);
+    assert_eq!(lines[at + 2], format!("  {}", commits[2]), "{}", out);
+    assert_eq!(lines[at + 3], format!("  {}  Write the second test", commits[3]), "{}", out);
+    assert_eq!(lines[at + 4], format!("  {}", commits[4]), "{}", out);
+    assert!(out.lines().any(|line| line.starts_with(&format!("Last: {}", commits[4]))), "{}", out);
 }
 
 #[test]

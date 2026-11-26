@@ -415,9 +415,10 @@ pub const USAGE: &str = "usage:
             how the session ended, else 'not known on this machine'; the
             commits that a note of refs/notes/watchbill names for it are
             listed and said to be notes, which are not signed: they count for
-            nothing and are no entry. The questions and the answers are
-            entries that name which; a [revert] marker says what it took back,
-            and a stamp it took back stays and says so. A commit that does not
+            nothing and are no entry. The questions, the answers and a
+            needs_person commit are entries that name which, or the reason; a
+            [revert] marker says what it took back, and a stamp it took back
+            stays and says so. A commit that does not
             count is no entry: it is said on standard error, and a job's ref
             that is not as wb writes it prints nothing and says so, as wb
             status does. --oneline gives one line to each entry. Ends with 0

@@ -580,7 +580,7 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
 /// A reason as one line (#311): each run of white space as one space, escaped as every text of `wb status` is, and cut
 /// so that the line is at most `REASON_LIMIT` characters as printed, the `...` among them. The cut is made between the
 /// escaped characters, never inside an escape.
-fn reason_line(reason: &str) -> String {
+pub(crate) fn reason_line(reason: &str) -> String {
     let one: String = reason.split_whitespace().collect::<Vec<_>>().join(" ");
     let pieces: Vec<String> = one.chars().map(|c| issue::shown(&c.to_string())).collect();
     if pieces.iter().map(|piece| piece.chars().count()).sum::<usize>() <= REASON_LIMIT {

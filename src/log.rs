@@ -15,7 +15,8 @@
 //! entry (`session_status::named_by_notes`, #239). A marker says which commits it took back; a commit it took back
 //! stays in the history and is said to be taken back.
 //!
-//! What a question or an answer says counts for nothing and is not printed: only which questions or answers.
+//! What a question or an answer says counts for nothing and is not printed: only which questions or answers. A
+//! needs_person commit (#311) is an entry with its role and its reason, cut as `wb status` cuts it.
 //!
 //! `--oneline` gives one line to each entry. Every read of git goes through `stamps::read` and `signers::git`: no
 //! replace ref, no graft, no lazy fetch, no variable `GIT_*`.
@@ -29,17 +30,11 @@ use crate::session_status::{named_by_notes, Named};
 use crate::stamps::{self, Entry, Kind};
 use crate::{refusal, starter};
 
-/// The most characters of a field of a stamp that are printed.
-const FIELD_CAP: usize = 200;
-
-/// The value of the line `name:` of a message, or none where it has none or it is empty.
+/// The value of the line `name:` of a message, or none where it has none or it is empty: as one line, escaped and cut
+/// after the escape as `wb status` cuts a reason (`status::reason_line`, #311), never inside an escape.
 fn field(message: &str, name: &str) -> Option<String> {
     let prefix = format!("{}:", name);
-    message
-        .lines()
-        .find_map(|line| line.strip_prefix(prefix.as_str()))
-        .map(|value| shown(value.trim()).chars().take(FIELD_CAP).collect::<String>())
-        .filter(|value| !value.is_empty())
+    message.lines().find_map(|line| line.strip_prefix(prefix.as_str())).map(|value| crate::status::reason_line(value.trim())).filter(|value| !value.is_empty())
 }
 
 /// What a first line says after the tag that names its kind: `[questions] 54.tester q1 q2` is `54.tester q1 q2`.
@@ -47,18 +42,29 @@ fn after_tag(first: &str) -> String {
     shown(first.split_once("] ").map(|(_, rest)| rest).unwrap_or(first).trim())
 }
 
-/// The outcome of a session, in lines for the default form and one line for `--oneline`.
-fn ended_lines(ended: &Ended) -> (String, Vec<String>) {
+/// The outcome of a session, in lines for the default form, and the one word of it for `--oneline`: the value of the
+/// line `outcome:`, the diagnostics being left to the full form.
+fn ended_lines(ended: &Ended) -> (String, Vec<String>, String) {
     match ended {
-        Ended::Unknown => ("not known on this machine".to_string(), Vec::new()),
-        Ended::NoOutcome(_) => ("not known: the lines of its start on this machine hold no outcome".to_string(), Vec::new()),
-        Ended::Runs(_) => ("not yet: its start runs on this machine".to_string(), Vec::new()),
-        Ended::CutOff(_) => ("not known: its start was cut off, the wb that ran it is gone".to_string(), Vec::new()),
+        Ended::Unknown => ("not known on this machine".to_string(), Vec::new(), "not known on this machine".to_string()),
+        Ended::NoOutcome(_) => ("not known: the lines of its start on this machine hold no outcome".to_string(), Vec::new(), "not known".to_string()),
+        Ended::Runs(_) => ("not yet: its start runs on this machine".to_string(), Vec::new(), "not yet".to_string()),
+        Ended::CutOff(_) => ("not known: its start was cut off, the wb that ran it is gone".to_string(), Vec::new(), "not known, cut off".to_string()),
         Ended::Lines(_, lines) => {
+            let word = lines.iter().find_map(|line| line.strip_prefix("outcome:")).map(|value| crate::status::reason_line(value.trim())).filter(|value| !value.is_empty()).unwrap_or_else(|| "not known".to_string());
             let lines: Vec<String> = lines.iter().map(|line| shown(line)).collect();
-            (format!("(from the lines of its start on this machine; diagnostics, nothing is decided from them)"), lines)
+            ("(from the lines of its start on this machine; diagnostics, nothing is decided from them)".to_string(), lines, word)
         }
     }
+}
+
+/// The role of a needs_person commit, from its first line (`[needs_person] <issue>.<role>`; none for the planner's), and
+/// its reason: what follows its header, as one line, escaped and cut as `wb status` cuts it.
+fn needs_person(entry: &Entry) -> (Option<String>, String) {
+    let prefix = after_tag(&entry.first);
+    let who = prefix.split_once('.').map(|(_, role)| role.to_string()).filter(|role| !role.is_empty());
+    let reason = stamps::copy_of(&entry.message).split_once('\n').map(|(_, reason)| crate::status::reason_line(reason)).unwrap_or_default();
+    (who, reason)
 }
 
 /// The entries that took back others: for the marker at place `at` of `counting` (the first lines of the commits that
@@ -115,7 +121,7 @@ pub fn run(root: &str, issue: &str, oneline: bool, state: Option<&Path>, out: &m
             notes.push(None);
             continue;
         }
-        let base = field(&entry.message, "base");
+        let base = entry.message.lines().find_map(|line| line.strip_prefix("base: ")).map(str::to_string);
         match named_by_notes(root, &entry.commit, base.as_deref()) {
             Ok(named) => notes.push(Some(named)),
             Err(why) => return refusal::limit(err, name, format_args!("the notes of {} cannot be read: {}", crate::notes::REF, shown(&why))),
@@ -123,10 +129,6 @@ pub fn run(root: &str, issue: &str, oneline: bool, state: Option<&Path>, out: &m
     }
     let mut text = String::new();
     for (at, entry) in counting.iter().enumerate() {
-        // A needs_person commit (#311) is not in the history of #177: it is left out, and not an entry.
-        if entry.kind == Kind::NeedsPerson {
-            continue;
-        }
         let taken = gone.get(at).copied().unwrap_or(false);
         let named = notes[at].as_ref();
         let dropped: Vec<usize> = if entry.kind == Kind::Marker { took_back(&counting, at) } else { Vec::new() };
@@ -156,24 +158,33 @@ pub fn run(root: &str, issue: &str, oneline: bool, state: Option<&Path>, out: &m
                     if let Some(time) = field(&entry.message, "time") {
                         line.push_str(&format!(", time {}", time));
                     }
-                    let (ended, lines) = ended_lines(&crate::kept::ended(state, &entry.message));
-                    if lines.is_empty() {
-                        line.push_str(&format!(", ended {}", ended));
-                    } else {
-                        line.push_str(&format!(", ended {}", lines.join(" ")));
-                    }
+                    let (_, _, word) = ended_lines(&crate::kept::ended(state, &entry.message));
+                    line.push_str(&format!(", outcome {}", word));
                     line
                 }
+                Kind::Marker if dropped.is_empty() => format!("{} marker {} round {}, took back nothing", short, role, round),
                 Kind::Marker => format!("{} marker {} round {}, took back {}", short, role, round, dropped.len()),
                 Kind::Questions => format!("{} questions {}", short, after_tag(&entry.first)),
                 Kind::Answers => format!("{} answers {}", short, after_tag(&entry.first)),
                 Kind::Unread => format!("{} commit that is not read", short),
-                // Not in the history of #177: left out, and not an entry.
-                Kind::NeedsPerson => String::new(),
+                Kind::NeedsPerson => {
+                    let (who, reason) = needs_person(entry);
+                    let mut line = format!("{} needs_person", short);
+                    if let Some(who) = who {
+                        line.push_str(&format!(" {}", who));
+                    }
+                    if !reason.is_empty() {
+                        line.push_str(&format!(", reason {}", reason));
+                    }
+                    line
+                }
             };
             if let Some(named) = named.filter(|named| !named.commits.is_empty()) {
                 let n = named.commits.len();
                 line.push_str(&format!(", {} commit{} taken back (from notes)", n, if n == 1 { "" } else { "s" }));
+                if !named.not_from_base.is_empty() {
+                    line.push_str(&format!(", {} not from Base", named.not_from_base.len()));
+                }
             }
             if taken {
                 line.push_str(", taken back by a [revert] marker");
@@ -208,11 +219,21 @@ pub fn run(root: &str, issue: &str, oneline: bool, state: Option<&Path>, out: &m
                 text.push_str(&format!("    Answers: {}\n", after_tag(&entry.first)));
             }
             Kind::Unread => text.push_str(&format!("commit {}\n    A commit that is not read\n", commit)),
-            Kind::NeedsPerson => {}
+            Kind::NeedsPerson => {
+                text.push_str(&format!("needs_person {}\n", commit));
+                let (who, reason) = needs_person(entry);
+                if let Some(who) = who {
+                    text.push_str(&format!("    Role: {}\n", who));
+                }
+                text.push_str(&format!("    Reason: {}\n", reason));
+            }
         }
         text.push_str(&format!("    Signed: by {} (on {})\n", shown(by), ledger.full));
         if taken {
             text.push_str("    Taken back: by a [revert] marker\n");
+        }
+        if entry.kind == Kind::Marker && dropped.is_empty() {
+            text.push_str(&format!("    Took back: nothing, no [stamp] {} round {} before it\n", role, round));
         }
         if !dropped.is_empty() {
             text.push_str(&format!("    Took back {}:\n", dropped.len()));
@@ -221,7 +242,7 @@ pub fn run(root: &str, issue: &str, oneline: bool, state: Option<&Path>, out: &m
             }
         }
         if entry.kind == Kind::Stamp {
-            let (ended, lines) = ended_lines(&crate::kept::ended(state, &entry.message));
+            let (ended, lines, _) = ended_lines(&crate::kept::ended(state, &entry.message));
             if lines.is_empty() {
                 text.push_str(&format!("    Ended: {}\n", ended));
             } else {
@@ -241,6 +262,9 @@ pub fn run(root: &str, issue: &str, oneline: bool, state: Option<&Path>, out: &m
                         text.push_str(&format!("      {}  {}\n", commit, shown(subject)));
                     }
                 }
+            }
+            for commit in &named.not_from_base {
+                text.push_str(&format!("    Not from Base: {}, a commit that does not descend from Base\n", commit));
             }
             match named.left_out {
                 0 => {}

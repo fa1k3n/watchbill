@@ -36,6 +36,8 @@ pub mod stamps;
 pub mod signers;
 pub mod starter;
 pub mod status;
+pub mod style;
+pub mod survey;
 pub mod upgrade;
 pub mod view;
 pub mod watchdog;
@@ -48,6 +50,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// What `wb --help` prints. The words are those of the Python `wb`.
 pub const USAGE: &str = "usage:
   wb init [--yes | -y] [-q | --quiet]
+            or --survey [--runner <name>] [-q | --quiet]
   wb check [-q | --quiet]
   wb doctor [-q | --quiet]
   wb upgrade [--dry-run | -n] [-q | --quiet]
@@ -90,9 +93,17 @@ pub const USAGE: &str = "usage:
             origin, a folder of requirements, the CI driver), ask one line per
             answer, show the file and write .watchbill/watchbill.yml at the
             root of the repository. --yes (-y) takes what it found and asks
-            nothing. A file that is already there is never changed. -q
-            (--quiet) leaves out the lines that confirm what was written, and
-            not what it says before it writes or the advice after
+            nothing. A file that is already there is never changed. It also
+            writes .watchbill/project/all.md, the project's style files and
+            the facts of its code as HEAD has them, where HEAD gives any. Where
+            no runner of the organisation's file is marked local: true, it
+            says so on standard error. --survey drafts
+            .watchbill/project/style.md (naming, comments, errors) by a
+            session on a local runner (--runner, else the default), in a view
+            of HEAD that is read-only but .watchbill/project/, and with a
+            network of its own; it takes back that file alone and commits
+            nothing. -q (--quiet) leaves out the lines that confirm what was
+            written, and not what it says before it writes or the advice after
   check     say whether the repository still is at the revision it is pinned to:
             each file under .watchbill/revision/ against the manifest, the
             manifest against the revision line of watchbill.yml, and that
@@ -642,8 +653,19 @@ fn run_command(args: &[OsString], input: &mut dyn BufRead, out: &mut dyn Write, 
             let _ = writeln!(out, "{}", VERSION);
             0
         }
-        "init" => run_init(&mut parser, input, out, err),
-        "check" => run_check(&mut parser, out, err),
+        "init" => {
+            let state = sessions::state_folder();
+            let home = home_folder();
+            let machine = Machine {
+                organisation: Path::new(confidentiality::ORGANISATION_FILE),
+                terminal: false,
+                state: state.as_deref(),
+                sandbox: Path::new(view::BWRAP),
+                home: home.as_deref(),
+            };
+            run_init(&mut parser, None, &machine, input, out, err)
+        }
+        "check" => run_check(&mut parser, None, Path::new(confidentiality::ORGANISATION_FILE), out, err),
         "doctor" => {
             let home = home_folder();
             let path = std::env::var_os("PATH");
@@ -732,9 +754,20 @@ fn run_help(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i3
     }
 }
 
-/// `wb init [--yes]`
-fn run_init(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+/// `wb init`, with the words after `init`, in the repository of `folder`, on the machine `machine` says: `run` gives the
+/// folder it runs in and what is fixed in `wb`; this is so that a test can give its own organisation's file, state
+/// folder and bubblewrap (#289), as `start_on` does.
+pub fn init_on(args: &[OsString], folder: &Path, machine: &Machine, input: &mut dyn BufRead, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    refusal::begin();
+    let code = run_init(&mut Parser::from_args(args.iter().cloned()), Some(folder), machine, input, out, err);
+    refusal::ended(code, err)
+}
+
+/// `wb init [--yes]`, or `wb init --survey [--runner <name>]` (#289).
+fn run_init(parser: &mut Parser, folder: Option<&Path>, machine: &Machine, input: &mut dyn BufRead, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let mut yes = false;
+    let mut survey = false;
+    let mut runner: Option<String> = None;
     let mut quiet: Option<&'static str> = None;
     loop {
         let refused = match next(parser) {
@@ -751,6 +784,28 @@ fn run_init(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write, e
                         yes = true;
                         continue;
                     }
+                    Word::Long(option) if option == "survey" => {
+                        if survey {
+                            return used(err, "wb init", "'--survey' is given twice");
+                        }
+                        survey = true;
+                        continue;
+                    }
+                    Word::Long(option) if option == "runner" => {
+                        if runner.is_some() {
+                            return used(err, "wb init", "'--runner' is given twice");
+                        }
+                        match parser.value() {
+                            Ok(value) => match value.into_string() {
+                                Ok(name) if !name.is_empty() && !name.chars().any(|c| c.is_control() || c == '\u{2028}' || c == '\u{2029}') && name.trim() == name => {
+                                    runner = Some(name);
+                                    continue;
+                                }
+                                _ => return used(err, "wb init", "--runner takes the name of a runner of the organisation's file, as one plain line"),
+                            },
+                            Err(_) => return used(err, "wb init", "--runner takes the name of a runner"),
+                        }
+                    }
                     found => named(found, parser),
                 },
             },
@@ -759,21 +814,46 @@ fn run_init(parser: &mut Parser, input: &mut dyn BufRead, out: &mut dyn Write, e
         let _ = write!(err, "wb init: '{}' is not known\n\n{}", refused, USAGE);
         return 2;
     }
-
-    interrupt::install();
-    match init::repository_root(None) {
-        Err(why) => {
-            crate::refusal::limit(err, "wb init", format_args!("{}. Nothing written.", why))
-        }
-        Ok(None) => {
-            crate::refusal::limit(err, "wb init", format_args!("this folder is not in a git repository. Watchbill is set up in one."))
-        }
-        Ok(Some(root)) => init::init(&root, VERSION, Path::new(manifest::PACKAGE_FOLDER), yes, input, out, err, None),
+    if survey && yes {
+        return used(err, "wb init", "--survey asks nothing and writes only the draft, and is not taken with --yes");
     }
+    if runner.is_some() && !survey {
+        return used(err, "wb init", "--runner is taken only with --survey");
+    }
+
+    if folder.is_none() {
+        interrupt::install();
+    }
+    let found = match folder {
+        None => init::repository_root(None),
+        Some(folder) => init::repository_root_of(folder),
+    };
+    let root = match found {
+        Err(why) => return crate::refusal::limit(err, "wb init", format_args!("{}. Nothing written.", why)),
+        Ok(None) => return crate::refusal::limit(err, "wb init", format_args!("this folder is not in a git repository. Watchbill is set up in one.")),
+        Ok(Some(root)) => root,
+    };
+    if survey {
+        return survey::survey(&root, runner.as_deref(), machine, out, err);
+    }
+    let code = init::init(&root, VERSION, Path::new(manifest::PACKAGE_FOLDER), yes, input, out, err, None);
+    // Where no runner is local, the survey cannot run: said as git says an identity that is not set (#289).
+    if code == 0 {
+        survey::warn("wb init", machine.organisation, err);
+    }
+    code
+}
+
+/// `wb check`, with the words after `check`, in the repository of `folder`, with the organisation's file at
+/// `organisation`: `run` gives the folder it runs in and the path fixed in `wb`, so that a test can give its own (#289).
+pub fn check_on(args: &[OsString], folder: &Path, organisation: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    refusal::begin();
+    let code = run_check(&mut Parser::from_args(args.iter().cloned()), Some(folder), organisation, out, err);
+    refusal::ended(code, err)
 }
 
 /// `wb check`: the repository against its pinned revision and the installed `wb`. It writes nothing.
-fn run_check(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+fn run_check(parser: &mut Parser, folder: Option<&Path>, organisation: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let mut quiet: Option<&'static str> = None;
     loop {
         let refused = match next(parser) {
@@ -788,7 +868,11 @@ fn run_check(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i
         let _ = write!(err, "wb check: '{}' is not known\n\n{}", refused, USAGE);
         return 2;
     }
-    match init::repository_root(None) {
+    let found = match folder {
+        None => init::repository_root(None),
+        Some(folder) => init::repository_root_of(folder),
+    };
+    match found {
         Err(why) => {
             let _ = writeln!(err, "wb check: {}.", why);
             2
@@ -797,7 +881,14 @@ fn run_check(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i
             let _ = writeln!(err, "wb check: this folder is not in a git repository. Watchbill is set up in one.");
             2
         }
-        Ok(Some(root)) => check::check(&root, VERSION, Path::new(manifest::PACKAGE_FOLDER), out, err),
+        Ok(Some(root)) => {
+            let code = check::check(&root, VERSION, Path::new(manifest::PACKAGE_FOLDER), out, err);
+            // Where it holds, the warning of `wb init` is said again while there is no draft of the code style (#289).
+            if code == 0 && survey::style_is_there(&root).is_none() {
+                survey::warn("wb check", organisation, err);
+            }
+            code
+        }
     }
 }
 
@@ -1554,7 +1645,7 @@ fn local_of(role: &str, handed: &Handed, root: &str) -> Option<Result<Vec<view::
 /// Why the runner's `program`, where it is named by its path, cannot be found inside the sandbox, if it cannot: it
 /// lies, as written or as resolved, under none of the system's folders the sandbox holds (`view::SYSTEM`) and none of
 /// the runner's `binds`.
-fn outside_the_sandbox(program: &str, binds: &[(std::path::PathBuf, bool)]) -> Option<String> {
+pub(crate) fn outside_the_sandbox(program: &str, binds: &[(std::path::PathBuf, bool)]) -> Option<String> {
     if !program.starts_with('/') {
         return None;
     }
@@ -2620,19 +2711,10 @@ struct Prepared {
     out: std::path::PathBuf,
 }
 
-/// Makes sure of what a session in a view needs, and makes the view (#126): the runner's binds, each from the
-/// root and holding neither the checkout, the folder of the organisation's file nor the state folder; a state
-/// folder to make the view below; bubblewrap that can make a sandbox; `build_files`. The view is of `paths`, or of
-/// every file of `HEAD` where they are none (#202). The error says why not.
-fn prepare_view(
-    root: &str,
-    role: &str,
-    issue: Option<&str>,
-    paths: Option<&[String]>,
-    onto: Option<&str>,
-    binds: &[confidentiality::Bind],
-    machine: &Machine,
-) -> Result<Prepared, String> {
+/// The runner's `binds` as paths from the root, each with whether it is writable (#126): one in the home folder needs
+/// `HOME`, and none holds or lies in the checkout, the folder of the organisation's file, the state folder or a login
+/// of the code host (#151). The error says why not.
+pub(crate) fn resolve_binds(root: &str, binds: &[confidentiality::Bind], machine: &Machine) -> Result<Vec<(std::path::PathBuf, bool)>, String> {
     let mut resolved = Vec::new();
     for bind in binds {
         let path = match (bind.path.strip_prefix("~/"), machine.home) {
@@ -2685,6 +2767,23 @@ fn prepare_view(
             ));
         }
     }
+    Ok(resolved)
+}
+
+/// Makes sure of what a session in a view needs, and makes the view (#126): the runner's binds, each from the
+/// root and holding neither the checkout, the folder of the organisation's file nor the state folder; a state
+/// folder to make the view below; bubblewrap that can make a sandbox; `build_files`. The view is of `paths`, or of
+/// every file of `HEAD` where they are none (#202). The error says why not.
+fn prepare_view(
+    root: &str,
+    role: &str,
+    issue: Option<&str>,
+    paths: Option<&[String]>,
+    onto: Option<&str>,
+    binds: &[confidentiality::Bind],
+    machine: &Machine,
+) -> Result<Prepared, String> {
+    let resolved = resolve_binds(root, binds, machine)?;
     let state = machine
         .state
         .ok_or("neither XDG_STATE_HOME nor HOME names an absolute folder, and a view is made below the state folder of Watchbill")?;

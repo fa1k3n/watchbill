@@ -8,7 +8,7 @@ _wb_commands="init check doctor upgrade plan accept start status view answer rev
 _wb_roles="build fix planner review tester"
 _wb_stages=("Not planned" Planned Accepted Tested Built Reviewed Fixed "Questions open" "Needs a person" "Not read")
 
-_wb_flags_init="--yes --quiet"
+_wb_flags_init="--yes --survey --runner --quiet"
 _wb_flags_check="--quiet"
 _wb_flags_doctor="--quiet"
 _wb_flags_upgrade="--dry-run --quiet"

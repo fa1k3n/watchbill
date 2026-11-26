@@ -780,6 +780,9 @@ pub enum Layout {
     Planner,
     /// The view of the whole tree of a role with no issue's file: writable, but for `.watchbill/`.
     Whole,
+    /// The view of the whole tree of the survey of `wb init --survey` (#289): read-only, but for `.watchbill/project/`,
+    /// where the session writes its draft.
+    Survey,
 }
 
 /// What a session in a view is run with.
@@ -958,11 +961,13 @@ pub fn arguments_reaching(plan: &Plan, layout: Layout, out: Option<&Path>, net: 
         add(&["--ro-bind".as_ref(), net.folder.as_os_str(), reach::NET_FOLDER.as_ref()]);
         add(&["--ro-bind".as_ref(), net.exe.as_os_str(), reach::FORWARDER.as_ref()]);
     }
-    add(&["--bind".as_ref(), plan.view.as_os_str(), plan.checkout.as_os_str()]);
+    let tree = if layout == Layout::Survey { "--ro-bind" } else { "--bind" };
+    add(&[tree.as_ref(), plan.view.as_os_str(), plan.checkout.as_os_str()]);
     let inside: &[(&str, &str)] = match layout {
         Layout::Listed => &[],
         Layout::Planner => &[("--ro-bind", ".watchbill"), ("--bind", ".watchbill/issues")],
         Layout::Whole => &[("--ro-bind", ".watchbill")],
+        Layout::Survey => &[("--bind", ".watchbill/project")],
     };
     for (how, path) in inside {
         let (from, to) = (plan.view.join(path), plan.checkout.join(path));

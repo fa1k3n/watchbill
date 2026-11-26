@@ -82,7 +82,8 @@ fn test_WB_CONF_20_the_stamp_of_the_planner_names_the_runner_and_the_model_and_e
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     let out = text(&run.stdout);
     let lines: Vec<&str> = out.lines().collect();
-    assert_eq!(&lines[..4], &["role: planner", "model: claude-opus-5-5", "effort: high", "runner: claude-code"], "{}", out);
+    // The line `ran:` follows `model:`, with the runner's `model` line (#336).
+    assert_eq!(&lines[..5], &["role: planner", "model: claude-opus-5-5", "ran: Anthropic, under the organisation's agreement", "effort: high", "runner: claude-code"], "{}", out);
 }
 
 #[test]

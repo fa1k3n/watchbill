@@ -800,3 +800,49 @@ fn test_WB_VIEW_152_the_readme_says_what_the_network_of_a_view_holds() {
     let doctor = &readme[start..start + readme[start..].find("## Upgrading it").unwrap()];
     assert!(doctor.contains("**reach**"), "the section of wb doctor does not say reach");
 }
+
+// ---- WB-VIEW-154 and 159: a plain endpoint (#336) ----
+
+#[test]
+fn test_WB_VIEW_154_a_plain_endpoint_off_this_machine_makes_the_organisation_s_file_a_fault() {
+    for (bad, place) in [
+        ("[api.example.org:443, 'http://model.example.org:11434']", "reach.1"),
+        ("['http://192.168.1.20:11434']", "reach.0"),
+        ("['http://127.0.0.2:11434']", "reach.0"),
+    ] {
+        let bench = bench();
+        bench.reach(bad);
+
+        let run = bench.doctor();
+
+        assert_eq!(code(&run), Some(1), "{}: {}", bad, text(&run.stdout));
+        let line = line_of(&run, "organisation");
+        assert!(line.starts_with("fault: ") && line.contains(&format!("runners.stand-in.{}", place)) && line.contains("http://"), "{}: {}", bad, line);
+        assert!(line.contains("localhost") && line.contains("127.0.0.1") && line.contains("[::1]"), "{}: {}", bad, line);
+    }
+}
+
+#[test]
+fn test_WB_VIEW_159_a_plain_endpoint_is_a_warning_that_what_passes_to_it_is_not_encrypted() {
+    let bench = bench();
+    bench.reach("[api.example.org:443, 'http://localhost:11434', 'http://[::1]:8080', '127.0.0.1:8443']");
+
+    let run = bench.doctor();
+
+    all_hold(&run);
+    let lines = lines_of(&run, "reach");
+    assert_eq!(lines.len(), 4, "{:?}", lines);
+    for endpoint in ["http://localhost:11434", "http://[::1]:8080"] {
+        let line = lines.iter().find(|line| line.contains(endpoint)).unwrap_or_else(|| panic!("{}: {:?}", endpoint, lines));
+        assert!(
+            line.starts_with("warning: ") && line.contains("not encrypted") && line.contains("this machine") && line.contains("cannot tell") && line.contains("login"),
+            "{}",
+            line
+        );
+    }
+    // An endpoint by CONNECT is not said to be plain.
+    for endpoint in ["api.example.org:443", "127.0.0.1:8443"] {
+        let line = lines.iter().find(|line| line.contains(endpoint)).unwrap_or_else(|| panic!("{}: {:?}", endpoint, lines));
+        assert!(!line.contains("not encrypted") && !line.contains("http://"), "{}", line);
+    }
+}

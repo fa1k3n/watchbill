@@ -960,6 +960,9 @@ pub fn utc(seconds: u64) -> String {
 pub struct Stamp<'a> {
     pub role: &'a str,
     pub model: &'a str,
+    /// What ran (#336): the `model` line of the runner in the organisation's file, or `unknown`. The line follows
+    /// `model:`.
+    pub ran: &'a str,
     pub effort: &'a str,
     /// The runner named with `--runner`, or empty.
     pub runner: &'a str,
@@ -1018,6 +1021,7 @@ pub fn stamp(said: &Stamp, values: &[(&str, &str)], prompt: &Prompt) -> String {
     let mut lines: Vec<(&str, &str)> = vec![
         ("role", said.role),
         ("model", said.model),
+        ("ran", said.ran),
         ("effort", said.effort),
         ("runner", said.runner),
         ("version", said.version),

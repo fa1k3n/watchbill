@@ -253,6 +253,9 @@ pub fn missing(keys: &Keys, role: &str) -> Option<String> {
     }
 }
 
+/// The graft file every read that decides trust gives git: below a file, so it cannot be there.
+pub(crate) const NO_GRAFTS: &str = "/dev/null/wb-no-grafts";
+
 /// Runs git in `root` with no variable `GIT_*` of this process, as `plan` does, and with no replace ref: what a replace
 /// ref says an object is never decides what the list, a tag or its object is. What it printed, or what it said.
 pub(crate) fn git(root: &str, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>, String> {
@@ -266,6 +269,9 @@ pub(crate) fn git(root: &str, args: &[&str], input: Option<&[u8]>) -> Result<Vec
     // A read that decides trust never fetches: in a partial clone git would ask the promisor remote for a missing object,
     // such as the `base:` of a stamp of another repository. Older git does not know the variable and ignores it.
     command.env("GIT_NO_LAZY_FETCH", "1");
+    // Nor does a graft of this machine (`.git/info/grafts`), which `--no-replace-objects` leaves on: the graft file is
+    // one that cannot be there (the review of #328).
+    command.env("GIT_GRAFT_FILE", NO_GRAFTS);
     command.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn().map_err(|error| format!("git could not be run: {}", error))?;
     if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {

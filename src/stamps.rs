@@ -9,6 +9,11 @@
 //! `issue: <name>`, one `base:` that is a commit this repository has, and the `job:` lines of the plan that the commit
 //! before it holds: one signed in another repository and put on this ref is "a stamp of another repository" (#324).
 //!
+//! Every commit the ref reaches is read, not only the first parents (#327). The ref is as `wb` writes it only where it
+//! is one line of commits, with no merge, each signed by a key of the list with the role it needs: `start` for a stamp
+//! or a marker, `accept` for a commit of `wb plan`. Where it is not, nothing on it counts, `wb status` names the first
+//! commit that is not, and nothing more is written on it until a person repairs it.
+//!
 //! `wb start` pushes the ref with no force before the session starts: a push that is not a fast-forward is refused by
 //! the remote, so two starts of one role cannot both go on. The rounds are counted from these commits, never from a
 //! comment: a `[stamp]` comment is a copy posted out, and `wb` never reads it back.
@@ -73,6 +78,9 @@ pub struct Ledger {
     pub entries: Vec<Entry>,
     /// Where the default branch holds no list, or there is none, why nothing counts (#323).
     pub missing: Option<String>,
+    /// Where the ref is not as `wb` writes it, the one line that names its first commit that is not, and why (#327):
+    /// then nothing on it counts.
+    pub broken: Option<String>,
 }
 
 impl Ledger {
@@ -115,6 +123,9 @@ impl Ledger {
                 Ok(by) => format!("{}  (on {}, signed by {})", shown, self.full, crate::issue::shown(by)),
             };
             lines.push(line);
+        }
+        if let Some(broken) = &self.broken {
+            lines.push(broken.clone());
         }
         if let (Some(why), false) = (&self.missing, self.entries.is_empty()) {
             lines.push(why.clone());
@@ -197,54 +208,121 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
         Keys::Missing(why) => Some(why.clone()),
         _ => None,
     };
-    let mut ledger = Ledger { full: full.clone(), entries: Vec::new(), missing };
-    if git_line(root, &["rev-parse", "--verify", "-q", &full], None).is_err() {
+    let mut ledger = Ledger { full: full.clone(), entries: Vec::new(), missing, broken: None };
+    let Ok(object) = git_line(root, &["rev-parse", "--verify", "-q", &full], None) else {
+        return Ok(ledger);
+    };
+    let said = |what: String| format!("{} is not as wb writes it: {}. Nothing on it counts until a person repairs the ref (see the README)", full, what);
+    // The ref names a commit, as `wb` writes it: never a tag, a tree or a blob (the review of #328).
+    let kind = git_line(root, &["cat-file", "-t", &object], None)?;
+    if kind != "commit" {
+        ledger.broken = Some(said(format!("it names the {} {}, not a commit", crate::issue::shown(&kind), object)));
         return Ok(ledger);
     }
-    let tip = git_line(root, &["rev-parse", "--verify", "-q", &format!("{}^{{commit}}", full)], None).map_err(|_| format!("{} is not a commit", full))?;
+    let tip = object;
+    // In a shallow repository git reads a commit at the boundary as one with no parent, so the stamps before it are not
+    // seen (the review of #328). Grafts are turned off in `signers::git`; a shallow repository is said.
+    if git_line(root, &["rev-parse", "--is-shallow-repository"], None).is_ok_and(|shallow| shallow == "true") {
+        ledger.broken = Some(format!(
+            "{} is not as wb writes it: this repository is shallow (git rev-parse --is-shallow-repository), so not every commit of the ref can be read. Nothing on it counts until a person makes it whole (git fetch --unshallow)",
+            full
+        ));
+        return Ok(ledger);
+    }
+    // Every commit the ref reaches, not only the first parents (#327): a merge or a commit on a side chain is seen.
+    // Each line is a commit and its parents; in the order of `--topo-order`, a commit before its parents.
     let most = format!("--max-count={}", MOST + 1);
-    let listed = git_line(root, &["rev-list", "--first-parent", &most, &tip], None)?;
-    let mut commits: Vec<String> = listed.lines().map(str::to_string).collect();
-    if commits.len() > MOST {
+    let listed = git_line(root, &["rev-list", "--topo-order", "--parents", &most, &tip], None)?;
+    let mut walked: Vec<(String, Vec<String>)> = listed
+        .lines()
+        .filter_map(|line| {
+            let mut words = line.split(' ').map(str::to_string);
+            words.next().filter(|commit| !commit.is_empty()).map(|commit| (commit, words.collect()))
+        })
+        .collect();
+    if walked.len() > MOST {
         return Err(format!("{} holds more than {} commits, and no more are read", full, MOST));
     }
-    commits.reverse();
+    walked.reverse();
+    let commits: Vec<String> = walked.iter().map(|(commit, _)| commit.clone()).collect();
+    let parents_of: std::collections::HashMap<&str, &[String]> = walked.iter().map(|(commit, parents)| (commit.as_str(), parents.as_slice())).collect();
     let mut read = objects(root, &commits)?;
     // In the order of the ref, oldest first.
     read.sort_by_key(|(object, _)| commits.iter().position(|commit| commit == object));
-    // The plan as the ref's tip holds it (#234): what every stamp's `job:` lines are checked against, so that a signed
-    // stamp brought onto the ref from elsewhere is held to this repository's job, not to the one it came with.
-    let sources = crate::plan::source_hashes(root, name);
+    // The tree of each commit that was read, from its header.
+    let trees: std::collections::HashMap<String, String> = read
+        .iter()
+        .filter_map(|(commit, raw)| {
+            let raw = raw.as_ref().ok()?;
+            let tree = raw.split(|byte| *byte == b'\n').next()?.strip_prefix(b"tree ")?;
+            Some((commit.clone(), String::from_utf8_lossy(tree).to_string()))
+        })
+        .collect();
+    // The plan as the walked tip holds it (#234, the review of #328): what every stamp's `job:` lines are checked
+    // against, so that a signed stamp brought onto the ref from elsewhere is held to this repository's job.
+    let sources = crate::plan::source_hashes_at(root, &tip);
+    let checking = matches!(keys, Keys::List(_));
+    // Why each commit is not as `wb` writes it, where it is not (#327).
+    let mut faults: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut note = |commit: &str, why: String| {
+        faults.entry(commit.to_string()).or_insert(why);
+    };
     for (commit, raw) in read {
+        let parents = parents_of.get(commit.as_str()).copied().unwrap_or(&[]);
         // A commit over the cap is not read, and so is no stamp: it is said, not left out unseen.
         let raw = match raw {
             Ok(raw) => raw,
             Err(size) => {
+                note(&commit, format!("is larger than 64 KiB ({} bytes), so it is not read", size));
                 let first = format!("commit {}", commit);
                 let counts = Err(format!("larger than 64 KiB ({} bytes), so it is not read", size));
                 ledger.entries.push(Entry { commit, first, message: String::new(), counts });
                 continue;
             }
         };
-        let Some(split) = raw.windows(2).position(|pair| pair == b"\n\n") else { continue };
-        let message = String::from_utf8_lossy(&raw[split + 2..]).to_string();
+        let message = raw.windows(2).position(|pair| pair == b"\n\n").map(|split| String::from_utf8_lossy(&raw[split + 2..]).to_string()).unwrap_or_default();
         let first = message.split('\n').next().unwrap_or("").trim_end_matches('\r').to_string();
+        // The role the commit needs: `start` for a stamp or a marker, `accept` for a commit of `wb plan` (#327).
+        let (what, role) = if is_entry(&first) {
+            ("a stamp or a marker", Some("start"))
+        } else if is_plan_commit(&first) {
+            ("a commit of wb plan", Some("accept"))
+        } else {
+            ("neither a stamp, a marker of wb revert nor a commit of wb plan", None)
+        };
+        let verdict = match (&keys, role) {
+            (Keys::List(list), Some(role)) => Some(signed_as(&raw, role, list)),
+            _ => None,
+        };
+        if checking {
+            match (&verdict, role) {
+                (_, None) => note(&commit, format!("is {}", what)),
+                (Some(Err(why)), Some(_)) => note(&commit, format!("is {}, and {}", what, why)),
+                _ => {}
+            }
+            // The tree of a stamp is its parent's with `view` and `issue.yml` alone put in or taken out, and the tree of a
+            // marker is its parent's, as `make` writes them (the review of #328): a stamp cannot change the plan.
+            if is_entry(&first) && parents.len() <= 1 {
+                // The parent's tree, or none for the first commit; a parent that was not read is said for itself.
+                let parent_tree = match parents.first() {
+                    None => Some(None),
+                    Some(parent) => trees.get(parent).map(|tree| Some(tree.as_str())),
+                };
+                if let (Some(tree), Some(parent_tree)) = (trees.get(&commit), parent_tree) {
+                    if let Err(why) = tree_as_written(root, &first, tree, parent_tree) {
+                        note(&commit, format!("is {}, and {}", what, why));
+                    }
+                }
+            }
+        }
         if !is_entry(&first) {
             continue;
         }
-        let signed = match &keys {
-            Keys::Missing(_) => Err(NOTHING_SIGNED.to_string()),
-            Keys::Fault(why) => Err(format!("{}, so no stamp counts", why)),
-            Keys::List(list) => match signers::verify_commit(&raw, "start", list) {
-                Ok(Verdict::Good(identity)) => Ok(identity),
-                Ok(Verdict::Unsigned) => Err(format!("unsigned, and {} of {} is there", signers::PATH, list.on)),
-                Ok(Verdict::NotListed) => Err(format!("signed by a key that is not in {} of {}", signers::PATH, list.on)),
-                Ok(Verdict::WithoutRole(identity)) => {
-                    Err(format!("signed by the key of {}, which {} of {} holds without the role start", crate::issue::shown(&identity), signers::PATH, list.on))
-                }
-                Ok(Verdict::Broken) => Err("its signature does not check: what was signed is not what the commit holds".to_string()),
-                Err(why) => Err(format!("its signature could not be checked: {}", why)),
-            },
+        let signed = match (&keys, verdict) {
+            (Keys::Missing(_), _) => Err(NOTHING_SIGNED.to_string()),
+            (Keys::Fault(why), _) => Err(format!("{}, so no stamp counts", why)),
+            (Keys::List(_), Some(verdict)) => verdict,
+            (Keys::List(_), None) => Err("its signature could not be checked".to_string()),
         };
         let counts = signed.and_then(|by| {
             of_this_issue(&message, name)?;
@@ -253,7 +331,81 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
         });
         ledger.entries.push(Entry { commit, first, message, counts });
     }
+    // The first commit that is not as `wb` writes it, on the line of first parents from the oldest (the review of #328):
+    // a merge is one in itself, so a side chain is named by its merge, and the commit before the one named is always
+    // the last that is as `wb` writes it, which the README's repair moves the ref back to.
+    let mut line = vec![tip.clone()];
+    while let Some(parent) = line.last().and_then(|commit| parents_of.get(commit.as_str())).and_then(|parents| parents.first()) {
+        if line.len() > MOST {
+            break;
+        }
+        line.push(parent.clone());
+    }
+    let first_bad = line.iter().rev().find_map(|commit| {
+        let parents = parents_of.get(commit.as_str()).map_or(0, |parents| parents.len());
+        if parents > 1 {
+            Some((commit.clone(), format!("is a merge of {} commits, and wb writes one line of commits", parents)))
+        } else {
+            faults.get(commit).map(|why| (commit.clone(), why.clone()))
+        }
+    });
+    if let Some((commit, why)) = first_bad {
+        for entry in ledger.entries.iter_mut().filter(|entry| entry.counts.is_ok()) {
+            entry.counts = Err("nothing on the ref counts, as the line below says".to_string());
+        }
+        ledger.broken = Some(said(format!("its commit {} {}", commit, crate::issue::shown(&why))));
+    }
     Ok(ledger)
+}
+
+/// Checks the tree `tree` of a stamp or a marker whose first line is `first` against `parent`, the tree of the commit
+/// before it, or none for the first commit of the ref (the review of #328): a stamp's tree is the parent's with only
+/// `view` and `issue.yml` put in, changed or taken out, each a plain file; a marker's tree is the parent's as it is.
+fn tree_as_written(root: &str, first: &str, tree: &str, parent: Option<&str>) -> Result<(), String> {
+    let listed = |tree: Option<&str>| -> Result<Vec<String>, String> {
+        let Some(tree) = tree else { return Ok(Vec::new()) };
+        let printed = signers::git(root, &["ls-tree", "-z", tree], None)?;
+        Ok(printed.split(|byte| *byte == 0).filter(|entry| !entry.is_empty()).map(|entry| String::from_utf8_lossy(entry).to_string()).collect())
+    };
+    let name_of = |entry: &str| entry.split_once('\t').map(|(_, name)| name.to_string()).unwrap_or_default();
+    let own = |entry: &String| [VIEW_ENTRY, ISSUE_ENTRY].contains(&name_of(entry).as_str());
+    let (mine, before) = (listed(Some(tree))?, listed(parent)?);
+    if crate::starter::role_and_round("[revert] ", first).is_some() {
+        return if mine == before { Ok(()) } else { Err("its tree is not the tree of the commit before it, as a marker's is".to_string()) };
+    }
+    if mine.iter().filter(|entry| own(entry)).any(|entry| !entry.starts_with("100644 blob ")) {
+        return Err(format!("its tree holds {} or {} as other than a plain file", VIEW_ENTRY, ISSUE_ENTRY));
+    }
+    let kept = |entries: &[String]| -> Vec<String> { entries.iter().filter(|entry| !own(entry)).cloned().collect() };
+    if kept(&mine) != kept(&before) {
+        return Err(format!("its tree changes more than {} and {} of the tree of the commit before it, as a stamp's does not", VIEW_ENTRY, ISSUE_ENTRY));
+    }
+    Ok(())
+}
+
+/// Whether a first line is that of a commit of `wb plan`: `plan add <name>` or `plan remove <name>`.
+pub fn is_plan_commit(first: &str) -> bool {
+    first.strip_prefix("plan add ").or_else(|| first.strip_prefix("plan remove ")).is_some_and(|name| !name.is_empty())
+}
+
+/// Whether the commit `raw` is signed by a key of `list` with `role`: by whom, or why not, in words.
+fn signed_as(raw: &[u8], role: &str, list: &signers::List) -> Result<String, String> {
+    match signers::verify_commit(raw, role, list) {
+        Ok(Verdict::Good(identity)) => Ok(identity),
+        Ok(Verdict::Unsigned) => Err(format!("unsigned, and {} of {} is there", signers::PATH, list.on)),
+        Ok(Verdict::NotListed) => Err(format!("signed by a key that is not in {} of {}", signers::PATH, list.on)),
+        Ok(Verdict::WithoutRole(identity)) => {
+            Err(format!("signed by the key of {}, which {} of {} holds without the role {}", crate::issue::shown(&identity), signers::PATH, list.on, role))
+        }
+        Ok(Verdict::Broken) => Err("its signature does not check: what was signed is not what the commit holds".to_string()),
+        Err(why) => Err(format!("its signature could not be checked: {}", why)),
+    }
+}
+
+/// Why the job's ref of `name` is not as `wb` writes it, where it is not (#327): what a command that writes on it
+/// refuses with, before it writes anything. `Err` where the ref cannot be read.
+pub fn not_as_written(root: &str, name: &str) -> Result<Option<String>, String> {
+    read(root, name).map(|ledger| ledger.broken)
 }
 
 /// Checks that a message names the issue of the ref it is on, in exactly one line `issue: <name>` (WB-BUILD-161): a

@@ -189,6 +189,9 @@ fn bench_with(extra: &str) -> Bench {
     fs::write(config(&repo.path), yml).unwrap();
     git(&repo.path, &["add", "--", ".watchbill"]);
     git(&repo.path, &["commit", "-q", "-m", "Watchbill"]);
+    // Since #327 a commit of `wb plan add` is signed by a key that `.watchbill/signers` of the default branch holds
+    // with `accept`: Ada's key of the test, and her line.
+    signing(&repo.path);
     let org_folder = folder_named("org");
     let org = org_folder.path.join("organisation.yml");
     fs::write(&org, format!("{}{}", ORG.replace("{log}", &l), extra)).unwrap();

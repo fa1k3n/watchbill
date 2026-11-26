@@ -323,6 +323,20 @@ fn test_WB_STATUS_50_a_prefix_that_names_no_object_ends_with_1_and_says_no_stamp
 }
 
 #[test]
+fn test_WB_STATUS_50_a_hash_longer_than_the_hash_of_an_object_names_nothing() {
+    // Git cuts a prefix down to the length of its hashes, so the stamp and four zeros would name the stamp. No object's
+    // name starts with them: it ends with 1, and prints nothing.
+    let (folder, session) = with_two_commits();
+    assert_eq!(session.stamp.len(), 40, "the test is of a SHA-1 repository");
+    for longer in [format!("{}0000", session.stamp), format!("{}{}", session.stamp, "0".repeat(24)), format!("{}{}", session.stamp, "f")] {
+        let (out, err, status) = self::status(&folder.path, &["--session", &longer]);
+        assert_eq!(status, Some(1), "{}: {}", longer, err);
+        assert_eq!(out, "", "{}", longer);
+        assert!(err.contains(&format!("no stamp starts with {}", longer)), "{}", err);
+    }
+}
+
+#[test]
 fn test_WB_STATUS_50_a_prefix_that_starts_two_objects_ends_with_1_and_says_it_is_not_unique() {
     let (folder, session) = with_two_commits();
     // A second object that starts as the stamp does: a file of the object store under the same first digits. Git lists

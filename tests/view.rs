@@ -6711,6 +6711,19 @@ fn test_WB_VIEW_36_each_commit_taken_back_carries_a_note_naming_the_stamp_commit
     }
     // Only those: the commits before the session carry none.
     assert_eq!(bench.git_text(&["notes", &format!("--ref={}", NOTES), "list"]).lines().count(), 2);
+
+    // A note is not signed and `wb` never reads one: notes that claim another stamp, role and session change nothing
+    // that `wb` says of the job.
+    let said = |bench: &Bench| {
+        let run = wb_state_bounded(bench, &["status", "54"], 20).expect("status did not end");
+        (code(&run), text_of(&run.stdout))
+    };
+    let before = said(&bench);
+    for commit in &commits {
+        let forged = format!("stamp: {}\nrole: tester\n", "1".repeat(stamp.len()));
+        git(&bench.repo.path, &["notes", &format!("--ref={}", NOTES), "add", "-f", "-m", forged.trim_end(), commit]);
+    }
+    assert_eq!(said(&bench), before);
 }
 
 #[test]

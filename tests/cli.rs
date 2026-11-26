@@ -139,9 +139,10 @@ const USAGE: &str = "usage:
             acceptance), or accepted by whom and when; the planner's stamps
             are read from the job's ref. Where the tip of a ref that is not as
             wb writes it says the plan is removed, it prints the plan's name,
-            the line that names the first commit that is not and state: unknown,
-            and ends with 0 as it does for a bad ref with a live plan. A source or a [stamp]
-            planner of the same second as the acceptance or later voids it,
+            the line that names the first commit that is not as wb writes it,
+            and state: unknown, and ends with 0 as it does for a bad ref with
+            a live plan. A source or a [stamp] planner of the same second as
+            the acceptance or later voids it,
             and no prompt of the issue is handed out until wb plan accept
             again; a stamp that a [revert] took back counts for nothing. wb
             plan edit <name> opens the issue's file in the editor git would

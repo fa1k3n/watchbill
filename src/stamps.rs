@@ -66,7 +66,7 @@ pub struct Entry {
     /// Whether it counts: by whom it is signed, or why it does not.
     pub counts: Result<String, String>,
     /// Whether it does not count while the plan is there, but would where the plan is removed: it is signed, of this
-    /// issue and repository, made before any commit of `wb plan`, and holds `job: none` (#329).
+    /// issue and repository, with a good `base:`, and holds `job: none`, wherever it is on the ref (#329).
     pub again: bool,
 }
 
@@ -282,8 +282,8 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
     let mut note = |commit: &str, why: String| {
         faults.entry(commit.to_string()).or_insert(why);
     };
-    // Where the walk is: whether it has passed the commit that removed the plan, and the first commit of `wb plan`.
-    let (mut passed_removal, mut planned) = (false, false);
+    // Where the walk is: whether it has passed the commit that removed the plan.
+    let mut passed_removal = false;
     for (commit, raw) in read {
         let after_removal = passed_removal;
         if removed.as_ref().is_some_and(|(at, _, _)| *at == commit) {
@@ -303,10 +303,6 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
         };
         let message = raw.windows(2).position(|pair| pair == b"\n\n").map(|split| String::from_utf8_lossy(&raw[split + 2..]).to_string()).unwrap_or_default();
         let first = message.split('\n').next().unwrap_or("").trim_end_matches('\r').to_string();
-        let before_plan = !planned;
-        if is_plan_commit(&first) {
-            planned = true;
-        }
         // The role the commit needs: `start` for a stamp or a marker, `accept` for a commit of `wb plan` (#327).
         let (what, role) = if is_entry(&first) {
             ("a stamp or a marker", Some("start"))
@@ -357,7 +353,7 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
             of_this_repository(root, &message, &sources, label.as_ref())?;
             Ok(by)
         });
-        let again = counts.is_err() && before_plan && signed_ok && of_this_issue(&message, name).is_ok() && of_this_repository(root, &message, &[], None).is_ok();
+        let again = counts.is_err() && signed_ok && of_this_issue(&message, name).is_ok() && of_this_repository(root, &message, &[], None).is_ok();
         ledger.entries.push(Entry { commit, first, message, counts, again });
     }
     // The first commit that is not as `wb` writes it, on the line of first parents from the oldest (the review of #328):

@@ -318,7 +318,12 @@ const USAGE: &str = "usage:
             puts the issue under Planned. For one issue it says source
             changed where issue_text, the pattern that read the newest
             source of its plan, prints other text now: a person runs wb
-            plan add again, and wb status takes nothing in.
+            plan add again, and wb status takes nothing in. An issue whose
+            last session ended needing a person, written as a signed commit
+            on its ref, is listed under Needs a person with its reason on one
+            line, and <issue> prints waits for: person (<reason>); it stays
+            until the next start of any role on the issue, and a questions
+            commit, an answers commit, a flag or a comment does not close it.
             <issue> prints that issue, in the flow or not, with its title
             (issue_address) and what it was worked out from; --stage <heading>
             prints that heading only, whatever its case. A job whose work is

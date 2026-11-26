@@ -608,6 +608,10 @@ pub fn post_written(ended: &Ended, written: Written, err: &mut dyn Write) -> i32
         Ok(None) => {}
         Ok(Some(text)) if says_none(&text) => {}
         Ok(Some(text)) => {
+            // The commit on the job's ref first (#311), so that `wb status` says it; its comment is posted all the same.
+            if let Err(why) = record_needs_person(ended, &text, err) {
+                limit(err, format!("what {} holds is not written on the job's ref: {}. It reads:\n{}", crate::view::NEEDS_PERSON, why, with_end(&text)));
+            }
             if let Err(why) = post_needs_person(ended, &text, err) {
                 limit(err, format!("what {} holds is not posted: {}", crate::view::NEEDS_PERSON, why));
             }
@@ -711,6 +715,20 @@ fn post_change_comment(ended: &Ended, text: &str, err: &mut dyn Write) -> Result
     let comment = format!("[{}] {} round {}\n{}", role, on, round, with_end(text));
     let change_on = On { word: "change", value: change, bodies: "change_comment_bodies", lines: "change_comments", post: "change_comment" };
     say_and_post(ended, &change_on, "change_comment", &comment, err).map_err(Held::Failed)
+}
+
+/// Writes what a session ended needing a person for as a commit on the job's ref, after its stamp and its questions
+/// (#311), signed with the role `start` and pushed as the questions are: for an issue only. The error says why not.
+fn record_needs_person(ended: &Ended, text: &str, err: &mut dyn Write) -> Result<(), String> {
+    let (Some(issue), Some(signing)) = (ended.session.issue, ended.signing) else { return Ok(()) };
+    let on = ended.session.on().ok_or("there is no issue to write it on")?;
+    let ledger = crate::stamps::read(ended.root, issue)?;
+    if let Some(why) = &ledger.broken {
+        return Err(why.clone());
+    }
+    let copy = format!("[needs_person] {}\n{}", ended.session.prefix(&on), with_end(text));
+    let message = crate::stamps::thread_message(ended.root, issue, &copy)?;
+    crate::stamps::write(ended.name, ended.root, issue, &message, &crate::stamps::Held::NeedsPerson, signing, err).map(|_| ())
 }
 
 /// Posts what only a person can settle on the issue, or on the change where the issue is none, under a first line

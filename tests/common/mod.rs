@@ -345,15 +345,22 @@ pub fn stand_in(source: &str, program: &Path, args: &[&str]) -> std::process::Ch
 /// first line such as `[stamp] review round 1` and any lines after it. The ref is moved with no check of what it was.
 pub fn stamps_on_ref(folder: &Path, issue: &str, messages: &[&str]) {
     signing(folder);
-    commits_on_ref(folder, issue, messages, true);
+    commits_on_ref(folder, issue, messages, true, false);
+}
+
+/// As `stamps_on_ref`, and each message is the whole commit message as given: no line `issue:`, `job:` or `base:` is put
+/// in, so that a test can write a commit that names another issue alone, or a base of another repository (#311).
+pub fn stamps_on_ref_as_given(folder: &Path, issue: &str, messages: &[&str]) {
+    signing(folder);
+    commits_on_ref(folder, issue, messages, true, true);
 }
 
 /// As `stamps_on_ref`, and each commit unsigned: a stamp that counts for nothing (WB-BUILD-48, WB-TASK-58).
 pub fn unsigned_stamps_on_ref(folder: &Path, issue: &str, messages: &[&str]) {
-    commits_on_ref(folder, issue, messages, false);
+    commits_on_ref(folder, issue, messages, false, false);
 }
 
-fn commits_on_ref(folder: &Path, issue: &str, messages: &[&str], signed: bool) {
+fn commits_on_ref(folder: &Path, issue: &str, messages: &[&str], signed: bool, as_given: bool) {
     let full = format!("refs/watchbill/{}", issue);
     let run = |args: &[&str], input: &[u8]| -> String {
         let mut child = Command::new("git")
@@ -388,13 +395,13 @@ fn commits_on_ref(folder: &Path, issue: &str, messages: &[&str], signed: bool) {
         let mut body = if message.ends_with('\n') { message.to_string() } else { format!("{}\n", message) };
         // Every stamp and marker names its issue, as `wb` writes it: a commit counts only on the ref of its issue.
         let named = format!("issue: {}", issue);
-        if !body.lines().any(|line| line == named) {
+        if !as_given && !body.lines().any(|line| line == named) {
             let (first, rest) = body.split_once('\n').unwrap_or((body.as_str(), ""));
             body = format!("{}\n{}\n{}", first, named, rest);
         }
         // And its job and its base (#324), as `wb` writes them: the hashes of the plan the commit before holds, `none`
         // where there is none, and the commit `HEAD` is at.
-        if !body.lines().any(|line| line.starts_with("job:")) {
+        if !as_given && !body.lines().any(|line| line.starts_with("job:")) {
             let ask = |args: &[String]| Command::new("git").arg("-C").arg(folder).args(args).env_clear().envs(env()).stderr(Stdio::null()).output().expect("git could not be started");
             let hashes: String = match &parent {
                 Some(commit) if ask(&["cat-file".to_string(), "-e".to_string(), format!("{}:removed", commit)]).status.success() => String::new(),
@@ -411,7 +418,7 @@ fn commits_on_ref(folder: &Path, issue: &str, messages: &[&str], signed: bool) {
             let (first, rest) = body.split_once('\n').unwrap_or((body.as_str(), ""));
             body = format!("{}\n{}{}", first, hashes, rest);
         }
-        if !body.lines().any(|line| line.starts_with("base:")) {
+        if !as_given && !body.lines().any(|line| line.starts_with("base:")) {
             let head = Command::new("git").arg("-C").arg(folder).args(["rev-parse", "--verify", "-q", "HEAD"]).env_clear().envs(env()).output().expect("git could not be started");
             let head = String::from_utf8_lossy(&head.stdout).trim().to_string();
             let (first, rest) = body.split_once('\n').unwrap_or((body.as_str(), ""));
@@ -483,7 +490,7 @@ fn git_with(folder: &Path, args: &[&str], envs: &[(&str, &str)], input: &[u8]) -
 }
 
 /// What git printed in `folder`, trimmed, where it ended with 0.
-fn git_text(folder: &Path, args: &[&str]) -> Option<String> {
+pub fn git_text(folder: &Path, args: &[&str]) -> Option<String> {
     let run = git_with(folder, args, &[], b"");
     run.status.success().then(|| String::from_utf8_lossy(&run.stdout).trim().to_string())
 }

@@ -719,10 +719,10 @@ fn is_removed(root: &str, commit: &str) -> bool {
     git(root, &["cat-file", "-e", &format!("{}:{}", commit, REMOVED)], None).is_ok()
 }
 
-/// Where the commit `tip` holds the marker of a plan removed: the short id of the commit that removed it, and the hash
+/// Where the commit `tip` holds the marker of a plan removed: the commit that removed it, its short id, and the hash
 /// of each source of the plan the commit before held (#329). The commit is found by following the first parents while
 /// they hold the marker. `None` where `tip` is not removed, or no such commit is found.
-pub(crate) fn removed_plan(root: &str, tip: &str) -> Option<(String, Vec<String>)> {
+pub(crate) fn removed_plan(root: &str, tip: &str) -> Option<(String, String, Vec<String>)> {
     let mut at = tip.to_string();
     for _ in 0..crate::stamps::MOST {
         if !is_removed(root, &at) {
@@ -731,7 +731,7 @@ pub(crate) fn removed_plan(root: &str, tip: &str) -> Option<(String, Vec<String>
         let parent = git_line(root, &["rev-parse", "--verify", "-q", &format!("{}^", at)], None).ok()?;
         if !is_removed(root, &parent) {
             let short = git_line(root, &["rev-parse", "--short", &at], None).ok()?;
-            return Some((short, source_hashes_at(root, &parent)));
+            return Some((at, short, source_hashes_at(root, &parent)));
         }
         at = parent;
     }
@@ -1311,8 +1311,18 @@ pub fn remove(root: &str, name: &str, state: Option<&Path>, out: &mut dyn Write,
         if roles.is_empty() {
             let _ = writeln!(out, "  no round on {} is counted now, so none stops counting", full);
         } else {
-            let said: Vec<String> = roles.iter().map(|(role, count)| format!("{} {}", crate::issue::shown(role), count)).collect();
-            let _ = writeln!(out, "  the rounds on {} stop counting, as the plan is removed: {}", full, said.join(", "));
+            let _ = writeln!(out, "  the rounds on {} stop counting, as the plan is removed: {}", full, per_role(&roles));
+        }
+        // The rounds made before the plan was added, with `job: none`, count again once it is removed.
+        let mut again: Vec<(String, u64)> = Vec::new();
+        for (role, _) in ledger.counting_again() {
+            match again.iter_mut().find(|(each, _)| *each == role) {
+                Some((_, count)) => *count += 1,
+                None => again.push((role, 1)),
+            }
+        }
+        if !again.is_empty() {
+            let _ = writeln!(out, "  the rounds on {} count again, as the plan is removed: {}", full, per_role(&again));
         }
     }
     crate::interrupt::writing();
@@ -1345,6 +1355,11 @@ pub fn remove(root: &str, name: &str, state: Option<&Path>, out: &mut dyn Write,
         crate::refusal::inform(out, format_args!("Wrote {}: moved to commit {}.", full, commit));
     }
     0
+}
+
+/// `tester 2, review 1`: each role with its number of rounds.
+fn per_role(roles: &[(String, u64)]) -> String {
+    roles.iter().map(|(role, count)| format!("{} {}", crate::issue::shown(role), count)).collect::<Vec<_>>().join(", ")
 }
 
 /// The text of a plan for its planner (#290, decision 1): every source in the order it was added. One source whose

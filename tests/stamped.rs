@@ -1038,7 +1038,7 @@ fn test_WB_BUILD_164_where_the_plan_is_removed_only_job_none_counts() {
 
     let status = bench.status();
 
-    assert!(status_of(&bench, "[stamp] tester round 1").contains("not counted: made under the plan removed in"), "{}", status);
+    assert!(status_of(&bench, "[stamp] tester round 1").contains("not counted: a stamp of another repository"), "{}", status);
     assert!(status_of(&bench, "[stamp] review round 1").contains("signed by"), "{}", status);
 }
 

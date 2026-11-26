@@ -65,10 +65,16 @@ pub struct Entry {
     pub message: String,
     /// Whether it counts: by whom it is signed, or why it does not.
     pub counts: Result<String, String>,
+    /// Whether it does not count while the plan is there, but would where the plan is removed: it is signed, of this
+    /// issue and repository, made before any commit of `wb plan`, and holds `job: none` (#329).
+    pub again: bool,
 }
 
 /// Why a stamp or a marker does not count where the list is missing: the reason is said once, as `Ledger::missing`.
 const NOTHING_SIGNED: &str = "nothing is signed";
+
+/// The start of why a stamp of a plan removed does not count (#329).
+const MADE_UNDER: &str = "made under the plan removed in ";
 
 /// The stamps and the markers on a job's ref, oldest first.
 #[derive(Clone, Debug)]
@@ -92,6 +98,13 @@ impl Ledger {
     /// The role and the round of each stamp that counts, with what a marker took back left out (`starter::counted`).
     pub fn stamps(&self) -> Vec<(String, u64)> {
         crate::starter::stamps_in(&self.lines())
+    }
+
+    /// The role and the round of each stamp that does not count while the plan is there and counts again where it is
+    /// removed (#329).
+    pub fn counting_again(&self) -> Vec<(String, u64)> {
+        let lines: String = self.entries.iter().filter(|entry| entry.again && entry.counts.is_err()).map(|entry| format!("{}\n", entry.first)).collect();
+        crate::starter::stamps_in(&lines)
     }
 
     /// The stamps as the round is worked out from them: on the ref, and printed by no pattern.
@@ -269,7 +282,13 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
     let mut note = |commit: &str, why: String| {
         faults.entry(commit.to_string()).or_insert(why);
     };
+    // Where the walk is: whether it has passed the commit that removed the plan, and the first commit of `wb plan`.
+    let (mut passed_removal, mut planned) = (false, false);
     for (commit, raw) in read {
+        let after_removal = passed_removal;
+        if removed.as_ref().is_some_and(|(at, _, _)| *at == commit) {
+            passed_removal = true;
+        }
         let parents = parents_of.get(commit.as_str()).copied().unwrap_or(&[]);
         // A commit over the cap is not read, and so is no stamp: it is said, not left out unseen.
         let raw = match raw {
@@ -278,12 +297,16 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
                 note(&commit, format!("is larger than 64 KiB ({} bytes), so it is not read", size));
                 let first = format!("commit {}", commit);
                 let counts = Err(format!("larger than 64 KiB ({} bytes), so it is not read", size));
-                ledger.entries.push(Entry { commit, first, message: String::new(), counts });
+                ledger.entries.push(Entry { commit, first, message: String::new(), counts, again: false });
                 continue;
             }
         };
         let message = raw.windows(2).position(|pair| pair == b"\n\n").map(|split| String::from_utf8_lossy(&raw[split + 2..]).to_string()).unwrap_or_default();
         let first = message.split('\n').next().unwrap_or("").trim_end_matches('\r').to_string();
+        let before_plan = !planned;
+        if is_plan_commit(&first) {
+            planned = true;
+        }
         // The role the commit needs: `start` for a stamp or a marker, `accept` for a commit of `wb plan` (#327).
         let (what, role) = if is_entry(&first) {
             ("a stamp or a marker", Some("start"))
@@ -326,12 +349,16 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
             (Keys::List(_), Some(verdict)) => verdict,
             (Keys::List(_), None) => Err("its signature could not be checked".to_string()),
         };
+        let signed_ok = signed.is_ok();
+        // The label of a plan removed goes only to a stamp before the commit that removed it.
+        let label = if after_removal { None } else { removed.as_ref().map(|(_, short, before)| (short.clone(), before.clone())) };
         let counts = signed.and_then(|by| {
             of_this_issue(&message, name)?;
-            of_this_repository(root, &message, &sources, removed.as_ref())?;
+            of_this_repository(root, &message, &sources, label.as_ref())?;
             Ok(by)
         });
-        ledger.entries.push(Entry { commit, first, message, counts });
+        let again = counts.is_err() && before_plan && signed_ok && of_this_issue(&message, name).is_ok() && of_this_repository(root, &message, &[], None).is_ok();
+        ledger.entries.push(Entry { commit, first, message, counts, again });
     }
     // The first commit that is not as `wb` writes it, on the line of first parents from the oldest (the review of #328):
     // a merge is one in itself, so a side chain is named by its merge, and the commit before the one named is always
@@ -352,7 +379,8 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
         }
     });
     if let Some((commit, why)) = first_bad {
-        for entry in ledger.entries.iter_mut().filter(|entry| entry.counts.is_ok()) {
+        // A stamp is not said to be made under a plan removed where the commit that removed it may not be wb's (#329).
+        for entry in ledger.entries.iter_mut().filter(|entry| entry.counts.is_ok() || entry.counts.as_ref().is_err_and(|why| why.starts_with(MADE_UNDER))) {
             entry.counts = Err("nothing on the ref counts, as the line below says".to_string());
         }
         ledger.broken = Some(said(format!("its commit {} {}", commit, crate::issue::shown(&why))));
@@ -446,7 +474,7 @@ fn of_this_repository(root: &str, message: &str, sources: &[String], removed: Op
         // Lines that are a start of the sources of the plan removed on this ref are that plan's own stamps (#329).
         if let Some((short, before)) = removed {
             if !held.is_empty() && held.len() <= before.len() && held.iter().zip(before).all(|(held, source)| *held == source.as_str()) {
-                return Err(format!("made under the plan removed in {}", short));
+                return Err(format!("{}{}", MADE_UNDER, short));
             }
         }
         return Err(format!("{}: its lines `job:` are not those of the job this repository holds on its ref", OTHER));

@@ -160,7 +160,9 @@ pub const USAGE: &str = "usage:
             repository is not set up. wb plan list prints each plan once, by
             its first name, one to a line, and nothing else; a plan removed is
             not listed, and a ref under refs/watchbill/ that is not a job is
-            passed over and said on standard error. wb plan show <name> prints
+            passed over and said on standard error. A plan whose tip says
+            removed, on a ref that is not as wb writes it, is said on standard
+            error as unknown. wb plan show <name> prints
             the plan's names, each source with its hash, where it came from,
             whether its text is kept, its level, who added it and when, then
             the issue's file .watchbill/issues/<name>.yml, read where wb
@@ -169,7 +171,10 @@ pub const USAGE: &str = "usage:
             (edited after the acceptance), not accepted (a source added after
             the acceptance), not accepted (planned again after the
             acceptance), or accepted by whom and when; the planner's stamps
-            are read from the job's ref. A source or a [stamp]
+            are read from the job's ref. Where the tip of a ref that is not as
+            wb writes it says the plan is removed, it prints the plan's name,
+            the line that names the first commit that is not and state: unknown,
+            and ends with 0 as it does for a bad ref with a live plan. A source or a [stamp]
             planner of the same second as the acceptance or later voids it,
             and no prompt of the issue is handed out until wb plan accept
             again; a stamp that a [revert] took back counts for nothing. wb
@@ -183,6 +188,8 @@ pub const USAGE: &str = "usage:
             the issue's file, also one with no plan, as above. wb plan remove
             <name> adds a commit with the marker removed after the plan's, moves
             every name of it there, and rewrites nothing; the name stays taken.
+            It says first, for each ref it moves, which rounds stop counting
+            and which count again.
             It is refused while a branch of any of its names holds work the
             default branch does not, or this machine keeps a view of it with
             work not taken back. A name with / has no issue's file until point

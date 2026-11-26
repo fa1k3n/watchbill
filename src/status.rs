@@ -790,7 +790,7 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, look:
     for number in issues {
         match read_issue(root, &number, &patterns, &all, &flow, &default, only.is_some(), starts.as_ref()) {
             // A job whose ref is not as `wb writes it is not read: nothing on it counts, and it is never left out (#284).
-            Ok(found) if only.is_none() && found.broken.is_some() => failed.push((issue::shown(&number), issue::shown(found.broken.as_deref().unwrap_or("")))),
+            Ok(found) if found.broken.is_some() => failed.push((issue::shown(&number), issue::shown(found.broken.as_deref().unwrap_or("")))),
             Ok(found) => read.push(found),
             Err(why) => failed.push((issue::shown(&number), issue::shown(&why))),
         }
@@ -828,17 +828,19 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, look:
         for found in jobs.iter().filter(|found| only.is_none() || (found.listed() && found.branch.is_some())) {
             text.push_str(&short_line(found, color));
         }
+        for (number, why) in &failed {
+            let _ = writeln!(err, "wb status: issue {} was not read: {}", number, why);
+        }
         if show_failed {
-            for (number, why) in &failed {
+            for (number, _) in &failed {
                 text.push_str(&if color { format!("\x1b[31m**\x1b[m {}\n", number) } else { format!("** {}\n", number) });
-                let _ = writeln!(err, "wb status: issue {} was not read: {}", number, why);
             }
         }
         let _ = out.write_all(text.as_bytes());
         kept_count(root, only, state, err);
         return failed_code;
     }
-    for (number, why) in failed.iter().filter(|_| show_failed) {
+    for (number, why) in &failed {
         let _ = writeln!(err, "wb status: issue {} was not read: {}", number, why);
     }
     let mut sections: Vec<String> = Vec::new();

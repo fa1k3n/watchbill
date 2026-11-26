@@ -505,7 +505,7 @@ fn test_WB_ANSWER_27_an_answer_commit_that_is_unsigned_answers_nothing_and_statu
     let out = out_of(&run);
     assert!(out.contains("is not as wb writes it") && out.contains("is an answer commit, and unsigned"), "{}", out);
     assert!(!out.contains("waits for"), "{}", out);
-    assert!(out.contains("[answers] 54.tester q1>tester q2>tester  (on refs/watchbill/54, not counted: "), "{}", out);
+    assert!(out.starts_with("Not read:\n  54  "), "{}", out);
 }
 
 #[test]

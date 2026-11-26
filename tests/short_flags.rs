@@ -526,7 +526,7 @@ fn help(command: &str) -> String {
 
 #[test]
 fn test_WB_CMD_42_the_usage_and_the_help_of_each_command_name_q_and_quiet() {
-    assert_eq!(built().len(), 15);
+    assert_eq!(built().len(), 16);
     for command in built() {
         let words: Vec<String> = help(&command).split(|c: char| c.is_whitespace() || "[]()|".contains(c)).map(String::from).collect();
         assert!(words.iter().any(|word| word == "-q"), "{}", command);

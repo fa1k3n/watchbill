@@ -33,6 +33,7 @@ const USAGE: &str = "usage:
             or --session <hash> [-q | --quiet]
   wb view <issue> (<role> [--in | --out] | <path>) [-q | --quiet]
             or --kept [-v | --verbose]
+  wb log <issue> [--oneline] [-q | --quiet]
   wb answer (<issue> | --change <n>) [--show | [--suggested] [<question> <answer>]...]
             [-q | --quiet]
   wb revert (<issue> | --change <n>) <role> [--round <n>] [-q | --quiet]
@@ -378,6 +379,26 @@ const USAGE: &str = "usage:
             was used wrongly (a file given as the folder too) or the
             repository is not set up. Writes nothing. -q (--quiet) is taken
             and changes nothing: what it prints is what a script reads
+  log       show what was done to an issue, as git log shows a branch, from
+            the job's ref and git alone: wb log <issue> prints one entry for
+            each commit of refs/watchbill/<issue> that counts, oldest first. A
+            stamp says its role, round, model, effort, revision and time, who
+            signed it, and, where this machine holds the lines of its start,
+            how the session ended, else 'not known on this machine'; the
+            commits that a note of refs/notes/watchbill names for it are
+            listed and said to be notes, which are not signed: they count for
+            nothing and are no entry. The questions, the answers and a
+            needs_person commit are entries that name which, or the reason; a
+            [revert] marker says what it took back, and a stamp it took back
+            stays and says so. A commit that does not
+            count is no entry: it is said on standard error, and a job's ref
+            that is not as wb writes it prints nothing and says so, as wb
+            status does. --oneline gives one line to each entry. Ends with 0
+            when the history is printed, 1 when the issue has none or a commit
+            did not count, 2 when it was used wrongly or the repository is not
+            set up. It only reads: it writes nothing and asks nothing of the
+            network or of a tracker. -q (--quiet) is taken and changes
+            nothing: what it prints is what a script reads
   revert    take an issue back to before a step, deleting nothing:
             wb revert <issue> <role> [--round <n>] writes one marker whose
             first line is [revert] <role> round <n>, for the last stamp of the

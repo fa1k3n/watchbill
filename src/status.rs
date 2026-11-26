@@ -580,7 +580,7 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
 /// A reason as one line (#311): each run of white space as one space, escaped as every text of `wb status` is, and cut
 /// so that the line is at most `REASON_LIMIT` characters as printed, the `...` among them. The cut is made between the
 /// escaped characters, never inside an escape.
-fn reason_line(reason: &str) -> String {
+pub(crate) fn reason_line(reason: &str) -> String {
     let one: String = reason.split_whitespace().collect::<Vec<_>>().join(" ");
     let pieces: Vec<String> = one.chars().map(|c| issue::shown(&c.to_string())).collect();
     if pieces.iter().map(|piece| piece.chars().count()).sum::<usize>() <= REASON_LIMIT {
@@ -635,15 +635,20 @@ fn line_of(found: &Found) -> String {
 /// `HEAD`. Where the file is not in `HEAD` at all, the repository is not set up: 2, and no refusal; a file of `HEAD` over
 /// its bound is a limit (#261), 1. Shared with `wb status --session` (#239).
 pub(crate) fn read_only(root: &str, err: &mut dyn Write) -> Result<starter::ReadOnly, i32> {
+    read_only_as("wb status", root, err)
+}
+
+/// `read_only` for the command `name` (`wb log`, #177 reads as `wb status` does).
+pub(crate) fn read_only_as(name: &str, root: &str, err: &mut dyn Write) -> Result<starter::ReadOnly, i32> {
     match starter::read_only(root) {
         Err(not_read) if not_read.status == 2 => {
-            let _ = writeln!(err, "wb status: {}.", not_read.why);
+            let _ = writeln!(err, "{}: {}.", name, not_read.why);
             Err(not_read.status)
         }
-        Err(not_read) => Err(crate::refusal::limit(err, "wb status", format_args!("{}.", not_read.why))),
+        Err(not_read) => Err(crate::refusal::limit(err, name, format_args!("{}.", not_read.why))),
         Ok((guard, differs)) => {
             if differs {
-                let _ = writeln!(err, "{}", starter::drift_line("wb status"));
+                let _ = writeln!(err, "{}", starter::drift_line(name));
             }
             Ok(guard)
         }

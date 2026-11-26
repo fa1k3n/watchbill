@@ -536,11 +536,20 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
     Ok(ledger)
 }
 
-/// Whether `first` is a first line that `wb start` writes for a needs_person on the ref of `issue`: `[needs_person] <issue>`
-/// for the planner, `[needs_person] <issue>.<role>` for a role of `ROLES` (#311).
+/// The role of a first line that `wb start` writes for a needs_person on the ref of `issue`: `[needs_person] <issue>`
+/// for the planner (`Some(None)`), `[needs_person] <issue>.<role>` for a role of `ROLES` (`Some(Some(role))`) (#311). The
+/// name of the issue is taken whole first, as it may hold a dot. `None` where the line is neither.
+pub(crate) fn needs_person_role<'a>(first: &'a str, issue: &str) -> Option<Option<&'a str>> {
+    let rest = first.strip_prefix("[needs_person] ")?.strip_prefix(issue)?;
+    if rest.is_empty() {
+        return Some(None);
+    }
+    rest.strip_prefix('.').filter(|role| crate::issue::ROLES.contains(role)).map(Some)
+}
+
+/// Whether `first` is a first line that `wb start` writes for a needs_person on the ref of `issue` (`needs_person_role`).
 fn is_needs_person_line(first: &str, issue: &str) -> bool {
-    let Some(rest) = first.strip_prefix("[needs_person] ").and_then(|rest| rest.strip_prefix(issue)) else { return false };
-    rest.is_empty() || rest.strip_prefix('.').is_some_and(|role| crate::issue::ROLES.contains(&role))
+    needs_person_role(first, issue).is_some()
 }
 
 /// Checks the tree `tree` of a stamp or a marker whose first line is `first` against `parent`, the tree of the commit

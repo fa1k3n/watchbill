@@ -281,9 +281,9 @@ fn test_WB_TASK_52_a_commit_after_the_record_voids_it() {
     git(&folder.path, &["add", "--", "src/more.c"]);
     git(&folder.path, &["commit", "-q", "-m", "More"]);
     let list = out_of(&wb(&folder.path, &["status"], ""));
-    assert!(list.starts_with("Built:\n  54  issue-54-work") && list.lines().count() == 2, "{}", list);
+    assert!(list.starts_with("Jobs in the flow:\n\t54  issue-54-work  built") && list.lines().count() == 2, "{}", list);
     let one = out_of(&wb(&folder.path, &["status", "54"], ""));
-    assert!(one.starts_with("Built:\n"), "{}", one);
+    assert!(one.starts_with("Jobs in the flow:\n"), "{}", one);
     assert!(!one.contains("accepted: the work"), "{}", one);
     // It can be accepted again: the record is void, but it is there, and is never written over.
     assert_eq!(code(&wb(&folder.path, &["accept", "54"], "")), Some(1));
@@ -342,19 +342,19 @@ fn test_WB_STATUS_89_a_merged_job_is_not_listed_and_wb_status_of_it_says_done_an
     let run = wb(&folder.path, &["status", "54"], "");
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
     let out = out_of(&run);
-    assert!(out.starts_with("Done:\n  54\n"), "{}", out);
+    assert!(out.starts_with("Done:\n\t54\n"), "{}", out);
     assert!(out.contains(&format!("merged: into {}", main)), "{}", out);
 }
 
 #[test]
-fn test_WB_STATUS_123_a_job_that_is_done_waits_for_no_one() {
+fn test_WB_STATUS_118_a_job_that_is_done_waits_for_no_one() {
     let folder = done_job();
     stamps_on_ref(&folder.path, "54", &["[needs_person] 54.build\n\nThe part is not there.\n"]);
 
     let out = out_of(&wb(&folder.path, &["status", "54"], ""));
 
-    assert!(out.starts_with("Done:\n  54"), "{}", out);
-    assert!(!out.contains("waits for: person") && !out.contains("Needs a person"), "{}", out);
+    assert!(out.starts_with("Done:\n\t54"), "{}", out);
+    assert!(!out.contains("waits for: person") && !out.contains("needs a person"), "{}", out);
 }
 
 #[test]
@@ -366,7 +366,7 @@ fn test_WB_STATUS_90_a_squash_merged_job_is_done_too() {
     git(&folder.path, &["merge", "-q", "--squash", "issue-54-work"]);
     git(&folder.path, &["commit", "-q", "-m", "Squashed"]);
     assert_eq!(out_of(&wb(&folder.path, &["status"], "")), "");
-    assert!(out_of(&wb(&folder.path, &["status", "54"], "")).starts_with("Done:\n  54\n"));
+    assert!(out_of(&wb(&folder.path, &["status", "54"], "")).starts_with("Done:\n\t54\n"));
 }
 
 #[test]
@@ -374,7 +374,7 @@ fn test_WB_STATUS_91_a_job_whose_work_is_accepted_is_not_listed_and_wb_status_of
     let folder = done_job();
     assert_eq!(out_of(&wb(&folder.path, &["status"], "")), "");
     let out = out_of(&wb(&folder.path, &["status", "54"], ""));
-    assert!(out.starts_with("Done:\n  54  issue-54-work"), "{}", out);
+    assert!(out.starts_with("Done:\n\t54  issue-54-work"), "{}", out);
     assert!(!out.contains("merged:"), "{}", out);
 }
 
@@ -422,7 +422,7 @@ fn test_WB_STATUS_96_with_no_branch_of_the_issue_left_a_file_on_the_default_bran
     issues_ready(&folder.path, &["54"]);
     comments(&folder.path, "54", &BUILT);
     let out = out_of(&wb(&folder.path, &["status", "54"], ""));
-    assert!(out.starts_with("Built:\n  54\n"), "{}", out);
+    assert!(out.starts_with("Jobs in the flow:\n\t54  built\n"), "{}", out);
     assert!(!out.contains("merged:"), "{}", out);
 }
 
@@ -515,7 +515,7 @@ fn test_WB_STATUS_91_accepted_work_that_is_merged_is_done_with_its_branches_dele
     git(&folder.path, &["branch", "-q", "-D", "issue-54-work"]);
     assert_eq!(out_of(&wb(&folder.path, &["status"], "")), "");
     let out = out_of(&wb(&folder.path, &["status", "54"], ""));
-    assert!(out.starts_with("Done:\n  54\n") && out.contains("accepted: the work "), "{}", out);
+    assert!(out.starts_with("Done:\n\t54\n") && out.contains("accepted: the work "), "{}", out);
     let run = wb(&folder.path, &["revert", "54", "build"], "");
     assert_eq!(code(&run), Some(1), "{}", out_of(&run));
     assert!(!folder.path.join(".tracker/54.bodies").exists());
@@ -540,9 +540,9 @@ fn test_WB_TASK_52_new_work_on_a_branch_of_the_issue_after_the_record_was_merged
     git(&folder.path, &["commit", "-q", "-m", "More"]);
     git(&folder.path, &["checkout", "-q", &main]);
     let list = out_of(&wb(&folder.path, &["status"], ""));
-    assert!(list.starts_with("Built:\n  54  issue-54-work"), "{}", list);
+    assert!(list.starts_with("Jobs in the flow:\n\t54  issue-54-work  built"), "{}", list);
     let one = out_of(&wb(&folder.path, &["status", "54"], ""));
-    assert!(one.starts_with("Built:\n"), "{}", one);
+    assert!(one.starts_with("Jobs in the flow:\n"), "{}", one);
     let run = wb(&folder.path, &["revert", "54", "build"], "");
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
 }

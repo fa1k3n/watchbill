@@ -456,7 +456,7 @@ fn test_WB_TASK_32_with_no_signing_key_accept_of_the_work_ends_with_1_and_writes
 fn test_WB_TASK_33_a_tag_signed_by_a_key_the_list_holds_with_accept_is_an_acceptance() {
     let bench = accepted();
     let status = bench.status();
-    assert!(status.starts_with("Accepted:\n  54  issue-54-work"), "{}", status);
+    assert!(status.starts_with("Jobs in the flow:\n\t54  issue-54-work  accepted"), "{}", status);
     assert!(status.contains(&format!("{}: signed by ada@example.org, with the role accept in .watchbill/signers of main", bench.tag())), "{}", status);
     let run = bench.prompt("tester");
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
@@ -469,7 +469,7 @@ fn test_WB_TASK_34_an_unsigned_tag_counts_for_nothing_and_status_says_it_is_unsi
     bench.tag_again(&tag, &["-a", "--no-sign"]);
     assert!(!bench.git(&["cat-file", "tag", &tag]).contains("SIGNATURE"));
     let status = bench.status();
-    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.starts_with("Jobs waiting for you:\n") && status.contains("  planned"), "{}", status);
     assert!(status.contains(&format!("{}: unsigned", tag)), "{}", status);
     assert!(!status.contains("accepted: the issue's file"), "{}", status);
 }
@@ -481,7 +481,7 @@ fn test_WB_TASK_34_a_tag_signed_by_a_key_not_in_the_list_counts_for_nothing_and_
     let bob = bench.key("bob");
     bench.tag_again(&tag, &["-s", "-u", bob.to_str().unwrap()]);
     let status = bench.status();
-    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.starts_with("Jobs waiting for you:\n") && status.contains("  planned"), "{}", status);
     assert!(status.contains(&format!("{}: signed by a key that is not in .watchbill/signers of main", tag)), "{}", status);
 }
 
@@ -490,7 +490,7 @@ fn test_WB_TASK_34_a_tag_signed_by_a_key_without_accept_counts_for_nothing_and_s
     let bench = accepted();
     bench.signers_on_main(&bench.line("ada@example.org", "start,answer", "ada"));
     let status = bench.status();
-    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.starts_with("Jobs waiting for you:\n") && status.contains("  planned"), "{}", status);
     assert!(status.contains(&format!("{}: signed by the key of ada@example.org, which .watchbill/signers of main holds without the role accept", bench.tag())), "{}", status);
 }
 
@@ -500,7 +500,7 @@ fn test_WB_TASK_34_an_acceptance_with_no_tag_counts_for_nothing_where_the_list_i
     let tag = bench.tag();
     bench.git(&["tag", "-d", tag.strip_prefix("refs/tags/").unwrap()]);
     let status = bench.status();
-    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.starts_with("Jobs waiting for you:\n") && status.contains("  planned"), "{}", status);
     assert!(status.contains(&format!("{} is not there", tag)), "{}", status);
 }
 
@@ -516,7 +516,7 @@ fn test_WB_TASK_34_a_work_accepted_with_an_unsigned_tag_is_not_done() {
     let tag = bench.refs("refs/tags/watchbill/finished/").pop().unwrap();
     bench.tag_again(&tag, &["-a", "--no-sign"]);
     let status = bench.status();
-    assert!(status.starts_with("Built:\n"), "{}", status);
+    assert!(status.starts_with("Jobs in the flow:\n") && status.contains("  built"), "{}", status);
     assert!(status.contains(&format!("{}: unsigned", tag)), "{}", status);
 }
 
@@ -528,14 +528,14 @@ fn test_WB_TASK_34_text_after_a_marker_of_a_signature_in_the_message_makes_it_no
     let target = bench.git(&["rev-parse", &format!("{}^{{}}", tag)]).trim().to_string();
     bench.tag_as(&tag, &["-s"], &message, &target);
     let status = bench.status();
-    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.starts_with("Jobs waiting for you:\n") && status.contains("  planned"), "{}", status);
     assert!(status.contains(&format!("{}: its message is not that of the acceptance", tag)), "{}", status);
 }
 
 /// The words `wb status 54` says of the tag of the acceptance, which must count for nothing.
 fn void_by(bench: &Bench, words: &str) {
     let status = bench.status();
-    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.starts_with("Jobs waiting for you:\n") && status.contains("  planned"), "{}", status);
     assert!(status.contains(&format!("{}: {}", bench.tag(), words)), "{}", status);
     assert_eq!(code(&bench.prompt("tester")), Some(1));
 }
@@ -611,7 +611,7 @@ fn test_WB_TASK_36_a_list_on_main_with_a_comma_or_a_pattern_makes_every_acceptan
     let key = bench.public("ada");
     bench.signers_on_main(&format!("eve@example.org,ada@example.org roles=\"accept\" {}\n", key));
     let status = bench.status();
-    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.starts_with("Jobs waiting for you:\n") && status.contains("  planned"), "{}", status);
     assert!(status.contains(".watchbill/signers of main cannot be read: line 1:"), "{}", status);
     assert_eq!(code(&bench.prompt("tester")), Some(1));
 
@@ -709,7 +709,7 @@ fn test_WB_TASK_36_a_tag_checks_by_the_list_of_the_default_branch_not_by_the_one
     bench.signers_on_main(&bench.line("bob@example.org", "accept", "bob"));
     assert!(read(&bench.at(SIGNERS)).contains("ada@example.org"));
     let status = bench.status();
-    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.starts_with("Jobs waiting for you:\n") && status.contains("  planned"), "{}", status);
     assert!(status.contains("not in .watchbill/signers of main"), "{}", status);
 }
 
@@ -778,7 +778,7 @@ fn test_WB_TASK_36_a_replace_of_the_issues_file_by_the_blob_accepted_is_not_foll
     let edited_blob = bench.git(&["rev-parse", &format!("HEAD:{}", YML)]).trim().to_string();
     bench.git(&["replace", &edited_blob, &accepted_blob]);
     let status = bench.status();
-    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.starts_with("Jobs waiting for you:\n") && status.contains("  planned"), "{}", status);
     assert!(!status.contains("signed by ada@example.org"), "{}", status);
 }
 
@@ -872,7 +872,7 @@ fn test_WB_TASK_57_an_accepted_written_by_hand_with_no_tag_counts_for_nothing_wi
     bench.job();
     accepted_by_hand(&bench);
     let status = bench.status();
-    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.starts_with("Jobs waiting for you:\n") && status.contains("  planned"), "{}", status);
     assert!(status.contains(NOTHING_COUNTS), "{}", status);
     assert!(!status.contains("accepted: the issue's file"), "{}", status);
     let run = bench.prompt("tester");
@@ -884,10 +884,10 @@ fn test_WB_TASK_57_an_accepted_written_by_hand_with_no_tag_counts_for_nothing_wi
 #[test]
 fn test_WB_TASK_57_a_signed_acceptance_counts_for_nothing_once_the_list_is_gone_from_main() {
     let bench = accepted();
-    assert!(bench.status().starts_with("Accepted:\n"), "{}", bench.status());
+    assert!(bench.status().starts_with("Jobs in the flow:\n") && bench.status().contains("  accepted"), "{}", bench.status());
     no_list_on_main(&bench);
     let status = bench.status();
-    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.starts_with("Jobs waiting for you:\n") && status.contains("  planned"), "{}", status);
     assert!(status.contains(NOTHING_COUNTS), "{}", status);
     assert_eq!(code(&bench.prompt("tester")), Some(1));
 }
@@ -909,7 +909,7 @@ fn test_WB_TASK_58_a_finished_with_no_list_counts_for_nothing_and_the_job_is_not
     assert!(status.contains(NOTHING_COUNTS), "{}", status);
     // The list of the issues in the flow lists it again.
     let all = text(&bench.wb(&["status"]).stdout);
-    assert!(all.contains("  54  issue-54-work"), "{}", all);
+    assert!(all.contains("\t54  issue-54-work"), "{}", all);
 }
 
 #[test]
@@ -921,7 +921,7 @@ fn test_WB_TASK_59_status_of_an_issue_says_the_line_once_for_an_acceptance_and_s
     bench.comments(&["[stamp] tester round 1", "[stamp] build round 1"]);
     let status = bench.status();
     assert_eq!(status.matches(NOTHING_COUNTS).count(), 1, "{}", status);
-    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.starts_with("Jobs waiting for you:\n") && status.contains("  planned"), "{}", status);
     assert!(status.contains("[stamp] tester round 1  (on refs/watchbill/54, not counted"), "{}", status);
     assert!(status.contains("[stamp] build round 1  (on refs/watchbill/54, not counted"), "{}", status);
 }
@@ -972,7 +972,7 @@ fn test_WB_TASK_59_status_says_a_list_with_no_key_line_counts_nothing() {
     bench.job();
     accepted_by_hand(&bench);
     let status = bench.status();
-    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.starts_with("Jobs waiting for you:\n") && status.contains("  planned"), "{}", status);
     assert_eq!(status.matches(".watchbill/signers on main holds no key: nothing is signed, so nothing counts").count(), 1, "{}", status);
 }
 
@@ -1011,7 +1011,7 @@ fn test_WB_TASK_38_an_edit_of_the_issues_file_after_its_tag_leaves_it_not_accept
     bench.put(YML, &edited);
     bench.git(&["commit", "-q", "-a", "-m", "An edit"]);
     let status = bench.status();
-    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.starts_with("Jobs waiting for you:\n") && status.contains("  planned"), "{}", status);
     let run = bench.prompt("tester");
     assert_eq!(code(&run), Some(1), "{}", out_of(&run));
     // The tag of the file as it was stays, and does not hold for the file as it is.
@@ -1045,7 +1045,7 @@ fn test_WB_TASK_39_an_accepted_comment_is_never_read_back() {
     assert!(read(&bench.at(".tracker/54.comments")).contains("[accepted] 54"));
     bench.git(&["tag", "-d", tag.strip_prefix("refs/tags/").unwrap()]);
     let status = bench.status();
-    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.starts_with("Jobs waiting for you:\n") && status.contains("  planned"), "{}", status);
     assert!(status.contains(&format!("{} is not there", tag)), "{}", status);
     assert_eq!(code(&bench.prompt("tester")), Some(1));
 }
@@ -1063,7 +1063,7 @@ fn test_WB_TASK_40_the_accepted_file_is_written_beside_the_tag_and_is_still_read
     bench.git(&["commit", "-q", "-m", "No acceptance"]);
     assert_eq!(bench.refs("refs/tags/watchbill/accept/"), [tag]);
     let status = bench.status();
-    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.starts_with("Jobs waiting for you:\n") && status.contains("  planned"), "{}", status);
     assert_eq!(code(&bench.prompt("tester")), Some(1));
 }
 
@@ -1139,7 +1139,7 @@ fn taken_in_again() -> (Bench, PathBuf) {
     // A source of the acceptance's own second counts as after it (#290): the acceptance comes in the next second.
     std::thread::sleep(std::time::Duration::from_millis(1100));
     bench.accept();
-    assert!(bench.status().starts_with("Accepted:\n"), "{}", bench.status());
+    assert!(bench.status().starts_with("Jobs in the flow:\n") && bench.status().contains("  accepted"), "{}", bench.status());
     let (code, said) = plan_add(&bench, &org, &["add", "54", "-m", "On a slope too."]);
     assert_eq!(code, 0, "{}", said);
     (bench, org)
@@ -1149,7 +1149,7 @@ fn taken_in_again() -> (Bench, PathBuf) {
 fn test_WB_TASK_41_after_wb_add_takes_in_changed_text_status_says_the_issue_is_not_accepted() {
     let (bench, _org) = taken_in_again();
     let status = bench.status();
-    assert!(status.starts_with("Planned:\n"), "{}", status);
+    assert!(status.starts_with("Jobs waiting for you:\n") && status.contains("  planned"), "{}", status);
     assert!(status.contains(&format!("{}: names the job", bench.tag())) && status.contains("and the job is now"), "{}", status);
 }
 

@@ -128,6 +128,12 @@ fn at_every_step() -> Folder {
     folder
 }
 
+/// The names of the open questions of an issue, as `wb status <issue>` says them, or none.
+fn open_names(folder: &Path, issue: &str) -> String {
+    let (out, _) = stdout(folder, &["status", issue]);
+    out.lines().find_map(|line| line.strip_prefix("questions open: ")).unwrap_or("").to_string()
+}
+
 fn stdout(folder: &Path, args: &[&str]) -> (String, Option<i32>) {
     let run = wb(folder, args, "");
     (text(&run.stdout), code(&run))
@@ -138,26 +144,16 @@ fn test_WB_STATUS_2_each_issue_is_under_the_last_step_it_has_done() {
     let folder = at_every_step();
     let (out, status) = stdout(&folder.path, &["status"]);
     assert_eq!(status, Some(0));
-    let expected = "Not planned:
-  1  issue-1-work
+    let expected = "Jobs waiting for you:
+  (use \"wb plan accept <name>...\" to accept the plan)
+\t2  issue-2-work  planned
 
-Planned:
-  2  issue-2-work
-
-Accepted:
-  3  issue-3-work
-
-Tested:
-  4  issue-4-work
-
-Built:
-  5  issue-5-work
-
-Reviewed:
-  6  issue-6-work
-
-Fixed:
-  7  issue-7-work
+Jobs in the flow:
+\t3  issue-3-work  accepted
+\t4  issue-4-work  tested
+\t5  issue-5-work  built
+\t6  issue-6-work  reviewed
+\t7  issue-7-work  fixed
 ";
     assert_eq!(out, expected);
 }
@@ -166,12 +162,12 @@ Fixed:
 fn test_WB_STATUS_11_a_heading_with_no_issue_is_not_printed() {
     let folder = at_every_step();
     let (out, _) = stdout(&folder.path, &["status", "--stage", "fixed"]);
-    assert_eq!(out, "Fixed:\n  7  issue-7-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t7  issue-7-work  fixed\n");
     let folder = set_up();
     open(&folder.path, &["1"]);
     comments(&folder.path, "1", &[]);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Not planned:\n  1  issue-1-work\n");
+    assert_eq!(out, "");
     for heading in ["Planned", "Accepted", "Tested", "Built", "Reviewed", "Fixed", "Questions open", "Not read"] {
         assert!(!out.contains(heading), "{} in {}", heading, out);
     }
@@ -181,18 +177,23 @@ fn test_WB_STATUS_11_a_heading_with_no_issue_is_not_printed() {
 fn test_WB_STATUS_12_no_line_says_a_round_a_command_or_a_step_going_on() {
     let folder = at_every_step();
     let (out, _) = stdout(&folder.path, &["status"]);
-    for word in ["round", "running", "going on", "next", "wb ", "run "] {
-        assert!(!out.contains(word), "{} in {}", word, out);
+    // The hint lines (#284) say what a person may run; the lines of the jobs say no round and no command.
+    let jobs: Vec<&str> = out.lines().filter(|line| line.starts_with('\t')).collect();
+    assert_eq!(jobs.len(), 6, "{}", out);
+    for line in jobs {
+        for word in ["round", "running", "going on", "next", "wb ", "run "] {
+            assert!(!line.contains(word), "{} in {}", word, line);
+        }
     }
 }
 
 #[test]
-fn test_WB_STATUS_13_the_steps_are_printed_in_the_order_of_the_flow() {
+fn test_WB_STATUS_13_the_jobs_are_printed_in_the_order_of_the_flow_the_person_s_move_first() {
     let folder = at_every_step();
     let (out, _) = stdout(&folder.path, &["status"]);
-    let at: Vec<usize> = ["Not planned:", "Planned:", "Accepted:", "Tested:", "Built:", "Reviewed:", "Fixed:"]
+    let at: Vec<usize> = ["Jobs waiting for you:", "  planned\n", "Jobs in the flow:", "  accepted\n", "  tested\n", "  built\n", "  reviewed\n", "  fixed\n"]
         .iter()
-        .map(|heading| out.find(&format!("\n{}", heading)).or_else(|| out.starts_with(heading).then_some(0)).expect(heading))
+        .map(|word| out.find(word).expect(word))
         .collect();
     let mut sorted = at.clone();
     sorted.sort();
@@ -212,7 +213,7 @@ fn test_WB_STATUS_2_an_issue_file_that_is_not_accepted_as_it_stands_is_planned_o
     git(&folder.path, &["checkout", "-q", "-"]);
     at_origin(&folder.path, "issue-3-work");
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Planned:\n  3  issue-3-work\n");
+    assert_eq!(out, "Jobs waiting for you:\n  (use \"wb plan accept <name>...\" to accept the plan)\n\t3  issue-3-work  planned\n");
 }
 
 #[test]
@@ -222,7 +223,7 @@ fn test_WB_STATUS_2_the_last_stamp_decides_between_reviewed_and_fixed() {
     comments(&folder.path, "8", &["[stamp] review round 1", "[stamp] fix round 1", "[stamp] review round 2"]);
     branch(&folder.path, "8", true);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Reviewed:\n  8  issue-8-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t8  issue-8-work  reviewed\n");
 }
 
 #[test]
@@ -236,7 +237,7 @@ fn test_WB_STATUS_18_the_files_are_read_from_the_origin_branch_when_there_is_no_
     git(&folder.path, &["update-ref", "refs/remotes/origin/issue-9-work", tip.trim()]);
     git(&folder.path, &["branch", "-q", "-D", "issue-9-work"]);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Planned:\n  9  issue-9-work\n");
+    assert_eq!(out, "Jobs waiting for you:\n  (use \"wb plan accept <name>...\" to accept the plan)\n\t9  issue-9-work  planned\n");
 }
 
 #[test]
@@ -251,7 +252,7 @@ fn test_WB_STATUS_18_an_acceptance_that_is_written_and_not_committed_gives_plann
     assert!(folder.path.join(".watchbill/issues/2.accepted").exists());
     git(&folder.path, &["checkout", "-q", "-"]);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Planned:\n  2  issue-2-work\n");
+    assert_eq!(out, "Jobs waiting for you:\n  (use \"wb plan accept <name>...\" to accept the plan)\n\t2  issue-2-work  planned\n");
 }
 
 #[test]
@@ -270,10 +271,12 @@ fn test_WB_STATUS_9_questions_open_is_printed_after_the_steps() {
     branch(&folder.path, "176", true);
     let (out, status) = stdout(&folder.path, &["status"]);
     assert_eq!(status, Some(0));
+    // 177 is not broken down and has no line; 176 waits for a person, and its open question is named by `wb status 176`.
     assert_eq!(
         out,
-        "Not planned:\n  177  issue-177-work\n\nAccepted:\n  176  issue-176-work\n\nBuilt:\n  175  issue-175-work\n\nQuestions open:\n  176  176.build.q2\n"
+        "Jobs waiting for you:\n  (use \"wb answer <issue>...\" to answer its questions)\n\t176  issue-176-work  accepted, 1 question open\n\nJobs in the flow:\n\t175  issue-175-work  built\n"
     );
+    assert_eq!(open_names(&folder.path, "176"), "176.build.q2");
 }
 
 #[test]
@@ -285,10 +288,10 @@ fn test_WB_STATUS_22_an_issue_with_an_open_question_stays_under_its_step() {
     stamps_on_ref(&folder.path, "176", &["[questions] 176.build q1\n\nq1: Which one?\n"]);
     branch(&folder.path, "176", true);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert!(out.starts_with("Built:\n  176  issue-176-work\n"), "{}", out);
-    assert!(out.contains("Questions open:\n  176  176.build.q1\n"), "{}", out);
+    assert!(out.starts_with("Jobs waiting for you:\n  (use \"wb answer <issue>...\" to answer its questions)\n\t176  issue-176-work  built, 1 question open\n"), "{}", out);
+    assert_eq!(open_names(&folder.path, "176"), "176.build.q1");
     let (out, _) = stdout(&folder.path, &["status", "--stage", "built"]);
-    assert_eq!(out, "Built:\n  176  issue-176-work\n");
+    assert_eq!(out, "Jobs waiting for you:\n  (use \"wb answer <issue>...\" to answer its questions)\n\t176  issue-176-work  built, 1 question open\n");
 }
 
 #[test]
@@ -297,7 +300,8 @@ fn test_WB_STATUS_9_the_open_questions_of_an_issue_are_named_in_the_order_they_w
     open(&folder.path, &["176"]);
     comments(&folder.path, "176", &["[question] 176.q1", "[question] 176.q2"]);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Not planned:\n  176  issue-176-work\n\nQuestions open:\n  176  176.q1, 176.q2\n");
+    assert_eq!(out, "Jobs waiting for you:\n  (use \"wb answer <issue>...\" to answer its questions)\n\t176  issue-176-work  2 questions open\n");
+    assert_eq!(open_names(&folder.path, "176"), "176.q1, 176.q2");
 }
 
 #[test]
@@ -311,7 +315,8 @@ fn test_WB_STATUS_3_a_question_is_closed_by_an_answer_to_its_name_and_by_nothing
         &["[question] 1.q1", "[question] 1.q2", "[answer] 1.q3 2", "[answer] 2.q1 2", "[comment] [answer] 1.q1", "[question] [answer] 1.q2"],
     );
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert!(out.ends_with("Questions open:\n  1  1.q1, 1.q2\n"), "{}", out);
+    assert!(out.ends_with("\t1  issue-1-work  2 questions open\n"), "{}", out);
+    assert_eq!(open_names(&folder.path, "1"), "1.q1, 1.q2");
 }
 
 #[test]
@@ -320,7 +325,7 @@ fn test_WB_STATUS_3_an_answer_in_words_closes_its_question() {
     open(&folder.path, &["1"]);
     comments(&folder.path, "1", &["[question] 1.q1", "[answer] 1.q1 only for the first command"]);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Not planned:\n  1  issue-1-work\n");
+    assert_eq!(out, "");
 }
 
 #[test]
@@ -329,7 +334,8 @@ fn test_WB_STATUS_14_a_line_that_starts_with_question_is_never_an_answer() {
     open(&folder.path, &["1"]);
     comments(&folder.path, "1", &["[question] 1.q1", "[question] [answer] 1.q1", "[question] 1.q1 [answer] 1.q1"]);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert!(out.ends_with("Questions open:\n  1  1.q1\n"), "{}", out);
+    assert!(out.ends_with("\t1  issue-1-work  1 question open\n"), "{}", out);
+    assert_eq!(open_names(&folder.path, "1"), "1.q1");
 }
 
 #[test]
@@ -339,7 +345,7 @@ fn test_WB_STATUS_15_every_answer_line_counts_as_a_persons_until_wb_reads_who_wr
     open(&folder.path, &["1"]);
     comments(&folder.path, "1", &["[question] 1.q1", "[answer] 1.q1 2"]);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Not planned:\n  1  issue-1-work\n");
+    assert_eq!(out, "");
 }
 
 #[test]
@@ -349,7 +355,7 @@ fn test_WB_STATUS_30_an_answer_closes_its_question_whatever_follows_the_name() {
     open(&folder.path, &["5"]);
     comments(&folder.path, "5", &["[question] 5.q1", "[answer] 5.q1 7"]);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Not planned:\n  5  issue-5-work\n");
+    assert_eq!(out, "");
 }
 
 #[test]
@@ -358,7 +364,8 @@ fn test_WB_STATUS_29_an_answer_of_suggested_closes_the_questions_before_it_and_n
     open(&folder.path, &["1"]);
     comments(&folder.path, "1", &["[question] 1.q1", "[answer] 1 suggested", "[question] 1.q2"]);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert!(out.ends_with("Questions open:\n  1  1.q2\n"), "{}", out);
+    assert!(out.ends_with("\t1  issue-1-work  1 question open\n"), "{}", out);
+    assert_eq!(open_names(&folder.path, "1"), "1.q2");
 }
 
 #[test]
@@ -369,7 +376,7 @@ fn test_WB_STATUS_4_a_branch_of_another_issue_whose_number_starts_the_same_is_no
     comments(&folder.path, "12", &[]);
     branch(&folder.path, "12", true);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Not planned:\n  1  issue-1-work\n\nAccepted:\n  12  issue-12-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t12  issue-12-work  accepted\n");
 }
 
 #[test]
@@ -385,7 +392,8 @@ fn test_WB_STATUS_5_one_issue_prints_its_heading_and_its_line_and_what_they_were
     branch(&folder.path, "176", true);
     let (out, status) = stdout(&folder.path, &["status", "176"]);
     assert_eq!(status, Some(0));
-    assert!(out.starts_with("Built:\n  176  issue-176-work\n"), "{}", out);
+    assert!(out.starts_with("Jobs waiting for you:\n  (use \"wb answer <issue>...\" to answer its questions)\n\t176  issue-176-work  built, 1 question open\n"), "{}", out);
+    assert!(out.contains("\nquestions open: 176.build.q1\n"), "{}", out);
     assert!(!out.contains("177"), "{}", out);
     for line in [
         "[stamp] tester round 1",
@@ -408,7 +416,8 @@ fn test_WB_STATUS_24_one_issue_prints_the_heading_worked_out_from_and_its_lines_
     comments(&folder.path, "1", &["[stamp] tester round 1"]);
     let (out, _) = stdout(&folder.path, &["status", "1"]);
     // Since #323 a stamp counts only signed by a key of `.watchbill/signers`, and the line says by whom.
-    assert_eq!(out, "Tested:\n  1  issue-1-work\n\nWorked out from:\n  refs/heads/issue-1-work: no .watchbill/issues/1.yml\n  refs/remotes/origin/issue-1-work: no .watchbill/issues/1.yml\n  [stamp] tester round 1  (on refs/watchbill/1, signed by ada@example.org)\n");
+    assert!(out.starts_with("Jobs in the flow:\n\t1  issue-1-work  tested\n\nSessions:\n  tester round 1, 2000-01-01T00:00:00Z, "), "{}", out);
+    assert!(out.contains("\n\nWorked out from:\n  refs/heads/issue-1-work: no .watchbill/issues/1.yml\n  refs/remotes/origin/issue-1-work: no .watchbill/issues/1.yml\n  [stamp] tester round 1  (on refs/watchbill/1, signed by ada@example.org)\n"), "{}", out);
     // The full list has no such heading.
     let (out, _) = stdout(&folder.path, &["status"]);
     assert!(!out.contains("Worked out from"), "{}", out);
@@ -417,11 +426,12 @@ fn test_WB_STATUS_24_one_issue_prints_the_heading_worked_out_from_and_its_lines_
 #[test]
 fn test_WB_STATUS_6_stage_prints_only_that_heading_matched_without_regard_to_case() {
     let folder = at_every_step();
-    let (out, status) = stdout(&folder.path, &["status", "--stage", "not PLANNED"]);
+    // Only the jobs of that stage word, whatever the case of the word.
+    let (out, status) = stdout(&folder.path, &["status", "--stage", "ACCEPTED"]);
     assert_eq!(status, Some(0));
-    assert_eq!(out, "Not planned:\n  1  issue-1-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t3  issue-3-work  accepted\n");
     let (out, _) = stdout(&folder.path, &["status", "--stage", "planned"]);
-    assert_eq!(out, "Planned:\n  2  issue-2-work\n");
+    assert_eq!(out, "Jobs waiting for you:\n  (use \"wb plan accept <name>...\" to accept the plan)\n\t2  issue-2-work  planned\n");
 }
 
 #[test]
@@ -445,12 +455,14 @@ fn test_WB_STATUS_20_a_stage_without_a_value_and_an_option_not_known_are_used_wr
 }
 
 #[test]
-fn test_WB_STATUS_6_stage_questions_open_prints_the_questions_alone() {
+fn test_WB_STATUS_6_one_issue_names_its_open_questions_and_stage_takes_no_heading_of_before() {
     let folder = set_up();
     open(&folder.path, &["1"]);
     comments(&folder.path, "1", &["[question] 1.q1"]);
-    let (out, _) = stdout(&folder.path, &["status", "--stage", "questions open"]);
-    assert_eq!(out, "Questions open:\n  1  1.q1\n");
+    let (out, _) = stdout(&folder.path, &["status", "1"]);
+    assert!(out.contains("\nquestions open: 1.q1\n"), "{}", out);
+    let run = wb(&folder.path, &["status", "--stage", "questions open"], "");
+    assert_eq!(code(&run), Some(2));
 }
 
 #[test]
@@ -458,11 +470,12 @@ fn test_WB_STATUS_7_a_pattern_that_fails_for_one_issue_lists_it_under_not_read_a
     let folder = set_up();
     open(&folder.path, &["1", "2"]);
     comments(&folder.path, "1", &[]);
+    branch(&folder.path, "1", true);
     // No comments file for issue 2: `cat` fails.
     let run = wb(&folder.path, &["status"], "");
     assert_eq!(code(&run), Some(1));
     let out = text(&run.stdout);
-    assert!(out.starts_with("Not planned:\n  1  issue-1-work\n"), "{}", out);
+    assert!(out.starts_with("Jobs in the flow:\n\t1  issue-1-work  accepted\n"), "{}", out);
     assert!(out.contains("\nNot read:\n  2  `issue_comments` of watchbill.yml ended with 1\n"), "{}", out);
 }
 
@@ -541,7 +554,7 @@ fn test_WB_STATUS_28_it_runs_from_a_folder_below_the_root() {
     fs::create_dir_all(folder.path.join("src/deep")).unwrap();
     let (out, status) = stdout(&folder.path.join("src/deep"), &["status"]);
     assert_eq!(status, Some(0));
-    assert_eq!(out, "Not planned:\n  1  issue-1-work\n");
+    assert_eq!(out, "");
 }
 
 #[test]
@@ -552,9 +565,12 @@ fn test_WB_STATUS_26_without_issue_comments_it_says_so_once_on_standard_error() 
     fs::write(&file, kept).unwrap();
     commit_config(&folder.path);
     open(&folder.path, &["1", "2", "3"]);
+    for issue in ["1", "2", "3"] {
+        branch(&folder.path, issue, true);
+    }
     let run = wb(&folder.path, &["status"], "");
     assert_eq!(code(&run), Some(0));
-    assert_eq!(text(&run.stdout), "Not planned:\n  1  issue-1-work\n  2  issue-2-work\n  3  issue-3-work\n");
+    assert_eq!(text(&run.stdout), "Jobs in the flow:\n\t1  issue-1-work  accepted\n\t2  issue-2-work  accepted\n\t3  issue-3-work  accepted\n");
     let said = text(&run.stderr);
     assert_eq!(said.lines().count(), 1, "{}", said);
     assert!(said.starts_with("wb status:") && said.contains("issue_comments"), "{}", said);
@@ -576,42 +592,42 @@ fn test_WB_STATUS_31_stamps_before_the_last_planner_stamp_no_longer_decide_the_s
     branch(&folder.path, "2", false);
     branch(&folder.path, "3", true);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Planned:\n  2  issue-2-work\n\nAccepted:\n  1  issue-1-work\n\nBuilt:\n  3  issue-3-work\n");
+    assert_eq!(out, "Jobs waiting for you:\n  (use \"wb plan accept <name>...\" to accept the plan)\n\t2  issue-2-work  planned\n\nJobs in the flow:\n\t1  issue-1-work  accepted\n\t3  issue-3-work  built\n");
 }
 
 // ---- The questions folded into one comment per session, and the answers in one (#145) ----
 
-/// The open questions `wb status --stage "questions open"` prints for issue 1, with these first lines.
+/// The names of the open questions that `wb status 1` says for issue 1, with these first lines.
 fn open_of(lines: &[&str]) -> String {
     let folder = set_up();
     open(&folder.path, &["1"]);
     comments(&folder.path, "1", lines);
-    let (out, status) = stdout(&folder.path, &["status", "--stage", "questions open"]);
+    let (out, status) = stdout(&folder.path, &["status", "1"]);
     assert_eq!(status, Some(0), "{}", out);
-    out
+    out.lines().find_map(|line| line.strip_prefix("questions open: ")).unwrap_or("").to_string()
 }
 
 #[test]
 fn test_WB_ANSWER_11_a_question_of_a_questions_comment_is_open_until_an_answers_comment_names_it() {
-    assert_eq!(open_of(&["[questions] 1.tester q1 q2"]), "Questions open:\n  1  1.tester.q1, 1.tester.q2\n");
-    assert_eq!(open_of(&["[questions] 1.tester q1 q2", "[answers] 1.tester q1"]), "Questions open:\n  1  1.tester.q2\n");
+    assert_eq!(open_of(&["[questions] 1.tester q1 q2"]), "1.tester.q1, 1.tester.q2");
+    assert_eq!(open_of(&["[questions] 1.tester q1 q2", "[answers] 1.tester q1"]), "1.tester.q2");
     assert_eq!(open_of(&["[questions] 1.tester q1 q2", "[answers] 1.tester q1 q2"]), "");
     // The planner names its questions with the issue alone.
-    assert_eq!(open_of(&["[questions] 1 q1 q2", "[answers] 1 q2"]), "Questions open:\n  1  1.q1\n");
+    assert_eq!(open_of(&["[questions] 1 q1 q2", "[answers] 1 q2"]), "1.q1");
 }
 
 #[test]
 fn test_WB_ANSWER_11_an_answers_comment_closes_only_the_questions_of_its_own_role_and_issue() {
     let out = open_of(&["[questions] 1.tester q1", "[questions] 1.build q1", "[questions] 1 q1", "[answers] 1.build q1", "[answers] 2.tester q1"]);
-    assert_eq!(out, "Questions open:\n  1  1.tester.q1, 1.q1\n");
+    assert_eq!(out, "1.tester.q1, 1.q1");
 }
 
 #[test]
 fn test_WB_ANSWER_11_words_after_the_role_that_are_no_question_name_close_nothing() {
     // The form the owner wrote in the trial of 0.0.8, which no prompt gives.
-    assert_eq!(open_of(&["[questions] 1 q1", "[answers] 1 as you suggested"]), "Questions open:\n  1  1.q1\n");
+    assert_eq!(open_of(&["[questions] 1 q1", "[answers] 1 as you suggested"]), "1.q1");
     // A line that only names the form is no answer.
-    assert_eq!(open_of(&["[questions] 1 q1", "[comment] [answers] 1 q1", "[questions] [answers] 1 q1"]), "Questions open:\n  1  1.q1\n");
+    assert_eq!(open_of(&["[questions] 1 q1", "[comment] [answers] 1 q1", "[questions] [answers] 1 q1"]), "1.q1");
 }
 
 // The forms of revision 0.0.8 alone are read as #139 read them: the tests of WB-STATUS-3, 9, 14, 29 and 30 keep them.
@@ -619,7 +635,7 @@ fn test_WB_ANSWER_11_words_after_the_role_that_are_no_question_name_close_nothin
 #[test]
 fn test_WB_ANSWER_11_the_old_and_the_new_forms_answer_each_other() {
     let out = open_of(&["[question] 1.tester.q1", "[questions] 1.tester q2 q3", "[answers] 1.tester q1", "[answer] 1.tester.q2 1"]);
-    assert_eq!(out, "Questions open:\n  1  1.tester.q3\n");
+    assert_eq!(out, "1.tester.q3");
     // `[answer] <issue> suggested` closes the questions of a `[questions]` comment before it.
     assert_eq!(open_of(&["[questions] 1.tester q1", "[answer] 1 suggested"]), "");
 }
@@ -627,13 +643,13 @@ fn test_WB_ANSWER_11_the_old_and_the_new_forms_answer_each_other() {
 #[test]
 fn test_WB_ANSWER_16_a_questions_comment_from_a_reverted_stamp_up_to_its_marker_does_not_count() {
     let out = open_of(&["[questions] 1 q1", "[stamp] tester round 1", "[questions] 1.tester q1", "[revert] tester round 1"]);
-    assert_eq!(out, "Questions open:\n  1  1.q1\n");
+    assert_eq!(out, "1.q1");
 }
 
 #[test]
 fn test_WB_ANSWER_16_an_answers_comment_from_a_reverted_stamp_up_to_its_marker_does_not_count() {
     let out = open_of(&["[questions] 1 q1", "[stamp] tester round 1", "[answers] 1 q1", "[revert] tester round 1"]);
-    assert_eq!(out, "Questions open:\n  1  1.q1\n");
+    assert_eq!(out, "1.q1");
 }
 
 // ---- Only the issues in the flow (#155) ----
@@ -670,7 +686,7 @@ fn test_WB_STATUS_32_an_issue_is_listed_when_its_branch_holds_a_commit_the_defau
     git(&folder.path, &["branch", "issue-2-work"]);
     let (out, status) = stdout(&folder.path, &["status"]);
     assert_eq!(status, Some(0));
-    assert_eq!(out, "Accepted:\n  1  issue-1-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t1  issue-1-work  accepted\n");
 }
 
 #[test]
@@ -690,7 +706,7 @@ fn test_WB_STATUS_32_an_issue_that_is_merged_or_deleted_is_not_listed_with_its_f
     assert!(folder.path.join(".watchbill/issues/42.yml").exists());
     let (out, status) = stdout(&folder.path, &["status"]);
     assert_eq!(status, Some(0));
-    assert_eq!(out, "Fixed:\n  43  issue-43-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t43  issue-43-work  fixed\n");
 }
 
 #[test]
@@ -701,16 +717,18 @@ fn test_WB_STATUS_33_the_issues_are_found_with_git_alone_and_no_pattern() {
     open(&folder.path, &["7"]);
     let (out, status) = stdout(&folder.path, &["status"]);
     assert_eq!(status, Some(0));
-    assert_eq!(out, "Not planned:\n  7  issue-7-work\n");
+    assert_eq!(out, "");
 }
 
 #[test]
-fn test_WB_STATUS_34_an_issue_whose_branch_holds_no_issue_file_is_under_not_planned() {
+fn test_WB_STATUS_34_an_issue_whose_branch_holds_no_issue_file_has_no_line_in_the_list() {
     let folder = set_up();
     comments(&folder.path, "5", &[]);
     open(&folder.path, &["5"]);
-    let (out, _) = stdout(&folder.path, &["status", "--stage", "not planned"]);
-    assert_eq!(out, "Not planned:\n  5  issue-5-work\n");
+    assert_eq!(stdout(&folder.path, &["status"]), (String::new(), Some(0)));
+    // Asked by name it is read, as a job of an agent's move with no stage word.
+    let (out, _) = stdout(&folder.path, &["status", "5"]);
+    assert!(out.starts_with("Jobs in the flow:\n\t5  issue-5-work\n\nWorked out from:\n"), "{}", out);
 }
 
 #[test]
@@ -723,7 +741,8 @@ fn test_WB_STATUS_35_one_issue_that_is_not_in_the_flow_is_read_and_said_not_to_b
     git(&folder.path, &["update-ref", "-d", "refs/remotes/origin/issue-41-work"]);
     let (out, status) = stdout(&folder.path, &["status", "41"]);
     assert_eq!(status, Some(0));
-    assert!(out.starts_with("Fixed:\n  41\n\nWorked out from:\n  not in the flow: no branch of the issue holds a commit that "), "{}", out);
+    assert!(out.starts_with("Jobs in the flow:\n\t41  fixed\n\n"), "{}", out);
+    assert!(out.contains("\nWorked out from:\n  not in the flow: no branch of the issue holds a commit that "), "{}", out);
     assert!(out.contains("[stamp] fix round 1"), "{}", out);
     // The list does not have it.
     assert_eq!(stdout(&folder.path, &["status"]), (String::new(), Some(0)));
@@ -737,7 +756,7 @@ fn test_WB_STATUS_36_a_line_is_the_number_and_the_branch_and_no_title() {
     comments(&folder.path, "129", &[]);
     branch(&folder.path, "129", true);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Accepted:\n  129  issue-129-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t129  issue-129-work  accepted\n");
 }
 
 #[test]
@@ -749,7 +768,7 @@ fn test_WB_STATUS_37_one_issue_prints_the_first_line_of_issue_address_as_its_tit
     open(&folder.path, &["5"]);
     let (out, status) = stdout(&folder.path, &["status", "5"]);
     assert_eq!(status, Some(0));
-    assert!(out.starts_with("Not planned:\n  5  issue-5-work  Bell \\u{7} and \\u{1b}[31mred\n"), "{}", out);
+    assert!(out.starts_with("Jobs in the flow:\n\t5  issue-5-work  Bell \\u{7} and \\u{1b}[31mred\n"), "{}", out);
     assert!(!out.contains("The rest"), "{}", out);
 }
 
@@ -835,7 +854,7 @@ change_of_branch: \"mkdir -p .calls && echo {branch} >> .calls/change_of_branch\
     let run = wb(&folder.path, &["status"], "");
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
-    assert!(text(&run.stdout).contains("Accepted:\n  2  "), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains("\t2  issue-2-work  accepted\n"), "{}", text(&run.stdout));
     // A job whose ref holds a stamp (1 and 2) is read from its ref, and the tracker is not (#333): only 3 is read.
     assert_eq!(calls(&folder.path, "issue_comments"), ["3"]);
     // Since #236 the planner's stamps and their times are read from the job's ref: no whole comment is read.
@@ -849,7 +868,7 @@ fn test_WB_STATUS_39_the_default_branch_is_that_of_origin_else_main_else_master_
     open(&folder.path, &["1"]);
     let own = default_branch(&folder.path);
     // `main` or `master`, whichever there is, is found with no `origin/HEAD`.
-    assert_eq!(stdout(&folder.path, &["status"]), ("Not planned:\n  1  issue-1-work\n".to_string(), Some(0)));
+    assert_eq!(stdout(&folder.path, &["status"]), ("".to_string(), Some(0)));
     // `origin/HEAD` wins: here it names a branch that holds the issue's commit, so the issue is done.
     git(&folder.path, &["update-ref", "refs/remotes/origin/trunk", "issue-1-work"]);
     git(&folder.path, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk"]);
@@ -876,11 +895,11 @@ fn test_WB_STATUS_40_a_local_branch_ahead_of_origin_shows_how_many_commits_are_n
     commit_on(&folder.path, "issue-1-work", "b.txt");
     git(&folder.path, &["update-ref", "-d", "refs/heads/issue-3-work"]);
     comments(&folder.path, "4", &[]);
-    open(&folder.path, &["4"]);
+    branch(&folder.path, "4", true);
     git(&folder.path, &["update-ref", "-d", "refs/remotes/origin/issue-4-work"]);
     let (out, status) = stdout(&folder.path, &["status"]);
     assert_eq!(status, Some(0));
-    assert_eq!(out, "Not planned:\n  4  issue-4-work  1 not pushed\n\nAccepted:\n  1  issue-1-work  2 not pushed\n  2  issue-2-work\n  3  issue-3-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t1  issue-1-work  accepted, 2 not pushed\n\t2  issue-2-work  accepted\n\t3  issue-3-work  accepted\n\t4  issue-4-work  accepted, 1 not pushed\n");
 }
 
 #[test]
@@ -911,9 +930,9 @@ fn test_WB_STATUS_42_the_line_shows_the_change_that_change_of_branch_prints() {
     let out = text(&run.stdout);
     // 131 has no file for its `change_of_branch`: it is not read.
     assert_eq!(code(&run), Some(1));
-    assert!(out.starts_with("Accepted:\n  129  issue-129-work  #178  1 not pushed\n  130  issue-130-work\n"), "{}", out);
+    assert!(out.starts_with("Jobs in the flow:\n\t129  issue-129-work  #178  accepted, 1 not pushed\n\t130  issue-130-work        accepted\n"), "{}", out);
     assert!(out.contains("\nNot read:\n  131  `change_of_branch` of watchbill.yml ended with 1\n"), "{}", out);
-    assert!(!out.contains("  131  issue-131-work"), "{}", out);
+    assert!(!out.contains("131  issue-131-work"), "{}", out);
 }
 
 #[test]
@@ -923,7 +942,7 @@ fn test_WB_STATUS_42_an_open_change_does_not_decide_the_step() {
     comments(&folder.path, "3", &["[stamp] build round 1"]);
     branch(&folder.path, "3", true);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Built:\n  3  issue-3-work  #7\n");
+    assert_eq!(out, "Jobs in the flow:\n\t3  issue-3-work  #7  built\n");
 }
 
 // ---- An issue that is done under squash merges (#155, the owner's decision of 2026-11-20) ----
@@ -948,7 +967,7 @@ fn test_WB_STATUS_32_a_branch_whose_whole_change_is_a_squash_commit_on_the_defau
     at_origin(&folder.path, "issue-42-work");
     let (out, status) = stdout(&folder.path, &["status"]);
     assert_eq!(status, Some(0));
-    assert_eq!(out, "Accepted:\n  42  issue-42-work\n  43  issue-43-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t42  issue-42-work  accepted\n\t43  issue-43-work  accepted\n");
 }
 
 #[test]
@@ -962,7 +981,7 @@ fn test_WB_STATUS_32_a_squash_with_another_diff_than_the_branchs_is_not_found_an
     git(&folder.path, &["add", "--", "extra.txt"]);
     git(&folder.path, &["commit", "-q", "-m", "Issue 41 (#41)"]);
     let (out, _) = stdout(&folder.path, &["status"]);
-    assert_eq!(out, "Accepted:\n  41  issue-41-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t41  issue-41-work  accepted\n");
 }
 
 #[test]
@@ -982,7 +1001,7 @@ fn test_WB_STATUS_32_a_local_branch_whose_upstream_is_gone_is_done() {
     git(&folder.path, &["update-ref", "-d", "refs/remotes/origin/issue-5-work"]);
     let (out, status) = stdout(&folder.path, &["status"]);
     assert_eq!(status, Some(0));
-    assert_eq!(out, "Accepted:\n  6  issue-6-work\n  7  issue-7-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t6  issue-6-work  accepted\n\t7  issue-7-work  accepted\n");
 }
 
 #[test]
@@ -1005,7 +1024,7 @@ fn test_WB_STATUS_37_a_malformed_issue_address_does_not_fail_the_list_that_never
     open(&folder.path, &["1"]);
     let (out, status) = stdout(&folder.path, &["status"]);
     assert_eq!(status, Some(0));
-    assert_eq!(out, "Not planned:\n  1  issue-1-work\n");
+    assert_eq!(out, "");
 }
 
 // ---- WB-STATUS-53 to 55: who the newest answer waits for (#226) ----
@@ -1074,7 +1093,7 @@ fn test_WB_STATUS_54_an_answer_of_0_10_0_closes_its_question_and_names_no_role()
     let (out, status) = stdout(&folder.path, &["status", "54"]);
     assert_eq!(status, Some(0));
     assert!(!out.contains("waits for"), "{}", out);
-    assert!(!out.contains("Questions open"), "{}", out);
+    assert!(!out.contains("questions open"), "{}", out);
 }
 
 #[test]
@@ -1127,7 +1146,7 @@ fn test_WB_STATUS_57_a_word_that_is_no_role_closes_the_question_and_names_none()
     branch(&folder.path, "54", true);
     let (out, _) = stdout(&folder.path, &["status", "54"]);
     assert!(!out.contains("waits for"), "{}", out);
-    assert!(!out.contains("Questions open"), "{}", out);
+    assert!(!out.contains("questions open"), "{}", out);
 }
 
 // ---- #300: a stage only where its work came back, and a round that brought nothing back is said ----
@@ -1179,7 +1198,7 @@ fn test_WB_STATUS_79_a_build_round_that_brought_nothing_back_leaves_the_issue_at
     session(&state.path, "build", "3", 1, ENDED, Some(NOTHING));
     let (out, status) = status_in(&folder.path, &state.path, &[]);
     assert_eq!(status, Some(0));
-    assert_eq!(out, "Tested:\n  3  issue-3-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t3  issue-3-work  tested\n");
 }
 
 #[test]
@@ -1188,7 +1207,7 @@ fn test_WB_STATUS_79_a_tester_round_that_brought_nothing_back_leaves_the_issue_a
     comments(&folder.path, "3", &["[stamp] tester round 1"]);
     session(&state.path, "tester", "3", 1, ENDED, Some("failed: the branch moved\nview: kept /somewhere\n"));
     let (out, _) = status_in(&folder.path, &state.path, &[]);
-    assert_eq!(out, "Accepted:\n  3  issue-3-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t3  issue-3-work  accepted\n");
 }
 
 #[test]
@@ -1197,7 +1216,7 @@ fn test_WB_STATUS_80_a_build_round_that_brought_a_commit_back_is_built() {
     session(&state.path, "tester", "3", 1, ENDED, Some(TAKEN));
     session(&state.path, "build", "3", 1, ENDED, Some(TAKEN));
     let (out, _) = status_in(&folder.path, &state.path, &[]);
-    assert_eq!(out, "Built:\n  3  issue-3-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t3  issue-3-work  built\n");
 }
 
 #[test]
@@ -1206,7 +1225,7 @@ fn test_WB_STATUS_80_a_take_back_later_that_took_a_commit_counts_for_its_round()
     session(&state.path, "tester", "3", 1, ENDED, Some(TAKEN));
     session(&state.path, "build", "3", 1, ENDED, Some("not taken: 1a2b3c4 Build it\nview: kept /somewhere\ntake-back\ntaken: 5d6e7f8 Build it\nview: removed\n"));
     let (out, _) = status_in(&folder.path, &state.path, &[]);
-    assert_eq!(out, "Built:\n  3  issue-3-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t3  issue-3-work  built\n");
 }
 
 #[test]
@@ -1214,11 +1233,11 @@ fn test_WB_STATUS_81_a_round_with_no_record_on_this_machine_counts_by_its_stamp(
     let (folder, state) = stamped_3();
     // No folder of a start at all.
     let (out, _) = status_in(&folder.path, &state.path, &[]);
-    assert_eq!(out, "Built:\n  3  issue-3-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t3  issue-3-work  built\n");
     // A folder with no `back`.
     session(&state.path, "build", "3", 1, "outcome: ended\nstatus: 1\nseconds: 5\n", None);
     let (out, _) = status_in(&folder.path, &state.path, &[]);
-    assert_eq!(out, "Built:\n  3  issue-3-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t3  issue-3-work  built\n");
     // A session that still runs: its process is one that is read as `wb` (a copy of `sleep` named `wb`).
     let program = state.path.join("wb");
     let mut running = stand_in("/usr/bin/sleep", &program, &["60"]);
@@ -1227,7 +1246,7 @@ fn test_WB_STATUS_81_a_round_with_no_record_on_this_machine_counts_by_its_stamp(
     let (out, _) = status_in(&folder.path, &state.path, &[]);
     let _ = running.kill();
     let _ = running.wait();
-    assert_eq!(out, "Built:\n  3  issue-3-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t3  issue-3-work  built\n");
 }
 
 #[test]
@@ -1236,7 +1255,7 @@ fn test_WB_STATUS_81_a_start_of_another_issue_or_another_round_says_nothing_of_t
     session(&state.path, "build", "33", 1, ENDED, Some(NOTHING));
     session(&state.path, "build", "3", 2, ENDED, Some(NOTHING));
     let (out, _) = status_in(&folder.path, &state.path, &[]);
-    assert_eq!(out, "Built:\n  3  issue-3-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t3  issue-3-work  built\n");
 }
 
 #[test]
@@ -1245,7 +1264,7 @@ fn test_WB_STATUS_82_one_issue_says_the_round_that_brought_nothing_back() {
     session(&state.path, "tester", "3", 1, ENDED, Some(TAKEN));
     session(&state.path, "build", "3", 1, ENDED, Some(NOTHING));
     let (out, _) = status_in(&folder.path, &state.path, &["3"]);
-    assert!(out.starts_with("Tested:\n  3  issue-3-work\n"), "{}", out);
+    assert!(out.starts_with("Jobs in the flow:\n\t3  issue-3-work  tested\n"), "{}", out);
     assert!(out.lines().any(|line| line == "build round 1: no commit came back"), "{}", out);
     assert!(!out.contains("tester round 1: no commit"), "{}", out);
     // The list says nothing of it.
@@ -1276,7 +1295,7 @@ fn test_WB_STATUS_84_a_review_round_is_not_held_to_a_commit() {
     session(&state.path, "build", "3", 1, ENDED, Some(TAKEN));
     session(&state.path, "review", "3", 1, ENDED, Some(NOTHING));
     let (out, _) = status_in(&folder.path, &state.path, &[]);
-    assert_eq!(out, "Reviewed:\n  3  issue-3-work\n");
+    assert_eq!(out, "Jobs in the flow:\n\t3  issue-3-work  reviewed\n");
     let (out, _) = status_in(&folder.path, &state.path, &["3"]);
     assert!(!out.contains("no commit came back"), "{}", out);
 }
@@ -1553,6 +1572,7 @@ fn test_WB_STATUS_111_short_and_porcelain_of_one_issue_and_of_a_stage_print_the_
     assert_eq!(said(&folder.path, &["--porcelain", "184"]).0, "PP 184 issue-184-work\n");
     assert_eq!(said(&folder.path, &["-s", "--stage", "built"]).0, "BQ 176 issue-176-work\nB  179 issue-179-work\n");
     // A job that is not in the list has no line, as a clean path has none in git.
+    comments(&folder.path, "999", &[]);
     let (out, status) = said(&folder.path, &["-s", "999"]);
     assert_eq!((out.as_str(), status), ("", Some(0)));
 }
@@ -1568,7 +1588,7 @@ fn test_WB_STATUS_112_one_issue_lists_its_acceptances_and_each_session_from_its_
     let first: String = stamps[stamps.len() - 2].chars().take(12).collect();
     let second: String = stamps[stamps.len() - 1].chars().take(12).collect();
     let want = format!(
-        "Sessions:\n  tester round 1, 2000-01-01T00:00:00Z, {}\n    ended: not known on this machine\n    came back: no commit is named by a note\n  build round 1, 2000-01-01T00:00:00Z, {}\n    ended: not known on this machine\n    came back: no commit is named by a note\n",
+        "Sessions:\n  tester round 1, 2000-01-01T00:00:00Z, {}\n    ended: not known on this machine\n    came back: not known on this machine\n  build round 1, 2000-01-01T00:00:00Z, {}\n    ended: not known on this machine\n    came back: not known on this machine\n",
         first, second
     );
     assert!(out.contains(&want), "{:?} not in {}", want, out);
@@ -1581,25 +1601,25 @@ fn test_WB_STATUS_112_a_session_says_how_it_ended_from_the_lines_of_its_start_on
     let (folder, state) = stamped_3();
     session(&state.path, "tester", "3", 1, ENDED, Some(TAKEN));
     // The start's own copy of the stamp is its whole message, as the commit has it.
-    fs::write(state.path.join("watchbill/sessions/2026-11-24T100100Z-tester-3/stamp"), "[stamp] tester round 1\ntime: 2000-01-01T00:00:00Z\n").unwrap();
+    let first = git_text(&folder.path, &["rev-list", "--reverse", "refs/watchbill/3"]).lines().next().unwrap().to_string();
+    let message = git_text(&folder.path, &["log", "-1", "--format=%B", &first]);
+    fs::write(state.path.join("watchbill/sessions/2026-11-24T100100Z-tester-3/stamp"), message).unwrap();
     let run = run_status_in(&folder.path, Some(&state.path), &["3"]);
     let out = text(&run.stdout);
     assert!(out.contains("Sessions:\n  tester round 1, 2000-01-01T00:00:00Z, "), "{}", out);
-    assert!(out.contains("    ended: outcome: ended; status: 0; seconds: 5\n"), "{}", out);
+    assert!(out.contains("    ended: outcome: ended; status: 0; seconds: 5\n    came back: taken: 1a2b3c4 Write the tests; view: removed\n"), "{}", out);
     assert!(out.contains("  build round 1, 2000-01-01T00:00:00Z, "), "{}", out);
 }
 
 #[test]
-fn test_WB_STATUS_112_a_session_says_the_commits_a_note_names_for_its_stamp_and_that_a_note_is_not_signed() {
+fn test_WB_STATUS_112_a_note_that_names_a_stamp_changes_nothing_of_what_its_session_says() {
     let (folder, _state) = stamped_3();
+    let before = said(&folder.path, &["3"]);
     let stamp = git_text(&folder.path, &["rev-list", "--reverse", "refs/watchbill/3"]).lines().next().unwrap().to_string();
     let head = git_text(&folder.path, &["rev-parse", "issue-3-work"]).trim().to_string();
-    git(&folder.path, &["notes", "--ref=refs/notes/watchbill", "add", "-f", "-m", &format!("stamp: {}\nbase: {}", stamp, head), &head]);
-    let (out, _) = said(&folder.path, &["3"]);
-    let line = format!("    came back: 1 commit named by a note, which is not signed: {}\n", &head[..12]);
-    assert!(out.contains(&line), "{:?} not in {}", line, out);
-    // The other session has none.
-    assert!(out.contains("    came back: no commit is named by a note\n"), "{}", out);
+    git(&folder.path, &["notes", "--ref=refs/notes/watchbill", "add", "-f", "-m", &format!("stamp: {}\nrole: tester", stamp), &head]);
+    // A note is not signed: what came back is read from the lines of the start, never from a note.
+    assert_eq!(said(&folder.path, &["3"]), before);
 }
 
 #[test]
@@ -1683,11 +1703,14 @@ fn test_WB_STATUS_117_one_issue_prints_its_job_under_its_heading_with_the_hints_
     let folder = mock_up();
     add_patterns(&folder.path, "issue_address: \"cat .tracker/{issue}.address\"\n");
     put(&folder.path, ".tracker/176.address", "Which one\nThe rest\n");
+    put(&folder.path, ".tracker/175.address", "Another\n");
     let (out, status) = said(&folder.path, &["176"]);
     assert_eq!(status, Some(0));
-    assert!(out.starts_with("Jobs waiting for you:\n  (use \"wb answer <issue>...\" to answer its questions)\n\t176  issue-176-work  built, 1 question open  Which one\n\nWorked out from:\n"), "{}", out);
+    assert!(out.starts_with("Jobs waiting for you:\n  (use \"wb answer <issue>...\" to answer its questions)\n\t176  issue-176-work  built, 1 question open  Which one\n\n"), "{}", out);
+    assert!(out.contains("\nWorked out from:\n"), "{}", out);
     let (out, _) = said(&folder.path, &["175"]);
-    assert!(out.starts_with("Jobs in the flow:\n\t175  issue-175-work  accepted\n\nWorked out from:\n"), "{}", out);
+    assert!(out.starts_with("Jobs in the flow:\n\t175  issue-175-work  accepted  Another\n\n"), "{}", out);
+    assert!(out.contains("\nWorked out from:\n"), "{}", out);
     assert!(!out.contains("(use"), "{}", out);
 }
 
@@ -1732,7 +1755,9 @@ fn test_WB_STATUS_119_the_usage_the_manual_and_the_completion_name_the_new_flags
         ("packaging/wb.bash", "--porcelain"),
         ("packaging/wb.bash", "--color"),
     ] {
-        assert!(read(&root.join(file)).contains(needle), "{} lacks {}", file, needle);
+        // A hyphen is written `\-` in roff.
+        let needle = if file.ends_with(".1") { needle.replace('-', "\\-") } else { needle.to_string() };
+        assert!(read(&root.join(file)).contains(&needle), "{} lacks {}", file, needle);
     }
     // The values of --color are completed.
     assert!(read(&root.join("packaging/wb.bash")).contains("always"), "wb.bash lacks the values of --color");

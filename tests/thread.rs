@@ -130,7 +130,7 @@ fn test_WB_STATUS_43_status_shows_the_open_questions_of_the_job_s_ref_with_no_tr
     let run = status(&folder.path, &["54"]);
 
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
-    assert!(out_of(&run).contains("Questions open:\n  54  54.tester.q1, 54.tester.q2\n"), "{}", out_of(&run));
+    assert!(out_of(&run).contains("questions open: 54.tester.q1, 54.tester.q2\n"), "{}", out_of(&run));
 }
 
 #[test]
@@ -155,11 +155,11 @@ fn test_WB_STATUS_44_a_question_is_answered_once_a_signed_commit_holds_its_answe
     let run = status(&folder.path, &["54"]);
 
     let out = out_of(&run);
-    assert!(out.contains("Questions open:\n  54  54.tester.q2\n"), "{}", out);
+    assert!(out.contains("questions open: 54.tester.q2\n"), "{}", out);
     assert!(out.contains("waits for: tester (54.tester.q1)"), "{}", out);
     stamps_on_ref(&folder.path, "54", &["[answers] 54.tester q2>tester\n\nq2: millimetres\n"]);
     let out = out_of(&status(&folder.path, &["54"]));
-    assert!(!out.contains("Questions open"), "{}", out);
+    assert!(!out.contains("questions open: "), "{}", out);
 }
 
 // ---- WB-STATUS-45: an answer typed at the tracker is not read, and wb status says so ----
@@ -190,7 +190,7 @@ fn test_WB_STATUS_45_the_list_says_it_for_each_issue_with_an_open_question_on_it
     let run = status(&folder.path, &[]);
 
     assert!(err_of(&run).contains("issue 54 has an open question") && err_of(&run).contains("not read"), "{}", err_of(&run));
-    assert!(out_of(&run).contains("Questions open:\n  54  54.tester.q1, 54.tester.q2\n"), "{}", out_of(&run));
+    assert!(out_of(&run).contains("\t54  issue-54-work  2 questions open\n"), "{}", out_of(&run));
 }
 
 #[test]
@@ -198,7 +198,7 @@ fn test_WB_STATUS_45_an_issue_read_from_the_tracker_is_not_told_that_its_tracker
     let folder = set_up();
     put(&folder.path, ".tracker/54.comments", "[questions] 54.tester q1\n");
     let run = status(&folder.path, &["54"]);
-    assert!(out_of(&run).contains("Questions open:\n  54  54.tester.q1\n"), "{}", out_of(&run));
+    assert!(out_of(&run).contains("questions open: 54.tester.q1\n"), "{}", out_of(&run));
     assert!(!err_of(&run).contains("typed at the tracker"), "{}", err_of(&run));
 }
 
@@ -212,7 +212,7 @@ fn test_WB_ANSWER_24_an_answers_comment_on_the_tracker_alone_answers_no_question
 
     let run = status(&folder.path, &["54"]);
 
-    assert!(out_of(&run).contains("Questions open:\n  54  54.tester.q1, 54.tester.q2\n"), "{}", out_of(&run));
+    assert!(out_of(&run).contains("questions open: 54.tester.q1, 54.tester.q2\n"), "{}", out_of(&run));
     assert!(!out_of(&run).contains("waits for"), "{}", out_of(&run));
 }
 
@@ -237,7 +237,7 @@ fn test_WB_ANSWER_25_an_issue_with_no_job_ref_is_read_from_the_tracker_as_before
 
     let run = status(&folder.path, &["54"]);
 
-    assert!(out_of(&run).contains("Questions open:\n  54  54.tester.q2\n"), "{}", out_of(&run));
+    assert!(out_of(&run).contains("questions open: 54.tester.q2\n"), "{}", out_of(&run));
     assert!(out_of(&run).contains("waits for: tester (54.tester.q1)"), "{}", out_of(&run));
 }
 
@@ -248,7 +248,7 @@ fn test_WB_ANSWER_52_an_issue_begun_before_with_comment_stamps_only_and_no_job_r
 
     let run = status(&folder.path, &["54"]);
 
-    assert!(out_of(&run).contains("Questions open:\n  54  54.build.q1\n"), "{}", out_of(&run));
+    assert!(out_of(&run).contains("questions open: 54.build.q1\n"), "{}", out_of(&run));
 }
 
 #[test]
@@ -273,7 +273,7 @@ fn test_WB_ANSWER_26_an_issue_whose_ref_holds_a_questions_commit_reads_no_questi
 
     let run = status(&folder.path, &["54"]);
 
-    assert!(out_of(&run).contains("Questions open:\n  54  54.tester.q1, 54.tester.q2\n"), "{}", out_of(&run));
+    assert!(out_of(&run).contains("questions open: 54.tester.q1, 54.tester.q2\n"), "{}", out_of(&run));
     assert!(!out_of(&run).contains("54.build.q1") && !out_of(&run).contains("54.q1"), "{}", out_of(&run));
 }
 
@@ -285,7 +285,7 @@ fn test_WB_ANSWER_26_a_questions_commit_that_does_not_count_still_shuts_the_trac
 
     let run = status(&folder.path, &["54"]);
 
-    assert!(!out_of(&run).contains("Questions open"), "{}", out_of(&run));
+    assert!(!out_of(&run).contains("questions open: "), "{}", out_of(&run));
 }
 
 // ---- WB-ANSWER-22 and 23: wb answer writes a signed commit, pushes it and posts the copy ----
@@ -309,7 +309,7 @@ fn test_WB_ANSWER_22_wb_answer_writes_a_signed_commit_on_the_job_s_ref_and_the_q
     assert_eq!(git_text(&folder.path, &["rev-parse", &format!("{}^{{tree}}", now)]), git_text(&folder.path, &["rev-parse", &format!("{}^{{tree}}", before)]));
     // The question is answered, with no tracker.
     let out = out_of(&status(&folder.path, &["54"]));
-    assert!(!out.contains("Questions open"), "{}", out);
+    assert!(!out.contains("questions open: "), "{}", out);
     assert!(out.contains("[answers] 54.tester q1>tester q2>tester  (on refs/watchbill/54, signed by ada@example.org)"), "{}", out);
 }
 
@@ -329,7 +329,7 @@ fn test_WB_ANSWER_22_one_commit_is_written_for_each_role_in_the_order_asked() {
     assert!(first.starts_with("[answers] 54.tester q1>tester q2>tester\n"), "{}", first);
     assert!(second.starts_with("[answers] 54.build q1\n") || second.starts_with("[answers] 54.build q1>build\n"), "{}", second);
     assert_eq!(git_text(&folder.path, &["rev-list", "--count", &format!("{}..{}", before, now)]).trim(), "2");
-    assert!(!out_of(&status(&folder.path, &["54"])).contains("Questions open"));
+    assert!(!out_of(&status(&folder.path, &["54"])).contains("questions open: "));
 }
 
 #[test]
@@ -532,7 +532,7 @@ fn test_WB_ANSWER_27_a_questions_commit_signed_by_a_key_without_start_breaks_the
     let out = out_of(&status(&folder.path, &["54"]));
 
     assert!(out.contains("is a questions commit, and signed by the key of bob@example.org") && out.contains("without the role start"), "{}", out);
-    assert!(!out.contains("Questions open"), "{}", out);
+    assert!(!out.contains("questions open: "), "{}", out);
 }
 
 #[test]
@@ -590,7 +590,7 @@ fn test_WB_ANSWER_21_a_questions_commit_with_a_tree_other_than_the_one_before_it
     let out = out_of(&status(&folder.path, &["54"]));
 
     assert!(out.contains("is a questions commit, and its tree is not the tree of the commit before it"), "{}", out);
-    assert!(!out.contains("Questions open"), "{}", out);
+    assert!(!out.contains("questions open: "), "{}", out);
 }
 
 #[test]
@@ -602,7 +602,7 @@ fn test_WB_ANSWER_21_a_questions_commit_of_another_job_put_under_this_ref_counts
     let out = out_of(&status(&folder.path, &["54"]));
 
     assert!(out.contains("not counted: a stamp of another job"), "{}", out);
-    assert!(!out.contains("Questions open"), "{}", out);
+    assert!(!out.contains("questions open: "), "{}", out);
 }
 
 #[test]
@@ -614,7 +614,7 @@ fn test_WB_ANSWER_21_only_the_lines_of_the_header_name_the_issue_and_the_base_no
 
     let out = out_of(&status(&folder.path, &["54"]));
 
-    assert!(out.contains("Questions open:\n  54  54.tester.q1\n"), "{}", out);
+    assert!(out.contains("questions open: 54.tester.q1\n"), "{}", out);
 }
 
 #[test]
@@ -633,12 +633,12 @@ fn test_WB_ANSWER_21_a_first_line_that_is_the_old_form_of_one_question_is_no_com
 fn test_WB_REVERT_2_a_questions_commit_after_the_reverted_stamp_is_taken_back_by_the_marker_on_the_ref_with_no_copy_posted() {
     let folder = no_tracker();
     stamps_on_ref(&folder.path, "54", &["[stamp] tester round 1", ASKED]);
-    assert!(out_of(&status(&folder.path, &["54"])).contains("Questions open"));
+    assert!(out_of(&status(&folder.path, &["54"])).contains("questions open: "));
 
     stamps_on_ref(&folder.path, "54", &["[revert] tester round 1"]);
 
     let out = out_of(&status(&folder.path, &["54"]));
-    assert!(!out.contains("Questions open"), "{}", out);
+    assert!(!out.contains("questions open: "), "{}", out);
     assert!(out.contains("[questions] 54.tester q1 q2  (on refs/watchbill/54, taken back by a [revert] marker)"), "{}", out);
 }
 
@@ -649,7 +649,7 @@ fn test_WB_REVERT_2_an_answer_commit_after_the_reverted_stamp_is_taken_back_and_
 
     let out = out_of(&status(&folder.path, &["54"]));
 
-    assert!(out.contains("Questions open:\n  54  54.tester.q1, 54.tester.q2\n"), "{}", out);
+    assert!(out.contains("questions open: 54.tester.q1, 54.tester.q2\n"), "{}", out);
     assert!(!out.contains("waits for"), "{}", out);
     let shown = answer(&folder.path, &["54", "--show"], "");
     assert!(out_of(&shown).contains("54.tester.q1 (1 of 2)"), "{}", out_of(&shown));
@@ -666,7 +666,7 @@ fn test_WB_REVERT_2_wb_revert_writes_a_marker_that_takes_back_the_questions_of_t
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
     assert!(err_of(&run).contains("no copy of the marker is posted"), "{}", err_of(&run));
     let out = out_of(&status(&folder.path, &["54"]));
-    assert!(!out.contains("Questions open"), "{}", out);
+    assert!(!out.contains("questions open: "), "{}", out);
 }
 
 // ---- WB-ANSWER-21 / 26: the questions a session is brought are those of the ref ----
@@ -727,7 +727,7 @@ fn test_WB_ANSWER_47_a_forged_questions_comment_opens_no_question_for_a_job_whos
     let run = status(&folder.path, &["54"]);
 
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
-    assert!(!out_of(&run).contains("Questions open"), "{}", out_of(&run));
+    assert!(!out_of(&run).contains("questions open: "), "{}", out_of(&run));
     assert!(!out_of(&run).contains("54.build.q1"), "{}", out_of(&run));
 }
 
@@ -739,7 +739,7 @@ fn test_WB_ANSWER_47_a_stamp_that_counts_for_nothing_shuts_the_tracker_out_all_t
 
     let run = status(&folder.path, &["54"]);
 
-    assert!(!out_of(&run).contains("Questions open"), "{}", out_of(&run));
+    assert!(!out_of(&run).contains("questions open: "), "{}", out_of(&run));
     assert_eq!(ran(&folder.path), "");
 }
 
@@ -849,7 +849,7 @@ fn test_WB_ANSWER_51_status_gives_a_job_whose_ref_holds_a_stamp_its_stage_with_n
     let run = status(&folder.path, &[]);
 
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
-    assert!(out_of(&run).contains("Planned:\n"), "{}", out_of(&run));
+    assert!(out_of(&run).contains("Jobs waiting for you:\n"), "{}", out_of(&run));
     assert!(!err_of(&run).contains("issue_comments"), "{}", err_of(&run));
 }
 
@@ -872,12 +872,12 @@ fn test_WB_ANSWER_52_an_issue_begun_before_has_its_questions_and_answers_read_fr
 
     let run = status(&folder.path, &["54"]);
 
-    assert!(out_of(&run).contains("Questions open:\n  54  54.tester.q2\n"), "{}", out_of(&run));
+    assert!(out_of(&run).contains("questions open: 54.tester.q2\n"), "{}", out_of(&run));
     assert_eq!(ran(&folder.path), "comments 54\n");
     // The first stamp on the ref ends it: from then on the comments are not read.
     stamps_on_ref(&folder.path, "54", &["[stamp] tester round 1"]);
     let run = status(&folder.path, &["54"]);
-    assert!(!out_of(&run).contains("Questions open"), "{}", out_of(&run));
+    assert!(!out_of(&run).contains("questions open: "), "{}", out_of(&run));
     assert_eq!(ran(&folder.path), "comments 54\n");
 }
 
@@ -898,7 +898,7 @@ fn test_WB_ANSWER_47_a_forged_comment_opens_no_question_for_a_job_whose_ref_hold
     let run = status(&folder.path, &["54"]);
 
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
-    assert!(!out_of(&run).contains("Questions open"), "{}", out_of(&run));
+    assert!(!out_of(&run).contains("questions open: "), "{}", out_of(&run));
     let run = answer(&folder.path, &["54", "--show"], "");
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
     assert_eq!(out_of(&run), "");
@@ -940,6 +940,6 @@ fn test_WB_PUSH_14_no_pattern_that_reads_a_comment_is_run_for_a_job_whose_ref_ho
     assert_eq!(code(&one), Some(0), "{}", err_of(&one));
     assert_eq!(code(&list), Some(0), "{}", err_of(&list));
     assert_eq!(ran(&folder.path), "", "a pattern that reads a comment was run");
-    assert!(!out_of(&one).contains("build") && !out_of(&one).contains("Questions open"), "{}", out_of(&one));
+    assert!(!out_of(&one).contains("build") && !out_of(&one).contains("questions open: "), "{}", out_of(&one));
     assert!(!out_of(&shown).contains("forged"), "{}", out_of(&shown));
 }

@@ -314,7 +314,7 @@ fn test_WB_JOB_30_show_reads_the_issue_s_file_where_wb_status_does_on_the_issue_
 
     assert!(shown.contains("\nissue's file: .watchbill/issues/54.yml, read from refs/heads/issue-54\n"), "{}", shown);
     assert!(bench.state("54").starts_with("state: accepted by "), "{}", shown);
-    assert!(text(&bench.wb(&["status"]).stdout).starts_with("Accepted:\n  54  issue-54"));
+    assert!(text(&bench.wb(&["status"]).stdout).starts_with("Jobs in the flow:\n\t54  issue-54"));
 }
 
 #[test]
@@ -677,14 +677,14 @@ fn test_WB_JOB_41_a_source_added_after_the_acceptance_voids_it_in_show_status_an
     bench.accept();
     assert!(bench.state("54").starts_with("state: accepted by "));
     let run = bench.wb(&["status"]);
-    assert!(text(&run.stdout).starts_with("Accepted:\n  54  issue-54"), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).starts_with("Jobs in the flow:\n\t54  issue-54"), "{}", text(&run.stdout));
     next_second();
 
     bench.added(&["add", "54", "-m", "On a slope too."]);
 
     assert_eq!(bench.state("54"), "state: not accepted (a source added after the acceptance)");
     let run = bench.wb(&["status"]);
-    assert!(text(&run.stdout).starts_with("Planned:\n  54  issue-54"), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).starts_with("Jobs waiting for you:\n") && text(&run.stdout).contains("\t54  issue-54") && text(&run.stdout).contains("  planned"), "{}", text(&run.stdout));
     let run = bench.wb(&["view", "54", "tester", "--in"]);
     assert_eq!(code(&run), Some(1), "{}", text(&run.stdout));
     assert!(text(&run.stderr).contains("a source added after"), "{}", text(&run.stderr));
@@ -704,7 +704,7 @@ fn test_WB_JOB_41_a_source_added_in_the_same_second_as_the_acceptance_voids_it()
 
     assert_eq!(bench.state("54"), "state: not accepted (a source added after the acceptance)");
     let run = bench.wb(&["status"]);
-    assert!(text(&run.stdout).starts_with("Planned:\n  54  issue-54"), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).starts_with("Jobs waiting for you:\n") && text(&run.stdout).contains("\t54  issue-54") && text(&run.stdout).contains("  planned"), "{}", text(&run.stdout));
 }
 
 // ---- WB-JOB-42: a planner round after the acceptance voids it, even where the plan comes out the same ----
@@ -718,7 +718,7 @@ fn test_WB_JOB_42_a_planner_stamp_after_the_acceptance_voids_it_and_accepting_ag
     bench.comments(&["[stamp] planner round 1\nrole: planner\ntime: 2000-01-01T00:00:00Z\n"]);
     bench.accept();
     assert!(bench.state("54").starts_with("state: accepted by "));
-    assert!(text(&bench.wb(&["status"]).stdout).starts_with("Accepted:\n  54  issue-54"));
+    assert!(text(&bench.wb(&["status"]).stdout).starts_with("Jobs in the flow:\n\t54  issue-54"));
 
     // A second round, which changed nothing: its stamp is of this second, the same as or after the acceptance.
     bench.comments(&[
@@ -728,7 +728,7 @@ fn test_WB_JOB_42_a_planner_stamp_after_the_acceptance_voids_it_and_accepting_ag
 
     assert_eq!(bench.state("54"), "state: not accepted (planned again after the acceptance)");
     let run = bench.wb(&["status"]);
-    assert!(text(&run.stdout).starts_with("Planned:\n  54  issue-54"), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).starts_with("Jobs waiting for you:\n") && text(&run.stdout).contains("\t54  issue-54") && text(&run.stdout).contains("  planned"), "{}", text(&run.stdout));
 
     // The person's word again.
     next_second();
@@ -737,7 +737,7 @@ fn test_WB_JOB_42_a_planner_stamp_after_the_acceptance_voids_it_and_accepting_ag
     bench.accept();
 
     assert!(bench.state("54").starts_with("state: accepted by "), "{}", bench.show("54"));
-    assert!(text(&bench.wb(&["status"]).stdout).starts_with("Accepted:\n  54  issue-54"));
+    assert!(text(&bench.wb(&["status"]).stdout).starts_with("Jobs in the flow:\n\t54  issue-54"));
 }
 
 #[test]
@@ -757,7 +757,7 @@ fn test_WB_JOB_42_a_planner_stamp_taken_back_by_a_revert_voids_nothing_in_show_o
 
     assert!(bench.state("54").starts_with("state: accepted by "), "{}", bench.show("54"));
     let run = bench.wb(&["status"]);
-    assert!(text(&run.stdout).starts_with("Accepted:\n  54  issue-54"), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).starts_with("Jobs in the flow:\n\t54  issue-54"), "{}", text(&run.stdout));
 }
 
 // ---- WB-JOB-43: wb accept of a plan not accepted names wb plan accept ----

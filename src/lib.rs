@@ -64,7 +64,7 @@ pub const USAGE: &str = "usage:
             [--ignore-branch] [--no-push] [-q | --quiet] [the options of prompt]
             or <role> <issue> --take-back
             or --list [-v | --verbose]
-  wb status [<issue>] [--stage <heading>] [-q | --quiet]
+  wb status [<issue>] [--stage <word>] [-s | --short | --porcelain] [--color[=<when>]] [-q | --quiet]
             or --session <hash> [-q | --quiet]
   wb view <issue> (<role> [--in | --out] | <path>) [-q | --quiet]
             or --kept [-v | --verbose]
@@ -324,16 +324,30 @@ pub const USAGE: &str = "usage:
             (--quiet) leaves out the check of the lists and the lines that
             confirm the write and the commit, and not what it will write or
             commit, the command to commit or push, or a refusal
-  status    list the issues in the flow under headings, as git status lists
-            files: each issue under the last step it has done (Not planned,
-            Planned, Accepted, Tested, Built, Reviewed, Fixed), and last the
-            issues that have a question no [answers] or [answer] line has
-            closed. An issue is in the flow when its branch, local or at
-            origin, holds a commit that the default branch of origin does not:
-            git alone says which, and fetches nothing. Its line shows the
-            branch, the open change as #<n> (change_of_branch) and how many
-            commits are not pushed. The stamps are the commits on the job's
-            ref that count. The questions and answers of a job whose ref
+  status    list the jobs in the flow as git status lists files, under two
+            headings by whose move it is next: Jobs waiting for you (a
+            question is open, a session ended needing a person, an answer
+            waits for a person, or the plan is to be accepted) and Jobs in
+            the flow (an agent's move). A line is the number, the branch, the
+            open change as #<n> (change_of_branch) and a text: the stage word
+            (planned, accepted, tested, built, reviewed, fixed), how many
+            questions are open, the reason of a needs_person, and how many
+            commits are not pushed. A job not broken down has no line, unless
+            a person's move is open on it. Hint lines in git's form, as (use
+            \"wb answer <issue>...\" to answer its questions), come under the
+            first heading, and under a kept view of one issue, unless
+            status_hints: false is written in watchbill.yml. -s (--short)
+            prints one line for each job, as git status -s does: the stage
+            letter (P A T B R F), the letter of why a person must move (Q a
+            question, N a needs_person, W an answer, P a plan to accept), the
+            number and the branch; --porcelain prints the same with no colour,
+            for a script. --color[=<when>] (always, never or auto, the
+            default: only on a terminal) colours the lines under the first
+            heading red and those under the second green, as git colours what
+            is not staged and what is. An issue is in the flow when its
+            branch, local or at origin, holds a commit that the default
+            branch of origin does not: git alone says which, and fetches
+            nothing. The stamps are the commits on the job's ref that count. The questions and answers of a job whose ref
             holds a stamp, a commit of wb plan or a questions commit are
             read from the ref alone, from the first of them on, and no
             issue_comments is run for it, so a project with no
@@ -342,18 +356,20 @@ pub const USAGE: &str = "usage:
             an open question read from the ref it says on
             standard error that an answer typed at the tracker is not read.
             An acceptance that a source or a planner round after it voided
-            puts the issue under Planned. For one issue it says source
+            puts the job back to planned. For one issue it says source
             changed where issue_text, the pattern that read the newest
             source of its plan, prints other text now: a person runs wb
-            plan add again, and wb status takes nothing in. An issue whose
+            plan add again, and wb status takes nothing in. A job whose
             last session ended needing a person, written as a signed commit
-            on its ref, is listed under Needs a person with its reason on one
-            line, and <issue> prints waits for: person (<reason>); it stays
+            on its ref, says needs a person: <reason> on its line, and <issue>
+            prints waits for: person (<reason>); it stays
             until the next start of any role on the issue, and a questions
             commit, an answers commit, a flag or a comment does not close it.
             <issue> prints that issue, in the flow or not, with its title
-            (issue_address) and what it was worked out from; --stage <heading>
-            prints that heading only, whatever its case. A job whose work is
+            (issue_address), each session (its stamp, how it ended, what came
+            back) and what it was worked out from; --stage <word> prints the
+            jobs of that stage word only (or not read), whatever its case. A
+            job whose work is
             accepted, or whose change is merged, is done: it is not listed,
             and <issue> prints Done and what closed it, and a line accepted:
             for each acceptance, by its object. For one issue it also prints
@@ -2969,8 +2985,21 @@ fn run_accept(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     }
 }
 
-/// `wb status [<issue>] [--stage <heading>]` (#139): where each issue stands, and `wb status --session <hash>` (#239):
-/// what one session was given, how it ended and what came back. It only reads.
+/// Records the form of a flag that is given once, as `-s` or `--short`: twice, or both, is used wrongly.
+fn given_once(given: &mut Option<&'static str>, form: &'static str) -> Result<(), String> {
+    match *given {
+        Some(first) if first == form => Err(format!("'{}' is given twice", form)),
+        Some(_) => Err("'-s' and '--short' are both given".to_string()),
+        None => {
+            *given = Some(form);
+            Ok(())
+        }
+    }
+}
+
+/// `wb status [<issue>] [--stage <word>] [-s | --porcelain] [--color[=<when>]]` (#139, #284): where each job stands, as
+/// `git status` says it, and `wb status --session <hash>` (#239): what one session was given, how it ended and what came
+/// back. It only reads.
 fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let used = |err: &mut dyn Write, why: String| {
         let _ = write!(err, "wb status: {}\n\n{}", why, USAGE);
@@ -2980,6 +3009,10 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     let mut stage: Option<&'static str> = None;
     let mut session: Option<String> = None;
     let mut quiet: Option<&'static str> = None;
+    // `-s` or `--short`, `--porcelain` and `--color`, each given once (#284).
+    let mut short: Option<&'static str> = None;
+    let mut porcelain = false;
+    let mut color: Option<String> = None;
     loop {
         let found = match next(parser) {
             Ok(None) => break,
@@ -2993,6 +3026,25 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
         }
         match found {
             Word::Value(value) if issue.is_none() => issue = Some(word(value.as_bytes())),
+            Word::Short('s') => match given_once(&mut short, "-s") {
+                Ok(()) => {}
+                Err(why) => return used(err, why),
+            },
+            Word::Long(option) if option == "short" => match given_once(&mut short, "--short") {
+                Ok(()) => {}
+                Err(why) => return used(err, why),
+            },
+            Word::Long(option) if option == "porcelain" && porcelain => return used(err, "'--porcelain' is given once".to_string()),
+            Word::Long(option) if option == "porcelain" => porcelain = true,
+            Word::Long(option) if option == "color" && color.is_some() => return used(err, "'--color' is given once".to_string()),
+            Word::Long(option) if option == "color" => {
+                // As git's `--color[=<when>]`: alone it is `always`.
+                let when = parser.optional_value().map(|value| word(value.as_bytes())).unwrap_or_else(|| "always".to_string());
+                if !["always", "never", "auto"].contains(&when.as_str()) {
+                    return used(err, format!("'--color={}' is not known: the value is always, never or auto", when.escape_debug()));
+                }
+                color = Some(when);
+            }
             Word::Long(option) if option == "session" && session.is_some() => return used(err, "'--session' is given once".to_string()),
             Word::Long(option) if option == "session" => {
                 let Ok(value) = parser.value() else {
@@ -3009,12 +3061,9 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
                     return used(err, "'--stage' needs a heading".to_string());
                 };
                 let given = word(value.as_bytes());
-                match status::heading_of(&given) {
-                    Some(heading) => stage = Some(heading),
-                    None => {
-                        let names: Vec<&str> = status::STEPS.iter().chain([&status::QUESTIONS, &status::PERSON, &status::NOT_READ]).copied().collect();
-                        return used(err, format!("'{}' is not a heading of `wb status`: {}", given.escape_debug(), names.join(", ")));
-                    }
+                match status::stage_word_of(&given) {
+                    Some(word) => stage = Some(word),
+                    None => return used(err, format!("'{}' is not a stage word of `wb status`: {}", given.escape_debug(), status::stage_words().join(", "))),
                 }
             }
             found => {
@@ -3026,6 +3075,26 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     if session.is_some() && (issue.is_some() || stage.is_some()) {
         return used(err, "'--session' takes no issue and no --stage".to_string());
     }
+    if session.is_some() && (short.is_some() || porcelain || color.is_some()) {
+        return used(err, "'--session' takes no --short, no --porcelain and no --color".to_string());
+    }
+    // Whether the lines are coloured (#284): as git, only on a terminal for `auto`, which is the default; never in the porcelain form.
+    let form = if porcelain {
+        status::Form::Porcelain
+    } else if short.is_some() {
+        status::Form::Short
+    } else {
+        status::Form::Long
+    };
+    let colored = match color.as_deref() {
+        Some("always") => true,
+        Some("never") => false,
+        _ => {
+            use std::io::IsTerminal;
+            std::io::stdout().is_terminal() && std::env::var_os("TERM").is_none_or(|term| term != "dumb")
+        }
+    };
+    let look = status::Look { form, color: colored && form != status::Form::Porcelain };
     if let Some(issue) = &issue {
         if !issue::is_name(issue) {
             return used(err, format!("'{}' is not an issue: an issue is letters, digits, '.', '_' and '-', and does not start with '.'", issue.escape_debug()));
@@ -3046,7 +3115,7 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
                 Ok(_guard) => session_status::run(&root, hash, sessions::state_folder().as_deref(), out, err),
                 Err(code) => code,
             },
-            None => status::status(&root, issue.as_deref(), stage, sessions::state_folder().as_deref(), out, err),
+            None => status::status(&root, issue.as_deref(), stage, look, sessions::state_folder().as_deref(), out, err),
         },
     }
 }

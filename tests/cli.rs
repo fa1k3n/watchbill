@@ -28,7 +28,7 @@ const USAGE: &str = "usage:
             [--ignore-branch] [--no-push] [-q | --quiet] [the options of prompt]
             or <role> <issue> --take-back
             or --list [-v | --verbose]
-  wb status [<issue>] [--stage <heading>] [-q | --quiet]
+  wb status [<issue>] [--stage <word>] [-s | --short | --porcelain] [--color[=<when>]] [-q | --quiet]
             or --session <hash> [-q | --quiet]
   wb view <issue> (<role> [--in | --out] | <path>) [-q | --quiet]
             or --kept [-v | --verbose]
@@ -288,16 +288,30 @@ const USAGE: &str = "usage:
             (--quiet) leaves out the check of the lists and the lines that
             confirm the write and the commit, and not what it will write or
             commit, the command to commit or push, or a refusal
-  status    list the issues in the flow under headings, as git status lists
-            files: each issue under the last step it has done (Not planned,
-            Planned, Accepted, Tested, Built, Reviewed, Fixed), and last the
-            issues that have a question no [answers] or [answer] line has
-            closed. An issue is in the flow when its branch, local or at
-            origin, holds a commit that the default branch of origin does not:
-            git alone says which, and fetches nothing. Its line shows the
-            branch, the open change as #<n> (change_of_branch) and how many
-            commits are not pushed. The stamps are the commits on the job's
-            ref that count. The questions and answers of a job whose ref
+  status    list the jobs in the flow as git status lists files, under two
+            headings by whose move it is next: Jobs waiting for you (a
+            question is open, a session ended needing a person, an answer
+            waits for a person, or the plan is to be accepted) and Jobs in
+            the flow (an agent's move). A line is the number, the branch, the
+            open change as #<n> (change_of_branch) and a text: the stage word
+            (planned, accepted, tested, built, reviewed, fixed), how many
+            questions are open, the reason of a needs_person, and how many
+            commits are not pushed. A job not broken down has no line, unless
+            a person's move is open on it. Hint lines in git's form, as (use
+            \"wb answer <issue>...\" to answer its questions), come under the
+            first heading, and under a kept view of one issue, unless
+            status_hints: false is written in watchbill.yml. -s (--short)
+            prints one line for each job, as git status -s does: the stage
+            letter (P A T B R F), the letter of why a person must move (Q a
+            question, N a needs_person, W an answer, P a plan to accept), the
+            number and the branch; --porcelain prints the same with no colour,
+            for a script. --color[=<when>] (always, never or auto, the
+            default: only on a terminal) colours the lines under the first
+            heading red and those under the second green, as git colours what
+            is not staged and what is. An issue is in the flow when its
+            branch, local or at origin, holds a commit that the default
+            branch of origin does not: git alone says which, and fetches
+            nothing. The stamps are the commits on the job's ref that count. The questions and answers of a job whose ref
             holds a stamp, a commit of wb plan or a questions commit are
             read from the ref alone, from the first of them on, and no
             issue_comments is run for it, so a project with no
@@ -306,18 +320,20 @@ const USAGE: &str = "usage:
             an open question read from the ref it says on
             standard error that an answer typed at the tracker is not read.
             An acceptance that a source or a planner round after it voided
-            puts the issue under Planned. For one issue it says source
+            puts the job back to planned. For one issue it says source
             changed where issue_text, the pattern that read the newest
             source of its plan, prints other text now: a person runs wb
-            plan add again, and wb status takes nothing in. An issue whose
+            plan add again, and wb status takes nothing in. A job whose
             last session ended needing a person, written as a signed commit
-            on its ref, is listed under Needs a person with its reason on one
-            line, and <issue> prints waits for: person (<reason>); it stays
+            on its ref, says needs a person: <reason> on its line, and <issue>
+            prints waits for: person (<reason>); it stays
             until the next start of any role on the issue, and a questions
             commit, an answers commit, a flag or a comment does not close it.
             <issue> prints that issue, in the flow or not, with its title
-            (issue_address) and what it was worked out from; --stage <heading>
-            prints that heading only, whatever its case. A job whose work is
+            (issue_address), each session (its stamp, how it ended, what came
+            back) and what it was worked out from; --stage <word> prints the
+            jobs of that stage word only (or not read), whatever its case. A
+            job whose work is
             accepted, or whose change is merged, is done: it is not listed,
             and <issue> prints Done and what closed it, and a line accepted:
             for each acceptance, by its object. For one issue it also prints

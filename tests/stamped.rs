@@ -473,7 +473,7 @@ fn test_WB_BUILD_48_an_unsigned_stamp_commit_is_not_counted_and_status_says_so()
     assert_eq!(bench.git(&["for-each-ref"]), before);
     assert_eq!(bench.sessions(), 0, "{:?}", bench.calls());
     let status = bench.status();
-    assert!(!status.contains("Tested:") && !status.contains("Reviewed:"), "{}", status);
+    assert!(!status.contains("  tested") && !status.contains("  reviewed"), "{}", status);
     assert!(status.contains("[stamp] tester round 1  (on refs/watchbill/54, not counted: unsigned"), "{}", status);
 }
 
@@ -497,7 +497,7 @@ fn test_WB_BUILD_48_a_stamp_signed_by_a_key_not_in_the_list_with_start_is_not_co
     assert!(said.err.contains("is not as wb writes it") && said.err.contains("signed by a key that is not in"), "{}", said.err);
     assert_eq!(bench.git(&["for-each-ref"]), before);
     assert_eq!(bench.sessions(), 0, "{:?}", bench.calls());
-    assert!(!bench.status().contains("Tested:"), "{}", bench.status());
+    assert!(!bench.status().contains("  tested"), "{}", bench.status());
     assert!(bench.status().contains("not counted: signed by a key that is not in .watchbill/signers of origin/main"), "{}", bench.status());
 }
 
@@ -533,7 +533,7 @@ fn test_WB_BUILD_49_a_forged_stamp_comment_changes_no_round() {
     ok(&said);
     assert!(bench.message(&bench.on_ref()[0]).starts_with("[stamp] tester round 1\n"), "{}", bench.message(&bench.on_ref()[0]));
     assert!(!bench.calls().iter().any(|call| call.starts_with("comments ")), "{:?}", bench.calls());
-    assert!(!bench.status().contains("Reviewed:"), "{}", bench.status());
+    assert!(!bench.status().contains("  reviewed"), "{}", bench.status());
 }
 
 // ---- WB-BUILD-50: the stamp is signed by the starter ----
@@ -611,7 +611,7 @@ fn test_WB_TASK_58_with_no_list_a_stamp_commit_signed_or_not_counts_for_nothing(
     unsigned_stamps_on_ref(&bench.repo.path, "54", &["[stamp] review round 1\nrole: review\n"]);
 
     let status = bench.status();
-    assert!(!status.contains("Tested:") && !status.contains("Reviewed:"), "{}", status);
+    assert!(!status.contains("  tested") && !status.contains("  reviewed"), "{}", status);
     assert!(status.contains("[stamp] tester round 1  (on refs/watchbill/54, not counted"), "{}", status);
     assert!(status.contains("[stamp] review round 1  (on refs/watchbill/54, not counted"), "{}", status);
     assert_eq!(status.matches("no .watchbill/signers on origin/main: nothing is signed, so nothing counts").count(), 1, "{}", status);
@@ -742,7 +742,7 @@ fn test_WB_BUILD_48_a_signed_stamp_of_another_issue_under_an_unsigned_child_is_n
     bench.git(&["update-ref", JOB, &child]);
 
     let status = bench.status();
-    assert!(!status.contains("Reviewed:"), "{}", status);
+    assert!(!status.contains("  reviewed"), "{}", status);
     assert!(status.contains("[stamp] review round 1  (on refs/watchbill/54, not counted: a stamp of another job"), "{}", status);
 
     let mut args = vec!["fix", "54"];
@@ -864,7 +864,7 @@ fn test_WB_BUILD_161_a_stamp_with_two_issue_lines_is_not_counted() {
 
     assert!(status_of(&bench, "[stamp] tester round 1").contains("not counted:"), "{}", status);
     assert!(status_of(&bench, "[stamp] review round 1").contains("not counted:"), "{}", status);
-    assert!(!status.contains("Reviewed:"), "{}", status);
+    assert!(!status.contains("  reviewed"), "{}", status);
 }
 
 #[test]
@@ -995,7 +995,7 @@ fn test_WB_BUILD_164_a_signed_job_none_stamp_spliced_in_by_an_unsigned_merge_is_
 
     let status = bench.status();
 
-    assert!(!status.contains("Reviewed:"), "{}", status);
+    assert!(!status.contains("  reviewed"), "{}", status);
     assert!(status_of(&bench, "[stamp] review round 1").contains("not counted: a stamp of another repository"), "{}", status);
 }
 
@@ -1011,7 +1011,7 @@ fn test_WB_BUILD_164_the_same_stamp_under_one_unsigned_commit_with_the_plan_on_t
 
     let status = bench.status();
 
-    assert!(!status.contains("Reviewed:"), "{}", status);
+    assert!(!status.contains("  reviewed"), "{}", status);
     assert!(status_of(&bench, "[stamp] review round 1").contains("not counted: a stamp of another repository"), "{}", status);
 }
 
@@ -1178,7 +1178,7 @@ fn test_WB_BUILD_166_a_signed_stamp_spliced_in_by_a_signed_merge_counts_for_noth
 
     let status = bench.status();
 
-    assert!(!status.contains("Tested:") && !status.contains("Built:") && !status.contains("Reviewed:"), "{}", status);
+    assert!(!status.contains("  tested") && !status.contains("  built") && !status.contains("  reviewed"), "{}", status);
     let lines = not_as_written(&bench);
     assert_eq!(lines.len(), 1, "{}", status);
     assert!(lines[0].contains(&merge) && lines[0].contains("merge"), "{}", lines[0]);
@@ -1195,7 +1195,7 @@ fn test_WB_BUILD_166_an_unsigned_commit_on_top_of_signed_stamps_counts_for_nothi
 
     let status = bench.status();
 
-    assert!(!status.contains("Tested:"), "{}", status);
+    assert!(!status.contains("  tested"), "{}", status);
     // One line, naming the first commit that is not as `wb` writes it.
     let lines = not_as_written(&bench);
     assert_eq!(lines.len(), 1, "{}", status);
@@ -1224,7 +1224,7 @@ fn test_WB_BUILD_166_an_unsigned_tip_that_sets_the_plan_lets_no_stamp_count() {
 
     let status = bench.status();
 
-    assert!(!status.contains("Tested:") && !status.contains("Reviewed:"), "{}", status);
+    assert!(!status.contains("  tested") && !status.contains("  reviewed"), "{}", status);
     let lines = not_as_written(&bench);
     assert_eq!(lines.len(), 1, "{}", status);
     assert!(lines[0].contains(&top) && lines[0].contains("unsigned"), "{}", lines[0]);
@@ -1247,7 +1247,7 @@ fn test_WB_BUILD_166_an_unsigned_tip_with_a_removed_plan_lets_no_stamp_count() {
 
     let status = bench.status();
 
-    assert!(!status.contains("Tested:") && !status.contains("Reviewed:"), "{}", status);
+    assert!(!status.contains("  tested") && !status.contains("  reviewed"), "{}", status);
     let lines = not_as_written(&bench);
     assert_eq!(lines.len(), 1, "{}", status);
     assert!(lines[0].contains(&top), "{}", lines[0]);
@@ -1264,7 +1264,7 @@ fn test_WB_BUILD_169_a_plan_commit_signed_by_a_key_without_accept_makes_the_ref_
 
     let status = bench.status();
 
-    assert!(!status.contains("Tested:"), "{}", status);
+    assert!(!status.contains("  tested"), "{}", status);
     let lines = not_as_written(&bench);
     assert_eq!(lines.len(), 1, "{}", status);
     assert!(lines[0].contains(&plan) && lines[0].contains("without the role accept"), "{}", lines[0]);
@@ -1285,7 +1285,7 @@ fn test_WB_BUILD_166_a_line_of_commits_as_wb_writes_them_counts_as_before_and_pl
 
     let status = bench.status();
 
-    assert!(status.contains("Tested:"), "{}", status);
+    assert!(status.contains("  tested"), "{}", status);
     assert!(not_as_written(&bench).is_empty(), "{}", status);
     // The commits of `wb plan add` are signed by Ada's key, as git checks them.
     let allowed = bench.home.path.join("allowed");
@@ -1309,7 +1309,7 @@ fn test_WB_BUILD_166_a_line_of_commits_as_wb_writes_them_counts_as_before_and_pl
     let status = bench.status();
     assert!(not_as_written(&bench).is_empty(), "{}", status);
     assert!(status.contains("[stamp] tester round 1  (on refs/watchbill/54, signed by ada@example.org)"), "{}", status);
-    assert!(status.contains("Tested:"), "{}", status);
+    assert!(status.contains("  tested"), "{}", status);
 }
 
 #[test]
@@ -1443,7 +1443,7 @@ fn test_WB_BUILD_168_a_bad_ref_voids_the_acceptance_a_planner_round_voided_and_p
     let mut without = vec!["build", "54"];
     without.extend(REST);
     assert_eq!(bench.prompt(&with_round).code, 1);
-    assert!(!bench.status().contains("Accepted:"), "{}", bench.status());
+    assert!(!bench.status().contains("  accepted"), "{}", bench.status());
 
     // One unsigned commit on top: nothing on the ref counts, and the void stays.
     unsigned_stamps_on_ref(&bench.repo.path, "54", &["[stamp] tester round 1\nrole: tester\n"]);
@@ -1456,7 +1456,7 @@ fn test_WB_BUILD_168_a_bad_ref_voids_the_acceptance_a_planner_round_voided_and_p
         assert!(said.err.contains("is not as wb writes it") && said.err.contains(&top), "{}", said.err);
     }
     let status = bench.status();
-    assert!(!status.contains("Accepted:"), "{}", status);
+    assert!(!status.contains("  accepted"), "{}", status);
     assert_eq!(not_as_written(&bench).len(), 1, "{}", status);
 }
 
@@ -1490,7 +1490,7 @@ fn test_WB_BUILD_166_a_signed_stamp_whose_tree_marks_the_plan_removed_makes_the_
 
     let status = bench.status();
 
-    assert!(!status.contains("Tested:") && !status.contains("Reviewed:"), "{}", status);
+    assert!(!status.contains("  tested") && !status.contains("  reviewed"), "{}", status);
     let lines = not_as_written(&bench);
     assert_eq!(lines.len(), 1, "{}", status);
     assert!(lines[0].contains(&stamp) && lines[0].contains("tree"), "{}", lines[0]);
@@ -1552,7 +1552,7 @@ fn test_WB_BUILD_167_a_side_chain_with_its_own_root_is_named_by_its_merge() {
     assert!(lines[0].contains(&merge) && !lines[0].contains(&root), "{}", lines[0]);
     bench.git(&["update-ref", JOB, &format!("{}^", merge)]);
     assert!(not_as_written(&bench).is_empty(), "{}", bench.status());
-    assert!(bench.status().contains("Tested:"), "{}", bench.status());
+    assert!(bench.status().contains("  tested"), "{}", bench.status());
 }
 
 #[test]
@@ -1584,7 +1584,7 @@ fn test_WB_BUILD_166_in_a_shallow_repository_the_ref_is_not_as_wb_writes_it() {
 
     assert_eq!(lines.len(), 1, "{}", bench.status());
     assert!(lines[0].contains("shallow"), "{}", lines[0]);
-    assert!(!bench.status().contains("Tested:"), "{}", bench.status());
+    assert!(!bench.status().contains("  tested"), "{}", bench.status());
     start_refused(&bench);
 }
 
@@ -1601,7 +1601,7 @@ fn test_WB_BUILD_166_a_ref_at_an_annotated_tag_or_a_tree_is_not_as_wb_writes_it(
 
     assert_eq!(lines.len(), 1, "{}", bench.status());
     assert!(lines[0].contains("tag"), "{}", lines[0]);
-    assert!(!bench.status().contains("Tested:"), "{}", bench.status());
+    assert!(!bench.status().contains("  tested"), "{}", bench.status());
     start_refused(&bench);
 
     bench.git(&["update-ref", JOB, &tree_of(&bench, &tip)]);
@@ -1624,7 +1624,7 @@ fn test_WB_BUILD_166_a_signed_commit_of_another_kind_makes_the_ref_not_as_wb_wri
 
     assert_eq!(lines.len(), 1, "{}", bench.status());
     assert!(lines[0].contains(&other) && lines[0].contains("neither a stamp"), "{}", lines[0]);
-    assert!(!bench.status().contains("Tested:"), "{}", bench.status());
+    assert!(!bench.status().contains("  tested"), "{}", bench.status());
 }
 
 #[test]
@@ -1638,7 +1638,7 @@ fn test_WB_BUILD_166_a_commit_over_64_kib_makes_the_ref_not_as_wb_writes_it() {
 
     assert_eq!(lines.len(), 1, "{}", bench.status());
     assert!(lines[0].contains(&big) && lines[0].contains("larger than 64 KiB"), "{}", lines[0]);
-    assert!(!bench.status().contains("Tested:"), "{}", bench.status());
+    assert!(!bench.status().contains("  tested"), "{}", bench.status());
 }
 
 #[test]

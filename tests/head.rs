@@ -389,7 +389,9 @@ fn test_WB_BUILD_59_wb_status_takes_the_branch_pattern_from_head_not_the_working
     let bench = bench();
     git(&bench.repo.path, &["checkout", "-q", "-b", "issue-77"]);
     put(&bench.repo.path, "a.txt", "a\n");
-    git(&bench.repo.path, &["add", "--", "a.txt"]);
+    // The issue's file is on the branch: a job not broken down has no line in the list (#284).
+    put(&bench.repo.path, ".watchbill/issues/77.yml", "issue: '77'\n");
+    git(&bench.repo.path, &["add", "--", "a.txt", ".watchbill/issues/77.yml"]);
     git(&bench.repo.path, &["commit", "-q", "-m", "Work"]);
     git(&bench.repo.path, &["checkout", "-q", "main"]);
     bench.add("branch: 'other-{issue}'");

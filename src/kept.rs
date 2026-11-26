@@ -644,6 +644,16 @@ pub fn ended(state: Option<&Path>, text: &str) -> Ended {
     }
 }
 
+/// What the start of one stamp brought back, as the lines of its `back` say (#284): `None` where no start of this machine
+/// holds the stamp's text (or more than one does), else its lines, at most `MOST_OUTCOME` of them, empty where it has no
+/// `back` that can be read. Diagnostics: nothing is decided from them.
+pub fn came_back(state: Option<&Path>, text: &str) -> Option<Vec<String>> {
+    let state = state?;
+    let mut found = sessions(state, None).into_iter().filter(|session| small(&session.folder.join("stamp")).is_some_and(|stamp| stamp.trim_end() == text.trim_end()));
+    let (Some(session), None) = (found.next(), found.next()) else { return None };
+    Some(small(&session.folder.join("back")).map(|back| back.lines().take(MOST_OUTCOME).map(str::to_string).collect()).unwrap_or_default())
+}
+
 /// A session of an issue that was cut off: its `outcome` says `running` and its `wb` is not alive.
 pub struct CutOff {
     pub role: String,

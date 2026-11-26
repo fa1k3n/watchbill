@@ -6,7 +6,7 @@
 
 _wb_commands="init check doctor upgrade plan accept start status view answer revert clean prompt revision compare"
 _wb_roles="build fix planner review tester"
-_wb_stages=("Not planned" Planned Accepted Tested Built Reviewed Fixed "Questions open" "Needs a person" "Not read")
+_wb_stages=(planned accepted tested built reviewed fixed "not read")
 
 _wb_flags_init="--yes --quiet"
 _wb_flags_check="--quiet"
@@ -15,7 +15,7 @@ _wb_flags_upgrade="--dry-run --quiet"
 _wb_flags_plan="--file --message --from --source --level --hash-only --no-commit --quiet"
 _wb_flags_accept="--no-commit --quiet"
 _wb_flags_start="--runner --prompt --ignore-local --ignore-kept --ignore-branch --no-push --take-back --issue --change --requirements --round --checkout --branch --issue_address --change_address --classed --classed_touched --description --brought --questions --change_comment --needs_person --parts --stamp --show-origin --list --verbose --quiet"
-_wb_flags_status="--stage --session --quiet"
+_wb_flags_status="--stage --session --short --porcelain --color --quiet"
 _wb_flags_view="--in --out --kept --verbose --quiet"
 _wb_flags_answer="--change --show --suggested --quiet"
 _wb_flags_revert="--change --round --quiet"
@@ -32,7 +32,7 @@ _wb_short_upgrade="-n -q"
 _wb_short_plan="-F -m -n -q"
 _wb_short_accept="-n -q"
 _wb_short_start="-q -v"
-_wb_short_status="-q"
+_wb_short_status="-q -s"
 _wb_short_view="-q -v"
 _wb_short_answer="-q"
 _wb_short_revert="-q"
@@ -91,7 +91,13 @@ _wb() {
         esac
     fi
 
-    # The value of a flag that takes one: the headings of wb status, and nothing for the others.
+    # The values of --color of wb status, as git's: after --color=
+    if [[ $command == status && $prev == "=" && ${COMP_WORDS[COMP_CWORD - 2]:-} == --color ]]; then
+        COMPREPLY=($(compgen -W "always never auto" -- "$cur"))
+        return 0
+    fi
+
+    # The value of a flag that takes one: the stage words of wb status, and nothing for the others.
     case $prev in
     --stage)
         stage=${cur//\\/}

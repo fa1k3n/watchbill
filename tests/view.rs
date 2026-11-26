@@ -4875,7 +4875,7 @@ fn test_WB_ANSWER_21_the_planner_s_questions_are_a_commit_on_the_job_s_ref_after
     // `wb status` shows them open from the ref, and runs no `issue_comments` for the issue.
     let before = called(&bench, "comments");
     let run = wb(&bench.repo.path, &["status", "54"], "");
-    assert!(text_of(&run.stdout).contains("Questions open:\n  54  54.q1, 54.q2\n"), "{}{}", text_of(&run.stdout), text_of(&run.stderr));
+    assert!(text_of(&run.stdout).contains("questions open: 54.q1, 54.q2\n"), "{}{}", text_of(&run.stdout), text_of(&run.stderr));
     assert_eq!(called(&bench, "comments"), before, "{:?}", bench.calls());
 }
 
@@ -5032,7 +5032,7 @@ fn test_WB_ANSWER_21_a_questions_commit_that_cannot_be_pushed_says_how_to_get_th
     fs::remove_file(Path::new(&bare_of(&bench)).join("hooks/pre-receive")).unwrap();
     bench.git_text(&["push", "origin", command]);
     let run = wb(&bench.repo.path, &["status", "54"], "");
-    assert!(text_of(&run.stdout).contains("Questions open:\n  54  54.q1, 54.q2\n"), "{}{}", text_of(&run.stdout), text_of(&run.stderr));
+    assert!(text_of(&run.stdout).contains("questions open: 54.q1, 54.q2\n"), "{}{}", text_of(&run.stdout), text_of(&run.stderr));
 }
 
 #[test]
@@ -5281,7 +5281,7 @@ fn test_WB_VIEW_110_with_main_checked_out_the_planner_s_commit_makes_the_issue_s
     assert!(text_of(&run.stderr).contains("git push origin issue-7"), "{}", text_of(&run.stderr));
     let status = wb_state(&bench, &["status", "7"]);
     let out = text_of(&status.stdout);
-    assert!(out.contains("Planned") && !out.contains("Not planned"), "{}{}", out, text_of(&status.stderr));
+    assert!(out.contains("  planned") && !out.contains("Jobs in the flow"), "{}{}", out, text_of(&status.stderr));
 }
 
 #[test]
@@ -7424,7 +7424,7 @@ fn test_WB_ANSWER_49_a_project_with_no_issue_comments_or_issue_comment_bodies_ru
     // `wb status` reads the job from its ref: the stage the real starts put it at, and no word of a tracker.
     let run = wb(&bench.repo.path, &["status", "54"], "");
     assert_eq!(code(&run), Some(0), "{}", text_of(&run.stderr));
-    assert!(text_of(&run.stdout).starts_with("Built:\n  54  "), "{}", text_of(&run.stdout));
+    assert!(text_of(&run.stdout).starts_with("Jobs in the flow:\n\t54  ") && text_of(&run.stdout).contains("  built"), "{}", text_of(&run.stdout));
     assert!(!text_of(&run.stderr).contains("issue_comments"), "{}", text_of(&run.stderr));
     // And `wb accept` accepts the work on the stamps those starts wrote, with no `issue_comments`.
     let run = wb(&bench.repo.path, &["accept", "54"], "");
@@ -7552,7 +7552,7 @@ fn test_WB_ANSWER_47_a_forged_comment_is_not_brought_into_the_first_round_of_the
     let before = called(&bench, "comments");
     let run = wb(&bench.repo.path, &["status", "54"], "");
     assert_eq!(code(&run), Some(0), "{}", text_of(&run.stderr));
-    assert!(!text_of(&run.stdout).contains("Questions open"), "{}", text_of(&run.stdout));
+    assert!(!text_of(&run.stdout).contains("questions open: "), "{}", text_of(&run.stdout));
     assert_eq!(called(&bench, "comments"), before, "{:?}", bench.calls());
 }
 

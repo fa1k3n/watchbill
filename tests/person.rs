@@ -135,35 +135,40 @@ fn in_flow(folder: &Folder) {
 }
 
 #[test]
-fn test_WB_STATUS_123_the_list_puts_the_issue_under_needs_a_person_and_under_its_step() {
+fn test_WB_STATUS_118_the_list_puts_the_job_under_the_heading_for_a_person_with_the_reason_on_its_line() {
     let folder = set_up();
     in_flow(&folder);
     stamps_on_ref(&folder.path, "54", &["[stamp] build round 1", &needs("build", REASON)]);
 
     let out = out_of(&status(&folder, &[]));
 
-    assert_eq!(out, format!("Built:\n  54  issue-54-work  1 not pushed\n\nNeeds a person:\n  54  {}\n", REASON));
+    assert_eq!(out, format!("Jobs waiting for you:\n\t54  issue-54-work  built, 1 not pushed, needs a person: {}\n", REASON));
 }
 
 #[test]
-fn test_WB_STATUS_123_the_stage_word_takes_the_heading_whatever_its_case() {
+fn test_WB_STATUS_118_the_stage_word_takes_the_job_and_the_heading_of_before_is_used_wrongly() {
     let folder = set_up();
     in_flow(&folder);
     stamps_on_ref(&folder.path, "54", &["[stamp] build round 1", &needs("build", REASON)]);
 
-    for word in ["Needs a person", "needs a person", "NEEDS A PERSON"] {
+    for word in ["built", "Built", "BUILT"] {
         let run = status(&folder, &["--stage", word]);
-        assert_eq!(out_of(&run), format!("Needs a person:\n  54  {}\n", REASON), "{}: {}", word, text(&run.stderr));
+        assert_eq!(out_of(&run), format!("Jobs waiting for you:\n\t54  issue-54-work  built, 1 not pushed, needs a person: {}\n", REASON), "{}: {}", word, text(&run.stderr));
     }
-    // A job that waits for no one has no line under the heading, and so no heading.
+    // The heading of before is no stage word.
+    for word in ["Needs a person", "needs a person"] {
+        assert_eq!(code(&status(&folder, &["--stage", word])), Some(2), "{}", word);
+    }
+    // A job that waits for no one is under the other heading, and there is no heading for a person.
     let quiet = set_up();
     in_flow(&quiet);
     stamps_on_ref(&quiet.path, "54", &["[stamp] build round 1"]);
-    assert_eq!(out_of(&status(&quiet, &["--stage", "needs a person"])), "");
+    let out = out_of(&status(&quiet, &[]));
+    assert_eq!(out, "Jobs in the flow:\n\t54  issue-54-work  built, 1 not pushed\n");
 }
 
 #[test]
-fn test_WB_STATUS_123_the_reason_is_one_escaped_line_cut_at_200_characters() {
+fn test_WB_STATUS_118_the_reason_is_one_escaped_line_cut_at_200_characters() {
     let folder = set_up();
     in_flow(&folder);
     let long = "x".repeat(300);
@@ -171,9 +176,9 @@ fn test_WB_STATUS_123_the_reason_is_one_escaped_line_cut_at_200_characters() {
 
     let out = out_of(&status(&folder, &[]));
 
-    let line = out.lines().find(|line| line.starts_with("  54  Line one.")).unwrap_or_else(|| panic!("{}", out));
+    let line = out.lines().find(|line| line.contains("needs a person: Line one.")).unwrap_or_else(|| panic!("{}", out));
     assert!(!out.contains('\u{1b}'), "{:?}", out);
-    let reason = line.strip_prefix("  54  ").unwrap();
+    let reason = line.split_once("needs a person: ").unwrap().1;
     let escaped = "Line one. Line two \\u{1b}[31m ";
     assert!(reason.starts_with(escaped), "{}", reason);
     assert!(reason.ends_with("..."), "{}", reason);
@@ -183,7 +188,7 @@ fn test_WB_STATUS_123_the_reason_is_one_escaped_line_cut_at_200_characters() {
 }
 
 #[test]
-fn test_WB_STATUS_123_the_cut_is_made_after_the_escape_and_never_inside_one() {
+fn test_WB_STATUS_118_the_cut_is_made_after_the_escape_and_never_inside_one() {
     let folder = set_up();
     in_flow(&folder);
     // 190 letters, then escapes of six characters each: the cut at 197 falls inside the second escape.
@@ -193,22 +198,22 @@ fn test_WB_STATUS_123_the_cut_is_made_after_the_escape_and_never_inside_one() {
     for args in [&[][..], &["54"][..]] {
         let out = out_of(&status(&folder, args));
 
-        let printed = out.lines().find(|line| line.contains("aaaa")).unwrap_or_else(|| panic!("{}", out));
-        let shown = printed.trim_start().trim_start_matches("waits for: person (").trim_start_matches("54  ").trim_end_matches(')');
+        let printed = out.lines().find(|line| line.contains("needs a person: aaaa")).unwrap_or_else(|| panic!("{}", out));
+        let shown = printed.split_once("needs a person: ").unwrap().1;
         assert!(shown.chars().count() <= 200, "{} characters: {}", shown.chars().count(), shown);
         assert_eq!(shown, format!("{}{}...", "a".repeat(190), "\\u{1b}"), "{}", shown);
     }
 }
 
 #[test]
-fn test_WB_STATUS_123_an_empty_reason_prints_the_issue_alone_with_no_trailing_space() {
+fn test_WB_STATUS_118_an_empty_reason_says_needs_a_person_alone_with_no_trailing_space() {
     let folder = set_up();
     in_flow(&folder);
     stamps_on_ref(&folder.path, "54", &["[stamp] build round 1", "[needs_person] 54.build\n\n \n"]);
 
     let out = out_of(&status(&folder, &[]));
 
-    assert_eq!(out, "Built:\n  54  issue-54-work  1 not pushed\n\nNeeds a person:\n  54\n");
+    assert_eq!(out, "Jobs waiting for you:\n\t54  issue-54-work  built, 1 not pushed, needs a person\n");
     // For the one issue it still says it waits.
     assert!(out_of(&status(&folder, &["54"])).contains("waits for: person ()\n"));
 }
@@ -314,20 +319,18 @@ fn test_WB_STATUS_124_a_comment_of_the_tracker_is_never_read_for_a_job_with_a_re
 }
 
 #[test]
-fn test_WB_STATUS_126_the_usage_the_manual_the_readme_and_the_completion_name_the_heading() {
+fn test_WB_STATUS_118_the_usage_the_manual_and_the_readme_name_what_a_needs_person_says_and_when_it_ends() {
     let folder = set_up();
     let bad = status(&folder, &["--stage", "nosuch"]);
     assert_eq!(code(&bad), Some(2));
-    assert!(text(&bad.stderr).contains("Needs a person"), "{}", text(&bad.stderr));
-    let run = wb(&folder.path, &["nosuch"], "");
-    assert!(text(&run.stderr).contains("Needs a person"), "{}", text(&run.stderr));
+    assert!(text(&bad.stderr).contains("not read"), "{}", text(&bad.stderr));
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     for (file, needle) in [
-        ("packaging/man/wb-status.1", "Needs a person"),
+        ("packaging/man/wb-status.1", "needs a person: <reason>"),
         ("packaging/man/wb-status.1", "until the next start of any role"),
-        ("README.md", "`Needs a person`"),
+        ("README.md", "`needs a person: <reason>`"),
         ("README.md", "until the next start of any role"),
-        ("packaging/wb.bash", "\"Needs a person\""),
+        ("packaging/wb.bash", "\"not read\""),
     ] {
         assert!(read(&root.join(file)).contains(needle), "{} lacks {}", file, needle);
     }

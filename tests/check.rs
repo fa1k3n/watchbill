@@ -78,11 +78,21 @@ fn installed_hash() -> String {
 #[test]
 fn test_WB_CHECK_1_a_repository_fresh_from_init_passes() {
     let folder = set_up();
+    // `wb check` warns on standard error where no runner of the organisation's file is local (#289): the file of the
+    // test has one, so that what this test holds does not depend on /etc of the machine.
+    let place = folder_named("organisation");
+    let organisation = place.path.join("organisation.yml");
+    fs::write(
+        &organisation,
+        "levels: [public]\nrunners:\n  local-a:\n    tools: this machine\n    model: a model on this machine\n    agreement: nothing leaves the machine\n    up_to: public\n    local: true\n",
+    )
+    .unwrap();
 
-    let run = wb(&folder.path, &["check"], "");
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let status = watchbill::check_on(&[], &folder.path, &organisation, &mut out, &mut err);
 
-    assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
-    assert_eq!(text(&run.stderr), "");
+    assert_eq!(status, 0, "{}{}", text(&out), text(&err));
+    assert_eq!(text(&err), "");
 }
 
 #[test]

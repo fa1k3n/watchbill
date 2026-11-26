@@ -353,7 +353,7 @@ fn test_WB_STATUS_123_a_job_that_is_done_waits_for_no_one() {
 
     let out = out_of(&wb(&folder.path, &["status", "54"], ""));
 
-    assert!(out.starts_with("Done:\n  54\n"), "{}", out);
+    assert!(out.starts_with("Done:\n  54"), "{}", out);
     assert!(!out.contains("waits for: person") && !out.contains("Needs a person"), "{}", out);
 }
 

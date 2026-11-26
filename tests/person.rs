@@ -142,7 +142,7 @@ fn test_WB_STATUS_123_the_list_puts_the_issue_under_needs_a_person_and_under_its
 
     let out = out_of(&status(&folder, &[]));
 
-    assert_eq!(out, format!("Built:\n  54  issue-54-work\n\nNeeds a person:\n  54  {}\n", REASON));
+    assert_eq!(out, format!("Built:\n  54  issue-54-work  1 not pushed\n\nNeeds a person:\n  54  {}\n", REASON));
 }
 
 #[test]

@@ -32,12 +32,18 @@ pub const DONE: &str = "Done";
 /// The heading after the steps, that lists the questions no person has answered.
 pub const QUESTIONS: &str = "Questions open";
 
+/// The heading after the questions, that lists the issues that wait for a person after a session ended needing one (#311).
+pub const PERSON: &str = "Needs a person";
+
+/// The most characters of a reason that a line says before it is cut (#311).
+const REASON_LIMIT: usize = 200;
+
 /// The last heading, for an issue that could not be read.
 pub const NOT_READ: &str = "Not read";
 
 /// The heading that a word names, matched without regard to case, or `None` when it is no heading.
 pub fn heading_of(word: &str) -> Option<&'static str> {
-    STEPS.iter().chain([&QUESTIONS, &NOT_READ]).find(|heading| heading.eq_ignore_ascii_case(word)).copied()
+    STEPS.iter().chain([&QUESTIONS, &PERSON, &NOT_READ]).find(|heading| heading.eq_ignore_ascii_case(word)).copied()
 }
 
 /// An issue as it was read.
@@ -55,6 +61,8 @@ struct Found {
     questions: Vec<String>,
     /// The role and the question the newest answer that names a role waits for (#226).
     waits: Option<(String, String)>,
+    /// The reason of a needs_person that no stamp has come after, as one line, escaped and cut (#311).
+    person: Option<String>,
     /// The lines it was worked out from, for `wb status <issue>`.
     from: Vec<String>,
     /// The rounds that are known to have brought nothing back (#300), as the role and the number.
@@ -545,6 +553,8 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
     }
     let questions = answer::open_names(number, &counted);
     let waits = answer::waits_for(number, &counted);
+    // Only the job's ref says it, never a comment; a job that is done waits for no one (#311).
+    let person = ledger.person().filter(|_| closed.is_none()).map(|reason| reason_line(&reason));
     let tracker_unread = !on_ref && comments.is_none();
     let tracker_not_read = on_ref && !questions.is_empty();
     Ok(Found {
@@ -556,6 +566,7 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
         step,
         questions,
         waits,
+        person,
         from,
         empty,
         roles,
@@ -564,6 +575,15 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
         tracker_unread,
         tracker_not_read,
     })
+}
+
+/// A reason as one line (#311): each run of white space as one space, cut at `REASON_LIMIT` characters with `...`, and
+/// escaped as every text of `wb status` is.
+fn reason_line(reason: &str) -> String {
+    let one: String = reason.split_whitespace().collect::<Vec<_>>().join(" ");
+    let cut = one.chars().count() > REASON_LIMIT;
+    let kept: String = one.chars().take(REASON_LIMIT).collect();
+    format!("{}{}", issue::shown(&kept), if cut { "..." } else { "" })
 }
 
 /// The patterns of `watchbill.yml` that `wb status` reads.
@@ -715,6 +735,12 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
             sections.push(format!("{}:\n{}", QUESTIONS, lines));
         }
     }
+    if show(PERSON) {
+        let lines: String = read.iter().filter_map(|found| found.person.as_ref().map(|reason| format!("  {}  {}\n", issue::shown(&found.number), reason))).collect();
+        if !lines.is_empty() {
+            sections.push(format!("{}:\n{}", PERSON, lines));
+        }
+    }
     if show(NOT_READ) && !failed.is_empty() {
         let lines: String = failed.iter().map(|(number, why)| format!("  {}  {}\n", number, why)).collect();
         sections.push(format!("{}:\n{}", NOT_READ, lines));
@@ -722,6 +748,10 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
     // One issue: who the newest answer waits for (#226). It is a fact about the issue, not a command.
     if let (Some(_), None, Some(Found { waits: Some((role, name)), .. })) = (only, stage, read.first()) {
         sections.push(format!("waits for: {} ({})\n", issue::shown(role), issue::shown(name)));
+    }
+    // One issue: a session ended needing a person, and nothing has started since (#311).
+    if let (Some(_), None, Some(Found { person: Some(reason), .. })) = (only, stage, read.first()) {
+        sections.push(format!("waits for: person ({})\n", reason));
     }
     // One issue: the lines it was worked out from, below what was printed of it.
     if let (Some(_), false, Some(found)) = (only, sections.is_empty(), read.first()) {

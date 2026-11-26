@@ -35,9 +35,9 @@ pub const COMMANDS: [Command; 17] = [
 
 /// The commands not built yet: the command, the release it is planned for and the issue that builds it.
 /// The piece that builds one removes its row, and adds its arm to the dispatch in `src/lib.rs`. After 0.0.9 the
-/// releases are 0.10.0, 0.11.0, 0.12.0 and 1.0.0, as the owner named them.
+/// releases are 0.10.0, 0.11.0, 0.12.0, 0.13.0 and 1.0.0, as the owner named them; `run` moved to 0.13.0.
 pub const PLANNED: [(&str, &str, u32); 1] = [
-    ("run", "0.12.0", 183),
+    ("run", "0.13.0", 183),
 ];
 
 /// Whether the layout has this command.

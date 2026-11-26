@@ -616,8 +616,9 @@ fn test_WB_BUILD_9_a_whole_start_reaches_no_remote_of_git_and_runs_only_the_stan
     ok(&bench.start(true, &["start", "fix", "54"]));
     assert!(!bench.at("network").exists(), "git asked origin");
     // What `wb` brings in for the session is read before the stamp is posted (#153).
-    // Since #236 no comment is read for the round: the stamps are commits on the job's ref.
-    assert_eq!(bench.calls(), ["changes issue-54", "address 54", "ctext 174", "cbodies 174", "bodies 54", "post issue 54", "start"]);
+    // Since #236 no comment is read for the round: the stamps are commits on the job's ref. Since #333 the job's ref holds
+    // a stamp, so no comment is read for its questions either.
+    assert_eq!(bench.calls(), ["changes issue-54", "address 54", "ctext 174", "cbodies 174", "post issue 54", "start"]);
 }
 
 // ---- WB-BUILD-10: the runner: `--runner`, else the organisation's `default` ----
@@ -773,7 +774,7 @@ fn test_WB_BUILD_12_given_values_win_and_nothing_is_worked_out_for_them() {
     assert!(posted.starts_with("[stamp] review round 5\n"), "{}", posted);
     assert!(posted.contains("\nchange: 180\n") && posted.contains("\nround: 5\n"), "{}", posted);
     // What `wb` brings in for the session is read before the stamp is posted (#153): nothing is worked out.
-    assert_eq!(bench.calls(), ["address 54", "ctext 180", "cbodies 180", "bodies 54", "post issue 54", "start"]);
+    assert_eq!(bench.calls(), ["address 54", "ctext 180", "cbodies 180", "post issue 54", "start"]);
 }
 
 // ---- WB-BUILD-13: what was worked out is said first ----

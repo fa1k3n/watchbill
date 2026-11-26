@@ -4989,42 +4989,6 @@ fn test_WB_ANSWER_21_questions_too_large_for_a_commit_are_not_written_and_are_sa
     assert_eq!(ref_messages(&bench).len(), 1);
 }
 
-#[test]
-fn test_WB_ANSWER_21_where_the_tracker_holds_open_questions_the_first_commit_says_they_are_not_read_any_more() {
-    if !sandbox("test_WB_ANSWER_21") {
-        return;
-    }
-    let bench = bench();
-    fs::write(bench.at("comments-issue-54"), "[questions] 54.build q1\n").unwrap();
-    planner_writes(&bench, TWO_QUESTIONS);
-
-    let run = bench.start(&["start", "planner", "54"]);
-
-    ok(&run);
-    let err = text_of(&run.stderr);
-    assert!(err.contains("the tracker holds open questions") && err.contains("54.build.q1") && err.contains("not read"), "{}", err);
-}
-
-#[test]
-fn test_WB_ANSWER_21_the_first_commit_names_the_questions_it_asks_again_that_the_tracker_holds_and_says_its_answers_are_not_read() {
-    if !sandbox("test_WB_ANSWER_21") {
-        return;
-    }
-    let bench = bench();
-    // q1 was asked and answered at the tracker, q2 asked and still open; the planner's file holds both.
-    fs::write(bench.at("comments-issue-54"), "[questions] 54 q1 q2\n[answers] 54 q1>planner\n").unwrap();
-    planner_writes(&bench, TWO_QUESTIONS);
-
-    let run = bench.start(&["start", "planner", "54"]);
-
-    ok(&run);
-    let err = text_of(&run.stderr);
-    assert!(err.contains("54.q1 (answered at the tracker)") && err.contains("54.q2 (open at the tracker)"), "{}", err);
-    assert!(err.contains("asked again") && err.contains("the answers at the tracker are not read any more"), "{}", err);
-    // Both are on the ref, asked again.
-    assert!(ref_messages(&bench)[1].starts_with("[questions] 54 q1 q2\n"), "{:?}", ref_messages(&bench));
-}
-
 /// Makes the bare repository that `origin` pushes to refuse a commit whose message starts with `[questions]`.
 fn refuse_questions_at_origin(bench: &Bench) {
     let hook = Path::new(&bare_of(bench)).join("hooks/pre-receive");
@@ -7306,6 +7270,8 @@ fn test_WB_ANSWER_47_the_questions_commit_of_a_session_runs_no_issue_comments_fo
     ok(&run);
     assert!(!bench.calls().iter().any(|call| call == "comments issue 54"), "{:?}", bench.calls());
     assert!(!text_of(&run.stderr).contains("at the tracker"), "{}", text_of(&run.stderr));
+    // The questions are the commit on the ref all the same.
+    assert!(ref_messages(&bench)[1].starts_with("[questions] 54.tester q1 q2\n"), "{:?}", ref_messages(&bench));
 }
 
 #[test]
@@ -7328,13 +7294,13 @@ fn test_WB_ANSWER_49_a_project_with_no_issue_comments_or_issue_comment_bodies_ru
     next_second();
     plan_accept_again(&bench);
     // The two roles after it read the ref alone.
+    bench.session("true\n");
     ok(&bench.start(&["start", "tester", "54"]));
     ok(&bench.start(&["start", "build", "54"]));
 
-    let messages = ref_messages(&bench);
-    for (at, role) in ["planner", "tester", "build"].iter().enumerate() {
-        assert!(messages[at].starts_with(&format!("[stamp] {} round 1\n", role)), "{:?}", messages);
-    }
+    // The plan's commit first, then the three stamps.
+    let stamps: Vec<String> = ref_messages(&bench).iter().filter(|message| message.starts_with("[stamp] ")).map(|message| message.lines().next().unwrap().to_string()).collect();
+    assert_eq!(stamps, ["[stamp] planner round 1", "[stamp] tester round 1", "[stamp] build round 1"]);
     let run = wb(&bench.repo.path, &["status", "54"], "");
     assert_eq!(code(&run), Some(0), "{}", text_of(&run.stderr));
     assert!(!text_of(&run.stderr).contains("issue_comments"), "{}", text_of(&run.stderr));

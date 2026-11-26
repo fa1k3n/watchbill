@@ -17,12 +17,12 @@
 //! - **Which count:** `open_names` decides from first lines alone, so that `wb status` and `wb answer` agree. What a
 //!   `[revert]` marker took back counts for nothing (`starter::taken_back`).
 //!
-//! - **On the ref** (#238): where the job's ref holds a questions commit, the questions and the answers are the commits
+//! - **On the ref** (#238, #333): where the job's ref holds a stamp or a questions commit, the questions and the answers are the commits
 //!   of that ref (`stamps`), and `wb answer` reads them there, with no `issue_comment_bodies`. It writes the answers as
 //!   one commit for each role, signed by the person with a key that `.watchbill/signers` holds with the role `answer`,
 //!   pushes each, and then posts the same text as a copy through `issue_comment` where it is set up. An `[answers]`
-//!   comment at the tracker is not read for such a job. A job with no questions commit, and a change with no issue,
-//!   are read and answered at the tracker as before.
+//!   comment at the tracker is not read for such a job, and none is open before its first questions commit. A job whose ref
+//!   holds no stamp (begun before), and a change with no issue, are read and answered at the tracker as before.
 //!
 //! At the tracker, the whole comments are read through `issue_comment_bodies` (or `change_comment_bodies`), each body
 //! followed by a NUL byte. Answers are posted through `issue_comment` (or `change_comment`), after `wb` says what it
@@ -495,12 +495,12 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
     if let Err(why) = starter::held(root) {
         return crate::refusal::limit(err, "wb answer", format_args!("{}.", why));
     }
-    // A job whose ref holds a questions commit (#238) has its questions and answers on the ref, and the tracker is not
+    // A job whose ref holds a stamp or a questions commit (#238, #333) has its questions and answers on the ref, and the tracker is not
     // read for them: the answers are written as commits, signed by the person, and a copy is posted where a tracker is
     // set up. Any other job, and a change with no issue, is read from the tracker and answered there, as before.
     let ledger = match on {
         On::Issue(issue) if prompt::is_plain_name(issue) => match crate::stamps::read(root, issue) {
-            Ok(ledger) if ledger.has_questions() => Some(ledger),
+            Ok(ledger) if ledger.on_ref() => Some(ledger),
             Ok(_) => None,
             Err(why) => return crate::refusal::limit(err, "wb answer", format_args!("{}. Nothing is written.", why)),
         },

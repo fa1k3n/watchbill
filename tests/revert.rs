@@ -351,3 +351,18 @@ fn test_WB_REVERT_5_a_second_revert_of_the_same_round_finds_no_stamp_that_counts
     let run = revert_review(&folder.path);
     assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
 }
+
+// ---- WB-PUSH-13: the marker's copy names the commit ----
+
+#[test]
+fn test_WB_PUSH_13_the_copy_of_a_marker_ends_with_the_hash_of_its_commit() {
+    let folder = set_up();
+    comments(&folder.path, "174", &["[stamp] review round 1"]);
+
+    let run = revert_review(&folder.path);
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let posted = tracker(&folder.path, "174.bodies");
+    let tip = git_text(&folder.path, &["rev-parse", "refs/watchbill/174"]);
+    assert_eq!(posted.lines().last(), Some(format!("commit: {}", tip.trim()).as_str()), "{}", posted);
+}

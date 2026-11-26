@@ -7275,6 +7275,23 @@ fn test_WB_ANSWER_47_the_questions_commit_of_a_session_runs_no_issue_comments_fo
 }
 
 #[test]
+fn test_WB_PUSH_13_the_copy_of_the_questions_ends_with_the_hash_of_their_commit() {
+    if !sandbox("test_WB_PUSH_13") {
+        return;
+    }
+    let bench = bench();
+    writing_session(&bench, "questions", TESTER_QUESTIONS, 0);
+
+    ok(&bench.start(&["start", "tester", "54"]));
+
+    let posted = bench.posted();
+    let run = std::process::Command::new("git").arg("-C").arg(&bench.repo.path).args(["rev-parse", "refs/watchbill/54"]).output().unwrap();
+    let tip = String::from_utf8_lossy(&run.stdout).trim().to_string();
+    assert!(posted.starts_with("[questions] 54.tester q1 q2\n"), "{}", posted);
+    assert_eq!(posted.lines().last(), Some(format!("commit: {}", tip).as_str()), "{}", posted);
+}
+
+#[test]
 fn test_WB_ANSWER_49_a_project_with_no_issue_comments_or_issue_comment_bodies_runs_the_planner_the_tester_and_the_build() {
     if !sandbox("test_WB_ANSWER_49") {
         return;

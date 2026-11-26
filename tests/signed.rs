@@ -1030,6 +1030,8 @@ fn test_WB_TASK_39_plan_accept_posts_the_accepted_notice_by_issue_comment_after_
     assert!(posted.starts_with("[accepted] 54\n"), "{}", posted);
     assert!(posted.contains(&format!("sha256: {}\n", file)), "{}", posted);
     assert!(posted.contains(&format!("tag: {}\n", bench.tag())), "{}", posted);
+    // It names the commit of the acceptance (#240).
+    assert_eq!(posted.lines().last(), Some(format!("commit: {}", bench.git(&["rev-parse", "HEAD"]).trim()).as_str()), "{}", posted);
     assert!(out_of(&run).contains("will post on issue 54, by `issue_comment` of watchbill.yml:\n[accepted] 54\n"), "{}", out_of(&run));
 }
 

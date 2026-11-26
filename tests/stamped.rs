@@ -508,7 +508,19 @@ fn test_WB_BUILD_49_the_stamp_comment_is_posted_as_a_copy_of_the_commit() {
     let bench = bench(true, false);
     ok(&bench.start(&["tester", "54"]));
     let posted = bench.posted().expect("no copy was posted");
-    assert_eq!(posted, bench.message(&bench.on_ref()[0]));
+    // The copy is the commit's message and a last line that names the commit (#240).
+    let commit = bench.on_ref()[0].clone();
+    assert_eq!(posted, format!("{}commit: {}\n", bench.message(&commit), commit));
+}
+
+// ---- WB-PUSH-13: the stamp's copy names the commit ----
+
+#[test]
+fn test_WB_PUSH_13_the_copy_of_a_stamp_ends_with_the_hash_of_its_commit() {
+    let bench = bench(true, false);
+    ok(&bench.start(&["tester", "54"]));
+    let posted = bench.posted().expect("no copy was posted");
+    assert_eq!(posted.lines().last(), Some(format!("commit: {}", bench.on_ref()[0]).as_str()), "{}", posted);
 }
 
 #[test]

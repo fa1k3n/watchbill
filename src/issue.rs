@@ -830,8 +830,8 @@ pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: 
                 let commit = crate::detect::git_output(&["-C", root, "rev-parse", "HEAD"], None)
                     .filter(|run| run.status.success())
                     .map(|run| String::from_utf8_lossy(&run.stdout).trim().to_string())
-                    .unwrap_or_default();
-                notice(name, root, issue, &hash, made, &commit, &body, out, err);
+                    .filter(|commit| !commit.is_empty());
+                notice(name, root, issue, &hash, made, commit.as_deref(), &body, out, err);
             }
             0
         }
@@ -852,7 +852,7 @@ pub(crate) fn accept_as(name: &str, root: &str, issue: &str, commit: bool, out: 
 /// Posts the `[accepted]` notice of a signed acceptance that is committed (#235), by `issue_comment` of `watchbill.yml`,
 /// after it is said on `out`. It is a copy, posted out and never read back: a post that fails is said on `err`, and the
 /// acceptance holds all the same.
-fn notice(name: &str, root: &str, issue: &str, hash: &str, tag: &str, commit: &str, body: &str, out: &mut dyn Write, err: &mut dyn Write) {
+fn notice(name: &str, root: &str, issue: &str, hash: &str, tag: &str, commit: Option<&str>, body: &str, out: &mut dyn Write, err: &mut dyn Write) {
     let line = match crate::prompt::pattern_of(root, "issue_comment") {
         Ok(Some(line)) => line,
         Ok(None) => {
@@ -869,7 +869,11 @@ fn notice(name: &str, root: &str, issue: &str, hash: &str, tag: &str, commit: &s
         return;
     }
     let value = |key: &str| body.lines().find_map(|line| line.strip_prefix(key)).unwrap_or("").to_string();
-    let comment = format!("[accepted] {}\nsha256: {}\ntag: {}\nby: {}\ntime: {}\ncommit: {}\n", issue, hash, tag, value("by: "), value("time: "), commit);
+    // The commit is named where it can be: a line with no hash is never posted.
+    let mut comment = format!("[accepted] {}\nsha256: {}\ntag: {}\nby: {}\ntime: {}\n", issue, hash, tag, value("by: "), value("time: "));
+    if let Some(commit) = commit {
+        comment.push_str(&format!("commit: {}\n", commit));
+    }
     let _ = write!(out, "{}: will post on issue {}, by `issue_comment` of watchbill.yml:\n{}", name, issue, comment);
     let _ = out.flush();
     match crate::starter::run(root, "issue_comment", &line.replace("{issue}", issue), Some(comment.as_bytes())) {

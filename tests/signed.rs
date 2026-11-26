@@ -1161,3 +1161,14 @@ fn test_WB_TASK_42_after_wb_add_takes_in_changed_text_prompt_of_a_later_role_ref
     assert!(out_of(&run).is_empty());
     assert!(err_of(&run).contains("names the job") && err_of(&run).contains("No prompt is handed out"), "{}", err_of(&run));
 }
+
+#[test]
+fn test_WB_PUSH_13_the_accepted_notice_ends_with_the_hash_of_the_commit_of_the_acceptance() {
+    let bench = ada_accepts();
+    bench.job();
+    bench.accept();
+    let posted = read(&bench.at(".tracker/54.bodies"));
+    let head = bench.git(&["rev-parse", "HEAD"]).trim().to_string();
+    assert!(posted.starts_with("[accepted] 54\n"), "{}", posted);
+    assert_eq!(posted.lines().last(), Some(format!("commit: {}", head).as_str()), "{}", posted);
+}

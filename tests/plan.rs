@@ -1160,3 +1160,17 @@ fn test_WB_STATUS_52_the_list_runs_no_issue_text() {
 fn texts_read(bench: &Bench) -> Vec<String> {
     bench.calls().into_iter().filter(|call| call.starts_with("text ")).collect()
 }
+
+#[test]
+fn test_WB_STATUS_52_a_pattern_that_fails_is_said_and_the_status_is_the_same() {
+    let bench = bench();
+    taken_in(&bench);
+    let l = bench.log.path.to_str().unwrap().to_string();
+    script(&bench.at("text.sh"), &format!("echo \"text $1\" >> {l}/calls\nexit 1\n"));
+
+    let (shown, status) = status_of(&bench, "54");
+
+    assert_eq!(status, 0, "{}", shown);
+    assert!(shown.contains("the source of 54 was not looked at"), "{}", shown);
+    assert!(!shown.contains("source changed"), "{}", shown);
+}

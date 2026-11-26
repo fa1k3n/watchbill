@@ -158,9 +158,9 @@ fn on_ref(root: &str, issue: &str, role: &str, round: Option<u64>, err: &mut dyn
             let _ = writeln!(err, "wb revert: watchbill.yml has no `issue_comment`, so no copy of the marker is posted: the marker is the commit on {}.", ledger.full);
         }
         Some(line) => {
-            let _ = writeln!(err, "wb revert: will post on issue {}, by `issue_comment` of watchbill.yml, a copy of the marker.", issue);
-            // The copy names the commit it copies (#240).
+            // The copy names the commit it copies (#240), and is said as it will be posted.
             let copy = crate::stamps::with_commit(&marker, &commit);
+            let _ = write!(err, "wb revert: will post on issue {}, by `issue_comment` of watchbill.yml, a copy of the marker:\n{}", issue, copy);
             match starter::run(root, "issue_comment", &line.replace("{issue}", issue), Some(copy.as_bytes())) {
                 Ok(said) => {
                     let _ = err.write_all(&said);

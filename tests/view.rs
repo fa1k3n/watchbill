@@ -5395,7 +5395,7 @@ fn pushing() -> (Bench, Folder) {
     git(&origin.path, &["init", "-q", "--bare"]);
     script(
         &origin.path.join("hooks").join("post-receive"),
-        &format!("cat {l}/err > {l}/said-at-push 2>/dev/null\nwhile read old new ref; do case $ref in refs/watchbill/*) continue;; esac; echo \"$ref $new\" >> {l}/pushes; done\n"),
+        &format!("cat {l}/err > {l}/said-at-push 2>/dev/null\nwhile read old new ref; do case $ref in refs/watchbill/*|refs/notes/watchbill) continue;; esac; echo \"$ref $new\" >> {l}/pushes; done\n"),
     );
     git(&bench.repo.path, &["remote", "set-url", "origin", origin.path.to_str().unwrap()]);
     git(&bench.repo.path, &["config", "remote.origin.pushurl", origin.path.to_str().unwrap()]);
@@ -5418,10 +5418,11 @@ fn build_session(bench: &Bench, description: Option<&str>) {
 }
 
 /// The refs of the bare `origin`, each as `<ref> <commit>`.
-/// The refs of `origin`, but the jobs' refs, where `wb start` pushes the stamp before the session (#236; tests/stamped.rs).
+/// The refs of `origin`, but the jobs' refs, where `wb start` pushes the stamp before the session (#236; tests/stamped.rs),
+/// and the notes' ref, where it pushes the notes after the commits are taken back (#237).
 fn refs_of(origin: &Folder) -> String {
     let run = Command::new("git").arg("-C").arg(&origin.path).args(["for-each-ref", "--format=%(refname) %(objectname)"]).env_clear().envs(env()).output().unwrap();
-    text_of(&run.stdout).lines().filter(|line| !line.starts_with("refs/watchbill/")).map(|line| format!("{}\n", line)).collect()
+    text_of(&run.stdout).lines().filter(|line| !line.starts_with("refs/watchbill/") && !line.starts_with("refs/notes/watchbill ")).map(|line| format!("{}\n", line)).collect()
 }
 
 /// A review stamp on issue 54: since #236 a commit on the job's ref, and the comment a copy that `wb` never reads.
@@ -6760,6 +6761,7 @@ fn test_WB_VIEW_37_a_fix_of_a_change_with_no_issue_has_no_stamp_commit_so_its_co
         return;
     }
     let bench = bench();
+    fs::write(bench.at("comments-change-174"), "[stamp] review round 1\n").unwrap();
     git(&bench.repo.path, &["checkout", "-q", "issue-99"]);
     let head = bench.head();
     bench.session("echo 'int brake(void) { return 2; }' > src/brake.c && git commit -q -a -m 'Fix finding 1 of round 1'\n");

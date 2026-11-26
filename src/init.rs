@@ -497,9 +497,10 @@ pub fn init(
         talk.say(&format!("  {}", path));
     }
     // The fetch line of the jobs (#234, point 15), where the remote `origin` is there and lacks it.
-    let fetch = crate::plan::fetch_missing(root).unwrap_or(false);
-    if fetch {
-        talk.say(&format!("\nand add {}.", crate::plan::fetch_said()));
+    // and of the notes that name the commits of each session (#237).
+    let fetch = crate::plan::fetch_missing(root).unwrap_or_default();
+    if !fetch.is_empty() {
+        talk.say(&format!("\nand add {}.", crate::plan::fetch_said(&fetch)));
     }
     talk.say("");
     if !yes {
@@ -540,11 +541,12 @@ pub fn init(
         talk.inform(&format!("Wrote {}.", path));
     }
     talk.say("Keep them under version control with the code.");
-    if fetch {
-        if let Err(why) = crate::plan::add_fetch(root) {
-            return crate::refusal::limit(err, "wb init", format_args!("the fetch line {} could not be added to .git/config: {}. The files are written.", crate::plan::FETCH, why));
+    if !fetch.is_empty() {
+        let shown = fetch.join(" and ");
+        if let Err(why) = crate::plan::add_fetch(root, &fetch) {
+            return crate::refusal::limit(err, "wb init", format_args!("the fetch line {} could not be added to .git/config: {}. The files are written.", shown, why));
         }
-        talk.inform(&format!("Added the fetch line {} to the remote origin in .git/config.", crate::plan::FETCH));
+        talk.inform(&format!("Added the fetch line {} to the remote origin in .git/config.", shown));
     }
     // The project's keys are not written: wb cannot know them (#323). Said with -q too, as what the person must do.
     talk.say(&format!(

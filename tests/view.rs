@@ -5047,13 +5047,27 @@ fn test_WB_ANSWER_21_a_questions_commit_that_cannot_be_pushed_says_how_to_get_th
     // The questions are said, and what to do.
     assert!(err.contains("[questions] 54 q1 q2") && err.contains("Which brake does the issue mean?"), "{}", err);
     let after = err.split("push it by hand: `git push origin ").nth(1).unwrap_or_else(|| panic!("no command to push by hand: {}", err));
-    let (commit, rest) = after.split_once(':').unwrap();
+    let (command, _) = after.split_once('`').unwrap();
+    let (commit, full) = command.split_once(':').unwrap();
     assert_eq!(bench.git_text(&["cat-file", "-t", commit]).trim(), "commit", "{}", err);
-    assert!(rest.starts_with("refs/watchbill/54"), "{}", rest);
-    assert!(err.contains("git fetch origin") && err.contains("not a fast-forward"), "{}", err);
-    assert!(err.contains("the next round of the planner writes them again"), "{}", err);
+    assert_eq!(full, "refs/watchbill/54", "{}", err);
+    // What it says is true in both setups: where the fetch line of `wb init` is there the push moves the local ref too,
+    // and where it is not the person fetches the ref by its name.
+    assert!(err.contains("once it is pushed, the questions are on the ref and asked"), "{}", err);
+    assert!(err.contains("`+refs/watchbill/*:refs/watchbill/*`") && err.contains("`git fetch origin refs/watchbill/54:refs/watchbill/54`"), "{}", err);
+    assert!(!err.contains("The local ref is not moved") && !err.contains("behind origin") && !err.contains("refused as not a fast-forward until"), "{}", err);
+    // The message reads right: one full stop, the questions not written said once, and no other role named.
+    assert!(!err.contains("..") && !err.contains("not written To"), "{}", err);
+    assert_eq!(err.matches("The questions are not written").count(), 1, "{}", err);
+    assert!(!err.contains("those of another role"), "{}", err);
     // Nothing was written on the ref.
     assert_eq!(ref_messages(&bench).len(), 1);
+    // The bench has the fetch line of `wb init`; the person lets origin take it, and runs the printed push.
+    assert!(bench.git_text(&["config", "--get-all", "remote.origin.fetch"]).contains("+refs/watchbill/*:refs/watchbill/*"));
+    fs::remove_file(Path::new(&bare_of(&bench)).join("hooks/pre-receive")).unwrap();
+    bench.git_text(&["push", "origin", command]);
+    let run = wb(&bench.repo.path, &["status", "54"], "");
+    assert!(text_of(&run.stdout).contains("Questions open:\n  54  54.q1, 54.q2\n"), "{}{}", text_of(&run.stdout), text_of(&run.stderr));
 }
 
 #[test]

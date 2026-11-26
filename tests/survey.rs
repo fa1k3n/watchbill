@@ -689,6 +689,22 @@ fn test_WB_INIT_71_a_draft_line_with_a_control_character_or_a_placeholder_is_lef
 }
 
 #[test]
+fn test_WB_INIT_71_a_draft_line_with_an_arabic_letter_mark_is_left_out_and_counted() {
+    let bench = Bench::new();
+    bench.organisation(LOCAL);
+    // U+061C, ARABIC LETTER MARK, a bidirectional control: bytes 0xd8 0x9c.
+    bench.session("session.sh", "#!/bin/sh\nprintf 'kept\\nx \\330\\234 y\\nalso kept\\n' > .watchbill/project/style.md\n");
+    let folder = set_up(&bench.home);
+
+    let run = bench.init(&folder.path, &["--survey"]);
+
+    assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
+    assert_eq!(read(&folder.path.join(STYLE_MD)), "kept\nalso kept\n");
+    let said = text(&run.stdout) + &text(&run.stderr);
+    assert!(said.contains("1 line left out"), "{}", said);
+}
+
+#[test]
 fn test_WB_INIT_71_a_project_folder_of_head_that_is_a_link_is_refused_before_the_session() {
     let bench = Bench::new();
     bench.organisation(LOCAL);

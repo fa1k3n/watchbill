@@ -46,6 +46,16 @@ fn test_WB_PROMPT_83_the_answer_line_says_wb_answer_writes_a_commit_with_a_copy_
 }
 
 #[test]
+fn test_WB_PROMPT_83_every_role_says_wb_answer_writes_a_commit_and_the_questions_come_from_the_ref() {
+    for name in ROLES {
+        let text = role(name);
+        let line = text.lines().find(|l| l.starts_with("- A person answers with `wb answer`")).expect("no answer line");
+        assert!(line.contains("commit on the job's ref") && line.contains("copy"), "{}: {}", name, line);
+        assert!(!text.contains("The program read them from the tracker before your session"), "{}", name);
+    }
+}
+
+#[test]
 fn test_WB_PROMPT_84_the_readme_has_a_section_before_you_start_on_signing_that_names_the_two_settings() {
     let readme = fs::read_to_string(root().join("README.md")).unwrap();
     let at = readme.find("\n## Before you start: signing\n").expect("no section 'Before you start: signing'");

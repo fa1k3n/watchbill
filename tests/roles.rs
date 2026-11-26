@@ -655,10 +655,10 @@ fn test_WB_ROLE_36_model_and_effort_are_what_the_session_says_of_itself() {
 }
 
 #[test]
-fn test_WB_ROLE_37_the_stamp_on_the_issue_says_what_the_session_was_handed_out_as() {
+fn test_WB_ROLE_37_the_stamp_on_the_jobs_ref_says_what_the_session_was_handed_out_as() {
     for role in ROLES {
         let text = after_fields(role);
-        assert!(text.contains("The stamp on the issue says what you were handed out as, and it is what counts."), "{}: {}", role, text);
+        assert!(text.contains("The stamp on the job's ref says what you were handed out as, and it is what counts."), "{}: {}", role, text);
     }
 }
 
@@ -683,7 +683,7 @@ fn planner_point(heading: &str, start: &str) -> String {
 #[test]
 fn test_WB_ROLE_48_the_planner_reads_the_issue_in_the_file_the_program_brought_in_and_the_code_in_the_checkout() {
     let issue = planner_point("## What you read", "- The issue {issue}, as a person wrote it, in `.watchbill/issue/{issue}.md`,");
-    assert!(issue.contains("The program read both from the tracker before your session"), "{}", issue);
+    assert!(issue.contains("For a job on the job's ref, the program read the questions and the answers from the commits of the ref"), "{}", issue);
     let code = planner_point("## What you read", "- The code in {checkout}:");
     for what in ["the source", "the tests and the helpers those tests use", "the settings of the project's checks"] {
         assert!(code.contains(what), "{}: {}", what, code);
@@ -1174,7 +1174,7 @@ fn test_WB_ROLE_82_with_no_issue_the_review_and_the_fix_post_their_questions_on_
 
 /// The point that says how a person answers.
 fn answering_point(role: &str) -> String {
-    let lead = format!("- A person answers with `wb answer`, in one comment whose first line is `[answers] {}` and the names of the questions it answers,", questions_of(role));
+    let lead = format!("- A person answers with `wb answer`, which writes the answers as a commit on the job's ref and, where the tracker is set up, posts a copy of it: one comment whose first line is `[answers] {}` and the names of the questions it answers,", questions_of(role));
     line_of(role, &lead)
 }
 
@@ -1187,11 +1187,11 @@ fn test_WB_ROLE_84_a_person_answers_with_wb_answer_in_one_comment_a_line_for_eac
 }
 
 #[test]
-fn test_WB_ROLE_84_an_answer_counts_only_from_a_person() {
+fn test_WB_ROLE_84_an_answer_counts_only_as_a_signed_commit_of_wb_answer() {
     for role in ROLES {
         let point = answering_point(role);
-        assert!(point.contains("An answer counts only from a person."), "{}: {}", role, point);
-        assert!(point.contains("a comment that starts with `[question]` or `[questions]` is never an answer"), "{}: {}", role, point);
+        assert!(point.contains("An answer counts only as a commit of `wb answer`, signed with the role `answer`"), "{}: {}", role, point);
+        assert!(point.contains("a comment at the tracker, whatever its first line, is not an answer for a job on the ref"), "{}: {}", role, point);
     }
 }
 
@@ -1305,8 +1305,8 @@ fn test_WB_ROLE_86_the_forms_of_revision_0_0_8_are_still_read_and_not_posted() {
 fn test_WB_ROLE_76_every_role_gives_its_model_and_effort_from_its_stamp() {
     for role in ROLES {
         let text = after_fields(role);
-        let stamp = format!("Your model and effort are in your stamp on the issue: the latest comment whose first line starts with `[stamp] {}`.", role);
-        assert!(text.contains(&stamp), "{}: {}", role, text);
+        // The stamp is a signed commit on the job's ref (#236, #338), not a comment.
+        assert!(text.contains("Your model and effort are in your stamp: a signed commit on `refs/watchbill/<issue>`."), "{}: {}", role, text);
         // No stamp is brought into a view (#295, #153): each role gives its own word.
         assert!(text.contains("That stamp is not in your view"), "{}: {}", role, text);
         assert!(text.contains("give `model` and `effort` in your last message as your session says of itself"), "{}: {}", role, text);
@@ -1456,7 +1456,7 @@ fn test_WB_ROLE_112_the_four_read_the_issue_and_their_questions_as_the_program_b
         let body = part(role, "## What you read");
         assert!(body.contains("- The issue {issue}, as a person wrote it, in `{brought}/issue.text`,"), "{}: {}", role, body);
         assert!(body.contains("in `{brought}/questions`"), "{}: {}", role, body);
-        assert!(body.contains("The program read them from the tracker before your session and brought them in, read-only, outside the checkout."), "{}: {}", role, body);
+        assert!(body.contains("It brought them in, read-only, outside the checkout."), "{}: {}", role, body);
     }
 }
 

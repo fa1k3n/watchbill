@@ -429,8 +429,8 @@ pub(crate) fn inspect(root: &str, number: &str, state: Option<&std::path::Path>)
     let flow = in_flow(root, &default, &patterns.branch)?;
     let starts = state.map(crate::kept::Starts::read);
     let found = read_issue(root, number, &patterns, &branches(root), &flow, &default, false, starts.as_ref())?;
-    // A job whose ref holds no questions commit has its questions on the tracker, and they are not known without the
-    // pattern (#238); one whose ref holds one has them on the ref.
+    // A job whose ref holds no stamp has its questions on the tracker, and they are not known without the pattern
+    // (#238); one whose ref holds a stamp has them on the ref (#333).
     if found.tracker_unread {
         return Err("watchbill.yml has no `issue_comments`, so the roles that ran and the questions are not known".to_string());
     }
@@ -445,9 +445,10 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
     // The stamps are the commits on the job's ref that count (#236), with what a marker took back left out; a `[stamp]`
     // comment is a copy, and decides nothing.
     let ledger = crate::stamps::read(root, number)?;
-    // Where the ref holds a questions commit, the questions and the answers are on the ref too (#238), and the tracker
-    // is not read for them: no pattern is run. Else they are read from the tracker, as for a job begun before.
-    let on_ref = ledger.has_questions();
+    // Where the ref holds a stamp (#333) or a questions commit (#238), the questions and the answers are on the ref too,
+    // and the tracker is not read for them: no pattern is run. Else they are read from the tracker, as for a job begun
+    // before.
+    let on_ref = ledger.on_ref();
     if let (Some(command), false) = (comments, on_ref) {
         if !prompt::is_plain_name(number) {
             return Err(format!("{} is not a plain name that fills `issue_comments`", issue::shown(number)));
@@ -645,9 +646,6 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
         Some(one) => vec![one.to_string()],
         None => flow.iter().filter_map(|full| full.strip_prefix("refs/heads/").or_else(|| full.strip_prefix("refs/remotes/origin/"))).filter_map(|name| issue_of(&patterns.branch, name)).collect(),
     };
-    if patterns.comments.is_none() {
-        let _ = writeln!(err, "wb status: watchbill.yml has no `issue_comments`, so no question or answer is read from the tracker; the stamps, and the questions and answers of a job whose ref holds a questions commit, are read from the jobs' refs.");
-    }
     issues.sort_by_key(|number| order(number));
     issues.dedup();
 
@@ -662,6 +660,11 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
         }
     }
 
+    // Without `issue_comments`, a job whose ref holds no stamp has no question or answer read (#333): said once. A job
+    // whose ref holds a stamp is read from its ref, and there is nothing to say of it.
+    if patterns.comments.is_none() && read.iter().any(|found| found.tracker_unread) {
+        let _ = writeln!(err, "wb status: watchbill.yml has no `issue_comments`, so no question or answer is read from the tracker for a job whose ref holds no stamp; the questions and answers of a job whose ref holds a stamp are read from its ref.");
+    }
     // An open question that is read from the job's ref: an answer typed at the tracker is not read (#238).
     for found in read.iter().filter(|found| found.tracker_not_read && (only.is_some() || found.closed.is_none())) {
         let shown = issue::shown(&found.number);

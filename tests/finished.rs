@@ -159,7 +159,9 @@ fn test_WB_TASK_45_before_any_role_committed_it_ends_with_1_and_writes_nothing()
 #[test]
 fn test_WB_TASK_46_with_an_open_question_it_ends_with_1_naming_it() {
     let folder = set_up();
-    job(&folder.path, &[BUILT[0], BUILT[1], "[questions] 54.build q1"]);
+    job(&folder.path, &[BUILT[0], BUILT[1]]);
+    // The job's ref holds stamps (#333), so the question is a commit on it.
+    stamps_on_ref(&folder.path, "54", &["[questions] 54.build q1\n\nq1: Which unit?\n"]);
     let run = wb(&folder.path, &["accept", "54"], "");
     assert_eq!(code(&run), Some(1), "{}", out_of(&run));
     assert!(err_of(&run).contains("q1"), "{}", err_of(&run));
@@ -236,7 +238,9 @@ fn test_WB_TASK_49_off_the_branch_of_the_issue_or_with_no_issue_comments_it_ends
     git(&bare.path, &["branch", "-M", "main"]);
     // An acceptance is refused without `.watchbill/signers` on `main` (#323).
     signing(&bare.path);
-    job(&bare.path, &BUILT);
+    // A job whose ref holds a stamp needs no `issue_comments` (#333, WB-ANSWER-50): this one has none, so its questions
+    // are the tracker's, which cannot be read.
+    job(&bare.path, &[]);
     let run = wb(&bare.path, &["accept", "54"], "");
     assert_eq!(code(&run), Some(1), "{}", out_of(&run));
     assert!(err_of(&run).contains("issue_comments"), "{}", err_of(&run));

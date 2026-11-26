@@ -78,8 +78,14 @@ fn at_origin(folder: &Path, name: &str) {
 fn comments(folder: &Path, issue: &str, lines: &[&str]) {
     let all: String = lines.iter().map(|line| format!("{}\n", line)).collect();
     put(folder, &format!(".tracker/{}.comments", issue), &all);
-    // Since #236 the stamps and the markers are commits on the job's ref, and `wb` reads no `[stamp]` comment.
-    stamps_from_lines(folder, issue, lines, &[]);
+    // An issue whose lines hold a question or an answer is one begun before this revision (#333): its job has no stamp
+    // on its ref, and its questions and answers are read from the tracker, the `[stamp]` and `[revert]` lines of its
+    // comments placing them. Any other has its stamps and markers as commits on its job's ref (#236), and `wb` reads no
+    // `[stamp]` comment; a job with a stamp on its ref is read from the ref alone, so no question of the tracker counts.
+    let asks = |line: &&str| ["[question] ", "[questions] ", "[answer] ", "[answers] "].iter().any(|start| line.starts_with(start));
+    if !lines.iter().any(|line| asks(&line)) {
+        stamps_from_lines(folder, issue, lines, &[]);
+    }
 }
 
 /// Makes the branch `issue-<issue>-work` with the issue's file, and its acceptance when `accepted`, and goes
@@ -251,19 +257,22 @@ fn test_WB_STATUS_18_an_acceptance_that_is_written_and_not_committed_gives_plann
 #[test]
 fn test_WB_STATUS_9_questions_open_is_printed_after_the_steps() {
     let folder = set_up();
-    open(&folder.path, &["176", "177"]);
+    open(&folder.path, &["175", "176", "177"]);
+    // 176 was begun before (#333): its questions are at the tracker, and its job has no stamp on its ref. 175 is built.
     comments(
         &folder.path,
         "176",
         &["[stamp] build round 1", "[question] 176.build.q1", "[question] 176.build.q2", "[answer] 176.build.q1 2"],
     );
+    comments(&folder.path, "175", &["[stamp] build round 1"]);
     comments(&folder.path, "177", &[]);
+    branch(&folder.path, "175", true);
     branch(&folder.path, "176", true);
     let (out, status) = stdout(&folder.path, &["status"]);
     assert_eq!(status, Some(0));
     assert_eq!(
         out,
-        "Not planned:\n  177  issue-177-work\n\nBuilt:\n  176  issue-176-work\n\nQuestions open:\n  176  176.build.q2\n"
+        "Not planned:\n  177  issue-177-work\n\nAccepted:\n  176  issue-176-work\n\nBuilt:\n  175  issue-175-work\n\nQuestions open:\n  176  176.build.q2\n"
     );
 }
 
@@ -271,10 +280,13 @@ fn test_WB_STATUS_9_questions_open_is_printed_after_the_steps() {
 fn test_WB_STATUS_22_an_issue_with_an_open_question_stays_under_its_step() {
     let folder = set_up();
     open(&folder.path, &["176"]);
-    comments(&folder.path, "176", &["[stamp] build round 1", "[question] 176.build.q1"]);
+    // The job's ref holds a stamp (#333), so its question is a commit on the ref too, and not a comment.
+    comments(&folder.path, "176", &["[stamp] build round 1"]);
+    stamps_on_ref(&folder.path, "176", &["[questions] 176.build q1\n\nq1: Which one?\n"]);
     branch(&folder.path, "176", true);
     let (out, _) = stdout(&folder.path, &["status"]);
     assert!(out.starts_with("Built:\n  176  issue-176-work\n"), "{}", out);
+    assert!(out.contains("Questions open:\n  176  176.build.q1\n"), "{}", out);
     let (out, _) = stdout(&folder.path, &["status", "--stage", "built"]);
     assert_eq!(out, "Built:\n  176  issue-176-work\n");
 }
@@ -363,9 +375,13 @@ fn test_WB_STATUS_4_a_branch_of_another_issue_whose_number_starts_the_same_is_no
 #[test]
 fn test_WB_STATUS_5_one_issue_prints_its_heading_and_its_line_and_what_they_were_worked_out_from() {
     let folder = set_up();
-    open(&folder.path, &["176", "177"]);
-    comments(&folder.path, "176", &["[stamp] tester round 1", "[stamp] build round 1", "[question] 176.build.q1"]);
+    open(&folder.path, &["176", "177", "178"]);
+    // 176 has a stamp on its ref (#333), so its question is a commit on the ref; 178 was begun before, and its question
+    // is a comment.
+    comments(&folder.path, "176", &["[stamp] tester round 1", "[stamp] build round 1"]);
+    stamps_on_ref(&folder.path, "176", &["[questions] 176.build q1\n\nq1: Which one?\n"]);
     comments(&folder.path, "177", &[]);
+    comments(&folder.path, "178", &["[question] 178.build.q1"]);
     branch(&folder.path, "176", true);
     let (out, status) = stdout(&folder.path, &["status", "176"]);
     assert_eq!(status, Some(0));
@@ -374,13 +390,15 @@ fn test_WB_STATUS_5_one_issue_prints_its_heading_and_its_line_and_what_they_were
     for line in [
         "[stamp] tester round 1",
         "[stamp] build round 1",
-        "[question] 176.build.q1",
+        "[questions] 176.build q1",
         "issue-176-work",
         ".watchbill/issues/176.yml",
         ".watchbill/issues/176.accepted",
     ] {
         assert!(out.contains(line), "{} not in {}", line, out);
     }
+    let (out, _) = stdout(&folder.path, &["status", "178"]);
+    assert!(out.contains("[question] 178.build.q1"), "{}", out);
 }
 
 #[test]
@@ -792,7 +810,7 @@ change_address: \"mkdir -p .calls && echo x >> .calls/change_address\"
 }
 
 #[test]
-fn test_WB_STATUS_38_it_runs_issue_comments_once_for_each_issue_and_no_issue_comment_bodies_the_planner_s_time_is_read_from_the_ref() {
+fn test_WB_STATUS_38_it_runs_issue_comments_once_for_each_issue_with_no_stamp_on_its_ref_and_no_issue_comment_bodies_the_planner_s_time_is_read_from_the_ref() {
     let folder = set_up();
     let file = config(&folder.path);
     let kept: String = read(&file).lines().filter(|line| !line.starts_with("issue_comments:")).map(|line| format!("{}\n", line)).collect();
@@ -818,7 +836,8 @@ change_of_branch: \"mkdir -p .calls && echo {branch} >> .calls/change_of_branch\
 
     assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
     assert!(text(&run.stdout).contains("Accepted:\n  2  "), "{}", text(&run.stdout));
-    assert_eq!(calls(&folder.path, "issue_comments"), ["1", "2", "3"]);
+    // A job whose ref holds a stamp (1 and 2) is read from its ref, and the tracker is not (#333): only 3 is read.
+    assert_eq!(calls(&folder.path, "issue_comments"), ["3"]);
     // Since #236 the planner's stamps and their times are read from the job's ref: no whole comment is read.
     assert!(calls(&folder.path, "issue_comment_bodies").is_empty(), "{:?}", calls(&folder.path, "issue_comment_bodies"));
 }

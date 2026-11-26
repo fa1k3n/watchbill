@@ -332,9 +332,12 @@ pub const USAGE: &str = "usage:
             branch, the open change as #<n> (change_of_branch) and how many
             commits are not pushed. The stamps are the commits on the job's
             ref that count. The questions and answers of a job whose ref
-            holds a questions commit are read from the ref, and no
-            issue_comments is run for it; those of any other job come from
-            issue_comments. For an open question read from the ref it says on
+            holds a stamp, a commit of wb plan or a questions commit are
+            read from the ref alone, from the first of them on, and no
+            issue_comments is run for it, so a project with no
+            issue_comments reads it; those of a job begun before, whose ref
+            holds none of them, come from issue_comments. For
+            an open question read from the ref it says on
             standard error that an answer typed at the tracker is not read.
             An acceptance that a source or a planner round after it voided
             puts the issue under Planned.
@@ -417,17 +420,21 @@ pub const USAGE: &str = "usage:
             leaves out the Keeping lines, and not Removing or Would remove,
             which it says before it removes
   answer    answer the open questions of an issue: wb answer <issue> reads
-            the questions from the job's ref where it holds a questions
-            commit, else the whole comments by issue_comment_bodies of
+            the questions from the job's ref where it holds a stamp, a
+            commit of wb plan or a questions commit (none is open before
+            the first questions commit), else the whole comments by
+            issue_comment_bodies of
             watchbill.yml, shows each open question in full, one at a time,
             and asks: Enter takes the suggestion, a number takes that choice,
             other text is the answer in words; a number that is not a choice
             is asked again. Then it says what it will write or post. For a
-            job whose ref holds a questions commit it writes one commit per
-            role on refs/watchbill/<issue>, signed with a key of
-            .watchbill/signers that holds the role answer, pushes it, and
-            posts a copy by issue_comment where that is set up; for any other
-            job it posts one [answers] comment per role by issue_comment.
+            job whose ref holds a stamp, a commit of wb plan or a questions
+            commit it writes one commit per role on refs/watchbill/<issue>,
+            signed with a key of .watchbill/signers that holds the role
+            answer, pushes it, and posts a copy by issue_comment where that
+            is set up, and needs neither issue_comment_bodies nor
+            issue_comment; for a job begun before, whose ref holds none of
+            them, it posts one [answers] comment per role by issue_comment.
             Nothing is written or posted before every question is answered,
             and nothing after Ctrl-C. --suggested takes every
             suggestion and names the questions with none. --show prints every
@@ -2018,7 +2025,13 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
     // person and outside the sandbox, and brought into its view before anything is posted. The stamp holds the hash.
     let brought = match (role, value_of(&handed.values, "issue")) {
         ("planner", Some(issue)) => match brought::bring_in(root, issue, &prepared.view.folder) {
-            Ok(found) => Some(found),
+            Ok(found) => {
+                // A job with no stamp on its ref yet: what the tracker holds is said, before the stamp is written (#333).
+                if let Some(notice) = &found.notice {
+                    let _ = writeln!(err, "{}: {}", name, notice);
+                }
+                Some(found)
+            }
             Err(why) => {
                 discard(&prepared);
                 return refused(&mut lines, err, "issue", &why);
@@ -2036,9 +2049,15 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
         paths: paths.as_deref(),
     };
     if brought::BROUGHT_FOR.contains(&role) {
-        if let Err(why) = brought::bring_in_for(root, &session_of(), &prepared.out) {
-            discard(&prepared);
-            return refused(&mut lines, err, "issue", &why);
+        match brought::bring_in_for(root, &session_of(), &prepared.out) {
+            Ok(Some(notice)) => {
+                let _ = writeln!(err, "{}: {}", name, notice);
+            }
+            Ok(None) => {}
+            Err(why) => {
+                discard(&prepared);
+                return refused(&mut lines, err, "issue", &why);
+            }
         }
     }
     let stamp: Result<String, String> = match (&stamp, &brought) {

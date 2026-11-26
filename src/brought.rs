@@ -32,6 +32,9 @@ pub const FOLDER: &str = ".watchbill/issue";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Brought {
     pub hash: String,
+    /// What the tracker holds of the job that is not read once its first stamp is on the ref (#333), where the job had
+    /// none yet: said before the stamp is written.
+    pub notice: Option<String>,
 }
 
 /// The line of the pattern `key`, or why there is none.
@@ -100,11 +103,12 @@ pub fn bring_in(root: &str, issue: &str, view: &Path) -> Result<Brought, String>
     // A plan of the name brings every source of it, and `issue_text` is not run (#290, decision 1).
     let planned = crate::plan::planner_text(root, issue)?;
     let address = if planned.is_none() { Some(pattern(root, "issue_text")?) } else { None };
-    // Where the job's ref holds a questions commit, its questions and answers are read from the ref, and the tracker is
-    // not read for them (#238).
+    // Where the job's ref holds a stamp, a questions commit or a commit of `wb plan`, its questions and answers are read
+    // from the ref, and the tracker is not read for them (#238, #333): a project with no tracker, and so no
+    // `issue_comment_bodies`, runs the planner's first round of a plan, which brings in no question. Any other job is
+    // read from the tracker, where a missing pattern is refused.
     let ledger = crate::stamps::read(root, issue)?;
-    let on_ref = ledger.has_questions();
-    let comments = if on_ref { None } else { Some(pattern(root, "issue_comment_bodies")?) };
+    let comments = if ledger.on_ref() { None } else { Some(pattern(root, "issue_comment_bodies")?) };
     let text = match planned {
         Some(text) => text,
         None => starter::run_capped(root, "issue_text", &address.unwrap_or_default().replace("{issue}", issue), bounded::TEXT_CAP)?,
@@ -112,6 +116,16 @@ pub fn bring_in(root: &str, issue: &str, view: &Path) -> Result<Brought, String>
     let bodies = match &comments {
         Some(comments) => answer::split_bodies(&starter::run_capped(root, "issue_comment_bodies", &comments.replace("{issue}", issue), bounded::TEXT_CAP)?),
         None => ledger.thread(),
+    };
+    // A job with no stamp on its ref yet is read from the tracker for the last time: what it holds is said. A plan has a
+    // ref of its commits and no stamp yet: where `issue_comment_bodies` is set, it is read once, for the notice alone
+    // (#333), and nothing of it is brought in or counted.
+    let notice = if comments.is_some() {
+        tracker_notice(issue, &bodies)
+    } else if ledger.plan_commit && ledger.entries.is_empty() && ledger.broken.is_none() {
+        notice_alone(root, issue)
+    } else {
+        None
     };
     let kept: Vec<&str> = bodies
         .iter()
@@ -127,7 +141,38 @@ pub fn bring_in(root: &str, issue: &str, view: &Path) -> Result<Brought, String>
     write_new(&folder.join(format!("{}.md", issue)), &text, "the view")?;
     write_new(&folder.join(format!("{}.questions", issue)), questions.as_bytes(), "the view")?;
     let hash = Sha256::digest(&text).iter().map(|byte| format!("{:02x}", byte)).collect();
-    Ok(Brought { hash })
+    Ok(Brought { hash, notice })
+}
+
+/// The notice of `tracker_notice` for a plan with no stamp on its ref yet, from one read of `issue_comment_bodies` where it
+/// is set. A pattern that is not there, fails or prints too much gives no notice and no refusal: what it prints reaches
+/// nothing but this notice.
+fn notice_alone(root: &str, issue: &str) -> Option<String> {
+    let line = prompt::pattern_of(root, "issue_comment_bodies").ok().flatten()?;
+    let printed = starter::run_capped(root, "issue_comment_bodies", &line.replace("{issue}", issue), bounded::TEXT_CAP).ok()?;
+    tracker_notice(issue, &answer::split_bodies(&printed))
+}
+
+/// What the tracker holds of `issue` that is not read once the first stamp of its job is on the ref (#333): every question
+/// of any role still open, and every answer that waits for a role, from the first lines of `bodies` (the whole comments of
+/// the issue), counted as `wb status` counts them. None where nothing is open or waits. It is a notice and no refusal: a
+/// refusal would leave no way on.
+fn tracker_notice(issue: &str, bodies: &[String]) -> Option<String> {
+    let firsts: Vec<String> = bodies.iter().map(|body| body.split('\n').next().unwrap_or_default().trim_end_matches('\r').to_string()).collect();
+    let counted = starter::counted(&firsts.join("\n"));
+    let open = answer::open_names(issue, &counted);
+    let waiting = answer::waiting(issue, &counted);
+    if open.is_empty() && waiting.is_empty() {
+        return None;
+    }
+    let mut held: Vec<String> = open.iter().map(|name| format!("{} (open at the tracker)", crate::issue::shown(name))).collect();
+    held.extend(waiting.iter().map(|(role, name)| format!("{} (answered at the tracker, waits for {})", crate::issue::shown(name), crate::issue::shown(role))));
+    Some(format!(
+        "the tracker holds questions and answers of issue {issue} that are not read from this start on: {held}. This start writes the first stamp of the job on {full}, and from it on the tracker is not read for {issue}. The questions are asked again by the next round of their role, and are answered with wb answer {issue}.",
+        issue = crate::issue::shown(issue),
+        held = held.join(", "),
+        full = crate::stamps::full(issue)
+    ))
 }
 
 /// One question of the issue's file: its number and the line of what is unclear, then the rest as it was written.
@@ -248,12 +293,6 @@ fn record_questions(name: &str, root: &str, issue: &str, comment: &str, signing:
         return Err(held_back(why.clone()));
     }
     let message = crate::stamps::thread_message(root, issue, comment).map_err(|why| held_back(format!("the questions are not written: {}", why)))?;
-    // The first commit of a job: the questions that only the tracker holds are not carried into a signed commit, and are
-    // not read any more once it is on the ref. Said, so that they are answered there or asked again.
-    if !ledger.has_questions() {
-        let first = comment.split('\n').next().unwrap_or_default().to_string();
-        tracker_notice(name, root, issue, &answer::asked_names(issue, &[first]), err);
-    }
     let (commit, _) = crate::stamps::write(name, root, issue, &message, &crate::stamps::Held::Questions, signing, err).map_err(held_back)?;
     match prompt::pattern_of(root, "issue_comment") {
         Err(why) => Err(format!("{}. The questions are the commit {} on {}; no copy of them is posted", why, commit, ledger.full)),
@@ -269,42 +308,6 @@ fn record_questions(name: &str, root: &str, issue: &str, comment: &str, signing:
             Ok(())
         }
     }
-}
-
-/// Says, where the tracker holds questions that are open by the old reading, that they are not read once the first
-/// questions commit of the job is on its ref (#238). It reads the tracker only to say so; where it cannot, it says nothing.
-fn tracker_notice(name: &str, root: &str, issue: &str, asking: &[String], err: &mut dyn Write) {
-    let Ok(Some(line)) = prompt::pattern_of(root, "issue_comments") else { return };
-    let Ok(printed) = starter::run_capped(root, "issue_comments", &line.replace("{issue}", issue), bounded::TEXT_CAP) else { return };
-    let lines = starter::counted(&String::from_utf8_lossy(&printed));
-    let open = answer::open_names(issue, &lines);
-    let asked = answer::asked_names(issue, &lines);
-    // The questions this commit asks that the tracker holds too: asked again on the ref, answered there or not.
-    let again: Vec<String> = asking
-        .iter()
-        .filter(|each| asked.contains(each))
-        .map(|each| format!("{} ({} at the tracker)", crate::issue::shown(each), if open.contains(each) { "open" } else { "answered" }))
-        .collect();
-    if !again.is_empty() {
-        let _ = writeln!(
-            err,
-            "{}: the questions {} are asked again by this commit on {}: the answers at the tracker are not read any more, and each is answered again with wb answer.",
-            name,
-            again.join(", "),
-            crate::stamps::full(issue)
-        );
-    }
-    let lost: Vec<String> = open.iter().filter(|each| !asking.contains(each)).map(|each| crate::issue::shown(each)).collect();
-    if lost.is_empty() {
-        return;
-    }
-    let _ = writeln!(
-        err,
-        "{}: the tracker holds open questions ({}), which are not read once the questions commit is on {}: a session that still needs them asks them again.",
-        name,
-        lost.join(", "),
-        crate::stamps::full(issue)
-    );
 }
 
 /// The line of a pattern the questions are posted by, or why there is none.
@@ -471,9 +474,10 @@ fn git_capped(root: &str, args: &[String], cap: u64, what: &str) -> Result<Vec<u
 /// the review and the fix `change.text`, what `change_text` prints, `change.comments`, the comments of the review and
 /// the fix, and `change.diff`. Everything is read before anything is written. Refused, with nothing written, where a
 /// pattern is not there, fails, or prints more than the cap, or the diff cannot be had.
-pub fn bring_in_for(root: &str, session: &Session, out: &Path) -> Result<(), String> {
+pub fn bring_in_for(root: &str, session: &Session, out: &Path) -> Result<Option<String>, String> {
     let role = session.role;
     let mut files: Vec<(&str, Vec<u8>)> = Vec::new();
+    let mut notice = None;
     if let Some(issue) = session.issue {
         files.push(("issue.text", read_by(root, "issue_text", role, "issue", issue)?));
     }
@@ -486,10 +490,10 @@ pub fn bring_in_for(root: &str, session: &Session, out: &Path) -> Result<(), Str
         _ => None,
     };
     if let Some(on) = session.on() {
-        // Where the job's ref holds a questions commit, the questions and answers are those of the ref, and the tracker is
-        // not read for them (#238).
+        // Where the job's ref holds a stamp or a questions commit, the questions and answers are those of the ref, and the
+        // tracker is not read for them (#238, #333).
         let on_ref = match (on.word, session.issue) {
-            ("issue", Some(issue)) => Some(crate::stamps::read(root, issue)?).filter(|ledger| ledger.has_questions()),
+            ("issue", Some(issue)) => Some(crate::stamps::read(root, issue)?).filter(|ledger| ledger.on_ref()),
             _ => None,
         };
         let bodies = match (&on_ref, &change_bodies, on.word) {
@@ -497,6 +501,10 @@ pub fn bring_in_for(root: &str, session: &Session, out: &Path) -> Result<(), Str
             (None, Some(bodies), "change") => bodies.clone(),
             _ => answer::split_bodies(&read_by(root, on.bodies, role, on.word, on.value)?),
         };
+        // An issue with no stamp on its ref yet is read from the tracker for the last time: what it holds is said (#333).
+        if on_ref.is_none() && on.word == "issue" {
+            notice = tracker_notice(on.value, &bodies);
+        }
         let prefix = session.prefix(&on);
         files.push(("questions", kept_of(&bodies, &|first| asked_or_answered_by(on.value, &prefix, first)).into_bytes()));
         if let Some(bodies) = &change_bodies {
@@ -510,7 +518,7 @@ pub fn bring_in_for(root: &str, session: &Session, out: &Path) -> Result<(), Str
     for (name, bytes) in files {
         write_new(&folder.join(name), &bytes, "the folder of what wb brings in")?;
     }
-    Ok(())
+    Ok(notice)
 }
 
 /// What a session wrote for `wb` to post, each read before the folder goes: none where the file is not there or

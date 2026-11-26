@@ -174,9 +174,43 @@ fn test_WB_STATUS_123_the_reason_is_one_escaped_line_cut_at_200_characters() {
     let line = out.lines().find(|line| line.starts_with("  54  Line one.")).unwrap_or_else(|| panic!("{}", out));
     assert!(!out.contains('\u{1b}'), "{:?}", out);
     let reason = line.strip_prefix("  54  ").unwrap();
-    assert!(reason.starts_with("Line one. Line two \\u{1b}[31m "), "{}", reason);
+    let escaped = "Line one. Line two \\u{1b}[31m ";
+    assert!(reason.starts_with(escaped), "{}", reason);
     assert!(reason.ends_with("..."), "{}", reason);
-    assert_eq!(reason.chars().filter(|c| *c == 'x').count(), 200 - "Line one. Line two \u{1b}[31m ".chars().count() , "{}", reason);
+    // At most 200 characters as printed, the three points among them.
+    assert_eq!(reason.chars().count(), 200, "{}", reason);
+    assert_eq!(reason.chars().filter(|c| *c == 'x').count(), 197 - escaped.chars().count(), "{}", reason);
+}
+
+#[test]
+fn test_WB_STATUS_123_the_cut_is_made_after_the_escape_and_never_inside_one() {
+    let folder = set_up();
+    in_flow(&folder);
+    // 190 letters, then escapes of six characters each: the cut at 197 falls inside the second escape.
+    let reason = format!("{}{}", "a".repeat(190), "\u{1b}".repeat(300));
+    stamps_on_ref(&folder.path, "54", &["[stamp] build round 1", &needs("build", &reason)]);
+
+    for args in [&[][..], &["54"][..]] {
+        let out = out_of(&status(&folder, args));
+
+        let printed = out.lines().find(|line| line.contains("aaaa")).unwrap_or_else(|| panic!("{}", out));
+        let shown = printed.trim_start().trim_start_matches("waits for: person (").trim_start_matches("54  ").trim_end_matches(')');
+        assert!(shown.chars().count() <= 200, "{} characters: {}", shown.chars().count(), shown);
+        assert_eq!(shown, format!("{}{}...", "a".repeat(190), "\\u{1b}"), "{}", shown);
+    }
+}
+
+#[test]
+fn test_WB_STATUS_123_an_empty_reason_prints_the_issue_alone_with_no_trailing_space() {
+    let folder = set_up();
+    in_flow(&folder);
+    stamps_on_ref(&folder.path, "54", &["[stamp] build round 1", "[needs_person] 54.build\n\n \n"]);
+
+    let out = out_of(&status(&folder, &[]));
+
+    assert_eq!(out, "Built:\n  54  issue-54-work  1 not pushed\n\nNeeds a person:\n  54\n");
+    // For the one issue it still says it waits.
+    assert!(out_of(&status(&folder, &["54"])).contains("waits for: person ()\n"));
 }
 
 #[test]
@@ -235,6 +269,32 @@ fn test_WB_STATUS_124_a_commit_whose_base_is_no_commit_here_counts_for_nothing()
     assert!(!out.contains("waits for: person"), "{}", out);
     let line = out.lines().find(|line| line.contains("[needs_person] 54.build  (on refs/watchbill/54, not counted:")).unwrap_or_else(|| panic!("{}", out));
     assert!(line.contains("a stamp of another repository"), "{}", line);
+}
+
+#[test]
+fn test_WB_STATUS_124_a_needs_person_whose_first_line_is_not_written_by_wb_start_breaks_the_ref() {
+    for first in ["[needs_person] 55.build", "[needs_person] 54.bogus", "[needs_person] 54.planner", "[needs_person] 54.", "[needs_person] 54.build.q1", "[needs_person] 54 build", "[needs_person] "] {
+        let folder = set_up();
+        stamps_on_ref(&folder.path, "54", &["[stamp] build round 1", &format!("{}\n\n{}\n", first, REASON)]);
+
+        let out = out_of(&status(&folder, &["54"]));
+
+        assert!(!out.contains("waits for: person"), "{}: {}", first, out);
+        assert!(out.contains("is a needs_person commit, and its first line is not"), "{}: {}", first, out);
+        assert!(out.contains("is not as wb writes it"), "{}: {}", first, out);
+    }
+}
+
+#[test]
+fn test_WB_STATUS_124_a_needs_person_of_the_issue_with_a_role_of_wb_or_none_counts() {
+    for first in ["[needs_person] 54", "[needs_person] 54.tester", "[needs_person] 54.build", "[needs_person] 54.review", "[needs_person] 54.fix"] {
+        let folder = set_up();
+        stamps_on_ref(&folder.path, "54", &["[stamp] build round 1", &format!("{}\n\n{}\n", first, REASON)]);
+
+        let out = out_of(&status(&folder, &["54"]));
+
+        assert!(out.contains(&format!("waits for: person ({})\n", REASON)), "{}: {}", first, out);
+    }
 }
 
 #[test]

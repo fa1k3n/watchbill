@@ -475,6 +475,7 @@ fn test_WB_BUILD_48_an_unsigned_stamp_commit_is_not_counted_and_status_says_so()
     let status = bench.status();
     assert!(!status.contains("  tested") && !status.contains("  reviewed"), "{}", status);
     assert!(status.starts_with("Not read:\n  54  ") && status.contains("and unsigned"), "{}", status);
+    assert!(status.contains("[stamp] tester round 1  (on refs/watchbill/54, not counted: unsigned"), "{}", status);
 }
 
 #[test]
@@ -499,6 +500,7 @@ fn test_WB_BUILD_48_a_stamp_signed_by_a_key_not_in_the_list_with_start_is_not_co
     assert_eq!(bench.sessions(), 0, "{:?}", bench.calls());
     assert!(!bench.status().contains("  tested"), "{}", bench.status());
     assert!(bench.status().starts_with("Not read:\n  54  ") && bench.status().contains("signed by a key that is not in .watchbill/signers of origin/main"), "{}", bench.status());
+    assert!(bench.status().contains("not counted: signed by a key that is not in .watchbill/signers of origin/main"), "{}", bench.status());
 }
 
 // ---- WB-BUILD-49: the comment is a copy, never read back ----
@@ -744,6 +746,7 @@ fn test_WB_BUILD_48_a_signed_stamp_of_another_issue_under_an_unsigned_child_is_n
     let status = bench.status();
     assert!(!status.contains("  reviewed"), "{}", status);
     assert!(status.starts_with("Not read:\n  54  ") && status.contains("not as wb writes it"), "{}", status);
+    assert!(status.contains("[stamp] review round 1  (on refs/watchbill/54, not counted: a stamp of another job"), "{}", status);
 
     let mut args = vec!["fix", "54"];
     args.extend(REST);
@@ -878,6 +881,9 @@ fn test_WB_BUILD_162_a_stamp_commit_over_64_kib_is_not_counted_and_status_names_
 
     assert!(status.starts_with("Not read:\n  54  ") && status.contains(&format!("{} is larger than 64 KiB (", commit)), "{}", status);
     assert!(status.contains("so it is not read"), "{}", status);
+    let line = status_of(&bench, &commit);
+    assert!(line.contains("(on refs/watchbill/54, not counted: larger than 64 KiB ("), "{}", bench.status());
+    assert!(line.contains("so it is not read)"), "{}", line);
 }
 
 #[test]
@@ -997,6 +1003,7 @@ fn test_WB_BUILD_164_a_signed_job_none_stamp_spliced_in_by_an_unsigned_merge_is_
 
     assert!(!status.contains("  reviewed"), "{}", status);
     assert!(status.starts_with("Not read:\n  54  ") && status.contains("not as wb writes it"), "{}", status);
+    assert!(status_of(&bench, "[stamp] review round 1").contains("not counted: a stamp of another repository"), "{}", status);
 }
 
 #[test]
@@ -1013,6 +1020,7 @@ fn test_WB_BUILD_164_the_same_stamp_under_one_unsigned_commit_with_the_plan_on_t
 
     assert!(!status.contains("  reviewed"), "{}", status);
     assert!(status.starts_with("Not read:\n  54  ") && status.contains("not as wb writes it"), "{}", status);
+    assert!(status_of(&bench, "[stamp] review round 1").contains("not counted: a stamp of another repository"), "{}", status);
 }
 
 #[test]
@@ -1784,6 +1792,8 @@ fn test_WB_JOB_47_on_a_bad_ref_no_stamp_is_said_to_be_made_under_a_plan_removed(
 
     assert!(!status.contains("made under the plan removed"), "{}", status);
     assert!(status.starts_with("Not read:\n  54  ") && status.contains("Nothing on it counts"), "{}", status);
+    let line = status_of(&bench, "[stamp] tester round 1");
+    assert!(line.contains("nothing on the ref counts"), "{}", status);
     assert_eq!(not_as_written(&bench).len(), 1, "{}", status);
 }
 

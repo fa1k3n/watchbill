@@ -241,8 +241,11 @@ fn test_WB_STATUS_124_a_commit_signed_by_a_key_without_start_counts_for_nothing(
 
     assert!(!out.contains("waits for: person"), "{}", out);
     assert!(out.contains("without the role start"), "{}", out);
-    // The job is not read, and nothing of the ref but why is printed (#284).
+    // The job is not read, and what is printed of the ref is the diagnosis alone (#284).
     assert!(out.starts_with("Not read:\n  54  "), "{}", out);
+    // The line of the needs_person commit itself says it, not only the stamp's.
+    let line = out.lines().find(|line| line.contains("[needs_person] 54.build  (on refs/watchbill/54, not counted:")).unwrap_or_else(|| panic!("{}", out));
+    assert!(line.contains("without the role start"), "{}", line);
 }
 
 #[test]

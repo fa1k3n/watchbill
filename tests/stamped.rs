@@ -1865,3 +1865,17 @@ fn test_WB_JOB_48_the_readme_does_not_say_always_where_a_merge_may_name_a_side_c
     assert!(readme.contains("Where a merge's first parent is a side chain, the line of first parents runs along that chain"), "README.md");
     assert!(readme.contains("move the ref back to the last commit of the ref's own line"), "README.md");
 }
+
+#[test]
+fn test_WB_JOB_46_plan_remove_names_a_job_none_stamp_placed_after_the_plan_that_counts_again() {
+    let bench = bench(false, false);
+    bench.plan("The brakes hold.");
+    let base = bench.head();
+    raw_stamp(&bench, &format!("[stamp] review round 1\nrole: review\nissue: 54\njob: none\nbase: {}\n", base));
+
+    let said = bench.child_in(&bench.repo.path, "plan", &["remove", "54"]);
+
+    assert_eq!(said.code, 0, "{}", said.err);
+    let again = said.out.lines().find(|line| line.contains("count again")).unwrap_or_else(|| panic!("{}", said.out));
+    assert!(again.contains("refs/watchbill/54") && again.contains("review 1"), "{}", said.out);
+}

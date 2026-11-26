@@ -201,6 +201,13 @@ impl Bench {
         output(status, out, err)
     }
 
+    fn check_with(&self, folder: &Path, args: &[&str]) -> Output {
+        let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let status = watchbill::check_on(&args, folder, &self.org_file(), &mut out, &mut err);
+        output(status, out, err)
+    }
+
     /// The views and the folders of what sessions wrote, that are left in the state folder.
     fn left(&self) -> Vec<String> {
         let mut found = Vec::new();
@@ -709,6 +716,25 @@ fn test_WB_INIT_71_a_project_folder_of_head_that_is_a_link_is_refused_before_the
 }
 
 #[test]
+fn test_WB_INIT_71_a_change_not_committed_is_not_seen_by_the_session() {
+    let bench = Bench::new();
+    bench.organisation(LOCAL);
+    bench.session(
+        "session.sh",
+        "#!/bin/sh\nif [ -e src/uncommitted.c ]; then u=yes; else u=no; fi\nif grep -q CHANGED src/brake.c; then c=yes; else c=no; fi\nprintf 'uncommitted: %s\\nchanged: %s\\n' \"$u\" \"$c\" > .watchbill/project/style.md\n",
+    );
+    let folder = set_up(&bench.home);
+    put(&folder.path, "src/uncommitted.c", "int u(void);\n");
+    let brake = read(&folder.path.join("src/brake.c"));
+    fs::write(folder.path.join("src/brake.c"), format!("{}/* CHANGED */\n", brake)).unwrap();
+
+    let run = bench.init(&folder.path, &["--survey"]);
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert_eq!(read(&folder.path.join(STYLE_MD)), "uncommitted: no\nchanged: no\n");
+}
+
+#[test]
 fn test_WB_INIT_72_a_style_md_that_is_there_is_never_written_over_and_nothing_runs() {
     let bench = Bench::new();
     bench.organisation(LOCAL);
@@ -771,6 +797,28 @@ fn test_WB_INIT_73_a_session_that_fails_leaves_no_folder_made_in_the_working_tre
     let taken = bench.init(&folder.path, &["--survey"]);
     assert_eq!(code(&taken), Some(0), "{}", text(&taken.stderr));
     assert_eq!(read(&folder.path.join(STYLE_MD)), "drafted\n");
+}
+
+#[test]
+fn test_WB_INIT_73_a_draft_that_is_a_fifo_a_folder_or_over_1_mib_writes_nothing() {
+    let bench = Bench::new();
+    bench.organisation(LOCAL);
+    let folder = set_up(&bench.home);
+    let cases = [
+        ("fifo", "#!/bin/sh\nmkfifo .watchbill/project/style.md\n"),
+        ("folder", "#!/bin/sh\nmkdir .watchbill/project/style.md\n"),
+        ("over 1 MiB", "#!/bin/sh\nhead -c 1048577 /dev/zero | tr '\\000' a > .watchbill/project/style.md\n"),
+    ];
+    for (name, session) in cases {
+        bench.session("session.sh", session);
+
+        let run = bench.init(&folder.path, &["--survey"]);
+
+        assert_eq!(code(&run), Some(1), "{}: {}", name, text(&run.stderr));
+        assert!(text(&run.stderr).contains("is not taken"), "{}: {}", name, text(&run.stderr));
+        assert!(fs::symlink_metadata(folder.path.join(STYLE_MD)).is_err(), "{}: a style.md was written", name);
+        assert!(bench.left().is_empty(), "{}: {:?}", name, bench.left());
+    }
 }
 
 #[test]
@@ -894,4 +942,34 @@ fn test_WB_CONF_29_check_does_not_warn_with_a_style_md_or_a_local_runner() {
     let drafted = bench.check(&folder.path);
     assert_eq!(code(&drafted), Some(0), "{}{}", text(&drafted.stdout), text(&drafted.stderr));
     assert_eq!(text(&drafted.stderr), "");
+}
+
+#[test]
+fn test_WB_CONF_28_check_warns_with_q_too() {
+    let bench = Bench::new();
+    bench.organisation(VENDOR);
+    let folder = set_up(&bench.home);
+    put_signers(&folder.path);
+
+    let run = bench.check_with(&folder.path, &["-q"]);
+
+    assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
+    let err = text(&run.stderr);
+    assert!(err.starts_with("wb check: no runner is marked local in ") && has_warning(&err), "{}", err);
+}
+
+#[test]
+fn test_WB_CONF_29_check_does_not_warn_with_a_style_md_in_head_alone() {
+    let bench = Bench::new();
+    bench.organisation(VENDOR);
+    let folder = set_up(&bench.home);
+    put(&folder.path, STYLE_MD, "# The code style\n");
+    bench.home.commit_all(&folder.path);
+    fs::remove_file(folder.path.join(STYLE_MD)).unwrap();
+    put_signers(&folder.path);
+
+    let run = bench.check(&folder.path);
+
+    assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
+    assert_eq!(text(&run.stderr), "");
 }

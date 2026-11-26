@@ -4981,7 +4981,11 @@ fn test_WB_ANSWER_21_questions_too_large_for_a_commit_are_not_written_and_are_sa
     let run = bench.start(&["start", "planner", "54"]);
 
     assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
-    assert!(text_of(&run.stderr).contains("48 KiB"), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    assert!(err.contains("48 KiB"), "{}", err);
+    // The questions are said whole, so that they are not lost with the session's files.
+    assert!(err.contains("[questions] 54 q1 q2") && err.contains("Which brake does the issue mean?") && err.contains("Is a test of the timing asked for?"), "{}", &err[..err.len().min(2000)]);
+    assert!(err.contains(&"x".repeat(1000)), "the text of the question is not said");
     assert_eq!(ref_messages(&bench).len(), 1);
 }
 
@@ -4999,6 +5003,57 @@ fn test_WB_ANSWER_21_where_the_tracker_holds_open_questions_the_first_commit_say
     ok(&run);
     let err = text_of(&run.stderr);
     assert!(err.contains("the tracker holds open questions") && err.contains("54.build.q1") && err.contains("not read"), "{}", err);
+}
+
+#[test]
+fn test_WB_ANSWER_21_the_first_commit_names_the_questions_it_asks_again_that_the_tracker_holds_and_says_its_answers_are_not_read() {
+    if !sandbox("test_WB_ANSWER_21") {
+        return;
+    }
+    let bench = bench();
+    // q1 was asked and answered at the tracker, q2 asked and still open; the planner's file holds both.
+    fs::write(bench.at("comments-issue-54"), "[questions] 54 q1 q2\n[answers] 54 q1>planner\n").unwrap();
+    planner_writes(&bench, TWO_QUESTIONS);
+
+    let run = bench.start(&["start", "planner", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    assert!(err.contains("54.q1 (answered at the tracker)") && err.contains("54.q2 (open at the tracker)"), "{}", err);
+    assert!(err.contains("asked again") && err.contains("the answers at the tracker are not read any more"), "{}", err);
+    // Both are on the ref, asked again.
+    assert!(ref_messages(&bench)[1].starts_with("[questions] 54 q1 q2\n"), "{:?}", ref_messages(&bench));
+}
+
+/// Makes the bare repository that `origin` pushes to refuse a commit whose message starts with `[questions]`.
+fn refuse_questions_at_origin(bench: &Bench) {
+    let hook = Path::new(&bare_of(bench)).join("hooks/pre-receive");
+    script(&hook, "while read old new ref; do\n  if git log -1 --format=%B \"$new\" | head -n 1 | grep -q '^\\[questions\\]'; then echo 'no questions here' >&2; exit 1; fi\ndone\nexit 0\n");
+}
+
+#[test]
+fn test_WB_ANSWER_21_a_questions_commit_that_cannot_be_pushed_says_how_to_get_the_questions_asked() {
+    if !sandbox("test_WB_ANSWER_21") {
+        return;
+    }
+    let bench = bench();
+    refuse_questions_at_origin(&bench);
+    planner_writes(&bench, TWO_QUESTIONS);
+
+    let run = bench.start(&["start", "planner", "54"]);
+
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    // The questions are said, and what to do.
+    assert!(err.contains("[questions] 54 q1 q2") && err.contains("Which brake does the issue mean?"), "{}", err);
+    let after = err.split("push it by hand: `git push origin ").nth(1).unwrap_or_else(|| panic!("no command to push by hand: {}", err));
+    let (commit, rest) = after.split_once(':').unwrap();
+    assert_eq!(bench.git_text(&["cat-file", "-t", commit]).trim(), "commit", "{}", err);
+    assert!(rest.starts_with("refs/watchbill/54"), "{}", rest);
+    assert!(err.contains("git fetch origin") && err.contains("not a fast-forward"), "{}", err);
+    assert!(err.contains("the next round of the planner writes them again"), "{}", err);
+    // Nothing was written on the ref.
+    assert_eq!(ref_messages(&bench).len(), 1);
 }
 
 #[test]

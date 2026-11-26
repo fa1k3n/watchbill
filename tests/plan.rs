@@ -945,3 +945,72 @@ fn test_WB_JOB_26_there_is_no_command_add() {
     assert_eq!(code(&run), Some(2));
     assert!(text(&run.stderr).starts_with("wb: no command 'add'\n"), "{}", text(&run.stderr));
 }
+
+// ---- WB-VIEW-38 and 40 (#237): the fetch line of the notes that name the commits of a session ----
+
+const NOTES_FETCH: &str = "+refs/notes/watchbill:refs/notes/watchbill";
+
+#[test]
+fn test_WB_VIEW_38_init_adds_the_fetch_line_of_the_notes_to_origin_and_says_so_first() {
+    let repo = repository(Some("https://github.com/acme/brake-controller.git"));
+
+    let run = wb(&repo.path, &["init", "--yes"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(fetch_lines(&repo.path).contains(&NOTES_FETCH.to_string()), "{:?}", fetch_lines(&repo.path));
+    let out = text(&run.stdout);
+    let said = out.find(NOTES_FETCH).unwrap_or_else(|| panic!("{}", out));
+    assert!(said < out.find("Wrote ").unwrap(), "{}", out);
+    // Both lines, each once, and the line of the branches is kept.
+    assert_eq!(fetch_lines(&repo.path).iter().filter(|line| *line == NOTES_FETCH).count(), 1);
+    assert!(fetch_lines(&repo.path).contains(&FETCH.to_string()));
+    assert!(fetch_lines(&repo.path).contains(&"+refs/heads/*:refs/remotes/origin/*".to_string()), "{:?}", fetch_lines(&repo.path));
+}
+
+#[test]
+fn test_WB_VIEW_38_upgrade_adds_the_fetch_line_of_the_notes_where_only_the_jobs_line_is_there_and_says_so_first() {
+    let folder = set_up();
+    git(&folder.path, &["config", "--unset-all", "remote.origin.fetch", "refs/notes"]);
+    assert!(!fetch_lines(&folder.path).contains(&NOTES_FETCH.to_string()));
+    assert!(fetch_lines(&folder.path).contains(&FETCH.to_string()));
+
+    let dry = wb(&folder.path, &["upgrade", "--dry-run"], "");
+    assert_eq!(code(&dry), Some(0), "{}{}", text(&dry.stdout), text(&dry.stderr));
+    assert!(text(&dry.stdout).contains(NOTES_FETCH), "{}", text(&dry.stdout));
+    // The line that is there is not said again.
+    assert!(!text(&dry.stdout).contains(FETCH), "{}", text(&dry.stdout));
+    assert!(!fetch_lines(&folder.path).contains(&NOTES_FETCH.to_string()), "--dry-run wrote the line");
+
+    let run = wb(&folder.path, &["upgrade"], "");
+
+    assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
+    let out = text(&run.stdout);
+    assert!(out.find(NOTES_FETCH).unwrap_or_else(|| panic!("{}", out)) < out.find("Written").unwrap_or_else(|| panic!("{}", out)), "{}", out);
+    assert_eq!(fetch_lines(&folder.path).iter().filter(|line| *line == NOTES_FETCH).count(), 1);
+    assert_eq!(fetch_lines(&folder.path).iter().filter(|line| *line == FETCH).count(), 1);
+}
+
+#[test]
+fn test_WB_VIEW_38_upgrade_adds_both_lines_where_neither_is_there() {
+    let folder = set_up();
+    git(&folder.path, &["config", "--unset-all", "remote.origin.fetch", "watchbill"]);
+
+    let run = wb(&folder.path, &["upgrade"], "");
+
+    assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
+    let out = text(&run.stdout);
+    assert!(out.contains(FETCH) && out.contains(NOTES_FETCH), "{}", out);
+    assert!(fetch_lines(&folder.path).contains(&FETCH.to_string()) && fetch_lines(&folder.path).contains(&NOTES_FETCH.to_string()), "{:?}", fetch_lines(&folder.path));
+}
+
+#[test]
+fn test_WB_VIEW_40_upgrade_leaves_the_fetch_line_of_the_notes_where_it_is_there() {
+    let folder = set_up();
+    assert!(fetch_lines(&folder.path).contains(&NOTES_FETCH.to_string()), "{:?}", fetch_lines(&folder.path));
+
+    let run = wb(&folder.path, &["upgrade"], "");
+
+    assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
+    assert!(text(&run.stdout).contains("Nothing to do"), "{}", text(&run.stdout));
+    assert_eq!(fetch_lines(&folder.path).iter().filter(|line| *line == NOTES_FETCH).count(), 1);
+}

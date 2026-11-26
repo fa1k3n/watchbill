@@ -20,6 +20,7 @@ pub mod init;
 pub mod interrupt;
 pub mod kept;
 pub mod manifest;
+pub mod notes;
 pub mod plan;
 pub mod prompt;
 pub mod push;
@@ -2098,13 +2099,19 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
     // another start went before is refused, and nothing is started: the push is the lock.
     // Where origin took the stamp, what a later failure says: the stamp holds the round (the review of #322).
     let mut pushed_stamp: Option<String> = None;
+    // The commit of the stamp, which the note on each commit taken back names (#237): none for a stamp that is a comment.
+    let mut stamp_commit: Option<String> = None;
     if let (Some(issue), Some(signing)) = (&job, &signing) {
         let view_list = paths.as_ref().map(|paths| view::list(paths));
         let file = handed.file.as_ref().and_then(|_| signers::git(root, &["cat-file", "blob", &format!("HEAD:{}", issue_file_of(issue))], None).ok());
         let held = stamps::Held::Stamp { view: view_list.as_deref(), issue: file.as_deref() };
         match stamps::write(name, root, issue, stamp, &held, signing, err) {
-            Ok((commit, false)) => pushed_stamp = Some(stamps::round_held(issue, &commit, stamp)),
-            Ok((_, true)) => {}
+            Ok((commit, local)) => {
+                if !local {
+                    pushed_stamp = Some(stamps::round_held(issue, &commit, stamp));
+                }
+                stamp_commit = Some(commit);
+            }
             Err(why) => {
                 discard(&prepared);
                 let message = refusal::limit_text(why);
@@ -2292,6 +2299,23 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
         // not a refusal: what stopped the push or the change is said by `push::after` as a limit.
         code = 1;
     }
+    // A note on each commit taken back, naming the stamp, and the notes pushed after the branch (#237).
+    let taken: Vec<String> = back.taken.iter().map(|(commit, _)| commit.clone()).collect();
+    let noted = notes::after(
+        &notes::Session {
+            name,
+            root,
+            role,
+            stamp: stamp_commit.as_deref().ok_or("the stamp of a change with no issue is a comment, not a commit, so there is no commit to name"),
+            taken: &taken,
+            held: notes_held(words.no_push, pushed.lines.as_deref()),
+        },
+        err,
+    );
+    if noted != 0 {
+        // not a refusal: what stopped the notes is said by `notes::after` as a limit.
+        code = 1;
+    }
     if !back.taken.is_empty() {
         // The planner posts nothing (#295): its new questions, written in full in the issue's file, are posted here.
         // They are read from the last commit taken back, not from the working tree, which need not hold it (#296).
@@ -2323,6 +2347,18 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
     }
     lines.close(None, sessions::Outcome::Ended { status, seconds, limit }, err);
     code
+}
+
+/// Why the notes are not pushed after a session (#237), or none: they go only where `wb` pushed the branch in this
+/// start, and nowhere that it holds the branch back (WB-PUSH-4, 10, 15, 16).
+fn notes_held(no_push: bool, pushed: Option<&str>) -> Option<&'static str> {
+    if no_push {
+        return Some("--no-push was given");
+    }
+    if pushed.is_some_and(|text| text.starts_with("pushed: ")) {
+        return None;
+    }
+    Some("the branch was not pushed by this start, and the notes go only where the branch does")
 }
 
 /// Why the fix's answers are held back after its session (#153), or none: only where a commit came back, taken or
@@ -2389,10 +2425,8 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
             Err(why) => return refuse(err, &why),
         }
     };
-    let stamped = crate::bounded::read_plain(&kept.session.join("stamp"), crate::bounded::TEXT_CAP)
-        .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-        .and_then(|text| text.lines().find_map(|line| line.strip_prefix("view: ").map(str::to_string)));
+    let stamp_text = crate::bounded::read_plain(&kept.session.join("stamp"), crate::bounded::TEXT_CAP).ok().and_then(|bytes| String::from_utf8(bytes).ok());
+    let stamped = stamp_text.as_deref().and_then(|text| text.lines().find_map(|line| line.strip_prefix("view: ").map(str::to_string)));
     let now = view_hash(role, file.as_ref());
     match stamped {
         Some(stamped) if stamped == now => {}
@@ -2450,15 +2484,30 @@ fn run_take_back(name: &str, role: &str, words: &Words, folder: Option<&Path>, s
     for (commit, _) in &back.taken {
         refusal::inform(err, format_args!("{}: to see what the commit changes, run:\n  git show --stat {}", name, commit));
     }
+    // A note on each commit taken back, naming the stamp that the kept session wrote (#237): the commit of the job's ref
+    // whose message is the text of the session's `stamp`. Where none is found, no note is written.
+    let taken_now: Vec<String> = back.taken.iter().map(|(commit, _)| commit.clone()).collect();
+    let stamp_commit = stamp_text.as_deref().and_then(|text| stamps::commit_of(&root, issue, text));
+    let noted = notes::after(
+        &notes::Session {
+            name,
+            root: &root,
+            role,
+            stamp: stamp_commit.as_deref().ok_or("no stamp on the job's ref has the text of the kept session's stamp, so there is no commit to name"),
+            taken: &taken_now,
+            held: Some("wb pushes at the end of a session, and --take-back is not one"),
+        },
+        err,
+    );
     if !back.taken.is_empty() {
         // A take-back is not the end of a session (#151): the person, who is there, pushes.
         let _ = writeln!(err, "{}: nothing is pushed: wb pushes at the end of a session, and --take-back is not one.", name);
         push::say_commands(name, role, &root, kept.view.branch_name(), err);
     }
-    if back.all_taken() && written.is_ok() {
+    if back.all_taken() && written.is_ok() && noted == 0 {
         0
     } else {
-        // not a refusal: each thing not taken, and the lines not written, is said above as a limit.
+        // not a refusal: each thing not taken, the lines not written and a note not written is said above as a limit.
         1
     }
 }

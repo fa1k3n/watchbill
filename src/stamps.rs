@@ -651,6 +651,13 @@ pub fn has_origin(root: &str) -> bool {
 /// person, outside any sandbox. Where there is no remote at all, nothing is pushed; where there are remotes and none
 /// is `origin`, the push fails (`ready` refuses that before anything is written).
 pub fn push(root: &str, made: &Made) -> Pushed {
+    let specs: Vec<String> = made.moved.iter().map(|full| format!("{}:{}", made.commit, full)).collect();
+    push_refs(root, &specs)
+}
+
+/// Pushes each of `specs` (`<source>:<ref>`, never with a leading `+`) to `origin`, as `push` does: with no force and all
+/// or none, as the person. The notes of #237 go this way too.
+pub fn push_refs(root: &str, specs: &[String]) -> Pushed {
     match remotes(root) {
         Ok(remotes) if remotes.is_empty() => return Pushed::Local,
         Ok(remotes) if !remotes.iter().any(|remote| remote == "origin") => return Pushed::Failed("there is no remote origin to push to".to_string()),
@@ -659,8 +666,8 @@ pub fn push(root: &str, made: &Made) -> Pushed {
     }
     let mut command = Command::new("git");
     command.arg("-C").arg(root).args(["push", "--porcelain", "--atomic", "origin"]);
-    for full in &made.moved {
-        command.arg(format!("{}:{}", made.commit, full));
+    for spec in specs {
+        command.arg(spec);
     }
     let output = match command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).output() {
         Ok(output) => output,
@@ -695,6 +702,14 @@ pub fn record(root: &str, made: &Made) -> Result<(), String> {
         }
     }
     signers::git(root, &["update-ref", "--stdin"], Some(input.as_bytes())).map(|_| ())
+}
+
+/// The newest stamp that counts on the job's ref of `name` whose whole message is `text`, as a start leaves it in the
+/// `stamp` of its lines, or none: where it is not there, the ref is not as `wb` writes it, or none counts (#237). A
+/// note names a commit found so, never one that only claims to be a session's.
+pub fn commit_of(root: &str, name: &str, text: &str) -> Option<String> {
+    let ledger = read(root, name).ok()?;
+    ledger.entries.iter().rev().find(|entry| entry.counts.is_ok() && entry.first.starts_with("[stamp] ") && entry.message.trim_end() == text.trim_end()).map(|entry| entry.commit.clone())
 }
 
 /// What a start says where a later step failed after origin took its stamp `commit` (the review of #322): the stamp holds

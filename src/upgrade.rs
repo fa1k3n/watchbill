@@ -476,7 +476,7 @@ pub fn upgrade(root: &str, version: &str, package: &Path, dry_run: bool, out: &m
         Err(why) => return refused(err, &why),
     };
     if steps.is_empty() && lines.is_empty() {
-        if !fetch {
+        if fetch.is_empty() {
             crate::refusal::inform(
                 out,
                 format_args!("wb upgrade: the repository is at the installed revision, version {}, revision {}. Nothing to do: nothing written.", version, pin.hash),
@@ -486,14 +486,14 @@ pub fn upgrade(root: &str, version: &str, package: &Path, dry_run: bool, out: &m
         // Only the fetch line: nothing under .watchbill/ changes, so there is no check to run again and nothing to commit.
         let _ = writeln!(out, "wb upgrade: the repository is at the installed revision, version {}, revision {}.", version, pin.hash);
         let _ = writeln!(out, "{}", if dry_run { "It would write this:" } else { "It writes this:" });
-        let _ = writeln!(out, "  add {}", crate::plan::fetch_said());
+        let _ = writeln!(out, "  add {}", crate::plan::fetch_said(root, &fetch));
         if dry_run {
             let _ = writeln!(out, "--dry-run: Nothing written.");
             return 0;
         }
         crate::interrupt::writing();
-        if let Err(why) = crate::plan::add_fetch(root) {
-            return refused(err, &format!("the fetch line {} could not be added: {}", crate::plan::FETCH, why));
+        if let Err(why) = crate::plan::add_fetch(root, &fetch) {
+            return refused(err, &format!("the fetch line {} could not be added: {}", fetch.join(" and "), why));
         }
         crate::refusal::inform(out, format_args!("\nWritten."));
         return 0;
@@ -529,8 +529,8 @@ pub fn upgrade(root: &str, version: &str, package: &Path, dry_run: bool, out: &m
     for line in &lines {
         let _ = writeln!(out, "{}", line);
     }
-    if fetch {
-        let _ = writeln!(out, "  add {}", crate::plan::fetch_said());
+    if !fetch.is_empty() {
+        let _ = writeln!(out, "  add {}", crate::plan::fetch_said(root, &fetch));
     }
     if dry_run {
         let _ = writeln!(out, "--dry-run: Nothing written.");
@@ -544,9 +544,9 @@ pub fn upgrade(root: &str, version: &str, package: &Path, dry_run: bool, out: &m
         let shown = path.strip_prefix(root).map(|path| path.to_path_buf()).unwrap_or(path);
         return crate::refusal::limit(err, "wb upgrade", format_args!("cannot write {}: {}. What it had written is put back. Nothing written.", shown.display(), error));
     }
-    if fetch {
-        if let Err(why) = crate::plan::add_fetch(root) {
-            return crate::refusal::limit(err, "wb upgrade", format_args!("the fetch line {} could not be added: {}. The files are written.", crate::plan::FETCH, why));
+    if !fetch.is_empty() {
+        if let Err(why) = crate::plan::add_fetch(root, &fetch) {
+            return crate::refusal::limit(err, "wb upgrade", format_args!("the fetch line {} could not be added: {}. The files are written.", fetch.join(" and "), why));
         }
     }
     crate::refusal::inform(out, format_args!("\nWritten.\n\nThe check of wb check:"));

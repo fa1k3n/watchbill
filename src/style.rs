@@ -86,7 +86,7 @@ fn is_style_file(path: &str) -> bool {
 
 /// Whether a line may go into a prompt as it is: no control character but a tab, no line or paragraph separator, no
 /// bidirectional control, and nothing a prompt reads as a placeholder.
-fn fit(line: &str) -> bool {
+pub(crate) fn fit(line: &str) -> bool {
     let control = |c: char| (c.is_control() && c != '\t') || matches!(c, '\u{2028}' | '\u{2029}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}');
     !line.chars().any(control) && crate::prompt::placeholder_names(line).is_empty()
 }
@@ -250,7 +250,10 @@ pub fn facts(root: &str) -> Result<Option<String>, String> {
         };
         let (lines, left_out, past) = copied(&entry.path, &body);
         if lines.is_empty() && name_of(&entry.path) == ".clang-tidy" {
-            text.push_str("It holds no naming rule (`readability-identifier-naming`).\n");
+            // Where its naming rules were all left out, the line below says how many: it is not said to hold none.
+            if left_out == 0 {
+                text.push_str("It holds no naming rule (`readability-identifier-naming`).\n");
+            }
         } else {
             let fence = fence(&lines);
             text.push_str(&format!("{}\n{}{}\n", fence, lines.iter().map(|line| format!("{}\n", line)).collect::<String>(), fence));

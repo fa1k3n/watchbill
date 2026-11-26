@@ -5,7 +5,9 @@
 //! The survey runs only on a runner the organisation's file marks `local: true`, whose `reach` stays on this machine,
 //! in a sandbox with a network of its own (#195). The session has a view of the whole tree of `HEAD`, read-only but
 //! `.watchbill/project/`, as the planner's view is made (#202), and nothing comes back but the draft, written into the
-//! working tree and committed by nobody: since #211 no prompt takes it until a person commits it.
+//! working tree and committed by nobody. Once a person commits it, `wb prompt` adds it to the prompt of every role,
+//! after `all.md`, as `HEAD` has it (#211). It goes into every prompt, so a line of the draft that a prompt would read
+//! as a placeholder, or that holds a control character, is left out and counted, as in `all.md`.
 
 use std::fs;
 use std::io::Write;
@@ -38,7 +40,8 @@ Under each, say what the code does, and give one or two short examples taken fro
 what the code shows; where it is mixed, say so and say which is the more common. The facts that need no judgement \
 (the indent, the line endings, the length of lines, the project's own style files) are in \
 .watchbill/project/all.md where it is there: do not repeat them. Write no text in braces with a lower-case word \
-inside, as a prompt reads it as a placeholder. Write no other file.";
+inside, as a prompt reads it as a placeholder, and no control character: a line that holds either is left out. Write no \
+other file.";
 
 /// The warning of #289, in the owner's words: the problem, the file that sets it, and what to put there. `why` is said
 /// after the file, where there is more to say of it: that it is not there, or why it is refused.
@@ -145,14 +148,17 @@ fn words_of(runner: &Runner, prompt: &str) -> Result<Vec<String>, String> {
     Ok(filled)
 }
 
-/// Makes sure `.watchbill/project/` of the checkout is a folder, not a link, making it where it is not there.
-fn project_folder(root: &str) -> Result<(), String> {
+/// Makes sure `.watchbill/project/` of the checkout is a folder, not a link, or is not there. With `make`, a folder on
+/// the way that is not there is made: only when the draft is taken, so that a survey that fails leaves nothing new in
+/// the working tree.
+fn project_folder(root: &str, make: bool) -> Result<(), String> {
     let mut at = Path::new(root).to_path_buf();
     for part in PROJECT.split('/') {
         at.push(part);
         match fs::symlink_metadata(&at) {
             Ok(found) if found.is_dir() => {}
             Ok(_) => return Err(format!("{} is a link or not a folder, and the draft is not written through it", at.display())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound && !make => return Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 fs::create_dir(&at).map_err(|error| format!("{} could not be made: {}", at.display(), error))?;
             }
@@ -160,6 +166,25 @@ fn project_folder(root: &str) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// The draft as it is written: each line that does not fit a prompt (`style::fit`) left out, and how many were.
+fn fitted(text: &str) -> (String, usize) {
+    let (mut kept, mut left_out) = (String::new(), 0);
+    for line in text.split_inclusive('\n') {
+        let ended = line.ends_with('\n');
+        let bare = line.strip_suffix('\n').unwrap_or(line);
+        let bare = bare.strip_suffix('\r').unwrap_or(bare);
+        if crate::style::fit(bare) {
+            kept.push_str(bare);
+            if ended {
+                kept.push('\n');
+            }
+        } else {
+            left_out += 1;
+        }
+    }
+    (kept, left_out)
 }
 
 /// Runs `wb init --survey` in the repository at `root`, on the runner `named` or the default, on the machine `machine`
@@ -208,7 +233,8 @@ pub fn survey(root: &str, named: Option<&str>, machine: &crate::Machine, out: &m
             format_args!("the survey runs only in a sandbox with a network of its own (#195), so that the code stays on this machine, and none can be made here: {}", why),
         );
     }
-    if let Err(why) = project_folder(root) {
+    // Only looked at here: nothing is made in the working tree until the draft is taken.
+    if let Err(why) = project_folder(root, false) {
         return crate::refusal::limit(err, NAME, why);
     }
     let seconds = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|since| since.as_secs()).unwrap_or(0);
@@ -237,10 +263,25 @@ fn in_view(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> i32 {
-    // The folder the session writes in, in the view, made where `HEAD` has none.
+    // The folder the session writes in, in the view, made where `HEAD` has none. `.watchbill` of the view is a folder
+    // (`view::bind_points`); `.watchbill/project` of `HEAD` must be one too, never a link that the bind and the draft
+    // would go through.
     let drafts = view.folder.join(PROJECT);
-    if let Err(error) = fs::create_dir_all(&drafts) {
-        return crate::refusal::limit(err, NAME, format_args!("{} could not be made in the view: {}", PROJECT, error));
+    match fs::symlink_metadata(&drafts) {
+        Ok(found) if found.is_dir() => {}
+        Ok(_) => {
+            return crate::refusal::limit(
+                err,
+                NAME,
+                format_args!("{} of HEAD is a link or not a folder, and the session writes its draft there. Nothing is run", PROJECT),
+            )
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if let Err(error) = fs::create_dir(&drafts) {
+                return crate::refusal::limit(err, NAME, format_args!("{} could not be made in the view: {}", PROJECT, error));
+            }
+        }
+        Err(error) => return crate::refusal::limit(err, NAME, format_args!("{} of the view cannot be looked at: {}", PROJECT, error)),
     }
     let made = match crate::push::make_out(state, &view.folder) {
         Ok(made) => made,
@@ -331,11 +372,14 @@ fn take(root: &str, view: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i3
         }
         Err(fault) => return crate::refusal::limit(err, NAME, format_args!("the session's {} is not taken: {}. Nothing written", STYLE_MD, fault)),
     };
-    if std::str::from_utf8(&bytes).is_err() {
+    let Ok(text) = std::str::from_utf8(&bytes) else {
         return crate::refusal::limit(err, NAME, format_args!("the session's {} is not taken: it is not UTF-8 text. Nothing written", STYLE_MD));
-    }
-    // The checkout again, as the session ran: the folder is no link, and nothing is written over.
-    if let Err(why) = project_folder(root) {
+    };
+    // The draft goes into every prompt once committed, and a person reads it in a terminal: what would be read as a
+    // placeholder, or holds a control character, is left out, as in `all.md`.
+    let (kept, left_out) = fitted(text);
+    // The checkout again, as the session ran: the folder is no link, made now, and nothing is written over.
+    if let Err(why) = project_folder(root, true) {
         return crate::refusal::limit(err, NAME, why);
     }
     let to = Path::new(root).join(STYLE_MD);
@@ -344,14 +388,18 @@ fn take(root: &str, view: &Path, out: &mut dyn Write, err: &mut dyn Write) -> i3
         Ok(file) => file,
         Err(error) => return crate::refusal::limit(err, NAME, format_args!("{} could not be written: {}. Nothing written", STYLE_MD, error)),
     };
-    if let Err(error) = file.write_all(&bytes) {
+    if let Err(error) = file.write_all(kept.as_bytes()) {
         let _ = fs::remove_file(&to);
         return crate::refusal::limit(err, NAME, format_args!("{} could not be written: {}. Nothing written", STYLE_MD, error));
     }
     crate::refusal::inform(out, format_args!("Wrote {}.", STYLE_MD));
+    if left_out > 0 {
+        let plural = if left_out == 1 { "line" } else { "lines" };
+        let _ = writeln!(out, "{} {} left out of the draft: a prompt would read it as a placeholder, or it holds a control character.", left_out, plural);
+    }
     let _ = writeln!(
         out,
-        "It is not committed: read it, correct it and commit it. Until it is committed no prompt takes it (#211)."
+        "It is not committed: read it, correct it and commit it. Once it is committed, wb prompt adds it to the prompt of every role, after all.md; until then wb prompt and wb start refuse, as it is not as HEAD has it (#211)."
     );
     0
 }

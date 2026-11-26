@@ -30,6 +30,7 @@ pub mod revert;
 pub mod rules;
 pub mod issue;
 pub mod layout;
+pub mod session_status;
 pub mod sessions;
 pub mod stamps;
 pub mod signers;
@@ -64,6 +65,7 @@ pub const USAGE: &str = "usage:
             or <role> <issue> --take-back
             or --list [-v | --verbose]
   wb status [<issue>] [--stage <heading>] [-q | --quiet]
+            or --session <hash> [-q | --quiet]
   wb view <issue> (<role> [--in | --out] | <path>) [-q | --quiet]
             or --kept [-v | --verbose]
   wb answer (<issue> | --change <n>) [--show | [--suggested] [<question> <answer>]...]
@@ -357,7 +359,18 @@ pub const USAGE: &str = "usage:
             pattern failed for one (it is listed under Not read), 2 when it
             was used wrongly or the repository is not set up. Writes nothing
             but a temporary repository in $TMPDIR, removed after, where it
-            reads a kept view. -q (--quiet) is taken and changes nothing: what
+            reads a kept view. --session <hash>, with no issue and no --stage,
+            prints one session from git alone: the lines of its stamp, Base:
+            the commit it was made from, the commits that a note names for it,
+            newest last, Last: the newest of them, and Ended: how its start
+            ended where this machine holds the lines of the start, else 'not
+            known on this machine'. <hash> is the commit of a stamp that
+            counts, on a job's ref, or a unique start of it of 12 or more hex
+            digits. A note is not signed and counts for nothing: it is only
+            where the commits are found. A hash that names no stamp that
+            counts, or not one only, ends with 1, and fewer than 12 digits
+            with 2. It writes nothing and asks nothing of the network. -q
+            (--quiet) is taken and changes nothing: what
             it prints is what a script reads
   view      show what a session of a role will see, before it starts. wb view
             <issue> <role> prints the paths of its view, one to a line, the
@@ -2907,7 +2920,8 @@ fn run_accept(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     }
 }
 
-/// `wb status [<issue>] [--stage <heading>]` (#139): where each issue stands. It only reads.
+/// `wb status [<issue>] [--stage <heading>]` (#139): where each issue stands, and `wb status --session <hash>` (#239):
+/// what one session was given, how it ended and what came back. It only reads.
 fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let used = |err: &mut dyn Write, why: String| {
         let _ = write!(err, "wb status: {}\n\n{}", why, USAGE);
@@ -2915,6 +2929,7 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
     };
     let mut issue: Option<String> = None;
     let mut stage: Option<&'static str> = None;
+    let mut session: Option<String> = None;
     let mut quiet: Option<&'static str> = None;
     loop {
         let found = match next(parser) {
@@ -2929,6 +2944,17 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
         }
         match found {
             Word::Value(value) if issue.is_none() => issue = Some(word(value.as_bytes())),
+            Word::Long(option) if option == "session" && session.is_some() => return used(err, "'--session' is given once".to_string()),
+            Word::Long(option) if option == "session" => {
+                let Ok(value) = parser.value() else {
+                    return used(err, "'--session' needs a hash".to_string());
+                };
+                let given = word(value.as_bytes());
+                if !session_status::is_given_rightly(&given) {
+                    return used(err, session_status::NEEDS.to_string());
+                }
+                session = Some(given);
+            }
             Word::Long(option) if option == "stage" && stage.is_none() => {
                 let Ok(value) = parser.value() else {
                     return used(err, "'--stage' needs a heading".to_string());
@@ -2948,6 +2974,9 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
             }
         }
     }
+    if session.is_some() && (issue.is_some() || stage.is_some()) {
+        return used(err, "'--session' takes no issue and no --stage".to_string());
+    }
     if let Some(issue) = &issue {
         if !issue::is_name(issue) {
             return used(err, format!("'{}' is not an issue: an issue is letters, digits, '.', '_' and '-', and does not start with '.'", issue.escape_debug()));
@@ -2962,7 +2991,14 @@ fn run_status(parser: &mut Parser, out: &mut dyn Write, err: &mut dyn Write) -> 
             let _ = writeln!(err, "wb status: this folder is not in a git repository. Watchbill is set up in one.");
             2
         }
-        Ok(Some(root)) => status::status(&root, issue.as_deref(), stage, sessions::state_folder().as_deref(), out, err),
+        Ok(Some(root)) => match &session {
+            // One session, from git alone (#239): the repository is set up as for every `wb status`.
+            Some(hash) => match status::read_only(&root, err) {
+                Ok(_guard) => session_status::run(&root, hash, sessions::state_folder().as_deref(), out, err),
+                Err(code) => code,
+            },
+            None => status::status(&root, issue.as_deref(), stage, sessions::state_folder().as_deref(), out, err),
+        },
     }
 }
 

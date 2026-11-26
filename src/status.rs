@@ -598,25 +598,32 @@ fn line_of(found: &Found) -> String {
     format!("  {}\n", parts.join("  "))
 }
 
-/// `wb status [<issue>] [--stage <heading>]` in the repository at `root`: 0 every issue could be read, 1 a
-/// pattern failed, 2 the repository is not set up or has no default branch. `stage`, when given, is a heading
-/// that `heading_of` knows.
-pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state: Option<&std::path::Path>, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    // `wb status` only reads (#254): a file that is not as `HEAD` has it is said, and every pattern is read from
-    // the file of `HEAD`. Where the file is not in `HEAD` at all, the repository is not set up.
-    let _read_only = match starter::read_only(root) {
-        // Not set up is 2, and no refusal; a file of `HEAD` over its bound is a limit (#261).
+/// `wb status` only reads (#254): a file that is not as `HEAD` has it is said, and every pattern is read from the file of
+/// `HEAD`. Where the file is not in `HEAD` at all, the repository is not set up: 2, and no refusal; a file of `HEAD` over
+/// its bound is a limit (#261), 1. Shared with `wb status --session` (#239).
+pub(crate) fn read_only(root: &str, err: &mut dyn Write) -> Result<starter::ReadOnly, i32> {
+    match starter::read_only(root) {
         Err(not_read) if not_read.status == 2 => {
             let _ = writeln!(err, "wb status: {}.", not_read.why);
-            return not_read.status;
+            Err(not_read.status)
         }
-        Err(not_read) => return crate::refusal::limit(err, "wb status", format_args!("{}.", not_read.why)),
+        Err(not_read) => Err(crate::refusal::limit(err, "wb status", format_args!("{}.", not_read.why))),
         Ok((guard, differs)) => {
             if differs {
                 let _ = writeln!(err, "{}", starter::drift_line("wb status"));
             }
-            guard
+            Ok(guard)
         }
+    }
+}
+
+/// `wb status [<issue>] [--stage <heading>]` in the repository at `root`: 0 every issue could be read, 1 a
+/// pattern failed, 2 the repository is not set up or has no default branch. `stage`, when given, is a heading
+/// that `heading_of` knows.
+pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state: Option<&std::path::Path>, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let _read_only = match read_only(root, err) {
+        Ok(guard) => guard,
+        Err(code) => return code,
     };
     let pattern = |key: &str| prompt::pattern_of(root, key);
     // `issue_address` is read for one issue only: the list never runs it.

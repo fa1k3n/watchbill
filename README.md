@@ -954,7 +954,7 @@ Jobs in the flow:
 - **A source that changed** (#240). `wb status <issue>` says `source changed: …` where the newest source of the job's plan was read by `issue_text` (its source is that pattern with `{issue}` filled, as `wb plan add --from` writes it, or as `--source` gives it; the plan is the one named `<issue>`, or `<tracker>/<issue>`) and `issue_text` prints other text now, by the hash of the text as a blob. A person runs `wb plan add` again: `wb status` takes nothing in and writes nothing. The list runs no `issue_text`, and a source that the pattern did not read is not looked at. A pattern that fails is said on standard error, and the status is the same.
 - **What it reads:** the branches with git, the issue's file and its acceptance from the branch with `git show`, never by switching branches, and the comments through `issue_comments` and the change through `change_of_branch`, each once for each issue listed (`issue_address` for one issue, and `issue_text` once for one issue, where it read the newest source of the job's plan, #240). It writes nothing, and asks the network only through those patterns.
 - **The exit status:** 0 when every issue could be read; 1 when a pattern failed for an issue (it is listed last, under `Not read`, with why; the others are printed); 2 when it was used wrongly, Watchbill is not set up, or no default branch is found.
-- **It is not a dashboard** ([Not goals](#not-goals)): a list in the terminal, of now, for one repository. The sessions that run on this machine are for #140 (planned for 0.12.0).
+- **It is not a dashboard** ([Not goals](#not-goals)): a list in the terminal, of now, for one repository. The sessions that run on this machine are for #140 (planned for 0.13.0).
 
 ## Answering the questions
 

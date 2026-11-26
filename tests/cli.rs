@@ -28,7 +28,8 @@ const USAGE: &str = "usage:
             [--ignore-branch] [--no-push] [-q | --quiet] [the options of prompt]
             or <role> <issue> --take-back
             or --list [-v | --verbose]
-  wb status [<issue>] [--stage <word>] [-s | --short | --porcelain] [--color[=<when>]] [-q | --quiet]
+  wb status [<issue>] [--stage <word>] [-s | --short | --porcelain]
+            [--color[=<when>]] [-q | --quiet]
             or --session <hash> [-q | --quiet]
   wb view <issue> (<role> [--in | --out] | <path>) [-q | --quiet]
             or --kept [-v | --verbose]
@@ -289,77 +290,78 @@ const USAGE: &str = "usage:
             confirm the write and the commit, and not what it will write or
             commit, the command to commit or push, or a refusal
   status    list the jobs in the flow as git status lists files, under two
-            headings by whose move it is next: Jobs waiting for you (a
-            question is open, a session ended needing a person, an answer
-            waits for a person, or the plan is to be accepted) and Jobs in
-            the flow (an agent's move). A line is the number, the branch, the
-            open change as #<n> (change_of_branch) and a text: the stage word
-            (planned, accepted, tested, built, reviewed, fixed), how many
-            questions are open, the reason of a needs_person, and how many
-            commits are not pushed. A job not broken down has no line, unless
-            a person's move is open on it. Hint lines in git's form, as (use
-            \"wb answer <issue>...\" to answer its questions), come under the
-            first heading, and under a kept view of one issue, unless
-            status_hints: false is written in watchbill.yml. -s (--short)
+            headings by whose move it is next: Jobs waiting for you (a question
+            is open, a session ended needing a person, an answer waits for a
+            person, or the plan is to be accepted) and Jobs in the flow (an
+            agent's move). Jobs are in the order of their stage, then of their
+            number. A line is the number, the branch, the open change as #<n>
+            (change_of_branch) and a text: the stage word (planned, accepted,
+            tested, built, reviewed, fixed), how many questions are open, the
+            reason of a needs_person, and how many commits are not pushed. A job
+            with no issue's file has no line, unless a person's move is open on
+            it, or wb has begun it, or commits are not pushed: it then waits
+            under the first heading with no stage word. Hint lines in git's
+            form, as (use \"wb answer <issue>...\" to answer its questions),
+            come under the first heading, and under a kept view of one issue,
+            unless status_hints: false is written in watchbill.yml. -s (--short)
             prints one line for each job, as git status -s does: the stage
             letter (P A T B R F), the letter of why a person must move (Q a
-            question, N a needs_person, W an answer, P a plan to accept), the
-            number and the branch; --porcelain prints the same with no colour,
-            for a script. --color[=<when>] (always, never or auto, the
-            default: only on a terminal) colours the lines under the first
-            heading red and those under the second green, as git colours what
-            is not staged and what is. An issue is in the flow when its
-            branch, local or at origin, holds a commit that the default
-            branch of origin does not: git alone says which, and fetches
-            nothing. The stamps are the commits on the job's ref that count. The questions and answers of a job whose ref
-            holds a stamp, a commit of wb plan or a questions commit are
-            read from the ref alone, from the first of them on, and no
-            issue_comments is run for it, so a project with no
-            issue_comments reads it; those of a job begun before, whose ref
-            holds none of them, come from issue_comments. For
-            an open question read from the ref it says on
-            standard error that an answer typed at the tracker is not read.
-            An acceptance that a source or a planner round after it voided
-            puts the job back to planned. For one issue it says source
-            changed where issue_text, the pattern that read the newest
-            source of its plan, prints other text now: a person runs wb
-            plan add again, and wb status takes nothing in. A job whose
-            last session ended needing a person, written as a signed commit
-            on its ref, says needs a person: <reason> on its line, and <issue>
-            prints waits for: person (<reason>); it stays
-            until the next start of any role on the issue, and a questions
-            commit, an answers commit, a flag or a comment does not close it.
-            <issue> prints that issue, in the flow or not, with its title
-            (issue_address), each session (its stamp, how it ended, what came
-            back) and what it was worked out from; --stage <word> prints the
-            jobs of that stage word only (or not read), whatever its case. A
-            job whose work is
-            accepted, or whose change is merged, is done: it is not listed,
-            and <issue> prints Done and what closed it, and a line accepted:
-            for each acceptance, by its object. For one issue it also prints
-            a line kept: <role> round <n>, <k> commits not taken,
-            <folder> for each view kept with work not taken back, and cut off:
-            <role> round <n>, <folder> for each session whose wb ended before
-            it did. With no issue it says on standard error how many such
+            question, N a needs_person, W an answer, P a plan to accept, L a job
+            to look at), the number and the branch; a job that could not be read
+            is ** and its number. --porcelain prints the same with no colour,
+            for a script; of --short and --porcelain the one given last wins, as
+            in git. --color[=<when>], the flag of git diff and git log (always,
+            never or auto, the default: only on a terminal; the colour settings
+            of git are not read) colours the lines under the first heading red
+            and those under the second green, as git colours what is not staged
+            and what is. An issue is in the flow when its branch, local or at
+            origin, holds a commit that the default branch of origin does not:
+            git alone says which, and fetches nothing. The stamps are the
+            commits on the job's ref that count. The questions and answers of a
+            job whose ref holds a stamp, a commit of wb plan or a questions
+            commit are read from the ref alone, from the first of them on, and
+            no issue_comments is run for it, so a project with no issue_comments
+            reads it; those of a job begun before, whose ref holds none of them,
+            come from issue_comments. For an open question read from the ref it
+            says on standard error that an answer typed at the tracker is not
+            read. An acceptance that a source or a planner round after it voided
+            puts the job back to planned. For one issue it says source changed
+            where issue_text, the pattern that read the newest source of its
+            plan, prints other text now: a person runs wb plan add again, and wb
+            status takes nothing in. A job whose last session ended needing a
+            person, written as a signed commit on its ref, says needs a person:
+            <reason> on its line, and <issue> prints waits for: person
+            (<reason>); it stays until the next start of any role on the issue,
+            and a questions commit, an answers commit, a flag or a comment does
+            not close it. <issue> prints that issue, in the flow or not, with
+            its title (issue_address), each session (its stamp, how it ended,
+            what came back) and what it was worked out from; --stage <word>
+            prints the jobs of that stage word only (or not read), whatever its
+            case. A job whose work is accepted, or whose change is merged, is
+            done: it is not listed, and <issue> prints Done and what closed it,
+            and a line accepted: for each acceptance, by its object. For one
+            issue it also prints a line kept: <role> round <n>, <k> commits not
+            taken, <folder> for each view kept with work not taken back, and cut
+            off: <role> round <n>, <folder> for each session whose wb ended
+            before it did. With no issue it says on standard error how many such
             views are kept on this machine. A view of over 200 commits is said
-            as the first 200 and 'and <k> more', and each view is read within
-            20 seconds. Ends with 0 when every issue could be read, 1 when a
-            pattern failed for one (it is listed under Not read), 2 when it
-            was used wrongly or the repository is not set up. Writes nothing
-            but a temporary repository in $TMPDIR, removed after, where it
-            reads a kept view. --session <hash>, with no issue and no --stage,
-            prints one session from git alone: the lines of its stamp, Base:
-            the commit it was made from, the commits that a note names for it,
-            newest last, Last: the newest of them, and Ended: how its start
-            ended where this machine holds the lines of the start, else 'not
-            known on this machine'. <hash> is the commit of a stamp that
-            counts, on a job's ref, or a unique start of it of 12 or more hex
-            digits. A note is not signed and counts for nothing: it is only
-            where the commits are found. A hash that names no stamp that
-            counts, or not one only, ends with 1, and fewer than 12 digits
-            with 2. It only reads: it writes nothing and asks nothing of
-            the network. -q (--quiet) is taken and changes nothing: what it
-            prints is what a script reads
+            as the first 200 and 'and <k> more', and each view is read within 20
+            seconds. Ends with 0 when every issue could be read, 1 when a
+            pattern failed for one (it is listed under Not read), 2 when it was
+            used wrongly or the repository is not set up. Writes nothing but a
+            temporary repository in $TMPDIR, removed after, where it reads a
+            kept view. --session <hash>, with no issue and no --stage, prints
+            one session from git alone: the lines of its stamp, Base: the commit
+            it was made from, the commits that a note names for it, newest last,
+            Last: the newest of them, and Ended: how its start ended where this
+            machine holds the lines of the start, else 'not known on this
+            machine'. <hash> is the commit of a stamp that counts, on a job's
+            ref, or a unique start of it of 12 or more hex digits. A note is not
+            signed and counts for nothing: it is only where the commits are
+            found. A hash that names no stamp that counts, or not one only, ends
+            with 1, and fewer than 12 digits with 2. It only reads: it writes
+            nothing and asks nothing of the network. -q (--quiet) is taken and
+            changes nothing: what it prints is what a script reads
   view      show what a session of a role will see, before it starts. wb view
             <issue> <role> prints the paths of its view, one to a line, the
             list the start makes the view from, and nothing else. --in

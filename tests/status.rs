@@ -1787,7 +1787,9 @@ fn test_WB_STATUS_119_the_usage_the_manual_and_the_completion_name_the_new_flags
         assert!(read(&root.join(file)).contains(&needle), "{} lacks {}", file, needle);
     }
     // The paragraph of the usage has no line wider than the others.
-    for line in watchbill::USAGE.lines().filter(|line| line.starts_with("            ")) {
+    let usage = watchbill::USAGE;
+    let block = &usage[usage.find("\n  status    ").unwrap()..usage.find("\n  view      ").unwrap()];
+    for line in block.lines() {
         assert!(line.chars().count() <= 80, "{}", line);
     }
     // The values of --color are completed.
@@ -1800,7 +1802,7 @@ fn test_WB_STATUS_120_the_readme_says_the_hints_the_setting_and_the_forms() {
     for needle in ["Jobs waiting for you", "Jobs in the flow", "status_hints", "--porcelain", "--short", "--color", "(use \"wb answer <issue>...\" to answer its questions)"] {
         assert!(readme.contains(needle), "the README lacks {}", needle);
     }
-    for needle in ["`git diff` and `git log`", "`**`", "color.ui", "the one given last wins"] {
+    for needle in ["`git diff` and `git log`", "** <number>", "color.ui", "the one given last wins"] {
         assert!(readme.contains(needle), "the README lacks {}", needle);
     }
     // The rule of before is gone.

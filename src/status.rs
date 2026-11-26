@@ -109,6 +109,11 @@ struct Found {
     tracker_not_read: bool,
     /// The stamps and markers of the job's ref, for the sessions of `wb status <issue>` (#284).
     ledger: Option<crate::stamps::Ledger>,
+    /// Whether anything of `wb` is on the job's ref: a stamp, a marker or a commit of questions or of needs_person, counted
+    /// or not (#284). A job so begun has entered, with or without an issue's file.
+    started: bool,
+    /// Why the job's ref is not as `wb` writes it, where it is not: nothing on it counts (#284).
+    broken: Option<String>,
 }
 
 impl Found {
@@ -131,6 +136,9 @@ impl Found {
             Some('W')
         } else if self.step == "Planned" {
             Some('P')
+        } else if self.step == "Not planned" && (self.started || self.unpushed > 0) {
+            // No issue's file yet, but `wb` has begun the job or work is not pushed: a person must look (#284).
+            Some('L')
         } else {
             None
         }
@@ -154,6 +162,9 @@ impl Found {
         }
         if let Some((_, name)) = self.waits.as_ref().filter(|(role, _)| role == "person") {
             parts.push(format!("waits for person ({})", issue::shown(name)));
+        }
+        if self.person_move() == Some('L') {
+            parts.push("no issue's file yet".to_string());
         }
         if self.unpushed > 0 {
             parts.push(format!("{} not pushed", self.unpushed));
@@ -643,6 +654,7 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
     let person = ledger.person().filter(|_| closed.is_none()).map(|reason| reason_line(&reason));
     let tracker_unread = !on_ref && comments.is_none();
     let tracker_not_read = on_ref && !questions.is_empty();
+    let (started, broken) = (!ledger.entries.is_empty() || ledger.broken.is_some(), ledger.broken.clone());
     Ok(Found {
         number: number.to_string(),
         branch: shown.map(|branch| branch.name.clone()),
@@ -661,6 +673,8 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
         tracker_unread,
         tracker_not_read,
         ledger: with_title.then_some(ledger),
+        started,
+        broken,
     })
 }
 
@@ -732,8 +746,10 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, look:
     let hints = match hints_on(root) {
         Ok(on) => on,
         Err(why) => {
+            // A value of `watchbill.yml` that the loader refuses ends with 1, as for `wb check` (#284).
             let _ = writeln!(err, "wb status: {}", why);
-            return 2;
+            crate::refusal::answer();
+            return 1;
         }
     };
     let pattern = |key: &str| prompt::pattern_of(root, key);
@@ -773,6 +789,8 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, look:
     let starts = state.map(crate::kept::Starts::read);
     for number in issues {
         match read_issue(root, &number, &patterns, &all, &flow, &default, only.is_some(), starts.as_ref()) {
+            // A job whose ref is not as `wb writes it is not read: nothing on it counts, and it is never left out (#284).
+            Ok(found) if only.is_none() && found.broken.is_some() => failed.push((issue::shown(&number), issue::shown(found.broken.as_deref().unwrap_or("")))),
             Ok(found) => read.push(found),
             Err(why) => failed.push((issue::shown(&number), issue::shown(&why))),
         }
@@ -812,15 +830,21 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, look:
         }
         if show_failed {
             for (number, why) in &failed {
-                text.push_str(&if color { format!("\x1b[31m??\x1b[m {}\n", number) } else { format!("?? {}\n", number) });
+                text.push_str(&if color { format!("\x1b[31m**\x1b[m {}\n", number) } else { format!("** {}\n", number) });
                 let _ = writeln!(err, "wb status: issue {} was not read: {}", number, why);
             }
         }
         let _ = out.write_all(text.as_bytes());
-        kept_count(root, only, stage, state, err);
+        kept_count(root, only, state, err);
         return failed_code;
     }
+    for (number, why) in failed.iter().filter(|_| show_failed) {
+        let _ = writeln!(err, "wb status: issue {} was not read: {}", number, why);
+    }
     let mut sections: Vec<String> = Vec::new();
+    // By stage, then by number: the jobs with no stage first (#284).
+    let mut jobs = jobs;
+    jobs.sort_by_key(|found| (STAGES.iter().position(|stage| stage.0 == found.step).map_or(0, |at| at + 1), order(&found.number)));
     let widths = Widths::of(&jobs);
     for (heading, code) in [(WAITING, "31"), (FLOW, "32"), (DONE, "")] {
         let here: Vec<&&Found> = jobs
@@ -941,18 +965,24 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, look:
             _ => {}
         }
     }
-    kept_count(root, only, stage, state, err);
+    kept_count(root, only, state, err);
     let _ = out.write_all(sections.join("\n").as_bytes());
     failed_code
 }
 
 /// For the list: how many views with work not taken back are kept on this machine, on standard error (#222).
-fn kept_count(root: &str, only: Option<&str>, _stage: Option<&'static str>, state: Option<&std::path::Path>, err: &mut dyn Write) {
+fn kept_count(root: &str, only: Option<&str>, state: Option<&std::path::Path>, err: &mut dyn Write) {
     let (None, Some(state)) = (only, state) else { return };
     let count = crate::kept::scan_all(root, state).len();
     if count > 0 {
         let _ = writeln!(err, "wb status: {} kept {} with work not taken back on this machine. `wb status <issue>` names them.", count, if count == 1 { "view" } else { "views" });
     }
+}
+
+/// The fault of `status_hints` in `watchbill.yml`, for `wb check`; none where it holds or is not there (#284).
+pub fn hints_fault(document: &crate::yamlfile::Document) -> Option<String> {
+    let place = [crate::yamlfile::Part::from("status_hints")];
+    document.has(&place).then(|| document.boolean(&place).err().map(|why| why.to_string())).flatten()
 }
 
 /// Whether the hints are on (#284): they are, unless `status_hints: false` is written in `watchbill.yml`. Only `true` and

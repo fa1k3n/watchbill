@@ -18,10 +18,9 @@ const GROUPS: [(&str, &[&str]); 5] = [
 ];
 
 /// The commands not built yet: the command, the release and the issue. The releases have the names the owner
-/// gave them after 0.0.9: 0.10.0, 0.11.0, 0.12.0. `view` (#173), `upgrade` (#174), `compare` (#179), `clean` (#176) and `doctor` (#178) and `log` (#177) are built. The four of
-/// 0.11.0 moved to 0.12.0 with the plan of 2026-11-22 (#230).
+/// gave them after 0.0.9: 0.10.0, 0.11.0, 0.12.0, 0.13.0 and 1.0.0. Only `run` is not built, and it moved to 0.13.0 (#357).
 const PLANNED: [(&str, &str, &str); 1] = [
-    ("run", "0.12.0", "#183"),
+    ("run", "0.13.0", "#183"),
 ];
 
 fn built() -> Vec<&'static str> {
@@ -270,4 +269,70 @@ fn test_WB_CMD_15_the_usage_lists_the_built_commands_in_the_order_of_help() {
         .filter(|name| !name.starts_with("--"))
         .collect();
     assert_eq!(listed, built(), "{}", usage);
+}
+
+// ---- WB-CMD-61: the README says what is built and what is planned ----
+
+fn readme() -> String {
+    fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("README.md")).unwrap()
+}
+
+#[test]
+fn test_WB_CMD_61_the_status_line_names_the_version_and_the_built_commands() {
+    let readme = readme();
+    let status = readme.lines().find(|line| line.starts_with("**Status: ")).expect("the README has no Status line");
+
+    assert!(status.starts_with(&format!("**Status: {}.", env!("CARGO_PKG_VERSION"))), "{}", status);
+    for name in built() {
+        assert!(status.contains(&format!("`wb {}`", name)), "the Status line does not name wb {}", name);
+    }
+}
+
+/// The numbers of a version such as `0.12.0`, to compare as numbers.
+fn version_of(word: &str) -> Option<Vec<u32>> {
+    let parts: Vec<&str> = word.split('.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    parts.iter().map(|part| part.parse().ok()).collect()
+}
+
+/// The versions that follow "planned for " on a line.
+fn planned_for(line: &str) -> Vec<String> {
+    line.split("planned for ")
+        .skip(1)
+        .map(|rest| rest.split(|c: char| !(c.is_ascii_digit() || c == '.')).next().unwrap_or("").trim_end_matches('.').to_string())
+        .collect()
+}
+
+#[test]
+fn test_WB_CMD_61_a_planned_command_is_planned_for_the_release_wb_help_says() {
+    let readme = readme();
+    for (name, release, _) in PLANNED {
+        for line in readme.lines().filter(|line| line.contains(&format!("`wb {}`", name)) || line.contains(&format!("`{}` (planned", name))) {
+            for version in planned_for(line) {
+                assert_eq!(version, release, "{} is planned for {}: {}", name, release, line);
+            }
+        }
+    }
+}
+
+#[test]
+fn test_WB_CMD_61_no_line_of_the_README_plans_for_a_release_that_is_built() {
+    let built = version_of(env!("CARGO_PKG_VERSION")).unwrap();
+    for line in readme().lines() {
+        for version in planned_for(line) {
+            if let Some(numbers) = version_of(&version) {
+                assert!(numbers > built, "planned for {}, built is {}: {}", version, env!("CARGO_PKG_VERSION"), line);
+            }
+        }
+    }
+}
+
+#[test]
+fn test_WB_CMD_61_a_line_planned_for_a_built_release_is_seen() {
+    // The probe: the line the README had before #357.
+    let planned = planned_for("#83, planned for 0.12.0).");
+    assert_eq!(planned, vec!["0.12.0".to_string()]);
+    assert!(version_of(&planned[0]).unwrap() <= version_of(env!("CARGO_PKG_VERSION")).unwrap());
 }

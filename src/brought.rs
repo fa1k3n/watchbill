@@ -117,8 +117,16 @@ pub fn bring_in(root: &str, issue: &str, view: &Path) -> Result<Brought, String>
         Some(comments) => answer::split_bodies(&starter::run_capped(root, "issue_comment_bodies", &comments.replace("{issue}", issue), bounded::TEXT_CAP)?),
         None => ledger.thread(),
     };
-    // A job with no stamp on its ref yet is read from the tracker for the last time: what it holds is said.
-    let notice = comments.as_ref().and_then(|_| tracker_notice(issue, &bodies));
+    // A job with no stamp on its ref yet is read from the tracker for the last time: what it holds is said. A plan has a
+    // ref of its commits and no stamp yet: where `issue_comment_bodies` is set, it is read once, for the notice alone
+    // (#333), and nothing of it is brought in or counted.
+    let notice = if comments.is_some() {
+        tracker_notice(issue, &bodies)
+    } else if ledger.plan_commit && ledger.entries.is_empty() && ledger.broken.is_none() {
+        notice_alone(root, issue)
+    } else {
+        None
+    };
     let kept: Vec<&str> = bodies
         .iter()
         .filter(|body| asked_or_answered(issue, body.split('\n').next().unwrap_or_default().trim_end_matches('\r')))
@@ -134,6 +142,15 @@ pub fn bring_in(root: &str, issue: &str, view: &Path) -> Result<Brought, String>
     write_new(&folder.join(format!("{}.questions", issue)), questions.as_bytes(), "the view")?;
     let hash = Sha256::digest(&text).iter().map(|byte| format!("{:02x}", byte)).collect();
     Ok(Brought { hash, notice })
+}
+
+/// The notice of `tracker_notice` for a plan with no stamp on its ref yet, from one read of `issue_comment_bodies` where it
+/// is set. A pattern that is not there, fails or prints too much gives no notice and no refusal: what it prints reaches
+/// nothing but this notice.
+fn notice_alone(root: &str, issue: &str) -> Option<String> {
+    let line = prompt::pattern_of(root, "issue_comment_bodies").ok().flatten()?;
+    let printed = starter::run_capped(root, "issue_comment_bodies", &line.replace("{issue}", issue), bounded::TEXT_CAP).ok()?;
+    tracker_notice(issue, &answer::split_bodies(&printed))
 }
 
 /// What the tracker holds of `issue` that is not read once the first stamp of its job is on the ref (#333): every question

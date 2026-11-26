@@ -7428,7 +7428,61 @@ fn test_WB_ANSWER_47_a_forged_comment_is_not_brought_into_the_first_round_of_the
 
     ok(&run);
     assert_eq!(bench.left("questions"), "", "{}", bench.left("questions"));
-    assert!(!bench.calls().iter().any(|call| call == "bodies 54"), "{:?}", bench.calls());
-    // Nothing the tracker holds is said of a job that was never begun before.
+    // The comments are read once, for the notice alone (#333): nothing of them is brought in, and `wb status` reads none.
+    assert_eq!(bench.calls().iter().filter(|call| *call == "bodies 54").count(), 1, "{:?}", bench.calls());
+    let before = called(&bench, "comments");
+    let run = wb(&bench.repo.path, &["status", "54"], "");
+    assert_eq!(code(&run), Some(0), "{}", text_of(&run.stderr));
+    assert!(!text_of(&run.stdout).contains("Questions open"), "{}", text_of(&run.stdout));
+    assert_eq!(called(&bench, "comments"), before, "{:?}", bench.calls());
+}
+
+#[test]
+fn test_WB_ANSWER_52_the_first_planner_round_of_a_plan_taken_up_for_a_job_begun_before_names_what_the_tracker_holds() {
+    if !sandbox("test_WB_ANSWER_52") {
+        return;
+    }
+    let bench = bench();
+    // The job has `54.build.q1` open and `54.build.q2>build` waiting at the tracker; then it is taken into a plan.
+    fs::write(bench.at("bodies-54"), BEGUN_BEFORE).unwrap();
+    plan_add(&bench, &["add", "54", "-m", "Brakes: the front one."]);
+    next_second();
+    plan_accept_again(&bench);
+    bench.session("cat .watchbill/issue/54.questions > {log}/questions\n");
+
+    let run = bench.start(&["start", "planner", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    assert!(err.contains("54.build.q1") && err.contains("open at the tracker"), "{}", err);
+    assert!(err.contains("54.build.q2") && err.contains("waits for build"), "{}", err);
+    assert!(err.contains("not read") && err.contains("asked again by the next round of their role") && err.contains("wb answer 54"), "{}", err);
+    assert!(err.find("open at the tracker").unwrap() < err.find("wrote the stamp").unwrap(), "{}", err);
+    // The notice is all: nothing of what the tracker holds reaches the session's files.
+    assert_eq!(bench.left("questions"), "", "{}", bench.left("questions"));
+}
+
+#[test]
+fn test_WB_ANSWER_52_a_plan_with_nothing_open_or_waiting_at_the_tracker_gets_no_notice_and_no_plan_with_a_stamp_reads_it() {
+    if !sandbox("test_WB_ANSWER_52") {
+        return;
+    }
+    let bench = bench();
+    fs::write(bench.at("bodies-54"), "[stamp] build round 1\0\n[questions] 54.build q1\nq1: Which unit?\0\n[answers] 54.build q1\nq1: 1\0\n").unwrap();
+    plan_add(&bench, &["add", "54", "-m", "Brakes: the front one."]);
+    next_second();
+    plan_accept_again(&bench);
+    bench.session("true\n");
+    let run = bench.start(&["start", "planner", "54"]);
+    ok(&run);
     assert!(!text_of(&run.stderr).contains("at the tracker"), "{}", text_of(&run.stderr));
+    // A second round has a stamp on its ref: the tracker is not read again.
+    fs::write(bench.at("bodies-54"), BEGUN_BEFORE).unwrap();
+    next_second();
+    plan_accept_again(&bench);
+    let before = bench.calls().iter().filter(|call| *call == "bodies 54").count();
+    let run = bench.start(&["start", "planner", "54"]);
+    ok(&run);
+    assert!(!text_of(&run.stderr).contains("at the tracker"), "{}", text_of(&run.stderr));
+    assert_eq!(bench.calls().iter().filter(|call| *call == "bodies 54").count(), before, "{:?}", bench.calls());
 }

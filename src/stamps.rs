@@ -67,6 +67,8 @@ pub enum Kind {
     Marker,
     Questions,
     Answers,
+    /// What a session of any role ended needing a person for (#311).
+    NeedsPerson,
     /// A commit over the cap, which is not read.
     Unread,
 }
@@ -81,6 +83,8 @@ fn kind_of(first: &str) -> Option<Kind> {
         Some(Kind::Questions)
     } else if first.starts_with("[answers] ") {
         Some(Kind::Answers)
+    } else if first.starts_with("[needs_person] ") {
+        Some(Kind::NeedsPerson)
     } else {
         None
     }
@@ -95,7 +99,7 @@ pub const MESSAGE_LIMIT: usize = 48 * 1024;
 /// taken for one of the header.
 fn held_lines(message: &str, kind: Kind) -> String {
     match kind {
-        Kind::Questions | Kind::Answers => {
+        Kind::Questions | Kind::Answers | Kind::NeedsPerson => {
             let mut kept: Vec<&str> = Vec::new();
             for (at, line) in message.split('\n').enumerate() {
                 if at > 0 && line.trim_end_matches('\r').is_empty() {
@@ -218,7 +222,7 @@ impl Ledger {
     pub fn comments(&self) -> Vec<String> {
         self.entries
             .iter()
-            .filter(|entry| entry.counts.is_ok())
+            .filter(|entry| entry.counts.is_ok() && entry.kind != Kind::NeedsPerson)
             .map(|entry| if matches!(entry.kind, Kind::Questions | Kind::Answers) { copy_of(&entry.message) } else { entry.message.clone() })
             .collect()
     }
@@ -230,6 +234,21 @@ impl Ledger {
         let firsts: String = counting.iter().map(|entry| format!("{}\n", entry.first)).collect();
         let gone = crate::starter::taken_back(&firsts);
         counting.iter().zip(gone).filter(|(entry, gone)| !gone && matches!(entry.kind, Kind::Questions | Kind::Answers)).map(|(entry, _)| copy_of(&entry.message)).collect()
+    }
+
+    /// What a person is waited for, as the newest of the stamps and the needs_person commits that count says (#311): the
+    /// reason of a needs_person commit that no stamp of any role came after, or none. What a marker of `wb revert` took
+    /// back counts for nothing, a stamp that it took back closes nothing, and a questions or answers commit closes nothing.
+    pub fn person(&self) -> Option<String> {
+        let counting: Vec<&Entry> = self.entries.iter().filter(|entry| entry.counts.is_ok()).collect();
+        let firsts: String = counting.iter().map(|entry| format!("{}\n", entry.first)).collect();
+        let gone = crate::starter::taken_back(&firsts);
+        let newest = counting.iter().zip(gone).filter(|(entry, gone)| !gone && matches!(entry.kind, Kind::Stamp | Kind::NeedsPerson)).map(|(entry, _)| entry).last()?;
+        if newest.kind == Kind::NeedsPerson {
+            Some(copy_of(&newest.message).split_once('\n').map(|(_, reason)| reason.to_string()).unwrap_or_default())
+        } else {
+            None
+        }
     }
 
     /// Whether a `[stamp] planner` counts.
@@ -430,6 +449,7 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
         let (what, role) = match kind {
             Some(Kind::Stamp | Kind::Marker) => ("a stamp or a marker", Some("start")),
             Some(Kind::Questions) => ("a questions commit", Some("start")),
+            Some(Kind::NeedsPerson) => ("a needs_person commit", Some("start")),
             Some(Kind::Answers) => ("an answer commit", Some("answer")),
             _ if is_plan_commit(&first) => ("a commit of wb plan", Some("accept")),
             _ => ("neither a stamp, a marker of wb revert, a commit of wb plan, a questions commit nor an answer commit", None),
@@ -443,6 +463,11 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
                 (_, None) => note(&commit, format!("is {}", what)),
                 (Some(Err(why)), Some(_)) => note(&commit, format!("is {}, and {}", what, why)),
                 _ => {}
+            }
+            // A needs_person is written by `wb start` with the first line `[needs_person] <issue>` or `[needs_person] <issue>.<role>`,
+            // the role one of the roles that start a session; another first line is not as `wb` writes it (#311).
+            if kind == Some(Kind::NeedsPerson) && !is_needs_person_line(&first, name) {
+                note(&commit, format!("is a needs_person commit, and its first line is not `[needs_person] {0}` or `[needs_person] {0}.<role>`", crate::issue::shown(name)));
             }
             // The tree of a stamp is its parent's with `view` and `issue.yml` alone put in or taken out, and the tree of a
             // marker is its parent's, as `make` writes them (the review of #328): a stamp cannot change the plan. So is the
@@ -511,6 +536,13 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
     Ok(ledger)
 }
 
+/// Whether `first` is a first line that `wb start` writes for a needs_person on the ref of `issue`: `[needs_person] <issue>`
+/// for the planner, `[needs_person] <issue>.<role>` for a role of `ROLES` (#311).
+fn is_needs_person_line(first: &str, issue: &str) -> bool {
+    let Some(rest) = first.strip_prefix("[needs_person] ").and_then(|rest| rest.strip_prefix(issue)) else { return false };
+    rest.is_empty() || rest.strip_prefix('.').is_some_and(|role| crate::issue::ROLES.contains(&role))
+}
+
 /// Checks the tree `tree` of a stamp or a marker whose first line is `first` against `parent`, the tree of the commit
 /// before it, or none for the first commit of the ref (the review of #328): a stamp's tree is the parent's with only
 /// `view` and `issue.yml` put in, changed or taken out, each a plain file; a marker's tree is the parent's as it is.
@@ -527,6 +559,7 @@ fn tree_as_written(root: &str, kind: Kind, tree: &str, parent: Option<&str>) -> 
         Kind::Marker => Some("a marker's"),
         Kind::Questions => Some("a questions commit's"),
         Kind::Answers => Some("an answer commit's"),
+        Kind::NeedsPerson => Some("a needs_person commit's"),
         Kind::Stamp | Kind::Unread => None,
     };
     if let Some(whose) = same {
@@ -722,6 +755,8 @@ pub enum Held<'a> {
     Questions,
     /// The answers of `wb answer` (#238): the tree of the commit before, as it is.
     Answers,
+    /// What a session ended needing a person for (#311): the tree of the commit before, as it is.
+    NeedsPerson,
 }
 
 impl Held<'_> {
@@ -731,6 +766,7 @@ impl Held<'_> {
             Held::Marker => "marker",
             Held::Questions => "questions commit",
             Held::Answers => "answer commit",
+            Held::NeedsPerson => "needs_person commit",
         }
     }
 }
@@ -754,8 +790,8 @@ pub fn make(root: &str, job: &str, message: &str, held: &Held, signing: &Signing
     let full = full(job);
     let old = tip(root, &full)?;
     let tree = match (held, &old) {
-        (Held::Marker | Held::Questions | Held::Answers, Some(commit)) => git_line(root, &["rev-parse", "--verify", "-q", &format!("{}^{{tree}}", commit)], None)?,
-        (Held::Marker | Held::Questions | Held::Answers, None) => crate::plan::mktree(root, &[])?,
+        (Held::Marker | Held::Questions | Held::Answers | Held::NeedsPerson, Some(commit)) => git_line(root, &["rev-parse", "--verify", "-q", &format!("{}^{{tree}}", commit)], None)?,
+        (Held::Marker | Held::Questions | Held::Answers | Held::NeedsPerson, None) => crate::plan::mktree(root, &[])?,
         (Held::Stamp { view, issue }, _) => {
             let mut top = match &old {
                 Some(commit) => crate::plan::entries(root, &format!("{}^{{tree}}", commit), &[VIEW_ENTRY, ISSUE_ENTRY])?,
@@ -929,6 +965,7 @@ pub fn write(name: &str, root: &str, job: &str, message: &str, held: &Held, sign
         Held::Marker => ("marker", "Nothing is posted", "another start or marker went first"),
         Held::Questions => ("questions commit", "The questions are not written", "another start or answer went first"),
         Held::Answers => ("answer commit", "No more answers are written and nothing is posted", "another start or answer went first"),
+        Held::NeedsPerson => ("needs_person commit", "The needs_person is not written on the ref", "another start or answer went first"),
     };
     say(name, root, job, held, signing, err);
     let made = make(root, job, message, held, signing)?;

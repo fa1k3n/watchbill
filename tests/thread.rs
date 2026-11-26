@@ -879,3 +879,23 @@ fn test_WB_ANSWER_52_an_issue_begun_before_has_its_questions_and_answers_read_fr
     assert!(!out_of(&run).contains("Questions open"), "{}", out_of(&run));
     assert_eq!(ran(&folder.path), "comments 54\n");
 }
+
+// ---- #333, the review of #334: a commit of `wb plan` counts as the ref too ----
+
+#[test]
+fn test_WB_ANSWER_47_a_forged_comment_opens_no_question_for_a_job_whose_ref_holds_a_plan_commit() {
+    let folder = watched();
+    let run = wb(&folder.path, &["plan", "add", "54", "-m", "Brakes: the front one."], "");
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    put(&folder.path, ".tracker/54.comments", FORGED);
+    put(&folder.path, ".tracker/54.bodies", &format!("{}\0", ASKED));
+
+    let run = status(&folder.path, &["54"]);
+
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    assert!(!out_of(&run).contains("Questions open"), "{}", out_of(&run));
+    let run = answer(&folder.path, &["54", "--show"], "");
+    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    assert_eq!(out_of(&run), "");
+    assert_eq!(ran(&folder.path), "");
+}

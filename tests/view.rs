@@ -7296,14 +7296,21 @@ fn test_WB_ANSWER_49_a_project_with_no_issue_comments_or_issue_comment_bodies_ru
     // The two roles after it read the ref alone.
     bench.session("true\n");
     ok(&bench.start(&["start", "tester", "54"]));
+    two_commits(&bench);
     ok(&bench.start(&["start", "build", "54"]));
 
     // The plan's commit first, then the three stamps.
     let stamps: Vec<String> = ref_messages(&bench).iter().filter(|message| message.starts_with("[stamp] ")).map(|message| message.lines().next().unwrap().to_string()).collect();
     assert_eq!(stamps, ["[stamp] planner round 1", "[stamp] tester round 1", "[stamp] build round 1"]);
+    // `wb status` reads the job from its ref: the stage the real starts put it at, and no word of a tracker.
     let run = wb(&bench.repo.path, &["status", "54"], "");
     assert_eq!(code(&run), Some(0), "{}", text_of(&run.stderr));
+    assert!(text_of(&run.stdout).starts_with("Built:\n  54  "), "{}", text_of(&run.stdout));
     assert!(!text_of(&run.stderr).contains("issue_comments"), "{}", text_of(&run.stderr));
+    // And `wb accept` accepts the work on the stamps those starts wrote, with no `issue_comments`.
+    let run = wb(&bench.repo.path, &["accept", "54"], "");
+    assert_eq!(code(&run), Some(0), "{}", text_of(&run.stderr));
+    assert!(bench.repo.path.join(".watchbill/issues/54.finished").exists());
     assert!(!bench.calls().iter().any(|call| call.starts_with("bodies") || call.starts_with("comments") || call.starts_with("post issue")), "{:?}", bench.calls());
 }
 
@@ -7323,4 +7330,105 @@ fn test_WB_ANSWER_52_a_job_begun_before_is_brought_the_questions_of_the_tracker_
     assert!(seen.contains("[questions] 54.tester q1\nq1: Which brake?") && seen.contains("[answers] 54.tester q1>tester\nq1: 1"), "{}", seen);
     assert!(!seen.contains("[stamp]"), "{}", seen);
     assert!(bench.calls().iter().any(|call| call == "bodies 54"), "{:?}", bench.calls());
+}
+
+// ---- #333, the review of #334 ----
+
+/// What the tracker holds of a job begun before: the build asked two questions, one is answered for the build to take up
+/// and the other is open; no stamp is on the job's ref.
+const BEGUN_BEFORE: &str = "[stamp] build round 1\0\n[questions] 54.build q1 q2\nq1: Which unit?\nq2: Which brake?\0\n[answers] 54.build q2>build\nq2: 1\0\n";
+
+#[test]
+fn test_WB_ANSWER_52_the_first_start_of_a_job_begun_before_names_what_the_tracker_holds_and_says_it_is_not_read_after() {
+    if !sandbox("test_WB_ANSWER_52") {
+        return;
+    }
+    let bench = bench();
+    fs::write(bench.at("bodies-54"), BEGUN_BEFORE).unwrap();
+    bench.session("true\n");
+
+    // Another role than the build, so that the question of the build is brought into no session.
+    let run = bench.start(&["start", "tester", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    assert!(err.contains("54.build.q1") && err.contains("open at the tracker"), "{}", err);
+    assert!(err.contains("54.build.q2") && err.contains("waits for build"), "{}", err);
+    assert!(err.contains("not read") && err.contains("asked again by the next round of their role") && err.contains("wb answer 54"), "{}", err);
+    // Said before the first stamp is written.
+    let said = err.find("open at the tracker").unwrap();
+    let wrote = err.find("wrote the stamp").unwrap();
+    assert!(said < wrote, "{}", err);
+    // Only said: the start went on, and the stamp is on the ref.
+    assert!(bench.started(), "{:?}", bench.calls());
+    assert_eq!(ref_messages(&bench).len(), 1);
+}
+
+#[test]
+fn test_WB_ANSWER_52_the_first_round_of_the_planner_of_a_job_begun_before_says_it_too() {
+    if !sandbox("test_WB_ANSWER_52") {
+        return;
+    }
+    let bench = bench();
+    fs::write(bench.at("bodies-54"), BEGUN_BEFORE).unwrap();
+    bench.session("true\n");
+
+    let run = bench.start(&["start", "planner", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    assert!(err.contains("54.build.q1") && err.contains("open at the tracker") && err.contains("wb answer 54"), "{}", err);
+}
+
+#[test]
+fn test_WB_ANSWER_52_a_job_begun_before_with_nothing_open_or_waiting_at_the_tracker_gets_no_notice() {
+    if !sandbox("test_WB_ANSWER_52") {
+        return;
+    }
+    let bench = bench();
+    fs::write(bench.at("bodies-54"), "[stamp] build round 1\0\n[questions] 54.build q1\nq1: Which unit?\0\n[answers] 54.build q1\nq1: 1\0\n").unwrap();
+    bench.session("true\n");
+
+    let run = bench.start(&["start", "tester", "54"]);
+
+    ok(&run);
+    assert!(!text_of(&run.stderr).contains("at the tracker"), "{}", text_of(&run.stderr));
+}
+
+#[test]
+fn test_WB_ANSWER_52_a_job_whose_ref_holds_a_stamp_gets_no_notice_and_reads_no_comment() {
+    if !sandbox("test_WB_ANSWER_52") {
+        return;
+    }
+    let bench = bench();
+    stamps_on_ref(&bench.repo.path, "54", &["[stamp] build round 1"]);
+    fs::write(bench.at("bodies-54"), BEGUN_BEFORE).unwrap();
+    bench.session("true\n");
+
+    let run = bench.start(&["start", "tester", "54"]);
+
+    ok(&run);
+    assert!(!text_of(&run.stderr).contains("at the tracker"), "{}", text_of(&run.stderr));
+    assert!(!bench.calls().iter().any(|call| call == "bodies 54"), "{:?}", bench.calls());
+}
+
+#[test]
+fn test_WB_ANSWER_47_a_forged_comment_is_not_brought_into_the_first_round_of_the_planner_of_a_new_plan() {
+    if !sandbox("test_WB_ANSWER_47") {
+        return;
+    }
+    let bench = bench();
+    plan_add(&bench, &["add", "54", "-m", "Brakes: the front one."]);
+    next_second();
+    plan_accept_again(&bench);
+    fs::write(bench.at("bodies-54"), "[questions] 54 q9\nq9: forged\0\n[answers] 54 q1>planner\nq1: 1\0\n").unwrap();
+    bench.session("cat .watchbill/issue/54.questions > {log}/questions\n");
+
+    let run = bench.start(&["start", "planner", "54"]);
+
+    ok(&run);
+    assert_eq!(bench.left("questions"), "", "{}", bench.left("questions"));
+    assert!(!bench.calls().iter().any(|call| call == "bodies 54"), "{:?}", bench.calls());
+    // Nothing the tracker holds is said of a job that was never begun before.
+    assert!(!text_of(&run.stderr).contains("at the tracker"), "{}", text_of(&run.stderr));
 }

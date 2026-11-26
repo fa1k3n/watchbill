@@ -168,16 +168,11 @@ fn test_WB_CMD_20_no_word_list_of_compgen_is_made_by_a_command_or_holds_a_name_f
 }
 
 #[test]
-fn test_WB_CMD_21_the_stage_words_of_the_completion_are_the_headings_of_wb_status() {
-    let source = fs::read_to_string(root().join("src/status.rs")).unwrap();
-    let quoted = |text: &str| -> BTreeSet<String> { text.split('"').skip(1).step_by(2).map(String::from).collect() };
-    let line_of = |start: &str| source.lines().find(|line| line.starts_with(start)).unwrap_or_else(|| panic!("{} not found", start)).to_string();
-    let mut headings = quoted(line_of("pub const STEPS").split_once('=').unwrap().1);
-    headings.extend(quoted(&line_of("pub const QUESTIONS")));
-    headings.extend(quoted(&line_of("pub const PERSON")));
-    headings.extend(quoted(&line_of("pub const NOT_READ")));
-    assert_eq!(headings.len(), 10);
-    // `_wb_stages=("Not planned" Planned Accepted ...)`: words in double quotes, or bare.
+fn test_WB_CMD_21_the_stage_words_of_the_completion_are_the_stage_words_of_wb_status() {
+    // The stage words of `--stage` (#284): the six stage words of the jobs, and `not read`.
+    let headings: BTreeSet<String> = watchbill::status::stage_words().into_iter().map(String::from).collect();
+    assert_eq!(headings.len(), 7);
+    // `_wb_stages=(planned accepted ... "not read")`: words in double quotes, or bare.
     let text = completion();
     let line = text.lines().find(|line| line.starts_with("_wb_stages=(")).expect("no _wb_stages");
     let inside = line.strip_prefix("_wb_stages=(").unwrap().strip_suffix(')').unwrap();

@@ -246,7 +246,7 @@ fn test_WB_CMD_10_help_lists_status_in_the_group_see_and_help_status_prints_its_
 
     let run = wb(&folder.path, &["help", "status"], "");
     assert_eq!(code(&run), Some(0));
-    assert!(text(&run.stdout).contains("wb status [<issue>] [--stage <heading>]"), "{}", text(&run.stdout));
+    assert!(text(&run.stdout).contains("wb status [<issue>] [--stage <word>]"), "{}", text(&run.stdout));
 }
 
 #[test]

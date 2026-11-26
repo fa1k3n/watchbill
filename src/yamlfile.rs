@@ -838,6 +838,19 @@ impl Document {
         Ok(text)
     }
 
+    /// A truth value, written plain as `true` or `false` and nothing else: `yes`, `no`, `on`, `off` and every other
+    /// spelling are refused, since YAML 1.1 and 1.2 read them differently.
+    pub fn boolean(&self, place: &[Part]) -> Result<bool, YamlError> {
+        match &self.value(place)?.value {
+            Value::Plain(text, Reading::Boolean) if text == "true" => Ok(true),
+            Value::Plain(text, Reading::Boolean) if text == "false" => Ok(false),
+            Value::Plain(text, read) => Err(self.fail(place, &format!("`true` or `false` is expected, but {} is here (written as `{}`)", read.words(), text), false)),
+            Value::Quoted(_) => Err(self.fail(place, "`true` or `false` is expected, but a text in quotes is here", false)),
+            Value::List(_) => Err(self.fail(place, "`true` or `false` is expected, but a list is here", false)),
+            Value::Table(_) => Err(self.fail(place, "`true` or `false` is expected, but a mapping is here", false)),
+        }
+    }
+
     /// A whole number, and at least `minimum` when it is given.
     pub fn whole(&self, place: &[Part], minimum: Option<i64>) -> Result<i64, YamlError> {
         let need = match minimum {

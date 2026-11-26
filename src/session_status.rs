@@ -206,6 +206,42 @@ pub fn run(root: &str, hash: &str, state: Option<&Path>, out: &mut dyn Write, er
     0
 }
 
+/// The lines of the sessions of a job, for `wb status <issue>` (#284): each stamp that counts on the job's ref, oldest
+/// first, with its role and round, its time and the start of its hash; below it how it ended and what came back, from the
+/// lines its start left on this machine (diagnostics, nothing is decided from them; a note, which is not signed, is not read).
+pub(crate) fn sessions(ledger: &stamps::Ledger, state: Option<&Path>) -> Vec<String> {
+    let counting: Vec<&stamps::Entry> = ledger.entries.iter().filter(|entry| entry.counts.is_ok()).collect();
+    let gone = crate::starter::taken_back(&ledger.lines());
+    let mut lines = Vec::new();
+    for (entry, gone) in counting.iter().zip(gone) {
+        if entry.kind != Kind::Stamp {
+            continue;
+        }
+        let Some((role, round)) = crate::starter::stamps_in(&format!("{}\n", entry.first)).into_iter().next() else { continue };
+        let time = entry.message.lines().find_map(|line| line.strip_prefix("time: ")).unwrap_or("");
+        let short: String = entry.commit.chars().take(12).collect();
+        let time = if time.is_empty() { String::new() } else { format!("{}, ", shown(time)) };
+        lines.push(format!("  {} round {}, {}{}{}", shown(&role), round, time, short, if gone { ", taken back by a [revert] marker" } else { "" }));
+        let ended = match crate::kept::ended(state, &entry.message) {
+            Ended::Unknown => "not known on this machine".to_string(),
+            Ended::NoOutcome(_) => "not known: the lines of its start on this machine hold no outcome".to_string(),
+            Ended::Runs(_) => "not yet: its start runs on this machine".to_string(),
+            Ended::CutOff(_) => "not known: its start was cut off, the wb that ran it is gone".to_string(),
+            Ended::Lines(_, said) => said.iter().map(|line| shown(line)).collect::<Vec<_>>().join("; "),
+        };
+        lines.push(format!("    ended: {}", ended));
+        // What came back is read from the lines of the start on this machine, as how it ended is: a note, which anyone can
+        // write, says nothing here.
+        let came = match crate::kept::came_back(state, &entry.message) {
+            None => "not known on this machine".to_string(),
+            Some(back) if back.is_empty() => "not known: the lines of its start on this machine hold no back".to_string(),
+            Some(back) => back.iter().map(|line| shown(line)).collect::<Vec<_>>().join("; "),
+        };
+        lines.push(format!("    came back: {}", came));
+    }
+    lines
+}
+
 /// The objects of the repository whose names start with `prefix`, as git lists them.
 fn objects_starting(root: &str, prefix: &str) -> Result<Vec<String>, String> {
     let listed = signers::git(root, &["rev-parse", &format!("--disambiguate={}", prefix)], None)?;

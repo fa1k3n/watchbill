@@ -1,5 +1,8 @@
-//! `wb status` (#139, #155): the issues in the flow, under headings as `git status` lists files under theirs, each
-//! issue under the last step it has done. It only reads, and writes nothing but a temporary repository in $TMPDIR, removed after, to read a kept view (#222). It says what is, never what to do.
+//! `wb status` (#139, #155, #284): the jobs in the flow, as `git status` lists files: under two headings by whose move it
+//! is next, each with the stage it has reached as a word, coloured and with hint lines as git does, and in git's short and
+//! porcelain forms. It only reads, and writes nothing but a temporary repository in $TMPDIR, removed after, to read a kept
+//! view (#222). Where the person is to move it says what to do, in git's form, unless `status_hints: false` is written in
+//! `watchbill.yml`.
 //!
 //! The issues in the flow are those whose branch, by the pattern `branch`, local or at `origin`, holds a commit
 //! that the default branch of `origin` does not. They are found with git alone, from the refs as they are:
@@ -23,17 +26,20 @@ use std::io::Write;
 
 use crate::{answer, issue, prompt, starter};
 
-/// The headings of the steps, in the order of the flow.
+/// The steps of the flow, in order, as they are worked out. A step is shown to a person as its stage word.
 pub const STEPS: [&str; 7] = ["Not planned", "Planned", "Accepted", "Tested", "Built", "Reviewed", "Fixed"];
+
+/// The stage words (#284): the step of a job, as a word and as the letter of the short form. A job not broken down has none.
+const STAGES: [(&str, &str, char); 6] = [("Planned", "planned", 'P'), ("Accepted", "accepted", 'A'), ("Tested", "tested", 'T'), ("Built", "built", 'B'), ("Reviewed", "reviewed", 'R'), ("Fixed", "fixed", 'F')];
 
 /// The heading of a job that is done (#282): printed for `wb status <issue>` alone, never in the list, and not a stage.
 pub const DONE: &str = "Done";
 
-/// The heading after the steps, that lists the questions no person has answered.
-pub const QUESTIONS: &str = "Questions open";
+/// The heading of the jobs whose next move is a person's (#284).
+pub const WAITING: &str = "Jobs waiting for you";
 
-/// The heading after the questions, that lists the issues that wait for a person after a session ended needing one (#311).
-pub const PERSON: &str = "Needs a person";
+/// The heading of the jobs whose next move is an agent's (#284).
+pub const FLOW: &str = "Jobs in the flow";
 
 /// The most characters of a reason that a line says before it is cut (#311).
 const REASON_LIMIT: usize = 200;
@@ -41,9 +47,32 @@ const REASON_LIMIT: usize = 200;
 /// The last heading, for an issue that could not be read.
 pub const NOT_READ: &str = "Not read";
 
-/// The heading that a word names, matched without regard to case, or `None` when it is no heading.
-pub fn heading_of(word: &str) -> Option<&'static str> {
-    STEPS.iter().chain([&QUESTIONS, &PERSON, &NOT_READ]).find(|heading| heading.eq_ignore_ascii_case(word)).copied()
+/// What `--stage` takes besides the stage words: the issues that could not be read.
+const NOT_READ_WORD: &str = "not read";
+
+/// The words `--stage` takes, as a list (#284).
+pub fn stage_words() -> Vec<&'static str> {
+    STAGES.iter().map(|stage| stage.1).chain([NOT_READ_WORD]).collect()
+}
+
+/// The word that `word` names, matched without regard to case, or `None` when it is no stage word (#284).
+pub fn stage_word_of(word: &str) -> Option<&'static str> {
+    stage_words().into_iter().find(|known| known.eq_ignore_ascii_case(word))
+}
+
+/// How the jobs are printed (#284): as `git status` is, with its short and its porcelain forms.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Form {
+    Long,
+    Short,
+    Porcelain,
+}
+
+/// What a listing looks like: its form, and whether it is coloured (never in the porcelain form).
+#[derive(Clone, Copy, Debug)]
+pub struct Look {
+    pub form: Form,
+    pub color: bool,
 }
 
 /// An issue as it was read.
@@ -78,6 +107,74 @@ struct Found {
     tracker_unread: bool,
     /// Whether the questions are read from the ref and one is open: an answer at the tracker is not read (#238).
     tracker_not_read: bool,
+    /// The stamps and markers of the job's ref, for the sessions of `wb status <issue>` (#284).
+    ledger: Option<crate::stamps::Ledger>,
+    /// Whether anything of `wb` is on the job's ref: a stamp, a marker or a commit of questions or of needs_person, counted
+    /// or not (#284). A job so begun has entered, with or without an issue's file.
+    started: bool,
+    /// Why the job's ref is not as `wb` writes it, where it is not: nothing on it counts (#284).
+    broken: Option<String>,
+}
+
+impl Found {
+    /// The stage of the job as a word and a letter, or none for a job not broken down or one that is done (#284).
+    fn stage(&self) -> Option<(&'static str, char)> {
+        STAGES.iter().find(|stage| stage.0 == self.step).map(|stage| (stage.1, stage.2))
+    }
+
+    /// Why a person must move, as the letter of the short form: `Q` a question is open, `N` a session ended needing a
+    /// person, `W` an answer waits for a person, `P` a plan awaits its acceptance (#284). None where an agent moves.
+    fn person_move(&self) -> Option<char> {
+        if self.closed.is_some() {
+            return None;
+        }
+        if !self.questions.is_empty() {
+            Some('Q')
+        } else if self.person.is_some() {
+            Some('N')
+        } else if self.waits.as_ref().is_some_and(|(role, _)| role == "person") {
+            Some('W')
+        } else if self.step == "Planned" {
+            Some('P')
+        } else if self.step == "Not planned" && (self.started || self.unpushed > 0) {
+            // No issue's file yet, but `wb` has begun the job or work is not pushed: a person must look (#284).
+            Some('L')
+        } else {
+            None
+        }
+    }
+
+    /// Whether the list has a line for the job (#284): it has a stage or a person to move, and is not done.
+    fn listed(&self) -> bool {
+        self.closed.is_none() && (self.stage().is_some() || self.person_move().is_some())
+    }
+
+    /// The text after the columns: the stage word, and what a person must do or knows (#284).
+    fn text(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        if let Some((word, _)) = self.stage() {
+            parts.push(word.to_string());
+        }
+        match self.questions.len() {
+            0 => {}
+            1 => parts.push("1 question open".to_string()),
+            n => parts.push(format!("{} questions open", n)),
+        }
+        if let Some((_, name)) = self.waits.as_ref().filter(|(role, _)| role == "person") {
+            parts.push(format!("waits for person ({})", issue::shown(name)));
+        }
+        if self.person_move() == Some('L') {
+            parts.push("no issue's file yet".to_string());
+        }
+        if self.unpushed > 0 {
+            parts.push(format!("{} not pushed", self.unpushed));
+        }
+        // The reason is last: it may be long.
+        if let Some(reason) = &self.person {
+            parts.push(if reason.is_empty() { "needs a person".to_string() } else { format!("needs a person: {}", reason) });
+        }
+        parts.join(", ")
+    }
 }
 
 /// How a job is done (#282).
@@ -557,6 +654,7 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
     let person = ledger.person().filter(|_| closed.is_none()).map(|reason| reason_line(&reason));
     let tracker_unread = !on_ref && comments.is_none();
     let tracker_not_read = on_ref && !questions.is_empty();
+    let (started, broken) = (!ledger.entries.is_empty() || ledger.broken.is_some(), ledger.broken.clone());
     Ok(Found {
         number: number.to_string(),
         branch: shown.map(|branch| branch.name.clone()),
@@ -574,6 +672,9 @@ fn read_issue(root: &str, number: &str, patterns: &Patterns, all: &[Branch], flo
         closed,
         tracker_unread,
         tracker_not_read,
+        ledger: with_title.then_some(ledger),
+        started,
+        broken,
     })
 }
 
@@ -614,23 +715,6 @@ fn order(number: &str) -> (u8, u64, String) {
         Err(_) => (1, 0, number.to_string()),
     }
 }
-/// The line of an issue: its number, its branch, its open changes as `#<n>`, how many commits are not pushed and,
-/// for one issue, its title. Every part is written with its control characters escaped.
-fn line_of(found: &Found) -> String {
-    let mut parts = vec![issue::shown(&found.number)];
-    if let Some(branch) = &found.branch {
-        parts.push(issue::shown(branch));
-    }
-    parts.extend(found.changes.iter().map(|change| format!("#{}", issue::shown(change))));
-    if found.unpushed > 0 {
-        parts.push(format!("{} not pushed", found.unpushed));
-    }
-    if let Some(title) = &found.title {
-        parts.push(issue::shown(title));
-    }
-    format!("  {}\n", parts.join("  "))
-}
-
 /// `wb status` only reads (#254): a file that is not as `HEAD` has it is said, and every pattern is read from the file of
 /// `HEAD`. Where the file is not in `HEAD` at all, the repository is not set up: 2, and no refusal; a file of `HEAD` over
 /// its bound is a limit (#261), 1. Shared with `wb status --session` (#239).
@@ -655,13 +739,23 @@ pub(crate) fn read_only_as(name: &str, root: &str, err: &mut dyn Write) -> Resul
     }
 }
 
-/// `wb status [<issue>] [--stage <heading>]` in the repository at `root`: 0 every issue could be read, 1 a
-/// pattern failed, 2 the repository is not set up or has no default branch. `stage`, when given, is a heading
-/// that `heading_of` knows.
-pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state: Option<&std::path::Path>, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+/// `wb status [<issue>] [--stage <word>]` in the repository at `root`: 0 every issue could be read, 1 a
+/// pattern failed, 2 the repository is not set up or has no default branch. `stage`, when given, is a word that
+/// `stage_word_of` knows. `look` says the form and the colour (#284).
+pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, look: Look, state: Option<&std::path::Path>, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let _read_only = match read_only(root, err) {
         Ok(guard) => guard,
         Err(code) => return code,
+    };
+    // The hints are on unless `status_hints: false` is written in `watchbill.yml` (#284).
+    let hints = match hints_on(root) {
+        Ok(on) => on,
+        Err(why) => {
+            // A value of `watchbill.yml` that the loader refuses ends with 1, as for `wb check` (#284).
+            let _ = writeln!(err, "wb status: {}", why);
+            crate::refusal::answer();
+            return 1;
+        }
     };
     let pattern = |key: &str| prompt::pattern_of(root, key);
     // `issue_address` is read for one issue only: the list never runs it.
@@ -695,11 +789,23 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
     issues.dedup();
 
     let mut failed: Vec<(String, String)> = Vec::new();
+    // For one issue whose ref is not as `wb` writes it: the diagnosis, which commit does not count and why. It is never
+    // taken as counting, and no stage is said (#284).
+    let mut diagnosis: Vec<String> = Vec::new();
     let mut read: Vec<Found> = Vec::new();
     // The folders of the starts are read once for every issue (#300).
     let starts = state.map(crate::kept::Starts::read);
     for number in issues {
         match read_issue(root, &number, &patterns, &all, &flow, &default, only.is_some(), starts.as_ref()) {
+            // A job whose ref is not as `wb writes it is not read: nothing on it counts, and it is never left out (#284).
+            Ok(found) if found.broken.is_some() => {
+                if only.is_some() {
+                    // The reason is under `Not read` already, and is not said twice.
+                    let reason = issue::shown(found.broken.as_deref().unwrap_or(""));
+                    diagnosis = found.ledger.as_ref().map(|ledger| ledger.said()).unwrap_or_default().into_iter().filter(|line| *line != reason).collect();
+                }
+                failed.push((issue::shown(&number), issue::shown(found.broken.as_deref().unwrap_or(""))));
+            }
             Ok(found) => read.push(found),
             Err(why) => failed.push((issue::shown(&number), issue::shown(&why))),
         }
@@ -715,17 +821,78 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
         let shown = issue::shown(&found.number);
         let _ = writeln!(err, "wb status: issue {} has an open question: an answer typed at the tracker is not read, and is given with `wb answer {}`.", shown, shown);
     }
-    let show = |heading: &str| stage.map_or(true, |wanted| wanted == heading);
-    // A job that is done is not listed (#282): only `wb status <issue>`, asked by name, says it.
+    // A job that is done is not listed (#282): only `wb status <issue>`, asked by name, says it. A job not broken down has
+    // no line, unless a person's move is open on it (#284).
     if only.is_none() {
-        read.retain(|found| found.closed.is_none());
+        read.retain(|found| found.listed());
+    }
+    let wanted = |found: &Found| stage.map_or(true, |word| found.stage().is_some_and(|(shown, _)| shown == word));
+    let jobs: Vec<&Found> = read.iter().filter(|found| wanted(found)).collect();
+    let show_failed = stage.map_or(true, |word| word == NOT_READ_WORD);
+    let failed_code = if failed.is_empty() {
+        0
+    } else {
+        // The issue is listed under Not read, and the rest is printed: not a refusal.
+        crate::refusal::answer();
+        1
+    };
+    // The short and the porcelain forms: one line for each job, and nothing else on standard output (#284).
+    if look.form != Form::Long {
+        let color = look.color && look.form == Form::Short;
+        let mut text = String::new();
+        for found in jobs.iter().filter(|found| only.is_none() || (found.listed() && found.branch.is_some())) {
+            text.push_str(&short_line(found, color));
+        }
+        for (number, why) in &failed {
+            let _ = writeln!(err, "wb status: issue {} was not read: {}", number, why);
+        }
+        if show_failed {
+            for (number, _) in &failed {
+                text.push_str(&if color { format!("\x1b[31m**\x1b[m {}\n", number) } else { format!("** {}\n", number) });
+            }
+        }
+        let _ = out.write_all(text.as_bytes());
+        kept_count(root, only, state, err);
+        return failed_code;
+    }
+    for (number, why) in &failed {
+        let _ = writeln!(err, "wb status: issue {} was not read: {}", number, why);
     }
     let mut sections: Vec<String> = Vec::new();
-    for heading in STEPS.iter().chain([&DONE]).filter(|heading| show(heading)) {
-        let lines: String = read.iter().filter(|found| found.step == *heading).map(line_of).collect();
-        if !lines.is_empty() {
-            sections.push(format!("{}:\n{}", heading, lines));
+    // By stage, then by number: the jobs with no stage first (#284).
+    let mut jobs = jobs;
+    jobs.sort_by_key(|found| (STAGES.iter().position(|stage| stage.0 == found.step).map_or(0, |at| at + 1), order(&found.number)));
+    let widths = Widths::of(&jobs);
+    for (heading, code) in [(WAITING, "31"), (FLOW, "32"), (DONE, "")] {
+        let here: Vec<&&Found> = jobs
+            .iter()
+            .filter(|found| match heading {
+                WAITING => found.closed.is_none() && found.person_move().is_some(),
+                FLOW => found.closed.is_none() && found.person_move().is_none(),
+                _ => found.closed.is_some(),
+            })
+            .collect();
+        if here.is_empty() {
+            continue;
         }
+        let mut text = format!("{}:\n", heading);
+        if hints && heading == WAITING {
+            if here.iter().any(|found| found.step == "Planned") {
+                text.push_str("  (use \"wb plan accept <name>...\" to accept the plan)\n");
+            }
+            if here.iter().any(|found| !found.questions.is_empty()) {
+                text.push_str("  (use \"wb answer <issue>...\" to answer its questions)\n");
+            }
+        }
+        for found in here {
+            let row = widths.row(found);
+            if look.color && !code.is_empty() {
+                text.push_str(&format!("\t\x1b[{}m{}\x1b[m\n", code, row));
+            } else {
+                text.push_str(&format!("\t{}\n", row));
+            }
+        }
+        sections.push(text);
     }
     // One issue: each acceptance that holds, by its object, and the merge that closed it (#282).
     if let (Some(_), None, Some(found)) = (only, stage, read.first()) {
@@ -733,6 +900,13 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
         lines.extend(found.closed.iter().map(|closed| closed.line.clone()).filter(|line| line.starts_with("merged: ")));
         if !lines.is_empty() {
             sections.push(lines.iter().map(|line| format!("{}\n", line)).collect());
+        }
+    }
+    // One issue: each session, from its stamp on the job's ref and the lines of its start on this machine (#284).
+    if let (Some(_), None, Some(Found { ledger: Some(ledger), .. })) = (only, stage, read.first()) {
+        let lines = crate::session_status::sessions(ledger, state);
+        if !lines.is_empty() {
+            sections.push(format!("Sessions:\n{}", lines.iter().map(|line| format!("{}\n", line)).collect::<String>()));
         }
     }
     // One issue: a source that changed since `wb plan add` took it in is said, and nothing is taken in (#240). A pattern
@@ -746,22 +920,19 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
             }
         }
     }
-    if show(QUESTIONS) {
-        let lines: String =
-            read.iter().filter(|found| !found.questions.is_empty()).map(|found| format!("  {}  {}\n", issue::shown(&found.number), found.questions.iter().map(|name| issue::shown(name)).collect::<Vec<_>>().join(", "))).collect();
-        if !lines.is_empty() {
-            sections.push(format!("{}:\n{}", QUESTIONS, lines));
-        }
-    }
-    if show(PERSON) {
-        let lines: String = read.iter().filter_map(|found| found.person.as_ref().map(|reason| if reason.is_empty() { format!("  {}\n", issue::shown(&found.number)) } else { format!("  {}  {}\n", issue::shown(&found.number), reason) })).collect();
-        if !lines.is_empty() {
-            sections.push(format!("{}:\n{}", PERSON, lines));
-        }
-    }
-    if show(NOT_READ) && !failed.is_empty() {
+    if show_failed && !failed.is_empty() {
         let lines: String = failed.iter().map(|(number, why)| format!("  {}  {}\n", number, why)).collect();
         sections.push(format!("{}:\n{}", NOT_READ, lines));
+    }
+    if show_failed && !diagnosis.is_empty() {
+        let lines: String = diagnosis.iter().map(|line| format!("  {}\n", line)).collect();
+        sections.push(format!("Worked out from:\n{}", lines));
+    }
+    // One issue: the names of its open questions, in the order they were asked (#284). It is a fact about the issue.
+    if let (Some(_), None, Some(found)) = (only, stage, read.first()) {
+        if !found.questions.is_empty() {
+            sections.push(format!("questions open: {}\n", found.questions.iter().map(|name| issue::shown(name)).collect::<Vec<_>>().join(", ")));
+        }
     }
     // One issue: who the newest answer waits for (#226). It is a fact about the issue, not a command.
     if let (Some(_), None, Some(Found { waits: Some((role, name)), .. })) = (only, stage, read.first()) {
@@ -784,22 +955,27 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
             (Some(number), None) => {
                 let kept = crate::kept::scan(root, state, number);
                 // A round that brought nothing back is said, with the view kept for it where there is one (#300).
-                let mut lines: Vec<String> = read
-                    .first()
-                    .map(|found| found.empty.iter())
-                    .into_iter()
-                    .flatten()
-                    .map(|(role, round)| {
-                        let mut line = format!("{} round {}: no commit came back", issue::shown(role), round);
-                        if let Some(view) = kept.iter().find(|view| view.role == *role && view.round == round.to_string()) {
-                            line.push_str(&format!("; kept: {}", view.detail()));
-                        }
-                        line
-                    })
-                    .collect();
+                // How to start again over a view that was read (#284), as a hint, where the hints are on.
+                let hint = |view: &crate::kept::Kept| {
+                    let said = format!("  (use \"wb start {} {} --ignore-kept\" to start again, or remove the folder)", issue::shown(&view.role), issue::shown(number));
+                    (hints && view.unread.is_none()).then_some(said)
+                };
+                let mut lines: Vec<String> = Vec::new();
+                for (role, round) in read.first().map(|found| found.empty.iter()).into_iter().flatten() {
+                    let mut line = format!("{} round {}: no commit came back", issue::shown(role), round);
+                    let view = kept.iter().find(|view| view.role == *role && view.round == round.to_string());
+                    if let Some(view) = view {
+                        line.push_str(&format!("; kept: {}", view.detail()));
+                    }
+                    lines.push(line);
+                    lines.extend(view.and_then(hint));
+                }
                 // A view named beside its round is not named again on a `kept:` line.
                 let named = |view: &crate::kept::Kept| read.first().is_some_and(|found| found.empty.iter().any(|(role, round)| view.role == *role && view.round == round.to_string()));
-                lines.extend(kept.iter().filter(|view| !named(view)).map(|kept| kept.line()));
+                for view in kept.iter().filter(|view| !named(view)) {
+                    lines.push(view.line());
+                    lines.extend(hint(view));
+                }
                 lines.extend(crate::kept::cut_off(state, number).iter().map(|cut| cut.line()));
                 // A session that runs, with how long it has run and been quiet (#267).
                 lines.extend(crate::kept::running(root, state, number).iter().map(|running| running.line()));
@@ -807,26 +983,92 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, state
                     sections.push(lines.iter().map(|line| format!("{}\n", line)).collect());
                 }
             }
-            (None, _) => {
-                let count = crate::kept::scan_all(root, state).len();
-                if count > 0 {
-                    let _ = writeln!(
-                        err,
-                        "wb status: {} kept {} with work not taken back on this machine. `wb status <issue>` names them.",
-                        count,
-                        if count == 1 { "view" } else { "views" }
-                    );
-                }
-            }
             _ => {}
         }
     }
+    kept_count(root, only, state, err);
     let _ = out.write_all(sections.join("\n").as_bytes());
-    if failed.is_empty() {
-        0
-    } else {
-        // The issue is listed under Not read, and the rest is printed: not a refusal.
-        crate::refusal::answer();
-        1
+    failed_code
+}
+
+/// For the list: how many views with work not taken back are kept on this machine, on standard error (#222).
+fn kept_count(root: &str, only: Option<&str>, state: Option<&std::path::Path>, err: &mut dyn Write) {
+    let (None, Some(state)) = (only, state) else { return };
+    let count = crate::kept::scan_all(root, state).len();
+    if count > 0 {
+        let _ = writeln!(err, "wb status: {} kept {} with work not taken back on this machine. `wb status <issue>` names them.", count, if count == 1 { "view" } else { "views" });
     }
+}
+
+/// The fault of `status_hints` in `watchbill.yml`, for `wb check`; none where it holds or is not there (#284).
+pub fn hints_fault(document: &crate::yamlfile::Document) -> Option<String> {
+    let place = [crate::yamlfile::Part::from("status_hints")];
+    document.has(&place).then(|| document.boolean(&place).err().map(|why| why.to_string())).flatten()
+}
+
+/// Whether the hints are on (#284): they are, unless `status_hints: false` is written in `watchbill.yml`. Only `true` and
+/// `false` are values of it.
+fn hints_on(root: &str) -> Result<bool, String> {
+    let document = starter::settings(root)?;
+    let place = [crate::yamlfile::Part::from("status_hints")];
+    if !document.has(&place) {
+        return Ok(true);
+    }
+    document.boolean(&place).map_err(|why| why.to_string())
+}
+
+/// The line of a job in the short and the porcelain forms (#284): two columns as git has them, the stage letter and why a
+/// person must move, then the number and the branch. Coloured as git colours them: the first column green, the second red.
+fn short_line(found: &Found, color: bool) -> String {
+    let column = |letter: Option<char>, code: &str| match letter {
+        None => " ".to_string(),
+        Some(letter) if color => format!("\x1b[{}m{}\x1b[m", code, letter),
+        Some(letter) => letter.to_string(),
+    };
+    let mut line = format!("{}{} {}", column(found.stage().map(|stage| stage.1), "32"), column(found.person_move(), "31"), issue::shown(&found.number));
+    if let Some(branch) = &found.branch {
+        line.push(' ');
+        line.push_str(&issue::shown(branch));
+    }
+    line.push('\n');
+    line
+}
+
+/// How wide the columns of the long form are: as wide as the widest job on either heading (#284). A column no job has is left out.
+struct Widths {
+    number: usize,
+    branch: usize,
+    change: usize,
+}
+
+impl Widths {
+    fn of(jobs: &[&Found]) -> Widths {
+        let widest = |of: &dyn Fn(&Found) -> String| jobs.iter().map(|found| of(found).chars().count()).max().unwrap_or(0);
+        Widths { number: widest(&|found| issue::shown(&found.number)), branch: widest(&|found| found.branch.as_deref().map(issue::shown).unwrap_or_default()), change: widest(&changes_of) }
+    }
+
+    /// The line of a job, without its indent: the columns, the text, and the title last where there is one.
+    fn row(&self, found: &Found) -> String {
+        let pad = |text: String, width: usize| format!("{}{}", text, " ".repeat(width.saturating_sub(text.chars().count())));
+        let mut columns = vec![pad(issue::shown(&found.number), self.number)];
+        if self.branch > 0 {
+            columns.push(pad(found.branch.as_deref().map(issue::shown).unwrap_or_default(), self.branch));
+        }
+        if self.change > 0 {
+            columns.push(pad(changes_of(found), self.change));
+        }
+        let text = found.text();
+        if !text.is_empty() {
+            columns.push(text);
+        }
+        if let Some(title) = &found.title {
+            columns.push(issue::shown(title));
+        }
+        columns.join("  ").trim_end().to_string()
+    }
+}
+
+/// The open changes of a job, as `#<n>`.
+fn changes_of(found: &Found) -> String {
+    found.changes.iter().map(|change| format!("#{}", issue::shown(change))).collect::<Vec<_>>().join(" ")
 }

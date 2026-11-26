@@ -165,10 +165,10 @@ fn test_WB_REVERT_2_a_question_after_the_reverted_stamp_is_no_longer_open_in_sta
     comments(&folder.path, "174", &["[stamp] review round 1"]);
     stamps_on_ref(&folder.path, "174", &["[questions] 174.review q1\n\nq1: Which one?\n"]);
     let before = text(&wb(&folder.path, &["status", "174"], "").stdout);
-    assert!(before.contains("Questions open"), "{}", before);
+    assert!(before.contains("questions open: "), "{}", before);
     assert_eq!(code(&revert_review(&folder.path)), Some(0));
     let after = text(&wb(&folder.path, &["status", "174"], "").stdout);
-    assert!(!after.contains("Questions open"), "{}", after);
+    assert!(!after.contains("questions open"), "{}", after);
 }
 
 #[test]

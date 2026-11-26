@@ -284,6 +284,11 @@ pub fn check(root: &str, version: &str, package: &Path, out: &mut dyn Write, err
                     found.push(about_config(&why));
                     settings += 1;
                 }
+                // `status_hints` is `true` or `false` (#284).
+                if let Some(why) = crate::status::hints_fault(&document) {
+                    found.push(about_config(&why));
+                    settings += 1;
+                }
                 let installed = manifest::revision_hash(package);
                 match (&pinned_version, &line, &installed) {
                     (_, _, Err(why)) => found.push(format!("the installed wb cannot read its revision: {}", why)),

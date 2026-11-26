@@ -2308,7 +2308,7 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
             role,
             stamp: stamp_commit.as_deref().ok_or("the stamp of a change with no issue is a comment, not a commit, so there is no commit to name"),
             taken: &taken,
-            held: words.no_push.then_some("--no-push was given"),
+            held: notes_held(words.no_push, pushed.lines.as_deref()),
         },
         err,
     );
@@ -2347,6 +2347,18 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
     }
     lines.close(None, sessions::Outcome::Ended { status, seconds, limit }, err);
     code
+}
+
+/// Why the notes are not pushed after a session (#237), or none: they go only where `wb` pushed the branch in this
+/// start, and nowhere that it holds the branch back (WB-PUSH-4, 10, 15, 16).
+fn notes_held(no_push: bool, pushed: Option<&str>) -> Option<&'static str> {
+    if no_push {
+        return Some("--no-push was given");
+    }
+    if pushed.is_some_and(|text| text.starts_with("pushed: ")) {
+        return None;
+    }
+    Some("the branch was not pushed by this start, and the notes go only where the branch does")
 }
 
 /// Why the fix's answers are held back after its session (#153), or none: only where a commit came back, taken or

@@ -92,7 +92,14 @@ pub fn after(session: &Session, err: &mut dyn Write) -> i32 {
         return code;
     }
     if let Some(why) = session.held {
-        let _ = writeln!(err, "{}: the notes are not pushed: {}.\n{}: to push them, run:\n  git push origin {}", name, why, name, spec());
+        let _ = writeln!(
+            err,
+            "{}: the notes are not pushed: {}; a `git fetch` of origin before they are pushed replaces them, as the fetch line of the notes forces the ref.\n{}: to push them, run:\n  git push origin {}",
+            name,
+            why,
+            name,
+            spec()
+        );
         return code;
     }
     let _ = writeln!(err, "{}: will push the notes to origin, as the person, with no force:\n  git push origin {}", name, spec());

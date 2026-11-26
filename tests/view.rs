@@ -6756,20 +6756,20 @@ fn test_WB_VIEW_37_a_session_that_commits_nothing_writes_no_note_and_pushes_none
     if !sandbox("test_WB_VIEW_37") {
         return;
     }
-    let bench = bench();
+    let (bench, origin) = pushing();
     ok(&bench.start(&["start", "build", "54"]));
     assert!(!git_in(&bench.repo.path, &["rev-parse", "--verify", "-q", NOTES]).0, "a notes ref was made");
-    assert!(!git_in(&origin_of(&bench), &["rev-parse", "--verify", "-q", NOTES]).0, "a notes ref was pushed");
+    assert!(!git_in(&origin.path.clone(), &["rev-parse", "--verify", "-q", NOTES]).0, "a notes ref was pushed");
 
     // After a session that did commit, a session that commits nothing leaves the notes as they are: here and at origin.
     two_commits(&bench);
     ok(&bench.start(&["start", "build", "54", "--round", "2"]));
     let notes = bench.git_text(&["rev-parse", NOTES]).trim().to_string();
-    assert_eq!(git_in(&origin_of(&bench), &["rev-parse", NOTES]).1.trim(), notes);
+    assert_eq!(git_in(&origin.path.clone(), &["rev-parse", NOTES]).1.trim(), notes);
     bench.session("exit 0\n");
     ok(&bench.start(&["start", "build", "54", "--round", "3"]));
     assert_eq!(bench.git_text(&["rev-parse", NOTES]).trim(), notes, "a note commit was made for a session with no commit");
-    assert_eq!(git_in(&origin_of(&bench), &["rev-parse", NOTES]).1.trim(), notes);
+    assert_eq!(git_in(&origin.path.clone(), &["rev-parse", NOTES]).1.trim(), notes);
 }
 
 #[test]
@@ -6810,18 +6810,18 @@ fn test_WB_VIEW_38_and_39_a_clone_that_fetched_with_the_lines_wb_init_wrote_find
     if !sandbox("test_WB_VIEW_39") {
         return;
     }
-    let bench = bench();
+    let (bench, origin) = pushing();
     let head = bench.head();
     two_commits(&bench);
     ok(&bench.start(&["start", "build", "54"]));
     let stamp = bench.git_text(&["rev-parse", "refs/watchbill/54"]).trim().to_string();
     let commits = commits_after(&bench, &head);
-    // The branch is pushed by the person, as it is after a start.
-    git(&bench.repo.path, &["push", "-q", "origin", "issue-54"]);
+    // The branch was pushed by the start, and the notes after it.
+    assert!(git_in(&origin.path, &["rev-parse", "refs/heads/issue-54"]).0);
 
     // A clone with no tracker and no `wb`: git alone, with the fetch lines `wb init` wrote in the checkout.
     let clone = folder_named("clone");
-    let bare = origin_of(&bench);
+    let bare = origin.path.clone();
     git(&clone.path, &["init", "-q"]);
     git(&clone.path, &["remote", "add", "origin", bare.to_str().unwrap()]);
     let lines = bench.git_text(&["config", "--get-all", "remote.origin.fetch"]);
@@ -6847,14 +6847,14 @@ fn test_WB_VIEW_41_after_the_commits_are_taken_back_the_notes_ref_is_pushed_to_o
     if !sandbox("test_WB_VIEW_41") {
         return;
     }
-    let bench = bench();
+    let (bench, origin) = pushing();
     two_commits(&bench);
 
     let run = bench.start(&["start", "build", "54"]);
 
     ok(&run);
     let here = bench.git_text(&["rev-parse", NOTES]).trim().to_string();
-    assert_eq!(git_in(&origin_of(&bench), &["rev-parse", NOTES]).1.trim(), here);
+    assert_eq!(git_in(&origin.path.clone(), &["rev-parse", NOTES]).1.trim(), here);
     let err = text_of(&run.stderr);
     assert!(err.contains(&format!("git push origin {0}:{0}", NOTES)), "{}", err);
     assert!(!err.contains("--force") && !err.contains(&format!("+{}", NOTES)), "{}", err);
@@ -6881,9 +6881,9 @@ fn test_WB_VIEW_42_a_refused_push_of_the_notes_is_said_ends_with_1_and_leaves_th
     if !sandbox("test_WB_VIEW_42") {
         return;
     }
-    let bench = bench();
+    let (bench, origin) = pushing();
     // Another start's notes are at origin already, and this clone has not fetched them.
-    let bare = origin_of(&bench);
+    let bare = origin.path.clone();
     let (_, empty) = git_in(&bare, &["mktree"]);
     let other = git_in(
         &bare,
@@ -6918,11 +6918,11 @@ fn test_WB_VIEW_41_where_wb_does_not_push_the_branch_it_does_not_push_the_notes_
     // A session that did not end with 0, a review: the branch is held back, so are the notes.
     for (name, role, session) in [
         ("did not end with 0", "build", "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\nexit 3\n"),
-        ("a review", "review", "echo 'int fresh;' > src/new.c && git add src/new.c && git commit -q -m 'A new file'\n"),
+        ("a review", "review", "echo 'int brake(void) { return 3; }' > src/brake.c && git commit -q -a -m 'A review that commits'\n"),
     ] {
         let (bench, origin) = pushing();
         if role == "review" {
-            review_stamp(&bench);
+            fs::write(bench.at("open"), "174\n").unwrap();
         }
         bench.session(session);
 

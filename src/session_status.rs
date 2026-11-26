@@ -121,6 +121,7 @@ pub fn run(root: &str, hash: &str, state: Option<&Path>, out: &mut dyn Write, er
         Kind::Marker => return none(err, format!("{} is a marker of wb revert on {}, not a stamp.", stamp, ledger.full)),
         Kind::Questions => return none(err, format!("{} is a questions commit on {}, not a stamp.", stamp, ledger.full)),
         Kind::Answers => return none(err, format!("{} is an answer commit on {}, not a stamp.", stamp, ledger.full)),
+        Kind::NeedsPerson => return none(err, format!("{} is a needs_person commit on {}, not a stamp.", stamp, ledger.full)),
         Kind::Unread => return none(err, format!("{} is a commit on {} that is not read, not a stamp.", stamp, ledger.full)),
     }
     // A stamp that does not count is refused, with why; nothing of it is printed. A ref that is not as `wb` writes it, or

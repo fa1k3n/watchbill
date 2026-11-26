@@ -168,7 +168,7 @@ fn test_WB_STATUS_11_a_heading_with_no_issue_is_not_printed() {
     comments(&folder.path, "1", &[]);
     let (out, _) = stdout(&folder.path, &["status"]);
     assert_eq!(out, "");
-    for heading in ["Planned", "Accepted", "Tested", "Built", "Reviewed", "Fixed", "Questions open", "Not read"] {
+    for heading in ["planned", "accepted", "tested", "built", "reviewed", "fixed", "question", "needs a person", "Not read", "Jobs"] {
         assert!(!out.contains(heading), "{} in {}", heading, out);
     }
 }
@@ -180,6 +180,10 @@ fn test_WB_STATUS_12_no_line_says_a_round_a_command_or_a_step_going_on() {
     // The hint lines (#284) say what a person may run; the lines of the jobs say no round and no command.
     let jobs: Vec<&str> = out.lines().filter(|line| line.starts_with('\t')).collect();
     assert_eq!(jobs.len(), 6, "{}", out);
+    // Every other line is a heading, a blank, or a hint, and a hint is in git's parenthesised form.
+    for line in out.lines().filter(|line| !line.starts_with('\t') && !line.is_empty()) {
+        assert!(line.ends_with(':') || (line.starts_with("  (use \"wb ") && line.ends_with(')')), "{}", line);
+    }
     for line in jobs {
         for word in ["round", "running", "going on", "next", "wb ", "run "] {
             assert!(!line.contains(word), "{} in {}", word, line);
@@ -188,16 +192,24 @@ fn test_WB_STATUS_12_no_line_says_a_round_a_command_or_a_step_going_on() {
 }
 
 #[test]
-fn test_WB_STATUS_13_the_jobs_are_printed_in_the_order_of_the_flow_the_person_s_move_first() {
-    let folder = at_every_step();
+fn test_WB_STATUS_13_the_jobs_are_printed_by_stage_and_then_by_number_the_person_s_move_first() {
+    // The numbers are not in the order of the stages: 5 is reviewed, 6 and 7 are accepted, 8 is tested.
+    let folder = set_up();
+    open(&folder.path, &["5", "6", "7", "8"]);
+    comments(&folder.path, "5", &["[stamp] tester round 1", "[stamp] build round 1", "[stamp] review round 1"]);
+    comments(&folder.path, "6", &[]);
+    comments(&folder.path, "7", &[]);
+    comments(&folder.path, "8", &["[stamp] tester round 1"]);
+    for issue in ["5", "6", "7", "8"] {
+        branch(&folder.path, issue, true);
+    }
     let (out, _) = stdout(&folder.path, &["status"]);
-    let at: Vec<usize> = ["Jobs waiting for you:", "  planned\n", "Jobs in the flow:", "  accepted\n", "  tested\n", "  built\n", "  reviewed\n", "  fixed\n"]
-        .iter()
-        .map(|word| out.find(word).expect(word))
-        .collect();
-    let mut sorted = at.clone();
-    sorted.sort();
-    assert_eq!(at, sorted, "{}", out);
+    let jobs: Vec<&str> = out.lines().filter(|line| line.starts_with('\t')).map(|line| line.split_whitespace().next().unwrap()).collect();
+    assert_eq!(jobs, ["6", "7", "8", "5"], "{}", out);
+    // The short form keeps the order of the numbers, as git sorts by path.
+    let (out, _) = said(&folder.path, &["-s"]);
+    let numbers: Vec<&str> = out.lines().map(|line| line.split_whitespace().nth(1).unwrap()).collect();
+    assert_eq!(numbers, ["5", "6", "7", "8"], "{}", out);
 }
 
 #[test]
@@ -1390,8 +1402,8 @@ fn mock_up() -> Folder {
     folder
 }
 
-const WAITING: &str = "Jobs waiting for you:\n  (use \"wb plan accept <name>...\" to accept the plan)\n  (use \"wb answer <issue>...\" to answer its questions)\n\t176  issue-176-work  built, 1 question open\n\t184  issue-184-work  planned\n";
-const FLOW: &str = "Jobs in the flow:\n\t175  issue-175-work  accepted\n\t177  issue-177-work  reviewed\n\t179  issue-179-work  built\n\t183  issue-183-work  tested\n";
+const WAITING: &str = "Jobs waiting for you:\n  (use \"wb plan accept <name>...\" to accept the plan)\n  (use \"wb answer <issue>...\" to answer its questions)\n\t184  issue-184-work  planned\n\t176  issue-176-work  built, 1 question open\n";
+const FLOW: &str = "Jobs in the flow:\n\t175  issue-175-work  accepted\n\t183  issue-183-work  tested\n\t179  issue-179-work  built\n\t177  issue-177-work  reviewed\n";
 
 #[test]
 fn test_WB_STATUS_103_jobs_are_under_the_heading_of_whose_move_it_is() {
@@ -1491,14 +1503,21 @@ fn test_WB_STATUS_107_status_hints_true_keeps_them_and_a_value_that_is_no_boolea
     assert_eq!(said(&folder.path, &[]).0, format!("{}\n{}", WAITING, FLOW));
     let folder = mock_up();
     add_patterns(&folder.path, "status_hints: sometimes\n");
-    let run = run_status(&folder.path, &[]);
-    assert_eq!(code(&run), Some(2));
-    assert!(text(&run.stdout).is_empty());
-    assert!(text(&run.stderr).contains("status_hints"), "{}", text(&run.stderr));
+    // A value that is no boolean ends with 1, as every value of `watchbill.yml` that the loader refuses, in every form.
+    for args in [&[][..], &["-s"], &["--porcelain"]] {
+        let run = run_status(&folder.path, args);
+        assert_eq!(code(&run), Some(1), "{:?}", args);
+        assert!(text(&run.stdout).is_empty());
+        assert!(text(&run.stderr).contains("status_hints"), "{}", text(&run.stderr));
+    }
+    // `wb check` names it.
+    let check = wb(&folder.path, &["check"], "");
+    assert_eq!(code(&check), Some(1), "{}", text(&check.stdout));
+    assert!(text(&check.stdout).contains("status_hints") || text(&check.stderr).contains("status_hints"), "{}{}", text(&check.stdout), text(&check.stderr));
     // A word that YAML may read as a boolean is refused too: only `true` and `false` are written.
     let folder = mock_up();
     add_patterns(&folder.path, "status_hints: no\n");
-    assert_eq!(code(&run_status(&folder.path, &[])), Some(2));
+    assert_eq!(code(&run_status(&folder.path, &[])), Some(1));
 }
 
 #[test]
@@ -1560,7 +1579,12 @@ fn test_WB_STATUS_110_porcelain_is_the_same_fixed_lines_with_no_colour_and_no_hi
     assert_eq!(status, Some(0));
     assert_eq!(out, SHORT);
     assert_eq!(said(&folder.path, &["--porcelain", "--color=always"]).0, SHORT);
+    // Of `--short` and `--porcelain` the one given last wins, as in git.
     assert_eq!(said(&folder.path, &["--short", "--porcelain", "--color=always"]).0, SHORT);
+    assert_eq!(said(&folder.path, &["-s", "--porcelain", "--color=always"]).0, SHORT);
+    let coloured = said(&folder.path, &["--porcelain", "-s", "--color=always"]).0;
+    assert!(coloured.contains("\x1b[32mA\x1b[m  175 issue-175-work\n"), "{:?}", coloured);
+    assert_eq!(said(&folder.path, &["--porcelain", "--short", "--color=never"]).0, SHORT);
     add_patterns(&folder.path, "status_hints: true\n");
     assert_eq!(said(&folder.path, &["--porcelain"]).0, SHORT);
 }
@@ -1651,6 +1675,9 @@ fn test_WB_STATUS_114_stage_is_matched_on_the_stage_words_without_regard_to_case
         "Jobs waiting for you:\n  (use \"wb answer <issue>...\" to answer its questions)\n\t176  issue-176-work  built, 1 question open\n\nJobs in the flow:\n\t179  issue-179-work  built\n"
     );
     assert_eq!(said(&folder.path, &["--stage", "planned"]).0, "Jobs waiting for you:\n  (use \"wb plan accept <name>...\" to accept the plan)\n\t184  issue-184-work  planned\n");
+    let run = run_status(&folder.path, &["--stage"]);
+    assert_eq!(code(&run), Some(2));
+    assert!(text(&run.stderr).contains("'--stage' needs a word"), "{}", text(&run.stderr));
     assert_eq!(said(&folder.path, &["--stage", "fixed"]), (String::new(), Some(0)));
     assert_eq!(said(&folder.path, &["--stage", "not read"]), (String::new(), Some(0)));
     // The headings of before are no stage word: they are used wrongly.
@@ -1681,7 +1708,7 @@ fn test_WB_STATUS_115_the_columns_are_as_wide_as_the_widest_across_both_headings
 }
 
 #[test]
-fn test_WB_STATUS_116_a_job_that_could_not_be_read_is_under_not_read_and_in_short_forms_has_two_question_marks() {
+fn test_WB_STATUS_116_a_job_that_could_not_be_read_is_under_not_read_and_in_short_forms_has_two_stars() {
     let folder = set_up();
     open(&folder.path, &["1", "2", "3"]);
     comments(&folder.path, "1", &[]);
@@ -1693,7 +1720,7 @@ fn test_WB_STATUS_116_a_job_that_could_not_be_read_is_under_not_read_and_in_shor
     for flag in ["-s", "--porcelain"] {
         let run = run_status(&folder.path, &[flag]);
         assert_eq!(code(&run), Some(1), "{}", flag);
-        assert_eq!(text(&run.stdout), "A  3 issue-3-work\n?? 2\n", "{}", flag);
+        assert_eq!(text(&run.stdout), "A  3 issue-3-work\n** 2\n", "{}", flag);
         assert!(text(&run.stderr).contains("2"), "{}", text(&run.stderr));
     }
 }
@@ -1759,6 +1786,10 @@ fn test_WB_STATUS_119_the_usage_the_manual_and_the_completion_name_the_new_flags
         let needle = if file.ends_with(".1") { needle.replace('-', "\\-") } else { needle.to_string() };
         assert!(read(&root.join(file)).contains(&needle), "{} lacks {}", file, needle);
     }
+    // The paragraph of the usage has no line wider than the others.
+    for line in watchbill::USAGE.lines().filter(|line| line.starts_with("            ")) {
+        assert!(line.chars().count() <= 80, "{}", line);
+    }
     // The values of --color are completed.
     assert!(read(&root.join("packaging/wb.bash")).contains("always"), "wb.bash lacks the values of --color");
 }
@@ -1769,6 +1800,56 @@ fn test_WB_STATUS_120_the_readme_says_the_hints_the_setting_and_the_forms() {
     for needle in ["Jobs waiting for you", "Jobs in the flow", "status_hints", "--porcelain", "--short", "--color", "(use \"wb answer <issue>...\" to answer its questions)"] {
         assert!(readme.contains(needle), "the README lacks {}", needle);
     }
+    for needle in ["`git diff` and `git log`", "`**`", "color.ui", "the one given last wins"] {
+        assert!(readme.contains(needle), "the README lacks {}", needle);
+    }
     // The rule of before is gone.
     assert!(!readme.contains("says what is, never what to do"), "the README keeps the rule of before");
+}
+
+/// The job 7 with a branch in the flow and no issue's file, begun by `wb start`: the ref holds a planner's stamp.
+fn started_without_file() -> Folder {
+    let folder = set_up();
+    open(&folder.path, &["7"]);
+    comments(&folder.path, "7", &["[stamp] planner round 1"]);
+    folder
+}
+
+const ONLY_ONE_BRANCH: &str = "Jobs waiting for you:\n\t7  issue-7-work  no issue's file yet\n";
+
+#[test]
+fn test_WB_STATUS_105_a_job_started_with_no_issue_file_is_listed_for_a_person_to_look_at() {
+    let folder = started_without_file();
+    assert_eq!(said(&folder.path, &[]), (ONLY_ONE_BRANCH.to_string(), Some(0)));
+    assert_eq!(said(&folder.path, &["-s"]), (" L 7 issue-7-work\n".to_string(), Some(0)));
+    assert_eq!(said(&folder.path, &["--porcelain"]), (" L 7 issue-7-work\n".to_string(), Some(0)));
+}
+
+#[test]
+fn test_WB_STATUS_105_a_job_with_a_commit_not_pushed_and_no_issue_file_is_listed_for_a_person_to_look_at() {
+    let folder = set_up();
+    open(&folder.path, &["7"]);
+    comments(&folder.path, "7", &[]);
+    commit_on(&folder.path, "issue-7-work", "a.txt");
+    let want = "Jobs waiting for you:\n\t7  issue-7-work  no issue's file yet, 1 not pushed\n";
+    assert_eq!(said(&folder.path, &[]), (want.to_string(), Some(0)));
+    assert_eq!(said(&folder.path, &["-s"]).0, " L 7 issue-7-work\n");
+    assert_eq!(said(&folder.path, &["--porcelain"]).0, " L 7 issue-7-work\n");
+}
+
+#[test]
+fn test_WB_STATUS_116_a_job_whose_ref_is_broken_is_under_not_read_with_its_reason_in_every_form() {
+    let folder = set_up();
+    open(&folder.path, &["7"]);
+    comments(&folder.path, "7", &[]);
+    // An unsigned needs_person, with an escape in its reason: the ref is not as `wb` writes it, and nothing on it counts.
+    unsigned_stamps_on_ref(&folder.path, "7", &["[needs_person] 7.build\n\nA reason \u{1b}[31mred\n"]);
+    for (args, want) in [(&[][..], "Not read:\n  7  "), (&["-s"][..], "** 7\n"), (&["--porcelain"][..], "** 7\n")] {
+        let run = run_status(&folder.path, args);
+        assert_eq!(code(&run), Some(1), "{:?}", args);
+        let out = text(&run.stdout);
+        assert!(out.contains(want) && out.contains("not as wb writes it") == (args.is_empty()), "{:?}: {}", args, out);
+        assert!(!out.contains('\u{1b}'), "{:?}", out);
+        assert!(text(&run.stderr).contains("issue 7 was not read") && text(&run.stderr).contains("not as wb writes it"), "{:?}: {}", args, text(&run.stderr));
+    }
 }

@@ -68,7 +68,7 @@ fn test_WB_STATUS_121_status_says_it_waits_for_a_person_and_the_reason_from_the_
     assert!(out.contains(&format!("waits for: person ({})\n", REASON)), "{}", out);
     assert!(out.contains("[needs_person] 54.build  (on refs/watchbill/54, signed by ada@example.org)"), "{}", out);
     // It is not a question.
-    assert!(!out.contains("Questions open"), "{}", out);
+    assert!(!out.contains("questions open") && !out.contains("question"), "{}", out);
 }
 
 #[test]
@@ -89,7 +89,7 @@ fn test_WB_STATUS_122_the_next_stamp_of_any_role_closes_it() {
 
         let out = out_of(&status(&folder, &["54"]));
 
-        assert!(!out.contains("waits for: person") && !out.contains("Needs a person"), "{}: {}", role, out);
+        assert!(!out.contains("waits for: person") && !out.contains("needs a person"), "{}: {}", role, out);
     }
 }
 
@@ -319,7 +319,7 @@ fn test_WB_STATUS_124_a_comment_of_the_tracker_is_never_read_for_a_job_with_a_re
 }
 
 #[test]
-fn test_WB_STATUS_118_the_usage_the_manual_and_the_readme_name_what_a_needs_person_says_and_when_it_ends() {
+fn test_WB_STATUS_119_the_usage_the_manual_and_the_readme_name_what_a_needs_person_says_and_when_it_ends() {
     let folder = set_up();
     let bad = status(&folder, &["--stage", "nosuch"]);
     assert_eq!(code(&bad), Some(2));

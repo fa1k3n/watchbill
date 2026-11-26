@@ -189,7 +189,13 @@ fn test_WB_STATUS_98_the_commits_that_a_note_names_are_said_to_be_notes_and_are_
     let head = lines.iter().position(|line| line.starts_with("    Taken back") && line.contains(NOTES) && line.contains("not signed")).unwrap_or_else(|| panic!("{}", out));
     assert_eq!(lines[head + 1], format!("      {}  Write the first test", taken[0]), "{}", out);
     assert_eq!(lines[head + 2], format!("      {}  Write the second test", taken[1]), "{}", out);
-    assert!(out.contains(&format!("      {}  Build it", other[0])), "{}", out);
+    // Under the build's stamp, and not under the tester's.
+    let build = lines.iter().position(|line| *line == format!("stamp {}", commits[3])).unwrap();
+    let under_build: Vec<&&str> = lines[build + 1..].iter().take_while(|line| line.is_empty() || line.starts_with(' ')).collect();
+    assert!(under_build.iter().any(|line| **line == format!("      {}  Build it", other[0])), "{}", out);
+    let tester = lines.iter().position(|line| *line == format!("stamp {}", commits[0])).unwrap();
+    let under_tester: Vec<&&str> = lines[tester + 1..].iter().take_while(|line| line.is_empty() || line.starts_with(' ')).collect();
+    assert!(!under_tester.iter().any(|line| line.contains("Build it")), "{}", out);
     // Not an entry: no header of its own, and the entries are as many as before.
     let entries = out.lines().filter(|line| line.starts_with("stamp ") || line.starts_with("questions ") || line.starts_with("answers ") || line.starts_with("marker ")).count();
     assert_eq!(entries, 4, "{}", out);
@@ -227,14 +233,32 @@ fn test_WB_STATUS_99_a_ref_that_is_not_as_wb_writes_it_prints_no_entry_and_says_
 }
 
 #[test]
-fn test_WB_STATUS_99_a_stamp_of_another_issue_is_no_entry_and_the_exit_status_is_1() {
-    let (folder, _) = with_history();
-    stamps_on_ref(&folder.path, "12", &["[stamp] build round 2\nissue: 99\ntime: 2026-11-24T12:00:00Z\n"]);
+fn test_WB_STATUS_99_a_stamp_of_another_issue_is_no_entry_the_others_are_printed_and_the_status_is_1() {
+    let (folder, commits) = with_history();
+    let head = git_text(&folder.path, &["rev-parse", "HEAD"]);
+    // The commit names issue 99 alone, and holds its job and base as `wb` writes them.
+    stamps_on_ref_as_given(&folder.path, "12", &[&format!("[stamp] build round 2\nissue: 99\njob: none\nbase: {}\ntime: 2026-11-24T12:00:00Z\n", head)]);
     let strange = tip(&folder.path, "12");
     let (out, err, status) = log(&folder.path, &["12"]);
     assert_eq!(status, Some(1), "{}", err);
     assert!(!out.contains(&strange), "{}", out);
-    assert!(err.contains("not counted") || err.contains("not as wb writes it"), "{}", err);
+    for commit in &commits {
+        assert!(out.contains(commit.as_str()), "{} is not printed: {}", commit, out);
+    }
+    assert!(err.contains(&format!("{} on refs/watchbill/12 is not counted, and is no entry: a stamp of another job: it names issue 99, not 12", strange)), "{}", err);
+    assert!(!err.contains("not as wb writes it"), "{}", err);
+}
+
+#[test]
+fn test_WB_STATUS_99_a_repository_with_no_list_of_signers_counts_nothing_prints_nothing_and_ends_with_1() {
+    let (folder, _) = with_history();
+    git(&folder.path, &["rm", "-q", "--", ".watchbill/signers"]);
+    git(&folder.path, &["commit", "-q", "-m", "No keys"]);
+    let (out, err, status) = log(&folder.path, &["12"]);
+    assert_eq!(status, Some(1), "{}", err);
+    assert_eq!(out, "");
+    assert!(err.contains("is not counted"), "{}", err);
+    assert_eq!(err.matches("is not counted").count(), 4, "{}", err);
 }
 
 #[test]
@@ -258,14 +282,117 @@ fn test_WB_STATUS_100_oneline_gives_one_line_to_each_entry_and_no_other_word() {
     assert_eq!(status, Some(0), "{}", err);
     let lines: Vec<&str> = out.lines().collect();
     assert_eq!(lines.len(), 5, "{}", out);
-    assert_eq!(lines[0], format!("{} stamp tester round 1, model model-a, effort medium, revision 0123456789ab, time 2026-11-24T10:00:00Z, ended not known on this machine, 1 commit taken back (from notes)", &commits[0][..12]));
+    assert_eq!(lines[0], format!("{} stamp tester round 1, model model-a, effort medium, revision 0123456789ab, time 2026-11-24T10:00:00Z, outcome not known on this machine, 1 commit taken back (from notes)", &commits[0][..12]));
     assert_eq!(lines[1], format!("{} questions 12.tester q1", &commits[1][..12]));
     assert_eq!(lines[2], format!("{} answers 12.tester q1>tester", &commits[2][..12]));
     assert!(lines[3].starts_with(&format!("{} stamp build round 1,", &commits[3][..12])) && lines[3].contains("taken back by a [revert] marker"), "{}", out);
     assert_eq!(lines[4], format!("{} marker build round 1, took back 1", &marker[..12]));
+    assert!(lines[0].contains(", 1 commit taken back (from notes)"), "{}", out);
     // The options come in either order.
     let (again, _, _) = log(&folder.path, &["12", "--oneline"]);
     assert_eq!(again, out);
+}
+
+#[test]
+fn test_WB_STATUS_100_oneline_gives_the_outcome_alone_of_a_session_that_ran_here() {
+    let (folder, commits) = with_history();
+    let state = folder_named("state");
+    lines_of_start(&state.path, &message_of(&folder.path, &commits[0]), "tester", "12", "outcome: ended\nstatus: 0\nseconds: 5\nmessage: a long diagnostic\n");
+    let (out, err, status) = log_in(&folder.path, &state.path, &["--oneline", "12"]);
+    assert_eq!(status, Some(0), "{}", err);
+    let first = out.lines().next().unwrap();
+    assert!(first.ends_with(", outcome ended"), "{}", first);
+    assert!(!first.contains("diagnostic") && !first.contains("status"), "{}", first);
+}
+
+// ---- WB-STATUS-97: a needs_person commit is an entry ----
+
+fn with_needs_person() -> (Folder, Vec<String>) {
+    let (folder, mut commits) = with_history();
+    stamps_on_ref(&folder.path, "12", &["[needs_person] 12.build\n\nThe  part is\nnot there.\n"]);
+    commits.push(tip(&folder.path, "12"));
+    (folder, commits)
+}
+
+#[test]
+fn test_WB_STATUS_97_a_needs_person_commit_that_counts_is_an_entry_with_its_role_and_its_reason() {
+    let (folder, commits) = with_needs_person();
+    let (out, err, status) = log(&folder.path, &["12"]);
+    assert_eq!(status, Some(0), "{}", err);
+    let lines: Vec<&str> = out.lines().collect();
+    let at = lines.iter().position(|line| *line == format!("needs_person {}", commits[4])).unwrap_or_else(|| panic!("{}", out));
+    assert!(out.find(&commits[3]).unwrap() < out.find(&commits[4]).unwrap(), "{}", out);
+    assert_eq!(lines[at + 1], "    Role: build", "{}", out);
+    assert_eq!(lines[at + 2], "    Reason: The part is not there.", "{}", out);
+    assert!(lines[at + 3].starts_with("    Signed: by ada@example.org"), "{}", out);
+    let (one, _, _) = log(&folder.path, &["--oneline", "12"]);
+    assert_eq!(one.lines().last().unwrap(), format!("{} needs_person build, reason The part is not there.", &commits[4][..12]), "{}", one);
+}
+
+#[test]
+fn test_WB_STATUS_97_a_marker_lists_and_counts_only_entries_that_are_printed() {
+    let (folder, commits) = with_needs_person();
+    stamps_on_ref(&folder.path, "12", &["[revert] build round 1\n"]);
+    let marker = tip(&folder.path, "12");
+    let (out, _, _) = log(&folder.path, &["12"]);
+    assert!(out.contains("    Took back 2:"), "{}", out);
+    assert!(out.contains(&format!("      {}  [needs_person] 12.build", commits[4])), "{}", out);
+    let (one, _, _) = log(&folder.path, &["--oneline", "12"]);
+    assert!(one.lines().any(|line| line == format!("{} marker build round 1, took back 2", &marker[..12])), "{}", one);
+    assert!(one.lines().any(|line| line.starts_with(&format!("{} needs_person build", &commits[4][..12])) && line.ends_with("taken back by a [revert] marker")), "{}", one);
+}
+
+#[test]
+fn test_WB_STATUS_97_a_reason_is_cut_after_the_escape_and_never_inside_one() {
+    let folder = set_up();
+    let model = format!("{}\u{1b}[31m", "a".repeat(198));
+    stamps_on_ref(&folder.path, "12", &[&format!("[stamp] build round 1\nmodel: {}\neffort: medium\ntime: 2026-11-24T10:00:00Z\n", model)]);
+    stamps_on_ref(&folder.path, "12", &[&format!("[needs_person] 12.build\n\n{}\u{1b}[31m\n", "b".repeat(198))]);
+    let (out, err, status) = log(&folder.path, &["12"]);
+    assert_eq!(status, Some(0), "{}", err);
+    for prefix in ["    Model: ", "    Reason: "] {
+        let line = out.lines().find(|line| line.starts_with(prefix)).unwrap_or_else(|| panic!("{}", out));
+        assert!(!line.contains("\\u"), "cut inside an escape: {}", line);
+        assert!(!line.contains('\u{1b}'), "{}", line);
+        assert!(line.contains("..."), "{}", line);
+    }
+}
+
+// ---- WB-STATUS-98: Not from Base ----
+
+#[test]
+fn test_WB_STATUS_98_a_commit_that_a_note_names_and_that_does_not_descend_from_the_base_is_marked() {
+    let (folder, commits) = with_history();
+    let base = git_text(&folder.path, &["rev-parse", "HEAD"]);
+    let tree = git_text(&folder.path, &["rev-parse", &format!("{}^{{tree}}", base)]);
+    let orphan = git_text(&folder.path, &["commit-tree", &tree, "-m", "Not the session's"]);
+    note(&folder.path, &orphan, &commits[0], "tester");
+    let (out, err, status) = log(&folder.path, &["12"]);
+    assert_eq!(status, Some(0), "{}", err);
+    assert!(out.lines().any(|line| line == format!("      {}  Not the session's", orphan)), "{}", out);
+    assert!(out.lines().any(|line| line == format!("    Not from Base: {}, a commit that does not descend from Base", orphan)), "{}", out);
+    let (one, _, _) = log(&folder.path, &["--oneline", "12"]);
+    assert!(one.lines().next().unwrap().contains(", 1 not from Base"), "{}", one);
+    // A session whose commits all descend from the base has none.
+    let (other, _) = with_history();
+    commits_with_notes(&other.path, "12", &tip(&other.path, "12"), "build", &["Build it"]);
+    let (out, _, _) = log(&other.path, &["12"]);
+    assert!(!out.contains("Not from Base"), "{}", out);
+}
+
+// ---- WB-STATUS-97: a marker that took back nothing says so ----
+
+#[test]
+fn test_WB_STATUS_97_a_marker_that_took_back_nothing_says_so_in_plain_words() {
+    let (folder, _) = with_history();
+    stamps_on_ref(&folder.path, "12", &["[revert] tester round 9\n"]);
+    let marker = tip(&folder.path, "12");
+    let (out, err, status) = log(&folder.path, &["12"]);
+    assert_eq!(status, Some(0), "{}", err);
+    assert!(out.lines().any(|line| line == "    Took back: nothing, no [stamp] tester round 9 before it"), "{}", out);
+    assert!(!out.contains("Took back 0"), "{}", out);
+    let (one, _, _) = log(&folder.path, &["--oneline", "12"]);
+    assert_eq!(one.lines().last().unwrap(), format!("{} marker tester round 9, took back nothing", &marker[..12]), "{}", one);
 }
 
 // ---- WB-STATUS-101: it only reads ----

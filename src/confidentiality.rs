@@ -162,15 +162,15 @@ fn read_runner(doc: &Document, name: &str, levels: &[String]) -> Result<Runner, 
     Ok(Runner { name: name.to_string(), tools, model, agreement, up_to, planner, start, binds, reach })
 }
 
-/// A runner's `reach` (#195): a list of texts, each `<host>:<port>` (`reach::endpoint`), each once. An empty list is
-/// no `reach`.
+/// A runner's `reach` (#195): a list of texts, each `<host>:<port>` or `http://<host>:<port>` (`reach::entry`, #336),
+/// each host and port once. An empty list is no `reach`.
 fn read_reach(doc: &Document, place: &[Part]) -> Result<Vec<crate::reach::Endpoint>, YamlError> {
     let texts = doc.texts(place, true)?;
     let mut reach: Vec<crate::reach::Endpoint> = Vec::new();
     for (index, text) in texts.iter().enumerate() {
         let here = with(place, index);
-        let endpoint = crate::reach::endpoint(text).map_err(|why| doc.fail(&here, &format!("the endpoint '{}' of `reach` {}", text.escape_debug(), why), false))?;
-        if reach.contains(&endpoint) {
+        let endpoint = crate::reach::entry(text).map_err(|why| doc.fail(&here, &format!("the endpoint '{}' of `reach` {}", text.escape_debug(), why), false))?;
+        if reach.iter().any(|one| one.same_place(&endpoint)) {
             return Err(doc.fail(&here, &format!("the endpoint {} is written twice in `reach`; each is written once", endpoint), false));
         }
         reach.push(endpoint);

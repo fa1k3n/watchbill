@@ -1284,6 +1284,8 @@ struct Handed {
     stamps: Option<starter::Stamps>,
     /// The level of the repository, for a session that runs in a view (#209): the stamp holds it.
     level: Option<String>,
+    /// What ran (#336): the `model` line of the runner, `unknown`, or why a stamp cannot hold it. Only for a stamp.
+    ran: Result<String, String>,
     /// The hash of each source of the job (#236), none where there is no plan; and the commit of `HEAD` it is handed out
     /// from, which the view is made from.
     job: Vec<String>,
@@ -1459,7 +1461,28 @@ fn hand_out(name: &str, words: &Words, folder: Option<&Path>, organisation: &Pat
     let base = signers::git(&root, &["rev-parse", "--verify", "-q", "HEAD^{commit}"], None)
         .map(|printed| String::from_utf8_lossy(&printed).trim().to_string())
         .unwrap_or_default();
-    Ok(Handed { root, values, found, cleared, file, requirements_given, stamps: worked.stamps, level, job, base })
+    let ran = if words.stamp || starting { ran_of(organisation, words.runner.as_deref()) } else { Ok(UNKNOWN.to_string()) };
+    Ok(Handed { root, values, found, cleared, file, requirements_given, stamps: worked.stamps, level, job, base, ran })
+}
+
+/// What the stamp's `ran:` says where the runner's `model` line is not known (#336).
+const UNKNOWN: &str = "unknown";
+
+/// The stamp's `ran:` (#336): the `model` line of `runner` in the organisation's file, or `unknown` where no runner is
+/// given, or the file is not there, does not hold, or names no such runner. A line a stamp cannot hold as one line is
+/// refused, with why.
+fn ran_of(organisation: &Path, runner: Option<&str>) -> Result<String, String> {
+    let Some(runner) = runner else { return Ok(UNKNOWN.to_string()) };
+    let Ok(found) = confidentiality::read(organisation) else { return Ok(UNKNOWN.to_string()) };
+    let Some(chosen) = found.runners.iter().find(|one| one.name == runner) else { return Ok(UNKNOWN.to_string()) };
+    if !one_line(&chosen.model) {
+        return Err(format!(
+            "the `model` line of the runner '{}' in the organisation's file {} holds a control character or a line break, or white space at its start or end, and a stamp holds it on `ran:` as one line",
+            runner.escape_debug(),
+            organisation.display()
+        ));
+    }
+    Ok(chosen.model.clone())
 }
 
 /// The model and effort a role is handed out with: for the planner those its runner is cleared with, for
@@ -1485,6 +1508,7 @@ fn now() -> Result<u64, String> {
 /// time `seconds`, as `now` gives it.
 fn stamp_of(role: &str, handed: &Handed, runner: &str, local: Option<usize>, kept: Option<usize>, seconds: Result<u64, String>) -> Result<String, String> {
     let model = model_of(role, handed.cleared.as_ref())?;
+    let ran = handed.ran.clone()?;
     let revision = manifest::revision_hash(manifest::PACKAGE_FOLDER).map_err(|why| why.to_string())?;
     let time = prompt::utc(seconds?);
     let view = view_hash(role, handed.file.as_ref());
@@ -1495,6 +1519,7 @@ fn stamp_of(role: &str, handed: &Handed, runner: &str, local: Option<usize>, kep
         kept,
         role,
         model: &model.model,
+        ran: &ran,
         effort: &model.effort,
         runner,
         version: VERSION,
@@ -2239,6 +2264,17 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
     } else {
         let all: Vec<String> = chosen.reach.iter().map(ToString::to_string).collect();
         let _ = writeln!(err, "{}: the session reaches only {}, through wb's proxy (reach of the runner '{}')", name, all.join(", "), runner);
+    }
+    // What ran (#336), said where it is not the stamp's model: the runner's `model` line, on `ran:` of the stamp.
+    if chosen.model != model.model {
+        let _ = writeln!(
+            err,
+            "{}: the stamp's model is {}, and the runner '{}' runs {} (its model line, on ran: of the stamp)",
+            name,
+            model.model,
+            runner,
+            issue::shown(&chosen.model)
+        );
     }
     let _ = writeln!(
         err,

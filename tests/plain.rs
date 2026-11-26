@@ -278,7 +278,7 @@ fn test_WB_VIEW_155_a_plain_request_to_a_plain_endpoint_passes_in_origin_form_an
     let mut running = Running::new(&[&format!("http://127.0.0.1:{}", port)]);
 
     let back = running.asked(
-        format!("POST http://127.0.0.1:{port}/api/chat?stream=false HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUser-Agent: test\r\nContent-Length: 11\r\n\r\n{{\"a\": \"b\"}}")
+        format!("POST http://127.0.0.1:{port}/api/chat?stream=false HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUser-Agent: test\r\nContent-Length: 10\r\n\r\n{{\"a\": \"b\"}}")
             .as_bytes(),
     );
 
@@ -286,7 +286,7 @@ fn test_WB_VIEW_155_a_plain_request_to_a_plain_endpoint_passes_in_origin_form_an
     assert!(back.ends_with("\r\n\r\nhello model"), "{}", back);
     assert_eq!(
         server.got(),
-        [format!("POST /api/chat?stream=false HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUser-Agent: test\r\nContent-Length: 11\r\n\r\n{{\"a\": \"b\"}}")]
+        [format!("POST /api/chat?stream=false HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUser-Agent: test\r\nContent-Length: 10\r\n\r\n{{\"a\": \"b\"}}")]
     );
     assert_eq!(running.refused(), "");
     assert_eq!(running.stop(), 0);

@@ -250,6 +250,12 @@ impl Ledger {
                 Ok(_) if counting.next().unwrap_or(false) => format!("{}  (on {}, taken back by a [revert] marker)", shown, self.full),
                 Ok(by) => format!("{}  (on {}, signed by {})", shown, self.full, crate::issue::shown(by)),
             };
+            // What ran (#336), for a stamp that counts and has the line; a stamp made before has none.
+            let ran = entry.message.lines().find_map(|line| line.strip_prefix("ran: ")).filter(|_| entry.counts.is_ok() && entry.kind == Kind::Stamp);
+            let line = match ran {
+                Some(ran) => format!("{}  ran: {}", line, crate::issue::shown(ran)),
+                None => line,
+            };
             lines.push(line);
         }
         if let Some(broken) = &self.broken {

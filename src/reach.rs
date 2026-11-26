@@ -3,12 +3,14 @@
 //!
 //! - **No network in the sandbox.** bubblewrap starts it with `--unshare-net`: inside there is only its own loopback.
 //! - **A proxy outside it**, as threads of the `wb` that waits for the session, on a Unix socket in a new folder of
-//!   `wb`'s own, bound read-only in the sandbox at `NET_FOLDER`. It takes `CONNECT` alone, to an endpoint of the
-//!   runner's `reach` alone, and passes the bytes both ways unread. No port is opened on the machine.
+//!   `wb`'s own, bound read-only in the sandbox at `NET_FOLDER`. It takes `CONNECT` (and plain HTTP, below), to an
+//!   endpoint of the runner's `reach` alone, and passes the bytes both ways unread. No port is opened on the machine.
 //! - **The way in.** The program of `wb` is bound read-only at `FORWARDER` and is the session's first program: it
 //!   listens on `127.0.0.1:PORT` of the sandbox's loopback, starts one copy of itself that passes each connection to
 //!   the socket, and runs the runner's `start` in its own place. The runner is given `HTTPS_PROXY` and `HTTP_PROXY`.
 //! - **A runner with no `reach`** gets none of it, and no network.
+//! - **A plain endpoint** (#336), `http://<host>:<port>` in `reach`, is on this machine alone: the proxy also takes a
+//!   request in absolute form to it, and sends it on in origin form. Everything else still takes `CONNECT` alone.
 //!
 //! The forwarder is a child of the session, in the sandbox's own process namespace, so it ends when the session ends.
 //! The proxy is stopped by `wb` when bubblewrap has ended (`Proxy::stop`).
@@ -79,12 +81,19 @@ const STACK: usize = 128 * 1024;
 /// How long `Proxy::stop` waits for the connections to end, once each is shut down.
 const STOP_WITHIN: Duration = Duration::from_secs(2);
 
-/// An endpoint of `reach`: a host and a port. A name is kept in lower case, an address as the standard library writes
-/// it, an IPv6 address in brackets.
+/// The scheme that marks an endpoint of `reach` plain (#336).
+pub const PLAIN: &str = "http://";
+
+/// The hosts a plain endpoint may have, as they are kept: this machine alone (#336).
+pub const PLAIN_HOSTS: [&str; 3] = ["localhost", "127.0.0.1", "[::1]"];
+
+/// An endpoint of `reach`: a host and a port, and whether it is plain (#336). A name is kept in lower case, an address
+/// as the standard library writes it, an IPv6 address in brackets.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Endpoint {
     host: String,
     port: u16,
+    plain: bool,
 }
 
 impl Endpoint {
@@ -94,6 +103,16 @@ impl Endpoint {
 
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    /// Whether it is marked plain, `http://<host>:<port>` (#336): the proxy also takes plain HTTP to it.
+    pub fn is_plain(&self) -> bool {
+        self.plain
+    }
+
+    /// Whether `other` has the same host and port, plain or not.
+    pub fn same_place(&self, other: &Endpoint) -> bool {
+        self.host == other.host && self.port == other.port
     }
 
     /// The host as it is resolved: an IPv6 address without its brackets.
@@ -116,8 +135,36 @@ impl Endpoint {
 
 impl fmt::Display for Endpoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}:{}", self.host, self.port)
+        let scheme = if self.plain { PLAIN } else { "" };
+        write!(f, "{}{}:{}", scheme, self.host, self.port)
     }
+}
+
+/// Reads an entry of `reach`: `<host>:<port>`, taken by `CONNECT` (#195), or `http://<host>:<port>`, marked plain, with
+/// the port written, nothing after it, and the host `localhost`, `127.0.0.1` or `[::1]` alone (#336). The error says
+/// why it is not one.
+pub fn entry(text: &str) -> Result<Endpoint, String> {
+    if let Some(rest) = text.strip_prefix(PLAIN) {
+        if rest.contains(['/', '?', '#', '@']) {
+            return Err("is not `http://<host>:<port>`: a plain endpoint has no user, and nothing after the port, no `/`, path, query or fragment".to_string());
+        }
+        let mut found = endpoint(rest).map_err(|why| why.replacen("is not `<host>:<port>`", "is not `http://<host>:<port>`", 1))?;
+        if !PLAIN_HOSTS.contains(&found.host.as_str()) {
+            return Err(format!(
+                "is plain HTTP to {}, and plain HTTP is taken to this machine alone: the host is `localhost`, `127.0.0.1` or `[::1]`. An endpoint elsewhere is written `<host>:<port>`, and takes CONNECT",
+                found.host
+            ));
+        }
+        found.plain = true;
+        return Ok(found);
+    }
+    if let Some((scheme, _)) = text.split_once("://") {
+        return Err(format!(
+            "has the scheme `{}://`: an endpoint reached by a tunnel, `https://` among them, is written `<host>:<port>`, and takes CONNECT; only `http://<host>:<port>`, on this machine, is marked plain",
+            scheme
+        ));
+    }
+    endpoint(text)
 }
 
 /// Reads `<host>:<port>` as an endpoint (#195). The error says why it is not one.
@@ -138,7 +185,7 @@ pub fn endpoint(text: &str) -> Result<Endpoint, String> {
         Ok(port) if digits && port > 0 => port,
         _ => return Err("is not `<host>:<port>`: the port is a number from 1 to 65535, with no sign and no leading zero".to_string()),
     };
-    Ok(Endpoint { host, port })
+    Ok(Endpoint { host, port, plain: false })
 }
 
 /// A name or an IPv4 address, as it is kept.
@@ -421,7 +468,9 @@ fn serve(mut near: UnixStream, id: u64, shared: &Shared) {
         }
     };
     let line = first_line(&head);
-    let words: Vec<&str> = line.split(' ').collect();
+    // The words of the whole request line: what is shown is cut, and a long path is not.
+    let whole = String::from_utf8_lossy(head.split(|byte| *byte == b'\n').next().unwrap_or_default()).trim_end_matches('\r').to_string();
+    let words: Vec<&str> = whole.split(' ').collect();
     let (method, target) = match words.as_slice() {
         [method, target, version] if !method.is_empty() && !target.is_empty() && (*version == "HTTP/1.1" || *version == "HTTP/1.0") => (*method, *target),
         _ => {
@@ -431,19 +480,28 @@ fn serve(mut near: UnixStream, id: u64, shared: &Shared) {
             return;
         }
     };
-    if method != "CONNECT" {
-        let why = "only CONNECT is let through: a session in a view reaches the endpoints of `reach` of its runner by a tunnel, never by plain HTTP";
-        shared.refuse(&line, why);
-        answer(&near, "403 Forbidden", why);
-        return;
-    }
-    let wanted = match endpoint(target) {
-        Ok(wanted) if shared.reach.contains(&wanted) => wanted,
-        _ => {
-            let why = "it is not in `reach` of the runner, and a session in a view reaches nothing else";
-            shared.refuse(&line, why);
-            answer(&near, "403 Forbidden", &format!("{} {}", target, why.trim_start_matches("it ")));
-            return;
+    // Plain HTTP (#336): a request in absolute form to a plain endpoint, sent on in origin form.
+    let (wanted, sent) = if method == "CONNECT" {
+        let found = endpoint(target).ok().and_then(|asked| shared.reach.iter().find(|one| one.same_place(&asked)).cloned());
+        match found {
+            Some(found) => (found, None),
+            None => {
+                let why = "it is not in `reach` of the runner, and a session in a view reaches nothing else";
+                shared.refuse(&line, why);
+                answer(&near, "403 Forbidden", &format!("{} {}", target, why.trim_start_matches("it ")));
+                return;
+            }
+        }
+    } else {
+        match plain_request(&head, &shared.reach) {
+            Ok((found, sent)) => (found, Some(sent)),
+            Err(why) => {
+                // Each says what is let through, and then why this is not.
+                let why = if why == NOT_ABSOLUTE { why } else { format!("{}: {}", NOT_ABSOLUTE, why) };
+                shared.refuse(&line, &why);
+                answer(&near, "403 Forbidden", &why);
+                return;
+            }
         }
     };
     let far = match connect(&wanted) {
@@ -459,20 +517,115 @@ fn serve(mut near: UnixStream, id: u64, shared: &Shared) {
         return;
     }
     let _ = near.set_read_timeout(None);
-    if near.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").is_err() {
-        return;
-    }
     let mut far = far;
+    match sent {
+        // A tunnel: what the session sends next is the far side's, unread.
+        None => {
+            if near.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").is_err() {
+                return;
+            }
+        }
+        // Plain HTTP: the head in origin form, and the far side answers.
+        Some(sent) => {
+            if far.write_all(&sent).is_err() {
+                return;
+            }
+        }
+    }
     if !rest.is_empty() && far.write_all(&rest).is_err() {
         return;
     }
     let _ = both_ways(near, far);
 }
 
-/// A connection to an endpoint, resolved here, outside the sandbox, within `CONNECT_WITHIN` for each address.
+/// Why plain HTTP is not let through, where the request is not in absolute form.
+const NOT_ABSOLUTE: &str = "only CONNECT is let through, or plain HTTP in absolute form, `<method> http://<host>:<port>/<path>`, to a plain endpoint of `reach` of the runner (`http://<host>:<port>`, on this machine)";
+
+/// The form plain HTTP is let through in.
+const ABSOLUTE: &str = "plain HTTP is let through as `<method> http://<host>:<port>/<path>`";
+
+/// A request other than `CONNECT` (#336): the plain endpoint of `reach` it is for, and its head in origin form, or why
+/// it is refused. `head` is the whole head, read under the limits, up to and with its empty line.
+fn plain_request(head: &[u8], reach: &[Endpoint]) -> Result<(Endpoint, Vec<u8>), String> {
+    let not_http = || "the request is not an HTTP request".to_string();
+    let end = head.windows(2).position(|two| two == b"\r\n").ok_or_else(not_http)?;
+    let (first, others) = (&head[..end], &head[end + 2..]);
+    let first = std::str::from_utf8(first).ok().filter(|text| text.is_ascii()).ok_or("the request line is not in ASCII")?;
+    let [method, target, version] = first.split(' ').collect::<Vec<&str>>()[..] else {
+        return Err(not_http());
+    };
+    if version != "HTTP/1.1" && version != "HTTP/1.0" {
+        return Err(not_http());
+    }
+    if method.is_empty() || method.len() > 20 || !method.bytes().all(|byte| byte.is_ascii_uppercase()) {
+        return Err("the request's method is not a word of capital letters".to_string());
+    }
+    let after = target.strip_prefix(PLAIN).ok_or(NOT_ABSOLUTE)?;
+    let slash = after.find('/').ok_or_else(|| format!("the target has no path: {}", ABSOLUTE))?;
+    let (authority, path) = after.split_at(slash);
+    if authority.contains('@') {
+        return Err(format!("the target names a user: {}", ABSOLUTE));
+    }
+    if path.bytes().any(|byte| byte <= b' ' || byte == 0x7f || byte == b'#') {
+        return Err("the target's path has a fragment, white space or a control character".to_string());
+    }
+    let asked = endpoint(authority).map_err(|why| format!("the target {}", why.replacen("is not `<host>:<port>`", "is not `http://<host>:<port>/<path>`", 1)))?;
+    let found = reach
+        .iter()
+        .find(|one| one.same_place(&asked))
+        .ok_or_else(|| format!("{} is not in `reach` of the runner, and a session in a view reaches nothing else", asked))?;
+    if !found.plain {
+        return Err(format!("{} takes CONNECT alone: it is not marked plain (`http://`) in `reach` of the runner, so plain HTTP is not let through to it", found));
+    }
+    if !PLAIN_HOSTS.contains(&found.host.as_str()) {
+        return Err("plain HTTP is let through to this machine alone".to_string());
+    }
+    // The lines of the head after the request line, each ending with CRLF, then the empty line.
+    let mut lines = others.strip_suffix(b"\r\n").ok_or_else(not_http)?;
+    let mut hosts: Vec<&[u8]> = Vec::new();
+    while !lines.is_empty() {
+        let end = lines.windows(2).position(|two| two == b"\r\n").ok_or("a line of the head does not end with CRLF")?;
+        let line = &lines[..end];
+        lines = &lines[end + 2..];
+        if line.contains(&b'\r') || line.contains(&b'\n') {
+            return Err("a line of the head has a CR or a LF alone".to_string());
+        }
+        if line.first().is_some_and(|byte| *byte == b' ' || *byte == b'\t') {
+            return Err("a line of the head is folded: it starts with white space".to_string());
+        }
+        let colon = line.iter().position(|byte| *byte == b':').ok_or("a line of the head has no colon")?;
+        let name = &line[..colon];
+        if name.is_empty() || name.iter().any(|byte| *byte <= b' ' || *byte == 0x7f) {
+            return Err("a line of the head has white space or nothing before its colon".to_string());
+        }
+        if name.eq_ignore_ascii_case(b"host") {
+            hosts.push(&line[colon + 1..]);
+        }
+    }
+    let host = match hosts[..] {
+        [] => return Err("the request has no `Host:` header".to_string()),
+        [one] => String::from_utf8_lossy(one).to_string(),
+        _ => return Err("the request has more than one `Host:` header".to_string()),
+    };
+    let host = host.trim_matches(|c| c == ' ' || c == '\t');
+    match endpoint(host) {
+        Ok(named) if named.same_place(&asked) => {}
+        _ => return Err(format!("the `Host:` header, {}, is not the target's host and port, {}", crate::issue::shown(host), asked)),
+    }
+    let mut sent = format!("{} {} {}\r\n", method, path, version).into_bytes();
+    sent.extend_from_slice(others);
+    Ok((found.clone(), sent))
+}
+
+/// A connection to an endpoint, resolved here, outside the sandbox, within `CONNECT_WITHIN` for each address. A plain
+/// endpoint is connected to only at a loopback address (#336).
 fn connect(wanted: &Endpoint) -> std::io::Result<TcpStream> {
-    let mut last = std::io::Error::new(std::io::ErrorKind::NotFound, "the name leads to no address");
+    let none = if wanted.plain { "the name leads to no loopback address" } else { "the name leads to no address" };
+    let mut last = std::io::Error::new(std::io::ErrorKind::NotFound, none);
     for address in (wanted.bare(), wanted.port).to_socket_addrs()? {
+        if wanted.plain && !address.ip().is_loopback() {
+            continue;
+        }
         match TcpStream::connect_timeout(&address, CONNECT_WITHIN) {
             Ok(stream) => return Ok(stream),
             Err(error) => last = error,

@@ -489,7 +489,7 @@ fn hooks_of(report: &mut Report, root: &str, host: &Host, runner: Option<&Runner
 }
 
 /// The runner's `reach` (#195): what a session in a view reaches, through `wb`'s proxy. A name is not resolved: `wb
-/// doctor` asks nothing of the network.
+/// doctor` asks nothing of the network. A plain endpoint (#336) is a warning that what passes to it is not encrypted.
 fn reach(report: &mut Report, runner: Option<&Runner>) {
     let Some(runner) = runner else {
         report.warning("reach", "not looked at: there is no default runner");
@@ -506,7 +506,16 @@ fn reach(report: &mut Report, runner: Option<&Runner>) {
         return;
     }
     for endpoint in &runner.reach {
-        if endpoint.on_this_machine() {
+        if endpoint.is_plain() {
+            // A plain endpoint is on this machine alone (#336).
+            report.warning(
+                "reach",
+                &format!(
+                    "{} is on this machine, and plain HTTP: what passes to it is not encrypted. A session in a view reaches the service there, through wb's proxy, and wb cannot tell whether it has a login",
+                    endpoint
+                ),
+            );
+        } else if endpoint.on_this_machine() {
             report.warning(
                 "reach",
                 &format!("{} is on this machine: a session in a view reaches the service there, through wb's proxy, and wb cannot tell whether it has a login", endpoint),

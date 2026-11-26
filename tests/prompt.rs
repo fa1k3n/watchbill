@@ -452,3 +452,67 @@ fn test_WB_PROMPT_19_utc_writes_fixed_times_in_the_form_of_the_stamp() {
         assert_eq!(watchbill::prompt::utc(seconds), expected, "{}", seconds);
     }
 }
+
+// ---- WB-CONF-30: the draft of the code style reaches every role (#289) ----
+
+const STYLE_MD: &str = ".watchbill/project/style.md";
+
+#[test]
+fn test_WB_CONF_30_a_committed_style_md_is_in_every_roles_prompt_after_all_md_and_before_the_roles_text() {
+    let folder = set_up();
+    put_committed(&folder.path, ".watchbill/project/all.md", "Everyone: use make.\n");
+    put_committed(&folder.path, STYLE_MD, "Name a function brake_<verb>.\n");
+    put_committed(&folder.path, ".watchbill/project/build.md", "Builders: run make test.\n");
+
+    let prompt = assemble(&folder.path, "build", &VALUES).unwrap();
+
+    let expected = format!(
+        "{}\n{}\n\nEveryone: use make.\n\nName a function brake_<verb>.\n\nBuilders: run make test.\n",
+        filled("build"),
+        FIXED_LINE
+    );
+    assert_eq!(prompt.text, expected);
+    let paths: Vec<&str> = prompt.parts.iter().map(|part| part.path.as_str()).collect();
+    assert_eq!(paths, [".watchbill/revision/roles/build.md", ".watchbill/project/all.md", STYLE_MD, ".watchbill/project/build.md"]);
+    for role in ["tester", "review", "fix", "planner"] {
+        let text = assemble(&folder.path, role, &VALUES).unwrap().text;
+        assert!(text.contains("\n\nEveryone: use make.\n\nName a function brake_<verb>.\n"), "{}: {}", role, text);
+    }
+    // Alone, where there is no all.md.
+    fs::remove_file(folder.path.join(".watchbill/project/all.md")).unwrap();
+    commit_path(&folder.path, ".watchbill/project/all.md");
+    let alone = assemble(&folder.path, "tester", &VALUES).unwrap().text;
+    assert_eq!(alone, format!("{}\n{}\n\nName a function brake_<verb>.\n", filled("tester"), FIXED_LINE));
+}
+
+#[test]
+fn test_WB_CONF_30_style_md_is_taken_only_as_head_has_it() {
+    let folder = set_up();
+    put(&folder.path, STYLE_MD, "Name a function brake_<verb>.\n");
+
+    let untracked = refused(&folder.path, "build");
+
+    assert!(untracked.contains(STYLE_MD) && untracked.contains("is not in HEAD"), "{}", untracked);
+    commit_path(&folder.path, STYLE_MD);
+    fs::write(folder.path.join(STYLE_MD), "Name a function anything.\n").unwrap();
+    let changed = refused(&folder.path, "review");
+    assert!(changed.contains(STYLE_MD) && changed.contains("differs from HEAD"), "{}", changed);
+}
+
+#[test]
+fn test_WB_CONF_30_the_placeholders_of_style_md_are_judged_as_those_of_all_md() {
+    let folder = set_up();
+    put_committed(&folder.path, STYLE_MD, "For {issue}, name a function {verb}_brake.\n");
+
+    let why = refused(&folder.path, "build");
+
+    assert!(why.contains(STYLE_MD) && why.contains("{verb}") && why.contains("is not known"), "{}", why);
+    let check = wb(&folder.path, &["check"], "");
+    assert_eq!(code(&check), Some(1), "{}{}", text(&check.stdout), text(&check.stderr));
+    let said = text(&check.stdout) + &text(&check.stderr);
+    assert!(said.contains(&format!("{}: line 1: the placeholder {{verb}} is not known", STYLE_MD)), "{}", said);
+    // A known one is filled, as in all.md.
+    put_committed(&folder.path, STYLE_MD, "For {issue}, name a function brake_<verb>.\n");
+    let text = assemble(&folder.path, "build", &VALUES).unwrap().text;
+    assert!(text.contains("For T-1 brake light, name a function brake_<verb>.\n"), "{}", text);
+}

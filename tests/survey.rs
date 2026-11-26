@@ -343,6 +343,23 @@ fn test_WB_INIT_62_of_clang_tidy_only_the_naming_rules_are_copied() {
 }
 
 #[test]
+fn test_WB_INIT_62_a_clang_tidy_whose_naming_rules_are_all_left_out_is_not_said_to_hold_none() {
+    let bench = Bench::new();
+    bench.organisation(LOCAL);
+    let folder = code_repository(&bench.home);
+    put(&folder.path, ".clang-tidy", "CheckOptions:\n  - key: readability-identifier-naming.FunctionCase\n    value: '{lower}_case'\n");
+    bench.home.commit_all(&folder.path);
+
+    let run = bench.init(&folder.path, &["--yes"]);
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    let all = read(&folder.path.join(ALL_MD));
+    assert!(all.contains("`.clang-tidy`") && all.contains("1 line left out"), "{}", all);
+    assert!(!all.contains("holds no naming rule"), "{}", all);
+    assert!(!all.contains("{lower}"), "{}", all);
+}
+
+#[test]
 fn test_WB_INIT_63_the_facts_of_the_code_are_written_with_the_files_they_were_seen_in() {
     let bench = Bench::new();
     bench.organisation(LOCAL);
@@ -646,6 +663,52 @@ fn test_WB_INIT_71_the_session_runs_in_a_view_of_the_whole_tree_and_only_style_m
 }
 
 #[test]
+fn test_WB_INIT_71_a_draft_line_with_a_control_character_or_a_placeholder_is_left_out_and_counted() {
+    let bench = Bench::new();
+    bench.organisation(LOCAL);
+    // An escape, a right-to-left override (U+202E) and a known placeholder, each on a line of its own.
+    bench.session(
+        "session.sh",
+        "#!/bin/sh\nprintf '# The code style\\n\\nkept\\na \\033[31m red\\nb \\342\\200\\256 turned\\nc {issue} filled\\nalso kept\\n' > .watchbill/project/style.md\n",
+    );
+    let folder = set_up(&bench.home);
+
+    let run = bench.init(&folder.path, &["--survey"]);
+
+    assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
+    assert_eq!(read(&folder.path.join(STYLE_MD)), "# The code style\n\nkept\nalso kept\n");
+    let said = text(&run.stdout) + &text(&run.stderr);
+    assert!(said.contains("3 lines left out"), "{}", said);
+}
+
+#[test]
+fn test_WB_INIT_71_a_project_folder_of_head_that_is_a_link_is_refused_before_the_session() {
+    let bench = Bench::new();
+    bench.organisation(LOCAL);
+    let ran = bench.log.path.join("ran");
+    bench.session("session.sh", &format!("#!/bin/sh\ntouch '{}'\necho drafted > .watchbill/project/style.md\n", ran.display()));
+    let folder = set_up(&bench.home);
+    let outside = folder_named("outside");
+    let project = folder.path.join(".watchbill/project");
+    fs::remove_dir_all(&project).unwrap();
+    std::os::unix::fs::symlink(&outside.path, &project).unwrap();
+    bench.home.commit_all(&folder.path);
+    // The working tree has a real folder again, not committed.
+    fs::remove_file(&project).unwrap();
+    fs::create_dir(&project).unwrap();
+
+    let run = bench.init(&folder.path, &["--survey"]);
+
+    assert_eq!(code(&run), Some(1), "{}", text(&run.stderr));
+    let err = text(&run.stderr);
+    assert!(err.contains(".watchbill/project of HEAD is a link"), "{}", err);
+    assert!(!ran.exists(), "the session ran");
+    assert_eq!(fs::read_dir(&outside.path).unwrap().count(), 0);
+    assert!(fs::symlink_metadata(folder.path.join(STYLE_MD)).is_err());
+    assert!(bench.left().is_empty(), "{:?}", bench.left());
+}
+
+#[test]
 fn test_WB_INIT_72_a_style_md_that_is_there_is_never_written_over_and_nothing_runs() {
     let bench = Bench::new();
     bench.organisation(LOCAL);
@@ -687,6 +750,27 @@ fn test_WB_INIT_73_a_session_that_fails_or_leaves_no_plain_draft_writes_nothing(
         assert!(fs::symlink_metadata(folder.path.join(STYLE_MD)).is_err(), "{}: a style.md was written", name);
         assert!(bench.left().is_empty(), "{}: {:?}", name, bench.left());
     }
+}
+
+#[test]
+fn test_WB_INIT_73_a_session_that_fails_leaves_no_folder_made_in_the_working_tree() {
+    let bench = Bench::new();
+    bench.organisation(LOCAL);
+    bench.session("session.sh", "#!/bin/sh\necho drafted > .watchbill/project/style.md\nexit 3\n");
+    let folder = set_up(&bench.home);
+    let project = folder.path.join(".watchbill/project");
+    fs::remove_dir_all(&project).unwrap();
+
+    let failed = bench.init(&folder.path, &["--survey"]);
+
+    assert_eq!(code(&failed), Some(1), "{}", text(&failed.stderr));
+    assert!(fs::symlink_metadata(&project).is_err(), "a folder was made in the working tree");
+    assert!(bench.left().is_empty(), "{:?}", bench.left());
+    // Where the session ends with 0, the folder is made with the draft.
+    bench.session("session.sh", "#!/bin/sh\necho drafted > .watchbill/project/style.md\n");
+    let taken = bench.init(&folder.path, &["--survey"]);
+    assert_eq!(code(&taken), Some(0), "{}", text(&taken.stderr));
+    assert_eq!(read(&folder.path.join(STYLE_MD)), "drafted\n");
 }
 
 #[test]

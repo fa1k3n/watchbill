@@ -261,6 +261,8 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
     // The plan as the walked tip holds it (#234, the review of #328): what every stamp's `job:` lines are checked
     // against, so that a signed stamp brought onto the ref from elsewhere is held to this repository's job.
     let sources = crate::plan::source_hashes_at(root, &tip);
+    // Where the tip holds a plan removed: the commit that removed it and the sources it had (#329).
+    let removed = if sources.is_empty() { crate::plan::removed_plan(root, &tip) } else { None };
     let checking = matches!(keys, Keys::List(_));
     // Why each commit is not as `wb` writes it, where it is not (#327).
     let mut faults: std::collections::HashMap<String, String> = std::collections::HashMap::new();
@@ -326,7 +328,7 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
         };
         let counts = signed.and_then(|by| {
             of_this_issue(&message, name)?;
-            of_this_repository(root, &message, &sources)?;
+            of_this_repository(root, &message, &sources, removed.as_ref())?;
             Ok(by)
         });
         ledger.entries.push(Entry { commit, first, message, counts });
@@ -426,7 +428,7 @@ fn of_this_issue(message: &str, name: &str) -> Result<(), String> {
 /// repository has, and its `job:` lines are `job: none` where the tip of the ref holds no plan (or a removed one), and
 /// else a non-empty prefix, in order, of the tip's `sources`: a later `wb plan add` only adds a source at the end, so
 /// the stamps before it stay counted. A genuine stamp of another repository, put on this ref, fails one of the two.
-fn of_this_repository(root: &str, message: &str, sources: &[String]) -> Result<(), String> {
+fn of_this_repository(root: &str, message: &str, sources: &[String], removed: Option<&(String, Vec<String>)>) -> Result<(), String> {
     const OTHER: &str = "a stamp of another repository";
     let bases: Vec<&str> = message.lines().filter_map(|held| held.strip_prefix("base:")).collect();
     let base = match bases.as_slice() {
@@ -441,6 +443,12 @@ fn of_this_repository(root: &str, message: &str, sources: &[String]) -> Result<(
     let held: Vec<&str> = message.lines().filter_map(|line| line.strip_prefix("job:")).map(|rest| rest.strip_prefix(' ').unwrap_or(rest)).collect();
     let fits = if sources.is_empty() { held == ["none"] } else { !held.is_empty() && held.len() <= sources.len() && held.iter().zip(sources).all(|(held, source)| *held == source.as_str()) };
     if !fits {
+        // Lines that are a start of the sources of the plan removed on this ref are that plan's own stamps (#329).
+        if let Some((short, before)) = removed {
+            if !held.is_empty() && held.len() <= before.len() && held.iter().zip(before).all(|(held, source)| *held == source.as_str()) {
+                return Err(format!("made under the plan removed in {}", short));
+            }
+        }
         return Err(format!("{}: its lines `job:` are not those of the job this repository holds on its ref", OTHER));
     }
     Ok(())

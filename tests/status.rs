@@ -1319,3 +1319,431 @@ fn test_WB_STATUS_83_a_view_named_beside_its_round_is_not_named_again_on_a_kept_
     assert_eq!(out.matches(&view.display().to_string()).count(), 1, "{}", out);
     assert!(!out.contains("kept: build round 1"), "{}", out);
 }
+
+// ---- #284: `wb status` as `git status`: by whose move, coloured, with git's short and porcelain forms ----
+
+/// `wb status` run in a home of its own: its `HOME`, `XDG_CONFIG_HOME` and `GIT_CONFIG_GLOBAL` are the test's, and no
+/// terminal is on standard output, as with a pipe.
+fn run_status(folder: &Path, args: &[&str]) -> std::process::Output {
+    run_status_in(folder, None, args)
+}
+
+fn run_status_in(folder: &Path, state: Option<&Path>, args: &[&str]) -> std::process::Output {
+    let home = common::folder_named("home");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_wb"));
+    command
+        .arg("status")
+        .args(args)
+        .current_dir(folder)
+        .env_clear()
+        .envs(env().into_iter().filter(|(name, _)| name != "HOME" && name != "XDG_CONFIG_HOME" && name != "XDG_STATE_HOME"))
+        .env("HOME", &home.path)
+        .env("XDG_CONFIG_HOME", home.path.join(".config"))
+        .env("GIT_CONFIG_GLOBAL", home.path.join("gitconfig"))
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("XDG_STATE_HOME", state.unwrap_or(Path::new(NO_STATE)))
+        .env_remove("NO_COLOR")
+        .stdin(Stdio::null());
+    command.output().expect("wb could not be started")
+}
+
+fn said(folder: &Path, args: &[&str]) -> (String, Option<i32>) {
+    let run = run_status(folder, args);
+    (text(&run.stdout), code(&run))
+}
+
+/// The mock-up of the issue: 176 has a question open, 184 is planned and waits for its acceptance, and the others are
+/// an agent's move.
+fn mock_up() -> Folder {
+    let folder = set_up();
+    open(&folder.path, &["175", "176", "177", "179", "183", "184"]);
+    comments(&folder.path, "175", &[]);
+    comments(&folder.path, "176", &["[stamp] build round 1"]);
+    stamps_on_ref(&folder.path, "176", &["[questions] 176.build q1\n\nq1: Which one?\n"]);
+    comments(&folder.path, "177", &["[stamp] tester round 1", "[stamp] build round 1", "[stamp] review round 1"]);
+    comments(&folder.path, "179", &["[stamp] tester round 1", "[stamp] build round 1"]);
+    comments(&folder.path, "183", &["[stamp] tester round 1"]);
+    comments(&folder.path, "184", &[]);
+    for issue in ["175", "176", "177", "179", "183"] {
+        branch(&folder.path, issue, true);
+    }
+    branch(&folder.path, "184", false);
+    folder
+}
+
+const WAITING: &str = "Jobs waiting for you:\n  (use \"wb plan accept <name>...\" to accept the plan)\n  (use \"wb answer <issue>...\" to answer its questions)\n\t176  issue-176-work  built, 1 question open\n\t184  issue-184-work  planned\n";
+const FLOW: &str = "Jobs in the flow:\n\t175  issue-175-work  accepted\n\t177  issue-177-work  reviewed\n\t179  issue-179-work  built\n\t183  issue-183-work  tested\n";
+
+#[test]
+fn test_WB_STATUS_103_jobs_are_under_the_heading_of_whose_move_it_is() {
+    let folder = mock_up();
+    let (out, status) = said(&folder.path, &[]);
+    assert_eq!(status, Some(0));
+    assert_eq!(out, format!("{}\n{}", WAITING, FLOW));
+}
+
+#[test]
+fn test_WB_STATUS_103_a_heading_with_no_job_is_not_printed() {
+    let folder = set_up();
+    open(&folder.path, &["3", "4"]);
+    comments(&folder.path, "3", &[]);
+    comments(&folder.path, "4", &["[stamp] tester round 1"]);
+    branch(&folder.path, "3", true);
+    branch(&folder.path, "4", true);
+    let (out, _) = said(&folder.path, &[]);
+    assert_eq!(out, "Jobs in the flow:\n\t3  issue-3-work  accepted\n\t4  issue-4-work  tested\n");
+    let folder = set_up();
+    open(&folder.path, &["3"]);
+    comments(&folder.path, "3", &[]);
+    branch(&folder.path, "3", false);
+    let (out, _) = said(&folder.path, &[]);
+    assert_eq!(out, "Jobs waiting for you:\n  (use \"wb plan accept <name>...\" to accept the plan)\n\t3  issue-3-work  planned\n");
+}
+
+#[test]
+fn test_WB_STATUS_104_each_line_ends_with_the_stage_word_and_no_letter_stands_for_it() {
+    let folder = at_every_step();
+    let (out, status) = said(&folder.path, &[]);
+    assert_eq!(status, Some(0));
+    for (issue, word) in [("2", "planned"), ("3", "accepted"), ("4", "tested"), ("5", "built"), ("6", "reviewed"), ("7", "fixed")] {
+        let line = format!("\t{}  issue-{}-work  {}\n", issue, issue, word);
+        assert!(out.contains(&line), "{:?} not in {}", line, out);
+    }
+    // The old words of the steps are no heading any more.
+    for old in ["Planned:", "Accepted:", "Tested:", "Built:", "Reviewed:", "Fixed:", "Not planned:", "Questions open:", "Needs a person:"] {
+        assert!(!out.contains(old), "{} in {}", old, out);
+    }
+}
+
+#[test]
+fn test_WB_STATUS_105_a_job_not_broken_down_is_not_listed() {
+    let folder = set_up();
+    open(&folder.path, &["1"]);
+    comments(&folder.path, "1", &[]);
+    let run = run_status(&folder.path, &[]);
+    assert_eq!(code(&run), Some(0));
+    assert_eq!(text(&run.stdout), "");
+    assert_eq!(said(&folder.path, &["--short"]).0, "");
+    assert_eq!(said(&folder.path, &["--porcelain"]).0, "");
+}
+
+#[test]
+fn test_WB_STATUS_105_a_job_not_broken_down_that_waits_for_a_person_is_listed_with_no_stage_word() {
+    let folder = set_up();
+    open(&folder.path, &["178"]);
+    comments(&folder.path, "178", &["[question] 178.q1", "[question] 178.q2"]);
+    let (out, _) = said(&folder.path, &[]);
+    assert_eq!(out, "Jobs waiting for you:\n  (use \"wb answer <issue>...\" to answer its questions)\n\t178  issue-178-work  2 questions open\n");
+}
+
+#[test]
+fn test_WB_STATUS_106_the_hints_are_in_gits_form_and_only_for_what_a_job_of_the_heading_can_do() {
+    let folder = set_up();
+    open(&folder.path, &["5"]);
+    comments(&folder.path, "5", &["[question] 5.q1"]);
+    let (out, _) = said(&folder.path, &[]);
+    assert!(out.contains("\n  (use \"wb answer <issue>...\" to answer its questions)\n"), "{}", out);
+    assert!(!out.contains("wb plan accept"), "{}", out);
+    // Every hint line is two spaces, a bracket, `use "...", to ...` and a bracket; the flow has none.
+    let folder = mock_up();
+    let (out, _) = said(&folder.path, &[]);
+    for line in out.lines().filter(|line| line.contains("(use ")) {
+        assert!(line.starts_with("  (use \"wb ") && line.ends_with(')') && line.contains("\" to "), "{}", line);
+    }
+    let flow = out.split("Jobs in the flow:").nth(1).unwrap();
+    assert!(!flow.contains("(use"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_107_status_hints_false_in_watchbill_yml_turns_the_hints_off() {
+    let folder = mock_up();
+    add_patterns(&folder.path, "status_hints: false\n");
+    let (out, status) = said(&folder.path, &[]);
+    assert_eq!(status, Some(0));
+    assert!(!out.contains("(use"), "{}", out);
+    assert!(out.contains("\t176  issue-176-work  built, 1 question open\n"), "{}", out);
+    assert_eq!(said(&folder.path, &["176"]).0.contains("(use"), false);
+}
+
+#[test]
+fn test_WB_STATUS_107_status_hints_true_keeps_them_and_a_value_that_is_no_boolean_is_refused() {
+    let folder = mock_up();
+    add_patterns(&folder.path, "status_hints: true\n");
+    assert_eq!(said(&folder.path, &[]).0, format!("{}\n{}", WAITING, FLOW));
+    let folder = mock_up();
+    add_patterns(&folder.path, "status_hints: sometimes\n");
+    let run = run_status(&folder.path, &[]);
+    assert_eq!(code(&run), Some(2));
+    assert!(text(&run.stdout).is_empty());
+    assert!(text(&run.stderr).contains("status_hints"), "{}", text(&run.stderr));
+    // A word that YAML may read as a boolean is refused too: only `true` and `false` are written.
+    let folder = mock_up();
+    add_patterns(&folder.path, "status_hints: no\n");
+    assert_eq!(code(&run_status(&folder.path, &[])), Some(2));
+}
+
+#[test]
+fn test_WB_STATUS_108_colour_is_red_for_waiting_and_green_for_the_flow_as_git_colours_what_is_not_staged_and_what_is() {
+    let folder = mock_up();
+    let (out, status) = said(&folder.path, &["--color=always"]);
+    assert_eq!(status, Some(0));
+    let expected = format!("{}\n{}", WAITING, FLOW);
+    let red = |line: &str| format!("\t\x1b[31m{}\x1b[m\n", line.trim_start_matches('\t'));
+    let green = |line: &str| format!("\t\x1b[32m{}\x1b[m\n", line.trim_start_matches('\t'));
+    let mut want = expected.clone();
+    for line in expected.lines().filter(|line| line.starts_with('\t')) {
+        let coloured = if line.contains("176") || line.contains("184") { red(line) } else { green(line) };
+        want = want.replace(&format!("{}\n", line), &coloured);
+    }
+    assert_eq!(out, want);
+    // The headings and the hints are not coloured: whose move it is is said by the heading too.
+    assert!(out.contains("Jobs waiting for you:\n  (use "), "{:?}", out);
+}
+
+#[test]
+fn test_WB_STATUS_108_there_is_no_colour_in_a_pipe_nor_with_never_and_color_alone_is_always() {
+    let folder = mock_up();
+    let plain = format!("{}\n{}", WAITING, FLOW);
+    assert_eq!(said(&folder.path, &[]).0, plain);
+    assert_eq!(said(&folder.path, &["--color=auto"]).0, plain);
+    assert_eq!(said(&folder.path, &["--color=never"]).0, plain);
+    assert!(said(&folder.path, &["--color"]).0.contains("\x1b[32m"));
+    assert_eq!(said(&folder.path, &["--color=always"]).0, said(&folder.path, &["--color"]).0);
+    let run = run_status(&folder.path, &["--color=sometimes"]);
+    assert_eq!(code(&run), Some(2));
+    assert!(text(&run.stderr).contains("sometimes"), "{}", text(&run.stderr));
+    assert_eq!(code(&run_status(&folder.path, &["--color=never", "--color=always"])), Some(2));
+}
+
+const SHORT: &str = "A  175 issue-175-work\nBQ 176 issue-176-work\nR  177 issue-177-work\nB  179 issue-179-work\nT  183 issue-183-work\nPP 184 issue-184-work\n";
+
+#[test]
+fn test_WB_STATUS_109_short_is_one_line_a_job_with_two_columns_as_git_has_them() {
+    let folder = mock_up();
+    for flag in ["--short", "-s"] {
+        let (out, status) = said(&folder.path, &[flag]);
+        assert_eq!(status, Some(0), "{}", flag);
+        assert_eq!(out, SHORT, "{}", flag);
+    }
+    // Coloured as git does: the first column green, the second red, and a blank column not at all.
+    let (out, _) = said(&folder.path, &["-s", "--color=always"]);
+    assert!(out.contains("\x1b[32mA\x1b[m  175 issue-175-work\n"), "{:?}", out);
+    assert!(out.contains("\x1b[32mB\x1b[m\x1b[31mQ\x1b[m 176 issue-176-work\n"), "{:?}", out);
+    assert!(out.contains("\x1b[32mP\x1b[m\x1b[31mP\x1b[m 184 issue-184-work\n"), "{:?}", out);
+    // No hint and no heading.
+    assert!(!said(&folder.path, &["-s"]).0.contains("(use"));
+}
+
+#[test]
+fn test_WB_STATUS_110_porcelain_is_the_same_fixed_lines_with_no_colour_and_no_hint() {
+    let folder = mock_up();
+    let (out, status) = said(&folder.path, &["--porcelain"]);
+    assert_eq!(status, Some(0));
+    assert_eq!(out, SHORT);
+    assert_eq!(said(&folder.path, &["--porcelain", "--color=always"]).0, SHORT);
+    assert_eq!(said(&folder.path, &["--short", "--porcelain", "--color=always"]).0, SHORT);
+    add_patterns(&folder.path, "status_hints: true\n");
+    assert_eq!(said(&folder.path, &["--porcelain"]).0, SHORT);
+}
+
+#[test]
+fn test_WB_STATUS_111_short_and_porcelain_of_one_issue_and_of_a_stage_print_the_lines_that_match() {
+    let folder = mock_up();
+    assert_eq!(said(&folder.path, &["-s", "176"]).0, "BQ 176 issue-176-work\n");
+    assert_eq!(said(&folder.path, &["--porcelain", "184"]).0, "PP 184 issue-184-work\n");
+    assert_eq!(said(&folder.path, &["-s", "--stage", "built"]).0, "BQ 176 issue-176-work\nB  179 issue-179-work\n");
+    // A job that is not in the list has no line, as a clean path has none in git.
+    let (out, status) = said(&folder.path, &["-s", "999"]);
+    assert_eq!((out.as_str(), status), ("", Some(0)));
+}
+
+#[test]
+fn test_WB_STATUS_112_one_issue_lists_its_acceptances_and_each_session_from_its_stamp() {
+    let folder = mock_up();
+    let (out, status) = said(&folder.path, &["179"]);
+    assert_eq!(status, Some(0));
+    assert!(out.contains("\naccepted: the issue's file "), "{}", out);
+    let tip = git_text(&folder.path, &["rev-list", "--reverse", "refs/watchbill/179"]);
+    let stamps: Vec<&str> = tip.lines().collect();
+    let first: String = stamps[stamps.len() - 2].chars().take(12).collect();
+    let second: String = stamps[stamps.len() - 1].chars().take(12).collect();
+    let want = format!(
+        "Sessions:\n  tester round 1, 2000-01-01T00:00:00Z, {}\n    ended: not known on this machine\n    came back: no commit is named by a note\n  build round 1, 2000-01-01T00:00:00Z, {}\n    ended: not known on this machine\n    came back: no commit is named by a note\n",
+        first, second
+    );
+    assert!(out.contains(&want), "{:?} not in {}", want, out);
+    // The list names no session.
+    assert!(!said(&folder.path, &[]).0.contains("Sessions"));
+}
+
+#[test]
+fn test_WB_STATUS_112_a_session_says_how_it_ended_from_the_lines_of_its_start_on_this_machine() {
+    let (folder, state) = stamped_3();
+    session(&state.path, "tester", "3", 1, ENDED, Some(TAKEN));
+    // The start's own copy of the stamp is its whole message, as the commit has it.
+    fs::write(state.path.join("watchbill/sessions/2026-11-24T100100Z-tester-3/stamp"), "[stamp] tester round 1\ntime: 2000-01-01T00:00:00Z\n").unwrap();
+    let run = run_status_in(&folder.path, Some(&state.path), &["3"]);
+    let out = text(&run.stdout);
+    assert!(out.contains("Sessions:\n  tester round 1, 2000-01-01T00:00:00Z, "), "{}", out);
+    assert!(out.contains("    ended: outcome: ended; status: 0; seconds: 5\n"), "{}", out);
+    assert!(out.contains("  build round 1, 2000-01-01T00:00:00Z, "), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_112_a_session_says_the_commits_a_note_names_for_its_stamp_and_that_a_note_is_not_signed() {
+    let (folder, _state) = stamped_3();
+    let stamp = git_text(&folder.path, &["rev-list", "--reverse", "refs/watchbill/3"]).lines().next().unwrap().to_string();
+    let head = git_text(&folder.path, &["rev-parse", "issue-3-work"]).trim().to_string();
+    git(&folder.path, &["notes", "--ref=refs/notes/watchbill", "add", "-f", "-m", &format!("stamp: {}\nbase: {}", stamp, head), &head]);
+    let (out, _) = said(&folder.path, &["3"]);
+    let line = format!("    came back: 1 commit named by a note, which is not signed: {}\n", &head[..12]);
+    assert!(out.contains(&line), "{:?} not in {}", line, out);
+    // The other session has none.
+    assert!(out.contains("    came back: no commit is named by a note\n"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_113_a_kept_view_has_a_hint_that_says_how_to_start_again() {
+    let (folder, state) = stamped_3();
+    let view = state.path.join("watchbill/views/view-1");
+    fs::create_dir_all(&view).unwrap();
+    session(&state.path, "tester", "3", 1, ENDED, Some(TAKEN));
+    session(&state.path, "build", "3", 1, ENDED, Some(&format!("{}uncommitted: src/a.c\nuncommitted: src/b.c\nview: kept {}\n", TAKEN, view.display())));
+    let run = run_status_in(&folder.path, Some(&state.path), &["3"]);
+    let out = text(&run.stdout);
+    let kept = format!("kept: build round 1, 2 paths left uncommitted, {}\n  (use \"wb start build 3 --ignore-kept\" to start again, or remove the folder)\n", view.display());
+    assert!(out.contains(&kept), "{:?} not in {}", kept, out);
+    // The setting turns it off, as every hint.
+    add_patterns(&folder.path, "status_hints: false\n");
+    let run = run_status_in(&folder.path, Some(&state.path), &["3"]);
+    let out = text(&run.stdout);
+    assert!(out.contains("kept: build round 1, 2 paths left uncommitted"), "{}", out);
+    assert!(!out.contains("(use"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_114_stage_is_matched_on_the_stage_words_without_regard_to_case() {
+    let folder = mock_up();
+    let (out, status) = said(&folder.path, &["--stage", "BUILT"]);
+    assert_eq!(status, Some(0));
+    assert_eq!(
+        out,
+        "Jobs waiting for you:\n  (use \"wb answer <issue>...\" to answer its questions)\n\t176  issue-176-work  built, 1 question open\n\nJobs in the flow:\n\t179  issue-179-work  built\n"
+    );
+    assert_eq!(said(&folder.path, &["--stage", "planned"]).0, "Jobs waiting for you:\n  (use \"wb plan accept <name>...\" to accept the plan)\n\t184  issue-184-work  planned\n");
+    assert_eq!(said(&folder.path, &["--stage", "fixed"]), (String::new(), Some(0)));
+    assert_eq!(said(&folder.path, &["--stage", "not read"]), (String::new(), Some(0)));
+    // The headings of before are no stage word: they are used wrongly.
+    for old in ["questions open", "needs a person", "not planned", "done", "jobs in the flow"] {
+        let run = run_status(&folder.path, &["--stage", old]);
+        assert_eq!(code(&run), Some(2), "{}", old);
+        assert!(text(&run.stdout).is_empty());
+    }
+}
+
+#[test]
+fn test_WB_STATUS_115_the_columns_are_as_wide_as_the_widest_across_both_headings() {
+    let folder = set_up();
+    add_patterns(&folder.path, "change_of_branch: \"cat .tracker/{branch}.change\"\n");
+    put(&folder.path, ".tracker/issue-9-work.change", "178\n");
+    put(&folder.path, ".tracker/issue-10-work.change", "");
+    for issue in ["9", "10"] {
+        comments(&folder.path, issue, &[]);
+    }
+    branch(&folder.path, "9", true);
+    branch(&folder.path, "10", false);
+    let (out, status) = said(&folder.path, &[]);
+    assert_eq!(status, Some(0));
+    assert_eq!(
+        out,
+        "Jobs waiting for you:\n  (use \"wb plan accept <name>...\" to accept the plan)\n\t10  issue-10-work        planned\n\nJobs in the flow:\n\t9   issue-9-work   #178  accepted\n"
+    );
+}
+
+#[test]
+fn test_WB_STATUS_116_a_job_that_could_not_be_read_is_under_not_read_and_in_short_forms_has_two_question_marks() {
+    let folder = set_up();
+    open(&folder.path, &["1", "2", "3"]);
+    comments(&folder.path, "1", &[]);
+    comments(&folder.path, "3", &[]);
+    branch(&folder.path, "3", true);
+    let run = run_status(&folder.path, &[]);
+    assert_eq!(code(&run), Some(1));
+    assert_eq!(text(&run.stdout), "Jobs in the flow:\n\t3  issue-3-work  accepted\n\nNot read:\n  2  `issue_comments` of watchbill.yml ended with 1\n");
+    for flag in ["-s", "--porcelain"] {
+        let run = run_status(&folder.path, &[flag]);
+        assert_eq!(code(&run), Some(1), "{}", flag);
+        assert_eq!(text(&run.stdout), "A  3 issue-3-work\n?? 2\n", "{}", flag);
+        assert!(text(&run.stderr).contains("2"), "{}", text(&run.stderr));
+    }
+}
+
+#[test]
+fn test_WB_STATUS_117_one_issue_prints_its_job_under_its_heading_with_the_hints_and_the_title_last() {
+    let folder = mock_up();
+    add_patterns(&folder.path, "issue_address: \"cat .tracker/{issue}.address\"\n");
+    put(&folder.path, ".tracker/176.address", "Which one\nThe rest\n");
+    let (out, status) = said(&folder.path, &["176"]);
+    assert_eq!(status, Some(0));
+    assert!(out.starts_with("Jobs waiting for you:\n  (use \"wb answer <issue>...\" to answer its questions)\n\t176  issue-176-work  built, 1 question open  Which one\n\nWorked out from:\n"), "{}", out);
+    let (out, _) = said(&folder.path, &["175"]);
+    assert!(out.starts_with("Jobs in the flow:\n\t175  issue-175-work  accepted\n\nWorked out from:\n"), "{}", out);
+    assert!(!out.contains("(use"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_118_a_job_that_needs_a_person_or_waits_for_one_says_so_on_its_line() {
+    let folder = set_up();
+    open(&folder.path, &["54", "55", "56"]);
+    comments(&folder.path, "54", &["[stamp] build round 1"]);
+    stamps_on_ref(&folder.path, "54", &["[needs_person] 54.build\n\nThe CRC part is not there.\n"]);
+    comments(&folder.path, "55", &["[stamp] build round 1"]);
+    stamps_on_ref(&folder.path, "55", &["[needs_person] 55.build\n\n"]);
+    comments(&folder.path, "56", &["[stamp] build round 1", "[questions] 56.build q3", "[answers] 56.build q3>person"]);
+    branch(&folder.path, "54", true);
+    branch(&folder.path, "55", true);
+    branch(&folder.path, "56", true);
+    let (out, status) = said(&folder.path, &[]);
+    assert_eq!(status, Some(0));
+    assert!(out.contains("\t54  issue-54-work  built, needs a person: The CRC part is not there.\n"), "{}", out);
+    assert!(out.contains("\t55  issue-55-work  built, needs a person\n"), "{}", out);
+    assert!(out.contains("\t56  issue-56-work  accepted, waits for person (56.build.q3)\n"), "{}", out);
+    assert!(out.starts_with("Jobs waiting for you:\n"), "{}", out);
+    assert!(!out.contains("Jobs in the flow"), "{}", out);
+    assert_eq!(said(&folder.path, &["-s"]).0, "BN 54 issue-54-work\nBN 55 issue-55-work\nAW 56 issue-56-work\n");
+}
+
+#[test]
+fn test_WB_STATUS_119_the_usage_the_manual_and_the_completion_name_the_new_flags() {
+    let folder = set_up();
+    let run = run_status(&folder.path, &["--nosuch"]);
+    assert_eq!(code(&run), Some(2));
+    let usage = text(&run.stderr);
+    for word in ["--short", "-s", "--porcelain", "--color"] {
+        assert!(usage.contains(word), "{} not in {}", word, usage);
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    for (file, needle) in [
+        ("packaging/man/wb-status.1", "--short"),
+        ("packaging/man/wb-status.1", "--porcelain"),
+        ("packaging/man/wb-status.1", "--color"),
+        ("packaging/man/wb-status.1", "status_hints"),
+        ("packaging/wb.bash", "--short"),
+        ("packaging/wb.bash", "--porcelain"),
+        ("packaging/wb.bash", "--color"),
+    ] {
+        assert!(read(&root.join(file)).contains(needle), "{} lacks {}", file, needle);
+    }
+    // The values of --color are completed.
+    assert!(read(&root.join("packaging/wb.bash")).contains("always"), "wb.bash lacks the values of --color");
+}
+
+#[test]
+fn test_WB_STATUS_120_the_readme_says_the_hints_the_setting_and_the_forms() {
+    let readme = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join("README.md"));
+    for needle in ["Jobs waiting for you", "Jobs in the flow", "status_hints", "--porcelain", "--short", "--color", "(use \"wb answer <issue>...\" to answer its questions)"] {
+        assert!(readme.contains(needle), "the README lacks {}", needle);
+    }
+    // The rule of before is gone.
+    assert!(!readme.contains("says what is, never what to do"), "the README keeps the rule of before");
+}

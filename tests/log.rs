@@ -395,6 +395,55 @@ fn test_WB_STATUS_97_a_marker_that_took_back_nothing_says_so_in_plain_words() {
     assert_eq!(one.lines().last().unwrap(), format!("{} marker tester round 9, took back nothing", &marker[..12]), "{}", one);
 }
 
+// ---- WB-STATUS-97: the role of a needs_person commit on an issue whose name holds a dot ----
+
+#[test]
+fn test_WB_STATUS_97_the_role_of_a_needs_person_commit_is_read_after_the_whole_name_of_the_issue() {
+    let folder = set_up();
+    stamps_on_ref(&folder.path, "1.2", &["[stamp] build round 1\ntime: 2026-11-24T10:00:00Z\n"]);
+    stamps_on_ref(&folder.path, "1.2", &["[needs_person] 1.2\n\nThe plan is unclear.\n"]);
+    let planner = tip(&folder.path, "1.2");
+    stamps_on_ref(&folder.path, "1.2", &["[needs_person] 1.2.build\n\nThe part is not there.\n"]);
+    let build = tip(&folder.path, "1.2");
+    let (out, err, status) = log(&folder.path, &["1.2"]);
+    assert_eq!(status, Some(0), "{}", err);
+    let lines: Vec<&str> = out.lines().collect();
+    let at = lines.iter().position(|line| *line == format!("needs_person {}", planner)).unwrap_or_else(|| panic!("{}", out));
+    assert_eq!(lines[at + 1], "    Reason: The plan is unclear.", "{}", out);
+    let at = lines.iter().position(|line| *line == format!("needs_person {}", build)).unwrap();
+    assert_eq!(lines[at + 1], "    Role: build", "{}", out);
+    let (one, _, _) = log(&folder.path, &["--oneline", "1.2"]);
+    assert!(one.lines().any(|line| line == format!("{} needs_person, reason The plan is unclear.", &planner[..12])), "{}", one);
+    assert!(one.lines().any(|line| line == format!("{} needs_person build, reason The part is not there.", &build[..12])), "{}", one);
+}
+
+// ---- WB-STATUS-97: what a marker that took back nothing says is true of each case ----
+
+#[test]
+fn test_WB_STATUS_97_a_second_marker_for_a_stamp_already_taken_back_says_by_which() {
+    let (folder, _) = with_history();
+    stamps_on_ref(&folder.path, "12", &["[revert] build round 1\n"]);
+    let first = tip(&folder.path, "12");
+    stamps_on_ref(&folder.path, "12", &["[revert] build round 1\n"]);
+    let second = tip(&folder.path, "12");
+    let (out, _, _) = log(&folder.path, &["12"]);
+    assert!(out.lines().any(|line| line == format!("    Took back: nothing more, [stamp] build round 1 is already taken back by {}", first)), "{}", out);
+    let (one, _, _) = log(&folder.path, &["--oneline", "12"]);
+    assert!(one.lines().any(|line| line == format!("{} marker build round 1, took back nothing more, already taken back by {}", &second[..12], &first[..12])), "{}", one);
+}
+
+#[test]
+fn test_WB_STATUS_97_a_marker_of_the_planner_says_it_takes_nothing_back() {
+    let folder = set_up();
+    stamps_on_ref(&folder.path, "12", &["[stamp] planner round 1\ntime: 2026-11-24T10:00:00Z\n", "[revert] planner round 1\n"]);
+    let marker = tip(&folder.path, "12");
+    let (out, err, status) = log(&folder.path, &["12"]);
+    assert_eq!(status, Some(0), "{}", err);
+    assert!(out.lines().any(|line| line == "    Took back: nothing, a planner's marker takes nothing back"), "{}", out);
+    let (one, _, _) = log(&folder.path, &["--oneline", "12"]);
+    assert_eq!(one.lines().last().unwrap(), format!("{} marker planner round 1, took back nothing, a planner's marker takes nothing back", &marker[..12]), "{}", one);
+}
+
 // ---- WB-STATUS-101: it only reads ----
 
 fn tree(folder: &Path) -> Vec<(String, u64)> {

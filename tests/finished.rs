@@ -347,6 +347,17 @@ fn test_WB_STATUS_89_a_merged_job_is_not_listed_and_wb_status_of_it_says_done_an
 }
 
 #[test]
+fn test_WB_STATUS_123_a_job_that_is_done_waits_for_no_one() {
+    let folder = done_job();
+    stamps_on_ref(&folder.path, "54", &["[needs_person] 54.build\n\nThe part is not there.\n"]);
+
+    let out = out_of(&wb(&folder.path, &["status", "54"], ""));
+
+    assert!(out.starts_with("Done:\n  54\n"), "{}", out);
+    assert!(!out.contains("waits for: person") && !out.contains("Needs a person"), "{}", out);
+}
+
+#[test]
 fn test_WB_STATUS_90_a_squash_merged_job_is_done_too() {
     let folder = set_up();
     job(&folder.path, &BUILT);

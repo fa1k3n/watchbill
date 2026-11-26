@@ -6610,6 +6610,102 @@ fn test_WB_PUSH_27_the_planner_s_needs_person_is_named_by_the_issue_alone() {
     assert_eq!(bench.posted(), "[needs_person] 54\nThe files were not there.\n");
 }
 
+const PERSON_NEEDED: &str = "The CRC part of build.rs, the person's step of 3.1, is not there.\n";
+
+#[test]
+fn test_WB_STATUS_125_a_needs_person_is_a_signed_commit_on_the_job_s_ref_after_the_stamp_and_pushed() {
+    if !sandbox("test_WB_STATUS_125") {
+        return;
+    }
+    let bench = bench();
+    writing_session(&bench, "needs_person", PERSON_NEEDED, 1);
+
+    let run = bench.start(&["start", "build", "54"]);
+
+    assert_eq!(code(&run), Some(1));
+    let messages = ref_messages(&bench);
+    assert_eq!(messages.len(), 2, "{:?}", messages);
+    assert!(messages[0].starts_with("[stamp] build round 1\n"), "{}", messages[0]);
+    assert!(messages[1].starts_with("[needs_person] 54.build\nissue: 54\njob: none\nbase: "), "{}", messages[1]);
+    assert_eq!(copy_of(&messages[1]), format!("[needs_person] 54.build\n{}", PERSON_NEEDED));
+    let tip = bench.git_text(&["rev-parse", "refs/watchbill/54"]).trim().to_string();
+    assert!(bench.git_text(&["cat-file", "commit", &tip]).contains("\ngpgsig "));
+    assert_eq!(bench.git_text(&["rev-parse", &format!("{}^{{tree}}", tip)]), bench.git_text(&["rev-parse", &format!("{}^^{{tree}}", tip)]));
+    assert_eq!(bench.git_text(&["--git-dir", &bare_of(&bench), "rev-parse", "refs/watchbill/54"]).trim(), tip);
+    // The comment is as it was (#153).
+    assert_eq!(bench.posted(), format!("[needs_person] 54.build\n{}", PERSON_NEEDED));
+    // `wb status` says it from the ref, and the next start of any role ends it.
+    let out = text_of(&wb(&bench.repo.path, &["status", "54"], "").stdout);
+    assert!(out.contains(&format!("waits for: person ({})", PERSON_NEEDED.trim_end())), "{}", out);
+    stamps_on_ref(&bench.repo.path, "54", &["[stamp] review round 1"]);
+    let out = text_of(&wb(&bench.repo.path, &["status", "54"], "").stdout);
+    assert!(!out.contains("waits for: person"), "{}", out);
+}
+
+#[test]
+fn test_WB_STATUS_125_the_commit_comes_after_the_questions_commit_of_the_session() {
+    if !sandbox("test_WB_STATUS_125") {
+        return;
+    }
+    let bench = bench();
+    bench.session("printf 'q1: Which brake?\\n' > /run/watchbill/questions\nprintf 'The part is not there.\\n' > /run/watchbill/needs_person\n");
+
+    ok(&bench.start(&["start", "tester", "54"]));
+
+    let messages = ref_messages(&bench);
+    assert_eq!(messages.len(), 3, "{:?}", messages);
+    assert!(messages[1].starts_with("[questions] 54.tester q1\n"), "{}", messages[1]);
+    assert!(messages[2].starts_with("[needs_person] 54.tester\n"), "{}", messages[2]);
+}
+
+#[test]
+fn test_WB_STATUS_125_the_planner_s_needs_person_is_named_by_the_issue_alone() {
+    if !sandbox("test_WB_STATUS_125") {
+        return;
+    }
+    let bench = bench();
+    writing_session(&bench, "needs_person", "The files were not there.\n", 0);
+
+    ok(&bench.start(&["start", "planner", "54"]));
+
+    let messages = ref_messages(&bench);
+    assert_eq!(messages.len(), 2, "{:?}", messages);
+    assert!(messages[1].starts_with("[needs_person] 54\nissue: 54\n"), "{}", messages[1]);
+}
+
+#[test]
+fn test_WB_STATUS_125_none_writes_no_commit() {
+    if !sandbox("test_WB_STATUS_125") {
+        return;
+    }
+    for written in ["none\n", "  \n", "`None`.\n"] {
+        let bench = crate::bench();
+        writing_session(&bench, "needs_person", written, 0);
+        ok(&bench.start(&["start", "build", "54"]));
+        assert_eq!(ref_messages(&bench).len(), 1, "{:?}", written);
+    }
+}
+
+#[test]
+fn test_WB_STATUS_125_a_commit_that_cannot_be_written_is_a_limit_with_the_text_whole_and_the_comment_is_posted() {
+    if !sandbox("test_WB_STATUS_125") {
+        return;
+    }
+    let bench = bench();
+    // Over what a commit of the ref may hold (48 KiB), and under what a session may write (64 KiB).
+    let long = format!("{}\n", "a".repeat(50_000));
+    writing_session(&bench, "needs_person", &long, 0);
+
+    let run = bench.start(&["start", "build", "54"]);
+
+    let err = text_of(&run.stderr);
+    assert_eq!(code(&run), Some(1), "{}", err);
+    assert!(labelled_line(&err, "wb start build", "limit").is_some(), "{}", err);
+    assert!(err.contains(&"a".repeat(50_000)), "the text is not whole");
+    assert_eq!(ref_messages(&bench).len(), 1);
+    assert_eq!(posts_on_54(&bench), 2, "{:?}", bench.calls());
+}
+
 #[test]
 fn test_WB_PUSH_28_a_written_file_with_an_unsafe_character_is_refused_and_nothing_of_it_is_posted() {
     if !sandbox("test_WB_PUSH_28") {

@@ -6701,7 +6701,9 @@ fn test_WB_STATUS_125_a_commit_that_cannot_be_written_is_a_limit_with_the_text_w
     let err = text_of(&run.stderr);
     assert_eq!(code(&run), Some(1), "{}", err);
     assert!(labelled_line(&err, "wb start build", "limit").is_some(), "{}", err);
-    assert!(err.contains(&"a".repeat(50_000)), "the text is not whole");
+    // The limit holds the text whole, after `It reads:`; the text of the comment that is posted is not the limit's.
+    assert!(err.contains("is not written on the job's ref:"), "{}", &err[..err.len().min(2000)]);
+    assert!(err.contains(&format!("It reads:\n{}\n", "a".repeat(50_000))), "the limit does not hold the text whole");
     assert_eq!(ref_messages(&bench).len(), 1);
     assert_eq!(posts_on_54(&bench), 2, "{:?}", bench.calls());
 }

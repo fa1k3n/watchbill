@@ -189,6 +189,8 @@ fn test_WB_STATUS_124_a_commit_that_is_not_signed_breaks_the_ref_and_no_one_wait
 
     assert!(!out.contains("waits for: person"), "{}", out);
     assert!(out.contains("is not as wb writes it"), "{}", out);
+    // It is the needs_person commit that breaks the ref, named as such.
+    assert!(out.contains("is a needs_person commit, and"), "{}", out);
 }
 
 #[test]
@@ -200,16 +202,39 @@ fn test_WB_STATUS_124_a_commit_signed_by_a_key_without_start_counts_for_nothing(
 
     assert!(!out.contains("waits for: person"), "{}", out);
     assert!(out.contains("without the role start"), "{}", out);
+    // The line of the needs_person commit itself says it, not only the stamp's.
+    let line = out.lines().find(|line| line.contains("[needs_person] 54.build  (on refs/watchbill/54, not counted:")).unwrap_or_else(|| panic!("{}", out));
+    assert!(line.contains("without the role start"), "{}", line);
 }
 
 #[test]
 fn test_WB_STATUS_124_a_commit_that_names_another_issue_counts_for_nothing() {
     let folder = set_up();
-    stamps_on_ref(&folder.path, "54", &["[stamp] build round 1", &format!("[needs_person] 54.build\nissue: 55\n\n{}\n", REASON)]);
+    stamps_on_ref(&folder.path, "54", &["[stamp] build round 1"]);
+    // The header names issue 55 alone, as a commit brought from the ref of another job does.
+    let base = git_text(&folder.path, &["rev-parse", "HEAD"]).unwrap();
+    stamps_on_ref_as_given(&folder.path, "54", &[&format!("[needs_person] 54.build\nissue: 55\njob: none\nbase: {}\n\n{}\n", base.trim(), REASON)]);
 
     let out = out_of(&status(&folder, &["54"]));
 
     assert!(!out.contains("waits for: person"), "{}", out);
+    let line = out.lines().find(|line| line.contains("[needs_person] 54.build  (on refs/watchbill/54, not counted:")).unwrap_or_else(|| panic!("{}", out));
+    assert!(line.contains("it names issue 55, not 54"), "{}", line);
+}
+
+#[test]
+fn test_WB_STATUS_124_a_commit_whose_base_is_no_commit_here_counts_for_nothing() {
+    let folder = set_up();
+    stamps_on_ref(&folder.path, "54", &["[stamp] build round 1"]);
+    // A base of another repository: a hash that is no commit of this one.
+    let other = "0123456789abcdef0123456789abcdef01234567";
+    stamps_on_ref_as_given(&folder.path, "54", &[&format!("[needs_person] 54.build\nissue: 54\njob: none\nbase: {}\n\n{}\n", other, REASON)]);
+
+    let out = out_of(&status(&folder, &["54"]));
+
+    assert!(!out.contains("waits for: person"), "{}", out);
+    let line = out.lines().find(|line| line.contains("[needs_person] 54.build  (on refs/watchbill/54, not counted:")).unwrap_or_else(|| panic!("{}", out));
+    assert!(line.contains("a stamp of another repository"), "{}", line);
 }
 
 #[test]

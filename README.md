@@ -156,7 +156,8 @@ Enter keeps what stands in brackets. `wb init --yes` takes all of it and asks no
 ├── watchbill.yml          the answers, the version and the hash of the revision
 ├── revision.sha256        the manifest of the revision
 ├── project/
-│   └── README.md          what the project's own files are for
+│   ├── README.md          what the project's own files are for
+│   └── all.md             the code style found in HEAD, where HEAD gives any (#289)
 └── revision/              the files of the revision, byte for byte as the package has them
     ├── models.yml
     ├── rules.yml
@@ -188,6 +189,31 @@ build_files: ['.gitlab-ci.yml']
 - **`build_files` is the build** ([The lists checked at acceptance](#the-lists-checked-at-acceptance)). `wb init` writes the file or folder of each CI driver it found in the repository, whatever the answer for the driver: `.github/workflows`, `.gitlab-ci.yml`, `Jenkinsfile`, `azure-pipelines.yml`, `bitbucket-pipelines.yml`, `.circleci`, `.zuul.yaml` and `zuul.d`. Where it found none, it writes no line. The rest of the build, such as `Makefile` or `CMakeLists.txt`, a person adds.
 - **`classed` is the code that is classed** ([Classed code](#classed-code)). `wb init` proposes `[]`, none, and `--yes` takes that. A person who answers gives paths from the root of the repository, separated by commas; a path that starts with `/`, holds `..` or is the root is not taken, and the question is asked again. A repository set up before this has no line `classed`, so every path counts as classed: add the line by hand.
 - **The answers are only written down.** No adapter exists yet, so a git server or a tracker is a name and nothing more. For a GitHub or a GitLab `origin`, `wb init` also writes the patterns that `wb prompt` and `wb start <role>` run ([below](#starting-a-session)).
+
+### The code style it finds
+
+`wb init` reads the project's code style from `HEAD`, so that a person need not write it into a prompt and every role matches it (#289). A role sees only the paths of its view, so a `.clang-format` outside them would never reach it: the rules reach it through the project's text.
+
+- **With no model, always.** The project's own style files, at any depth, at most 20: `.editorconfig`, `.clang-format`, `_clang-format`, `.clang-tidy` (its options of `readability-identifier-naming` alone, as `<option>: <value>`), `rustfmt.toml`, `.rustfmt.toml`, `.pylintrc`, `pylintrc`, `.flake8`, `uncrustify.cfg`, `.astylerc`, a file whose name holds `misra`, `CODING_STYLE.md` and `CONTRIBUTING.md`. Each is copied under its path, at most 200 lines; one over 64 KiB, or not UTF-8, is named and not copied. Then the facts of a sample of the code: at most 200 code files of `HEAD` of 256 KiB or less, and for each kind (`*.c`, `*.rs`, …) the files indented with spaces and with tabs, the indent in spaces, the line endings and the longest line with its path, each with the number of files it was seen in. Both go into `.watchbill/project/all.md`, which is shown with the other files before the question. Only `HEAD` is read, with no replace refs: a file not committed is not. `all.md` goes into every prompt, so a line that a prompt would read as a placeholder, or that holds a control character, is left out, and how many were is said. Where `HEAD` gives nothing, as in a new repository, no `all.md` is written. An `all.md` that is there is in the way like any other file, and nothing is written.
+- **What needs judgement, by a model on this machine: `wb init --survey`.** The naming habits, the structure of comments (file headers, Doxygen blocks) and the handling of errors, drafted into `.watchbill/project/style.md` with examples from the code. At `wb init` the project states no level yet, so the most restrictive applies: the code does not leave the machine. The survey runs only on a runner the organisation's file marks `local: true` ([Confidentiality](#confidentiality)), the one `--runner` names or else the default; `wb` never takes a runner as local from its name or its words. It refuses with 1, before anything is made: no organisation's file, or no runner marked local (in the words below); a runner that is not there, not marked local, or has no `start`; a local runner whose `reach` holds an endpoint that is not on this machine (`localhost`, a loopback address); a `start` that holds `{model}` or `{effort}` where the runner has no `planner` to give them (the model table is for a vendor's runner); a `style.md` in the working tree or in `HEAD`, which is never written over; and bubblewrap that cannot make a sandbox with a network of its own (#195). The session runs in a view of the whole tree of `HEAD`, made as the planner's (#202), in bubblewrap, read-only but `.watchbill/project/`, with the runner's `binds` and its `reach` through the proxy. The prompt is `wb`'s own: the survey is no role of the revision, and posts no stamp. When the session ends with 0, `.watchbill/project/style.md` alone is taken back from the view, as a plain UTF-8 file of 1 MiB or less and never through a link, written new into the working tree, and committed by nobody: until a person reads it and commits it, no prompt takes it (#211). Anything else the session wrote is not looked at. A session that does not end with 0, or leaves no such file, writes nothing, and `wb init --survey` ends with 1. The view is removed whatever the end. `--survey` is taken only in a repository that is set up (else 2), not with `--yes`, and `--runner` only with `--survey` (2).
+- **Where no runner is local, `wb init` says so**, as git does where `user.name` is not set, on standard error, and goes on with the part that needs no model:
+
+```
+wb init: no runner is marked local in /etc/watchbill/organisation.yml,
+so the code style cannot be surveyed by a model on this machine.
+
+  The organisation marks a runner whose tools and model run on this
+  machine, for example:
+
+    runners:
+      local-a:
+        local: true
+        ...
+
+  Then run:  wb init --survey
+```
+
+  With no organisation's file, the first line adds `(there is no such file)`; with one that is refused, why. `wb init --survey` refuses with 1 in the same words, after `limit:`. `wb check` says them again, on standard error, where its check holds, `.watchbill/project/style.md` is neither in the working tree nor in `HEAD`, and no runner is marked local; it still ends with 0, and `-q` does not leave it out.
 
 ## Checking it
 
@@ -475,6 +501,7 @@ runners:
 - `levels` is at least one name, each once, from the least to the most restrictive.
 - A runner has `tools`, `model`, `agreement` and `up_to`, which is one of the levels. `planner` is there only when the runner is cleared for the planner: its `up_to` is no higher than the runner's own, its `model` is an exact model ID and its `effort` is one of the model table's.
 - `start` is there only when `wb start <role>` may start sessions on the runner ([Starting a session](#starting-a-session)). It is a list of one word or more, each a text of one line. `{model}`, `{effort}` and `{prompt}` are the only placeholders, and the first word, the program, holds none.
+- `local` is there only when the runner's tools and its model both run on this machine: `local: true`, written plain (`false` is the same as no line). Anything but `true` or `false` is refused. Only a runner marked so may survey the code style for `wb init --survey` (#289); `wb` never takes a runner as local from its name, its `tools` or its `model`.
 - `binds` is there only when the runner needs paths of its own in a view ([The view](#the-view)): its program, its settings, its login. Each is a path from the root, `/…`, or from the home folder of the person who runs `wb`, `~/…`, with no `..`, and not the root or the home folder itself. It is read-only, unless it is written `{writable: <path>}`. A path that is not there is left out. The paths above are where Claude Code keeps itself on one machine; they are an example, not a promise.
 - `reach` is there only when a session on the runner needs the network: the endpoints it reaches from a view, through `wb`'s proxy, and nothing else ([The view](#the-view)). Each is `<host>:<port>`: the host a name, an IPv4 address, or an IPv6 address in brackets, quoted (`'[::1]:8080'`); the port from 1 to 65535. A name is compared without case. No path, user, wildcard or range, and each endpoint once. Such an endpoint takes `CONNECT` alone. A local model on this machine that serves plain HTTP, such as Ollama, is written `http://<host>:<port>`, as `http://localhost:11434` (#336): the host is `localhost`, `127.0.0.1` or `[::1]`, the port is written, and nothing follows it. Any other scheme, `https://` among them, is refused: an endpoint reached by TLS is `<host>:<port>`. A runner with no `reach` reaches no network. The endpoint above is an example, not a promise.
 - `default` is the name of one of the runners.

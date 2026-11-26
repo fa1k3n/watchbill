@@ -12,6 +12,7 @@ use std::process::{Command, Output};
 
 const USAGE: &str = "usage:
   wb init [--yes | -y] [-q | --quiet]
+            or --survey [--runner <name>] [-q | --quiet]
   wb check [-q | --quiet]
   wb doctor [-q | --quiet]
   wb upgrade [--dry-run | -n] [-q | --quiet]
@@ -54,9 +55,17 @@ const USAGE: &str = "usage:
             origin, a folder of requirements, the CI driver), ask one line per
             answer, show the file and write .watchbill/watchbill.yml at the
             root of the repository. --yes (-y) takes what it found and asks
-            nothing. A file that is already there is never changed. -q
-            (--quiet) leaves out the lines that confirm what was written, and
-            not what it says before it writes or the advice after
+            nothing. A file that is already there is never changed. It also
+            writes .watchbill/project/all.md, the project's style files and
+            the facts of its code as HEAD has them, where HEAD gives any. Where
+            no runner of the organisation's file is marked local: true, it
+            says so on standard error. --survey drafts
+            .watchbill/project/style.md (naming, comments, errors) by a
+            session on a local runner (--runner, else the default), in a view
+            of HEAD that is read-only but .watchbill/project/, and with a
+            network of its own; it takes back that file alone and commits
+            nothing. -q (--quiet) leaves out the lines that confirm what was
+            written, and not what it says before it writes or the advice after
   check     say whether the repository still is at the revision it is pinned to:
             each file under .watchbill/revision/ against the manifest, the
             manifest against the revision line of watchbill.yml, and that

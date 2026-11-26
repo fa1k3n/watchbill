@@ -97,7 +97,7 @@ fn output(status: i32, out: Vec<u8>, err: Vec<u8>) -> Output {
 /// The machine of a test: the organisation's file, a state folder, bubblewrap or its stand-in, and a home.
 struct Bench {
     home: Home,
-    organisation: Folder,
+    _organisation: Folder,
     org: PathBuf,
     state: Folder,
     tools: Folder,
@@ -158,7 +158,7 @@ impl Bench {
         };
         let organisation = folder_named("organisation");
         let org = organisation.path.join("organisation.yml");
-        let bench = Bench { home: Home::new(), organisation, org, state: folder_named("state"), tools, log: folder_named("log"), sandbox, real };
+        let bench = Bench { home: Home::new(), _organisation: organisation, org, state: folder_named("state"), tools, log: folder_named("log"), sandbox, real };
         bench.session("session.sh", SESSION);
         bench
     }
@@ -549,11 +549,13 @@ runners:
     binds: ['{tools}']
 ",
     );
-    let folder = set_up(&bench.home);
+    let folder = code_repository(&bench.home);
 
     let init = bench.init(&folder.path, &["--yes"]);
+    bench.home.commit_all(&folder.path);
     let survey = bench.init(&folder.path, &["--survey"]);
 
+    assert_eq!(code(&init), Some(0), "{}", text(&init.stderr));
     assert!(has_warning(&text(&init.stderr)), "{}", text(&init.stderr));
     assert_eq!(code(&survey), Some(1));
     assert!(has_warning(&text(&survey.stderr)), "{}", text(&survey.stderr));

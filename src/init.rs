@@ -457,6 +457,16 @@ pub fn init(
     // so that a repository that holds it is one that was set up whole.
     let mut targets: Vec<String> = pin.files.iter().map(|(path, _)| format!("{}/{}", folder, path)).collect();
     targets.push(format!("{}/project/README.md", folder));
+    // The code style as `HEAD` shows it, with no model (#289): written only where `HEAD` gives something.
+    let style = match crate::style::facts(root) {
+        Ok(style) => style,
+        Err(why) => {
+            return crate::refusal::limit(err, "wb init", format_args!("the files of HEAD could not be read for the code style: {}. Nothing written.", why));
+        }
+    };
+    if style.is_some() {
+        targets.push(format!("{}/project/all.md", folder));
+    }
     targets.push(file.clone());
     if let Some(message) = in_the_way(&folder, &targets) {
         return crate::refusal::limit(err, "wb init", message);
@@ -492,9 +502,16 @@ pub fn init(
     let build_files = crate::detect::ci_files(Path::new(root));
     let text = render_with(revision, &pin.hash, &setup, &classed, &build_files, &host);
     talk.say(&format!("\nAbout to write {}:\n\n{}", file, text));
-    talk.say("and these files: those of the revision, byte for byte as the package has them, and the README of the project's own text:\n");
+    let and_style = if style.is_some() { ", and all.md, the code style found in HEAD" } else { "" };
+    talk.say(&format!(
+        "and these files: those of the revision, byte for byte as the package has them, and the README of the project's own text{}:\n",
+        and_style
+    ));
     for path in &targets[..targets.len() - 1] {
         talk.say(&format!("  {}", path));
+    }
+    if let Some(style) = &style {
+        talk.say(&format!("\n{} holds:\n\n{}", crate::style::ALL_MD, style));
     }
     // The fetch line of the jobs (#234, point 15), where the remote `origin` is there and lacks it.
     // and of the notes that name the commits of each session (#237).
@@ -530,6 +547,9 @@ pub fn init(
     interrupt::writing();
     let mut contents: Vec<&[u8]> = pin.files.iter().map(|(_, bytes)| bytes.as_slice()).collect();
     contents.push(crate::prompt::PROJECT_README.as_bytes());
+    if let Some(style) = &style {
+        contents.push(style.as_bytes());
+    }
     contents.push(text.as_bytes());
     if let Err((path, error)) = write_all(&targets, &contents) {
         if error.kind() == ErrorKind::AlreadyExists {

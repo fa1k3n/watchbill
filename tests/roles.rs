@@ -658,7 +658,13 @@ fn test_WB_ROLE_36_model_and_effort_are_what_the_session_says_of_itself() {
 fn test_WB_ROLE_37_the_stamp_on_the_jobs_ref_says_what_the_session_was_handed_out_as() {
     for role in ROLES {
         let text = after_fields(role);
-        assert!(text.contains("The stamp on the job's ref says what you were handed out as, and it is what counts."), "{}: {}", role, text);
+        // The review and the fix may have no issue: their stamp is then a comment on the change (#338).
+        let opening = if role == "review" || role == "fix" {
+            "The stamp, on the job's ref or on the change, says what you were handed out as, and it is what counts."
+        } else {
+            "The stamp on the job's ref says what you were handed out as, and it is what counts."
+        };
+        assert!(text.contains(opening), "{}: {}", role, text);
     }
 }
 

@@ -6825,7 +6825,7 @@ fn test_WB_VIEW_38_and_39_a_clone_that_fetched_with_the_lines_wb_init_wrote_find
     git(&clone.path, &["init", "-q"]);
     git(&clone.path, &["remote", "add", "origin", bare.to_str().unwrap()]);
     let lines = bench.git_text(&["config", "--get-all", "remote.origin.fetch"]);
-    assert!(lines.lines().any(|line| line == format!("+{0}:{0}", NOTES)), "{}", lines);
+    assert!(lines.lines().any(|line| line == format!("+{0}*:{0}*", NOTES)), "{}", lines);
     for line in lines.lines().filter(|line| line.contains("watchbill")) {
         git(&clone.path, &["config", "--add", "remote.origin.fetch", line]);
     }
@@ -6907,7 +6907,19 @@ fn test_WB_VIEW_42_a_refused_push_of_the_notes_is_said_ends_with_1_and_leaves_th
     assert!(commits.iter().all(|commit| note_of(&bench.repo.path, commit).is_some()), "{}", err);
     assert_eq!(git_in(&bare, &["rev-parse", NOTES]).1.trim(), other);
     // And it says that a plain fetch would replace the notes that are not at origin.
-    assert!(err.contains("git fetch"), "{}", err);
+    // The advice (review of #331, finding 3): the fetch has its refspec, so it does not depend on `.git/config`; the kept
+    // ref is out of reach of the pattern of the fetch line; and it is deleted at the end.
+    for step in [
+        "git update-ref refs/notes/wb-kept refs/notes/watchbill",
+        "git fetch origin +refs/notes/watchbill:refs/notes/watchbill",
+        "git notes --ref=refs/notes/watchbill merge -s union refs/notes/wb-kept",
+        "git push origin refs/notes/watchbill:refs/notes/watchbill",
+        "git update-ref -d refs/notes/wb-kept",
+    ] {
+        assert!(err.contains(step), "{}: {}", step, err);
+    }
+    let at = |step: &str| err.find(step).unwrap();
+    assert!(at("git update-ref refs/notes/wb-kept") < at("git fetch origin") && at("git push origin refs/notes/watchbill:refs/notes/watchbill") < at("git update-ref -d"), "{}", err);
 }
 
 #[test]

@@ -948,7 +948,48 @@ fn test_WB_JOB_26_there_is_no_command_add() {
 
 // ---- WB-VIEW-38 and 40 (#237): the fetch line of the notes that name the commits of a session ----
 
-const NOTES_FETCH: &str = "+refs/notes/watchbill:refs/notes/watchbill";
+/// A pattern, so that a fetch ends with 0 where `origin` holds no notes yet (review of #331): a line that names the one
+/// ref makes git refuse the whole fetch, branches included, until a note is pushed.
+const NOTES_FETCH: &str = "+refs/notes/watchbill*:refs/notes/watchbill*";
+
+/// The line #237 first wrote, which names the one ref.
+const NOTES_FETCH_OLD: &str = "+refs/notes/watchbill:refs/notes/watchbill";
+
+#[test]
+fn test_WB_VIEW_38_after_init_a_fetch_ends_with_0_where_origin_holds_no_notes() {
+    let origin = folder_named("origin");
+    git(&origin.path, &["init", "-q", "--bare"]);
+    let repo = repository(Some(origin.path.to_str().unwrap()));
+    git(&repo.path, &["-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.org", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "One"]);
+    git(&repo.path, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+
+    let run = wb(&repo.path, &["init", "--yes"], "");
+
+    assert_eq!(code(&run), Some(0), "{}", text(&run.stderr));
+    assert!(fetch_lines(&repo.path).contains(&NOTES_FETCH.to_string()), "{:?}", fetch_lines(&repo.path));
+    // `git fetch` ends with 0: it asserts so.
+    git(&repo.path, &["fetch", "origin"]);
+}
+
+#[test]
+fn test_WB_VIEW_38_upgrade_replaces_the_line_that_names_one_ref_with_the_pattern() {
+    let folder = set_up();
+    git(&folder.path, &["config", "--unset-all", "remote.origin.fetch", "refs/notes"]);
+    git(&folder.path, &["config", "--add", "remote.origin.fetch", NOTES_FETCH_OLD]);
+
+    let dry = wb(&folder.path, &["upgrade", "--dry-run"], "");
+    assert_eq!(code(&dry), Some(0), "{}{}", text(&dry.stdout), text(&dry.stderr));
+    assert!(text(&dry.stdout).contains(NOTES_FETCH_OLD) && text(&dry.stdout).contains(NOTES_FETCH), "{}", text(&dry.stdout));
+    assert!(fetch_lines(&folder.path).contains(&NOTES_FETCH_OLD.to_string()), "--dry-run wrote");
+
+    let run = wb(&folder.path, &["upgrade"], "");
+
+    assert_eq!(code(&run), Some(0), "{}{}", text(&run.stdout), text(&run.stderr));
+    let lines = fetch_lines(&folder.path);
+    assert!(!lines.contains(&NOTES_FETCH_OLD.to_string()), "{:?}", lines);
+    assert_eq!(lines.iter().filter(|line| *line == NOTES_FETCH).count(), 1, "{:?}", lines);
+    assert!(lines.contains(&FETCH.to_string()) && lines.contains(&"+refs/heads/*:refs/remotes/origin/*".to_string()), "{:?}", lines);
+}
 
 #[test]
 fn test_WB_VIEW_38_init_adds_the_fetch_line_of_the_notes_to_origin_and_says_so_first() {

@@ -251,7 +251,8 @@ fn record_questions(name: &str, root: &str, issue: &str, comment: &str, signing:
     // The first commit of a job: the questions that only the tracker holds are not carried into a signed commit, and are
     // not read any more once it is on the ref. Said, so that they are answered there or asked again.
     if !ledger.has_questions() {
-        tracker_notice(name, root, issue, err);
+        let first = comment.split('\n').next().unwrap_or_default().to_string();
+        tracker_notice(name, root, issue, &answer::asked_names(issue, &[first]), err);
     }
     let (commit, _) = crate::stamps::write(name, root, issue, &message, &crate::stamps::Held::Questions, signing, err).map_err(held_back)?;
     match prompt::pattern_of(root, "issue_comment") {
@@ -272,19 +273,36 @@ fn record_questions(name: &str, root: &str, issue: &str, comment: &str, signing:
 
 /// Says, where the tracker holds questions that are open by the old reading, that they are not read once the first
 /// questions commit of the job is on its ref (#238). It reads the tracker only to say so; where it cannot, it says nothing.
-fn tracker_notice(name: &str, root: &str, issue: &str, err: &mut dyn Write) {
+fn tracker_notice(name: &str, root: &str, issue: &str, asking: &[String], err: &mut dyn Write) {
     let Ok(Some(line)) = prompt::pattern_of(root, "issue_comments") else { return };
     let Ok(printed) = starter::run_capped(root, "issue_comments", &line.replace("{issue}", issue), bounded::TEXT_CAP) else { return };
-    let open = answer::open_names(issue, &starter::counted(&String::from_utf8_lossy(&printed)));
-    if open.is_empty() {
+    let lines = starter::counted(&String::from_utf8_lossy(&printed));
+    let open = answer::open_names(issue, &lines);
+    let asked = answer::asked_names(issue, &lines);
+    // The questions this commit asks that the tracker holds too: asked again on the ref, answered there or not.
+    let again: Vec<String> = asking
+        .iter()
+        .filter(|each| asked.contains(each))
+        .map(|each| format!("{} ({} at the tracker)", crate::issue::shown(each), if open.contains(each) { "open" } else { "answered" }))
+        .collect();
+    if !again.is_empty() {
+        let _ = writeln!(
+            err,
+            "{}: the questions {} are asked again by this commit on {}: the answers at the tracker are not read any more, and each is answered again with wb answer.",
+            name,
+            again.join(", "),
+            crate::stamps::full(issue)
+        );
+    }
+    let lost: Vec<String> = open.iter().filter(|each| !asking.contains(each)).map(|each| crate::issue::shown(each)).collect();
+    if lost.is_empty() {
         return;
     }
-    let shown: Vec<String> = open.iter().map(|each| crate::issue::shown(each)).collect();
     let _ = writeln!(
         err,
         "{}: the tracker holds open questions ({}), which are not read once the questions commit is on {}: a session that still needs them asks them again.",
         name,
-        shown.join(", "),
+        lost.join(", "),
         crate::stamps::full(issue)
     );
 }

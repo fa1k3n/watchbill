@@ -874,6 +874,22 @@ pub fn round_held(job: &str, commit: &str, message: &str) -> String {
     )
 }
 
+/// What a refused push of a questions commit adds (#238): how the questions get asked, where the push is not a
+/// fast-forward (`behind`) and where it failed otherwise. Nothing for another kind of commit.
+fn how_to_ask(held: &Held, made: &Made, behind: bool) -> String {
+    if !matches!(held, Held::Questions) {
+        return String::new();
+    }
+    let others = "the next round of the planner writes them again from its file, and those of another role are in the text below";
+    if behind {
+        return format!(" To get the questions asked, `git fetch origin` brings the newer {}, and then {}.", made.full, others);
+    }
+    format!(
+        " To get the questions asked, push it by hand: `git push origin {}:{}`. The local ref is not moved, so after that push it is behind origin, and the next `wb start` is refused as not a fast-forward until `git fetch origin` brings it. Until the commit is pushed nothing asks them: {}.",
+        made.commit, made.full, others
+    )
+}
+
 /// Writes the commit of `message` on the job's ref of `job`, as `make` makes it, pushes it, and moves the local refs
 /// (WB-BUILD-43 to 46): the commit, and whether it is only local, where it went on; else why not, with nothing moved
 /// and nothing to follow from it. What it does is said on `err` after `name`.
@@ -893,9 +909,9 @@ pub fn write(name: &str, root: &str, job: &str, message: &str, held: &Held, sign
             return Err(format!(
                 "{}: origin refused the {} {} as not a fast-forward of its {} ({}). Fetch it with `git fetch origin`, and see the job with `wb status`. {}",
                 other, word, made.commit, made.full, said, nothing
-            ))
+            ) + &how_to_ask(held, &made, true))
         }
-        Pushed::Failed(said) => return Err(format!("the {} could not be pushed to origin, so it holds no lock: {}. {}", word, said, nothing)),
+        Pushed::Failed(said) => return Err(format!("the {} could not be pushed to origin, so it holds no lock: {}. {}", word, said, nothing) + &how_to_ask(held, &made, false)),
     };
     record(root, &made).map_err(|why| {
         let held = match (local, held) {

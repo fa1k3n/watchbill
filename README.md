@@ -109,6 +109,25 @@ The owner set these on 2026-11-20 (#180). They hold in every command.
 - **Short forms are git's (#285).** `-n` is `--dry-run` of `wb upgrade` and `wb clean`, and `--no-commit` of `wb accept` and `wb plan accept`; `-y` is `--yes` of `wb init`. `-q` (`--quiet`) is taken by every command, among its options, before or after the role or the subcommand, and is read in one place. It leaves out only a line that confirms what was done or says there was nothing to do. A line that tells the person something they must act on or know to be safe stays: a refusal, a warning, what is not committed or not pushed, a command to run (commit the acceptance, push the branch), what a command says before it writes, and the output a script reads. Where a command prints nothing of the kind, `-q` is taken and changes nothing. Given twice, it ends with 2.
 - **No auto-accept flag.** If one is ever added, the organisation's file allows it, at the lowest level only, never for classed code, and the stamp says so.
 
+## Before you start: signing
+
+`wb` needs git to sign with an SSH key. Two settings of git say so: `gpg.format` is `ssh`, and `user.signingkey` names the key. The default branch's `.watchbill/signers` holds its public key, with the roles the person needs ([The signed acceptance](#the-signed-acceptance)). Without these, no start and no acceptance works (#323).
+
+- **`wb` only reads the two settings.** It never sets them, and it writes nothing of a person's signing setup. It signs through git itself (`git tag -s`, `git commit-tree -S`), so the person's ssh agent, `gpg.ssh.program` and passphrase apply as they are.
+- **A person who signs commits with an SSH key already** reuses that key as it is. Only the line in `.watchbill/signers` is new.
+- **A person who signs commits with GPG** keeps that today only by giving up the signatures of `wb`. Setting `gpg.format ssh` in a repository also changes how their commits there are signed. Where `commit.gpgsign` is on, GitHub shows those commits as verified only once the SSH key is added there as a signing key. A setting of `wb`'s own that leaves this untouched is planned for 0.13.0 (#340).
+
+An example, for this repository alone (no `--global`), and the one line of `.watchbill/signers` that a merged change adds, as the trial of #235 used them:
+
+```sh
+git config gpg.format ssh
+git config user.signingkey ~/.ssh/id_ed25519.pub
+```
+
+```text
+ada@example.org roles="accept,start,answer" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... ada's laptop
+```
+
 ## Setting it up in a repository
 
 The command is `wb`. Watchbill is set up in a repository the way `git init` starts one: a single command, run in the folder.

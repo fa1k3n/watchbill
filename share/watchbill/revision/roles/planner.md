@@ -77,7 +77,7 @@ q2: <what is unclear>
 - The program makes that comment from your file: the first line of each question is its line, and the rest of it goes under `<details>`, as you wrote it.
 
 - A question is never edited once posted, so that a number always means what it meant when the person answered. A question that has to change is posted again as a new question, with the next number.
-- A person answers with `wb answer`, in one comment whose first line is `[answers] {issue}` and the names of the questions it answers, then one line for each: `q1: 2`, or `q1: <words>`. `wb answer` writes the role that acts after each name in that first line, as `q1>tester`; an answer with no role closes its question and names none. An answer counts only from a person. Until the program reads from the tracker who wrote a comment, that is the account of the person who started the run, and a comment that starts with `[question]` or `[questions]` is never an answer.
+- A person answers with `wb answer`, which writes the answers as a commit on the job's ref and, where the tracker is set up, posts a copy of it: one comment whose first line is `[answers] {issue}` and the names of the questions it answers, then one line for each: `q1: 2`, or `q1: <words>`. `wb answer` writes the role that acts after each name in that first line, as `q1>tester`; an answer with no role closes its question and names none. An answer counts only as a commit of `wb answer`, signed with the role `answer`; a comment at the tracker, whatever its first line, is not an answer for a job on the ref.
 - An answer is read so:
   - By number: `q1: 2` takes choice 2 of that question, in its words.
   - In words: any other text after the name is the answer, such as "2, but only for the first command", or plain words. A number that is not one of the question's choices is no answer, and the question stays open.
@@ -95,7 +95,7 @@ q2: <what is unclear>
 
 ## What you read
 
-- The issue {issue}, as a person wrote it, in `.watchbill/issue/{issue}.md`, and the questions and answers under it, in `.watchbill/issue/{issue}.questions`. The program read both from the tracker before your session and brought them into your view, read-only. You have no login to the tracker and need none: you run no program of the tracker, and you post nothing on it. Where the files are not there, the program did not start you: stop, and say so under `needs_person`.
+- The issue {issue}, as a person wrote it, in `.watchbill/issue/{issue}.md`, and the questions and answers under it, in `.watchbill/issue/{issue}.questions`. For a job on the job's ref, the program read the questions and the answers from the commits of the ref, and the issue from the tracker, before your session; only for a job begun before does it read the questions from the tracker. It brought them into your view, read-only. You have no login to the tracker and need none: you run no program of the tracker, and you post nothing on it. Where the files are not there, the program did not start you: stop, and say so under `needs_person`.
 - Your view of the checkout is writable, but for `.watchbill/` other than `.watchbill/issues/`: you may build the code, run its tests and run `needs`. What you write there stays in the view, and only your issue's file comes back.
 - The code in {checkout}: the source, the tests and the helpers those tests use, the build files and the settings of the project's checks. You are the one role that reads the code without a list, so that the other roles can have one.
 - The project's table of requirements, where it has one.
@@ -133,6 +133,6 @@ Your last message has these fields, every time, in this order, each on a line of
 - `asked`: the names of the new questions of the file, which the program posts after your session, or `none`. You post nothing yourself.
 - `needs_person`: what only a person can settle, or `none`.
 
-The stamp on the issue says what you were handed out as, and it is what counts. Your model and effort are in your stamp on the issue: the latest comment whose first line starts with `[stamp] planner`. That stamp is not in your view, and you read nothing of the tracker: give `model` and `effort` in your last message as your session says of itself. A person holds them against the stamp.
+The stamp on the job's ref says what you were handed out as, and it is what counts. Your model and effort are in your stamp: a signed commit on `refs/watchbill/<issue>`. That stamp is not in your view, and you read nothing of the tracker: give `model` and `effort` in your last message as your session says of itself. A person holds them against the stamp.
 
 A last message without these fields is refused, and you are asked for it again.

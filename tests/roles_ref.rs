@@ -32,7 +32,7 @@ fn test_WB_PROMPT_82_no_prompt_says_the_stamp_is_a_comment() {
 fn test_WB_PROMPT_83_the_planner_reads_the_issue_and_questions_from_the_ref_for_a_job_on_the_ref() {
     let text = role("planner");
     assert!(!text.contains("read both from the tracker before your session"), "the files are said to come from the tracker alone");
-    assert!(text.contains("for a job on the job's ref"), "the files of a job on the ref are not placed");
+    assert!(text.contains("a job on the job's ref"), "the files of a job on the ref are not placed");
     assert!(text.contains("begun before"), "the tracker is not left to a job begun before");
 }
 

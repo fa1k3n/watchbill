@@ -96,6 +96,6 @@ Your last message has these fields, every time, in this order, each on a line of
 - `needs_person`: what only a person can settle, or `none`.
 - `asked`: the names of the new questions you wrote to {questions}, which the program posts after your session, or `none`. You post nothing yourself.
 
-The stamp on the issue says what you were handed out as, and it is what counts. Your model and effort are in your stamp on the issue: the latest comment whose first line starts with `[stamp] build`. That stamp is not in your view, and you read nothing of the tracker: give `model` and `effort` in your last message as your session says of itself. A person holds them against the stamp.
+The stamp on the job's ref says what you were handed out as, and it is what counts. Your model and effort are in your stamp: a signed commit on `refs/watchbill/<issue>`. That stamp is not in your view, and you read nothing of the tracker: give `model` and `effort` in your last message as your session says of itself. A person holds them against the stamp.
 
 A last message without these fields is refused, and you are asked for it again.

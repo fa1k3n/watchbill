@@ -29,6 +29,7 @@ const USAGE: &str = "usage:
             or <role> <issue> --take-back
             or --list [-v | --verbose]
   wb status [<issue>] [--stage <heading>] [-q | --quiet]
+            or --session <hash> [-q | --quiet]
   wb view <issue> (<role> [--in | --out] | <path>) [-q | --quiet]
             or --kept [-v | --verbose]
   wb answer (<issue> | --change <n>) [--show | [--suggested] [<question> <answer>]...]
@@ -322,7 +323,18 @@ const USAGE: &str = "usage:
             pattern failed for one (it is listed under Not read), 2 when it
             was used wrongly or the repository is not set up. Writes nothing
             but a temporary repository in $TMPDIR, removed after, where it
-            reads a kept view. -q (--quiet) is taken and changes nothing: what
+            reads a kept view. --session <hash>, with no issue and no --stage,
+            prints one session from git alone: the lines of its stamp, Base:
+            the commit it was made from, the commits that a note names for it,
+            newest last, Last: the newest of them, and Ended: how its start
+            ended where this machine holds the lines of the start, else 'not
+            known on this machine'. <hash> is the commit of a stamp that
+            counts, on a job's ref, or a unique start of it of 12 or more hex
+            digits. A note is not signed and counts for nothing: it is only
+            where the commits are found. A hash that names no stamp that
+            counts, or not one only, ends with 1, and fewer than 12 digits
+            with 2. It writes nothing and asks nothing of the network. -q
+            (--quiet) is taken and changes nothing: what
             it prints is what a script reads
   view      show what a session of a role will see, before it starts. wb view
             <issue> <role> prints the paths of its view, one to a line, the

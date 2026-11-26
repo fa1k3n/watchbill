@@ -745,7 +745,9 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
             Some(line) => {
                 let _ = writeln!(err, "wb answer: will post on {} {}, by `{}` of watchbill.yml, a copy of each commit:", word, value, post);
                 for (text, commit) in texts.iter().zip(&written) {
-                    match starter::run(root, post, line, Some(text.as_bytes())) {
+                    // Each copy names the commit it copies (#240).
+                    let copy = crate::stamps::with_commit(text, commit);
+                    match starter::run(root, post, line, Some(copy.as_bytes())) {
                         Ok(said) => {
                             let _ = err.write_all(&said);
                         }

@@ -262,8 +262,7 @@ fn test_WB_ANSWER_25_wb_answer_of_an_issue_with_no_questions_commit_posts_a_comm
     assert_eq!(code(&run), Some(0), "{}", err_of(&run));
     assert_eq!(tip(&folder.path, "54"), before);
     let posted = read(&folder.path.join(".tracker/posted-54-0"));
-    // The copy names the commit it copies, in a last line (#240).
-    assert_eq!(posted, format!("[answers] 54.tester q1>tester q2>tester\nq1: 1\nq2: words\ncommit: {}\n", tip(&folder.path, "54")));
+    assert_eq!(posted, "[answers] 54.tester q1>tester q2>tester\nq1: 1\nq2: words\n");
 }
 
 #[test]

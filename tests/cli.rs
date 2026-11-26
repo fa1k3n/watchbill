@@ -306,7 +306,10 @@ const USAGE: &str = "usage:
             an open question read from the ref it says on
             standard error that an answer typed at the tracker is not read.
             An acceptance that a source or a planner round after it voided
-            puts the issue under Planned.
+            puts the issue under Planned. For one issue it says source
+            changed where issue_text, the pattern that read the newest
+            source of its plan, prints other text now: a person runs wb
+            plan add again, and wb status takes nothing in.
             <issue> prints that issue, in the flow or not, with its title
             (issue_address) and what it was worked out from; --stage <heading>
             prints that heading only, whatever its case. A job whose work is

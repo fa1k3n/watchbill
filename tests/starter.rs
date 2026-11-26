@@ -391,7 +391,9 @@ fn test_WB_BUILD_5_the_stamp_is_posted_on_the_issue_with_its_first_line_and_the_
     ok(&stamp);
     // The stamp of a start adds the line `reach:` (#195): `wb prompt --stamp` starts no session.
     assert!(rest.contains("\nreach: none\n"), "{}", rest);
-    let rest: String = rest.lines().filter(|line| !line.starts_with("reach: ")).map(|line| format!("{}\n", line)).collect();
+    // The copy ends with the line that names the stamp's commit (#240), which `wb prompt --stamp` has no commit for.
+    assert!(rest.lines().last().is_some_and(|line| line.starts_with("commit: ")), "{}", rest);
+    let rest: String = rest.lines().filter(|line| !line.starts_with("reach: ") && !line.starts_with("commit: ")).map(|line| format!("{}\n", line)).collect();
     assert_eq!(timeless(&rest), timeless(&text(&stamp.stdout)));
     // Posted once, then started once.
     let calls = bench.calls();
@@ -1160,7 +1162,15 @@ fn test_WB_MON_3_the_stamp_is_byte_for_byte_what_issue_comment_was_given() {
     bench.comments("issue", "54", &["[stamp] review round 1"]);
     ok(&start_at(&bench, &state.path, true, &["start", "fix", "54"]));
     let posted = fs::read(bench.at("posted-issue-54")).unwrap();
-    assert_eq!(fs::read(only(&state.path).join("stamp")).unwrap(), posted);
+    assert_eq!(fs::read(only(&state.path).join("stamp")).unwrap(), without_commit(&posted));
+}
+
+/// What was posted, but for its last line `commit: <hash>` (#240): the stamp that the start holds is the stamp alone.
+fn without_commit(posted: &[u8]) -> Vec<u8> {
+    let whole = String::from_utf8_lossy(posted).to_string();
+    let at = whole.trim_end_matches('\n').rfind('\n').map(|at| at + 1).unwrap_or(0);
+    assert!(whole[at..].starts_with("commit: "), "{}", whole);
+    whole[..at].as_bytes().to_vec()
 }
 
 #[test]
@@ -1170,7 +1180,7 @@ fn test_WB_MON_3_a_posting_that_fails_holds_the_stamp_that_was_given() {
     bench.ends_with("post", 1);
     start_at(&bench, &state.path, true, &["start", "build", "54"]);
     let posted = fs::read(bench.at("posted-issue-54")).unwrap();
-    assert_eq!(fs::read(only(&state.path).join("stamp")).unwrap(), posted);
+    assert_eq!(fs::read(only(&state.path).join("stamp")).unwrap(), without_commit(&posted));
 }
 
 #[test]

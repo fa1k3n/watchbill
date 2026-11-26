@@ -301,8 +301,10 @@ fn record_questions(name: &str, root: &str, issue: &str, comment: &str, signing:
             Ok(())
         }
         Ok(Some(line)) => {
-            let _ = write!(err, "{}: will post on issue {}, by `issue_comment` of watchbill.yml:\n{}", name, issue, comment);
-            let said = starter::run(root, "issue_comment", &line.replace("{issue}", issue), Some(comment.as_bytes()))
+            // The copy names the commit it copies (#240).
+            let copy = crate::stamps::with_commit(comment, &commit);
+            let _ = write!(err, "{}: will post on issue {}, by `issue_comment` of watchbill.yml:\n{}", name, issue, copy);
+            let said = starter::run(root, "issue_comment", &line.replace("{issue}", issue), Some(copy.as_bytes()))
                 .map_err(|why| format!("{}. The questions are the commit {} on {}; their copy may not be posted", why, commit, ledger.full))?;
             let _ = err.write_all(&said);
             Ok(())

@@ -149,16 +149,19 @@ fn on_ref(root: &str, issue: &str, role: &str, round: Option<u64>, err: &mut dyn
     let job_lines: String = if jobs.is_empty() { "job: none\n".to_string() } else { jobs.iter().map(|job| format!("job: {}\n", job)).collect() };
     let marker = format!("[revert] {} round {}\n{}\n{}{}", role, n, crate::stamps::issue_line(issue), job_lines, crate::stamps::base_line(root));
     let _ = write!(err, "wb revert: the marker:\n{}From the stamp `{} round {}` up to this marker, no stamp, question or answer counts. Nothing is deleted.\n", marker, role, n);
-    if let Err(why) = crate::stamps::write("wb revert", root, issue, &marker, &crate::stamps::Held::Marker, &signing, err) {
-        return limit(err, format!("{}.", why));
-    }
+    let commit = match crate::stamps::write("wb revert", root, issue, &marker, &crate::stamps::Held::Marker, &signing, err) {
+        Ok((commit, _)) => commit,
+        Err(why) => return limit(err, format!("{}.", why)),
+    };
     match post {
         None => {
             let _ = writeln!(err, "wb revert: watchbill.yml has no `issue_comment`, so no copy of the marker is posted: the marker is the commit on {}.", ledger.full);
         }
         Some(line) => {
             let _ = writeln!(err, "wb revert: will post on issue {}, by `issue_comment` of watchbill.yml, a copy of the marker.", issue);
-            match starter::run(root, "issue_comment", &line.replace("{issue}", issue), Some(marker.as_bytes())) {
+            // The copy names the commit it copies (#240).
+            let copy = crate::stamps::with_commit(&marker, &commit);
+            match starter::run(root, "issue_comment", &line.replace("{issue}", issue), Some(copy.as_bytes())) {
                 Ok(said) => {
                     let _ = err.write_all(&said);
                 }

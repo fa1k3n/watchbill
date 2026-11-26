@@ -41,14 +41,14 @@ What `wb status` says of the issues in the flow. It only reads: it writes nothin
 | WB-STATUS-35 | `wb status <issue>` shall read an issue that is not in the flow, and say that it is not. Issue: #155. | T | Implemented |
 | WB-STATUS-36 | `wb status` shall print one line per issue in the list, with its number and its branch, and no title. Issue: #155. | T | Implemented |
 | WB-STATUS-37 | `wb status <issue>` shall print the issue's title from the first line of `issue_address`, with its control characters escaped. Issue: #155. | T | Implemented |
-| WB-STATUS-38 | `wb status` shall run no pattern but `issue_comments` and `change_of_branch`, each once for each issue it lists, and `wb status <issue>` also `issue_address`; the stamps and the planner's times are read from the job's ref (#236), never by `issue_comment_bodies`. Issue: #155, #290, #236. | T | Implemented |
+| WB-STATUS-38 | `wb status` shall run no pattern but `issue_comments` and `change_of_branch`, each once for each issue it lists, and `wb status <issue>` also `issue_address`; the stamps and the planner's times are read from the job's ref (#236), never by `issue_comment_bodies`; `issue_comments` is run only for an issue whose job has no questions commit on its ref (#238). Issue: #155, #290, #236, #238. | T | Implemented |
 | WB-STATUS-39 | `wb status` shall take the default branch from `refs/remotes/origin/HEAD`, else `main`, else `master`, and end with 2 when none is there. Issue: #155. | T | Implemented |
 | WB-STATUS-40 | Where the local branch of an issue holds commits that its branch at `origin` does not, `wb status` shall add how many to the issue's line, as `2 not pushed`. Issue: #155. | T | Implemented |
 | WB-STATUS-41 | `wb status` shall read the refs as they are, and fetch nothing. Issue: #155. | T | Implemented |
 | WB-STATUS-42 | `wb status` shall show on the line of an issue the change that `change_of_branch` prints for its branch, as `#<n>`, and none where it prints none. Issue: #155. | T | Implemented |
-| WB-STATUS-43 | `wb status` shall show the open questions of an issue as they are on the job's ref, with no tracker set up. Issue: #238. | T | Draft |
-| WB-STATUS-44 | `wb status` shall show a question as answered once `wb answer` has written a signed commit with its answer. Issue: #238. | T | Draft |
-| WB-STATUS-45 | `wb status` shall say, where it sees an open question, that an answer typed at the tracker is not read and is given with `wb answer`. Issue: #238. | T | Draft |
+| WB-STATUS-43 | `wb status` shall show the open questions of an issue as they are on the job's ref, with no tracker set up. Issue: #238. | T | Implemented |
+| WB-STATUS-44 | `wb status` shall show a question as answered once `wb answer` has written a signed commit with its answer. Issue: #238. | T | Implemented |
+| WB-STATUS-45 | `wb status` shall say, where it sees an open question, that an answer typed at the tracker is not read and is given with `wb answer`. Issue: #238. | T | Implemented |
 | WB-STATUS-46 | `wb status --session <hash>`, the hash of a stamp commit or a unique prefix of 12 or more hex digits, shall print the stamp's lines, the base commit, the commits whose note names the stamp, newest last, and the last of them, and end with 0. Issue: #239. | T | Draft |
 | WB-STATUS-47 | `wb status --session` shall say that a session has no commits, and end with 0, when no note names its stamp. Issue: #239. | T | Draft |
 | WB-STATUS-48 | `wb status --session` shall say "not known on this machine" of how a session ended where the session did not run on this machine, and read how it ended from the lines of the start where it did. Issue: #239. | T | Draft |

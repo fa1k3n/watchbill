@@ -17,9 +17,16 @@
 //! - **Which count:** `open_names` decides from first lines alone, so that `wb status` and `wb answer` agree. What a
 //!   `[revert]` marker took back counts for nothing (`starter::taken_back`).
 //!
-//! The whole comments are read through `issue_comment_bodies` (or `change_comment_bodies`), each body followed by
-//! a NUL byte. Answers are posted through `issue_comment` (or `change_comment`), after `wb` says what it will post.
-//! Nothing is posted until every question shown has its answer: an input that ends, or Ctrl-C, posts nothing.
+//! - **On the ref** (#238): where the job's ref holds a questions commit, the questions and the answers are the commits
+//!   of that ref (`stamps`), and `wb answer` reads them there, with no `issue_comment_bodies`. It writes the answers as
+//!   one commit for each role, signed by the person with a key that `.watchbill/signers` holds with the role `answer`,
+//!   pushes each, and then posts the same text as a copy through `issue_comment` where it is set up. An `[answers]`
+//!   comment at the tracker is not read for such a job. A job with no questions commit, and a change with no issue,
+//!   are read and answered at the tracker as before.
+//!
+//! At the tracker, the whole comments are read through `issue_comment_bodies` (or `change_comment_bodies`), each body
+//! followed by a NUL byte. Answers are posted through `issue_comment` (or `change_comment`), after `wb` says what it
+//! will post. Nothing is posted until every question shown has its answer: an input that ends, or Ctrl-C, posts nothing.
 
 use std::io::{BufRead, Write};
 
@@ -488,34 +495,80 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
     if let Err(why) = starter::held(root) {
         return crate::refusal::limit(err, "wb answer", format_args!("{}.", why));
     }
+    // A job whose ref holds a questions commit (#238) has its questions and answers on the ref, and the tracker is not
+    // read for them: the answers are written as commits, signed by the person, and a copy is posted where a tracker is
+    // set up. Any other job, and a change with no issue, is read from the tracker and answered there, as before.
+    let ledger = match on {
+        On::Issue(issue) if prompt::is_plain_name(issue) => match crate::stamps::read(root, issue) {
+            Ok(ledger) if ledger.has_questions() => Some(ledger),
+            Ok(_) => None,
+            Err(why) => return crate::refusal::limit(err, "wb answer", format_args!("{}. Nothing is written.", why)),
+        },
+        _ => None,
+    };
     let mut commands = Vec::new();
-    // `--show` posts nothing, so it needs only the pattern that reads.
-    let keys: &[&str] = if *asked == Asked::Show { &[read] } else { &[read, post] };
-    for &key in keys {
-        match prompt::pattern_of(root, key) {
-            Ok(Some(line)) if prompt::is_plain_name(value) => commands.push(line.replace(&format!("{{{}}}", word), value)),
-            Ok(Some(_)) => {
-                return crate::refusal::limit(err, "wb answer", format_args!("'{}' is not a plain name that fills `{}`.", value.escape_debug(), key));
+    let mut signing = None;
+    // Where a copy of the answers is posted, in the way of the ref: none where no tracker is set up.
+    let mut copy: Option<String> = None;
+    let questions = match &ledger {
+        Some(ledger) => {
+            // `--show` writes nothing, so it needs no key; every other way writes commits that count only if signed.
+            if *asked != Asked::Show {
+                match crate::stamps::ready_for_answer(root) {
+                    Ok(made) => signing = Some(made),
+                    Err(why) => return crate::refusal::limit(err, "wb answer", format_args!("{}. Nothing is written and nothing is posted.", why)),
+                }
             }
-            Ok(None) => {
-                return crate::refusal::limit(err, "wb answer", format_args!("watchbill.yml has no `{}`. Add the line (see the README). Nothing is posted.", key));
+            if let Some(why) = &ledger.broken {
+                return crate::refusal::limit(err, "wb answer", format_args!("{}. Nothing is written and nothing is posted.", why));
             }
-            Err(why) => {
-                return crate::refusal::limit(err, "wb answer", format_args!("{}", why));
+            if let Some(why) = &ledger.missing {
+                return crate::refusal::limit(err, "wb answer", format_args!("{}, so no question or answer on {} counts.", why, ledger.full));
             }
+            if *asked != Asked::Show {
+                match prompt::pattern_of(root, post) {
+                    Ok(line) => copy = line.map(|line| line.replace(&format!("{{{}}}", word), value)),
+                    Err(why) => return crate::refusal::limit(err, "wb answer", format_args!("{}", why)),
+                }
+            }
+            let questions = open_questions(value, &ledger.comments());
+            if questions.is_empty() {
+                crate::refusal::inform(err, format_args!("wb answer: there is no open question on {} {} (from {}). Nothing is posted.", word, value, ledger.full));
+                return 0;
+            }
+            questions
         }
-    }
-    let printed = match starter::run(root, read, &commands[0], None) {
-        Ok(printed) => printed,
-        Err(why) => {
-            return crate::refusal::limit(err, "wb answer", format_args!("{}. Nothing is posted.", why));
+        None => {
+            // `--show` posts nothing, so it needs only the pattern that reads.
+            let keys: &[&str] = if *asked == Asked::Show { &[read] } else { &[read, post] };
+            for &key in keys {
+                match prompt::pattern_of(root, key) {
+                    Ok(Some(line)) if prompt::is_plain_name(value) => commands.push(line.replace(&format!("{{{}}}", word), value)),
+                    Ok(Some(_)) => {
+                        return crate::refusal::limit(err, "wb answer", format_args!("'{}' is not a plain name that fills `{}`.", value.escape_debug(), key));
+                    }
+                    Ok(None) => {
+                        return crate::refusal::limit(err, "wb answer", format_args!("watchbill.yml has no `{}`. Add the line (see the README). Nothing is posted.", key));
+                    }
+                    Err(why) => {
+                        return crate::refusal::limit(err, "wb answer", format_args!("{}", why));
+                    }
+                }
+            }
+            let printed = match starter::run(root, read, &commands[0], None) {
+                Ok(printed) => printed,
+                Err(why) => {
+                    return crate::refusal::limit(err, "wb answer", format_args!("{}. Nothing is posted.", why));
+                }
+            };
+            let questions = open_questions(value, &split_bodies(&printed));
+            if questions.is_empty() {
+                crate::refusal::inform(err, format_args!("wb answer: there is no open question on {} {} (from `{}` of watchbill.yml). Nothing is posted.", word, value, read));
+                return 0;
+            }
+            questions
         }
     };
-    let questions = open_questions(value, &split_bodies(&printed));
-    if questions.is_empty() {
-        crate::refusal::inform(err, format_args!("wb answer: there is no open question on {} {} (from `{}` of watchbill.yml). Nothing is posted.", word, value, read));
-        return 0;
-    }
     if *asked == Asked::Show {
         let shown: Vec<String> = questions.iter().enumerate().map(|(at, question)| show(question, at + 1, questions.len())).collect();
         let _ = out.write_all(shown.concat().trim_start_matches('\n').as_bytes());
@@ -628,26 +681,91 @@ pub fn answer(root: &str, on: On, asked: &Asked, input: &mut dyn BufRead, out: &
             format!("[answers] {} {}\n{}", prefix, names.join(" "), lines)
         })
         .collect();
-    let _ = write!(err, "wb answer: will post on {} {}, by `{}` of watchbill.yml, {}:\n", word, value, post, if texts.len() == 1 { "one comment".to_string() } else { format!("{} comments, one per role", texts.len()) });
-    for text in &texts {
-        let _ = write!(err, "\n{}", text.split('\n').map(issue::shown).collect::<Vec<_>>().join("\n"));
-    }
-    let _ = writeln!(err);
-    for (at, text) in texts.iter().enumerate() {
-        match starter::run(root, post, &commands[1], Some(text.as_bytes())) {
-            Ok(said) => {
-                let _ = err.write_all(&said);
-            }
-            Err(why) => {
-                let posted = match at {
-                    0 => "No comment was posted".to_string(),
-                    n => format!("The first {} of {} comments were posted", n, texts.len()),
-                };
-                return crate::refusal::limit(err, "wb answer", format_args!("{}. {}; this one may not be.", why, posted));
+    if let (Some(ledger), Some(signing)) = (&ledger, &signing) {
+        // The answers are commits on the job's ref (#238), one for each role; then each copy is posted, where a tracker is
+        // set up.
+        let _ = write!(
+            err,
+            "wb answer: will write on issue {}, as {} on {} signed with the role answer, {}:\n",
+            value,
+            if texts.len() == 1 { "one commit".to_string() } else { format!("{} commits, one per role,", texts.len()) },
+            ledger.full,
+            if texts.len() == 1 { "the answers" } else { "the answers of each" }
+        );
+        for text in &texts {
+            let _ = write!(err, "\n{}", text.split('\n').map(issue::shown).collect::<Vec<_>>().join("\n"));
+        }
+        let _ = writeln!(err);
+        // A ref that stopped being as `wb` writes it while the answers were typed: nothing is written on it.
+        match crate::stamps::not_as_written(root, value) {
+            Ok(None) => {}
+            Ok(Some(why)) | Err(why) => return crate::refusal::limit(err, "wb answer", format_args!("{}. Nothing is written and nothing is posted.", why)),
+        }
+        let mut messages: Vec<String> = Vec::new();
+        for text in &texts {
+            match crate::stamps::thread_message(root, value, text) {
+                Ok(message) => messages.push(message),
+                Err(why) => return crate::refusal::limit(err, "wb answer", format_args!("the answers are not written: {}. Nothing is written and nothing is posted.", why)),
             }
         }
+        let mut written: Vec<String> = Vec::new();
+        for (at, message) in messages.iter().enumerate() {
+            match crate::stamps::write("wb answer", root, value, message, &crate::stamps::Held::Answers, signing, err) {
+                Ok((commit, _)) => written.push(commit),
+                Err(why) => {
+                    let done = match at {
+                        0 => "No answer commit was written".to_string(),
+                        n => format!("The first {} of {} answer commits were written: {}", n, messages.len(), written.join(", ")),
+                    };
+                    return crate::refusal::limit(err, "wb answer", format_args!("{}. {}; nothing is posted.", why, done));
+                }
+            }
+        }
+        match &copy {
+            None => {
+                let _ = writeln!(err, "wb answer: watchbill.yml has no `{}`, so no copy of the answers is posted: they are the commits on {}.", post, ledger.full);
+            }
+            Some(line) => {
+                let _ = writeln!(err, "wb answer: will post on {} {}, by `{}` of watchbill.yml, a copy of each commit:", word, value, post);
+                for (text, commit) in texts.iter().zip(&written) {
+                    match starter::run(root, post, line, Some(text.as_bytes())) {
+                        Ok(said) => {
+                            let _ = err.write_all(&said);
+                        }
+                        Err(why) => {
+                            return crate::refusal::limit(
+                                err,
+                                "wb answer",
+                                format_args!("{}. The answer commit {} is on {}; its copy may not be posted, and no later copy is.", why, commit, ledger.full),
+                            );
+                        }
+                    }
+                }
+                crate::refusal::inform(err, format_args!("wb answer: posted."));
+            }
+        }
+    } else {
+        let _ = write!(err, "wb answer: will post on {} {}, by `{}` of watchbill.yml, {}:\n", word, value, post, if texts.len() == 1 { "one comment".to_string() } else { format!("{} comments, one per role", texts.len()) });
+        for text in &texts {
+            let _ = write!(err, "\n{}", text.split('\n').map(issue::shown).collect::<Vec<_>>().join("\n"));
+        }
+        let _ = writeln!(err);
+        for (at, text) in texts.iter().enumerate() {
+            match starter::run(root, post, &commands[1], Some(text.as_bytes())) {
+                Ok(said) => {
+                    let _ = err.write_all(&said);
+                }
+                Err(why) => {
+                    let posted = match at {
+                        0 => "No comment was posted".to_string(),
+                        n => format!("The first {} of {} comments were posted", n, texts.len()),
+                    };
+                    return crate::refusal::limit(err, "wb answer", format_args!("{}. {}; this one may not be.", why, posted));
+                }
+            }
+        }
+        crate::refusal::inform(err, format_args!("wb answer: posted."));
     }
-    crate::refusal::inform(err, format_args!("wb answer: posted."));
     // An answer that changes the issue's file is taken by a person, never by `wb`.
     for (_, kept) in &comments {
         let changing: Vec<String> = kept.iter().filter(|(question, _, role)| changes_file(question, role)).map(|(question, _, _)| question.name()).collect();

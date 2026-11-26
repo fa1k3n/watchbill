@@ -100,13 +100,19 @@ pub fn bring_in(root: &str, issue: &str, view: &Path) -> Result<Brought, String>
     // A plan of the name brings every source of it, and `issue_text` is not run (#290, decision 1).
     let planned = crate::plan::planner_text(root, issue)?;
     let address = if planned.is_none() { Some(pattern(root, "issue_text")?) } else { None };
-    let comments = pattern(root, "issue_comment_bodies")?;
+    // Where the job's ref holds a questions commit, its questions and answers are read from the ref, and the tracker is
+    // not read for them (#238).
+    let ledger = crate::stamps::read(root, issue)?;
+    let on_ref = ledger.has_questions();
+    let comments = if on_ref { None } else { Some(pattern(root, "issue_comment_bodies")?) };
     let text = match planned {
         Some(text) => text,
         None => starter::run_capped(root, "issue_text", &address.unwrap_or_default().replace("{issue}", issue), bounded::TEXT_CAP)?,
     };
-    let printed = starter::run_capped(root, "issue_comment_bodies", &comments.replace("{issue}", issue), bounded::TEXT_CAP)?;
-    let bodies = answer::split_bodies(&printed);
+    let bodies = match &comments {
+        Some(comments) => answer::split_bodies(&starter::run_capped(root, "issue_comment_bodies", &comments.replace("{issue}", issue), bounded::TEXT_CAP)?),
+        None => ledger.thread(),
+    };
     let kept: Vec<&str> = bodies
         .iter()
         .filter(|body| asked_or_answered(issue, body.split('\n').next().unwrap_or_default().trim_end_matches('\r')))
@@ -214,7 +220,7 @@ fn file_in(root: &str, commit: &str, issue: &str) -> Result<Vec<u8>, String> {
 /// Posts the questions of the issue's file of `issue`, as `commit` holds it, the last commit taken back from the
 /// planner's view, that the issue does not hold yet (#295): by `issue_comment`, after it is said on `err`. A file
 /// with no new question posts nothing. The error says why nothing was posted; it holds nothing raw.
-pub fn post_questions(name: &str, root: &str, issue: &str, commit: &str, err: &mut dyn Write) -> Result<(), String> {
+pub fn post_questions(name: &str, root: &str, issue: &str, commit: &str, signing: &crate::stamps::Signing, err: &mut dyn Write) -> Result<(), String> {
     let path = Path::new(root).join(crate::issue::FOLDER).join(format!("{}.yml", issue));
     let document = crate::yamlfile::load_bytes(&path, file_in(root, commit, issue)?).map_err(|why| crate::issue::shown(&why.to_string()))?;
     let place = [crate::yamlfile::Part::from("questions")];
@@ -223,20 +229,82 @@ pub fn post_questions(name: &str, root: &str, issue: &str, commit: &str, err: &m
         return Ok(());
     }
     let questions = written.iter().map(|text| question_of(issue, text)).collect::<Result<Vec<_>, _>>()?;
-    let read = pattern_to_post(root, "issue_comments")?;
-    let printed = starter::run_capped(root, "issue_comments", &read.replace("{issue}", issue), bounded::TEXT_CAP)?;
-    let lines = starter::counted(&String::from_utf8_lossy(&printed));
-    let asked = answer::asked_names(issue, &lines);
+    // What is asked already is what the job's ref holds (#238): the tracker is not read for it.
+    let ledger = crate::stamps::read(root, issue)?;
+    let asked = answer::asked_names(issue, &starter::counted(&ledger.lines()));
     let new: Vec<Question> = questions.into_iter().filter(|question| !asked.contains(&format!("{}.q{}", issue, question.number))).collect();
     if new.is_empty() {
         return Ok(());
     }
-    let post = pattern_to_post(root, "issue_comment")?;
-    let comment = comment_of(issue, &new);
-    let _ = write!(err, "{}: will post on issue {}, by `issue_comment` of watchbill.yml:\n{}", name, issue, comment);
-    let said = starter::run(root, "issue_comment", &post.replace("{issue}", issue), Some(comment.as_bytes()))?;
-    let _ = err.write_all(&said);
-    Ok(())
+    record_questions(name, root, issue, &comment_of(issue, &new), signing, &ledger, err)
+}
+
+/// Writes `comment`, the questions of a session in the form of their copy, as a commit on the job's ref of `issue` after
+/// the stamp (#238), then posts the copy by `issue_comment` where it is set up. Where the commit cannot be written, the
+/// error holds the questions whole, so that they are not lost with the session's files.
+fn record_questions(name: &str, root: &str, issue: &str, comment: &str, signing: &crate::stamps::Signing, ledger: &crate::stamps::Ledger, err: &mut dyn Write) -> Result<(), String> {
+    let held_back = |why: String| format!("{}. The questions are not written, and read:\n{}", why, comment);
+    if let Some(why) = &ledger.broken {
+        return Err(held_back(why.clone()));
+    }
+    let message = crate::stamps::thread_message(root, issue, comment).map_err(|why| held_back(format!("the questions are not written: {}", why)))?;
+    // The first commit of a job: the questions that only the tracker holds are not carried into a signed commit, and are
+    // not read any more once it is on the ref. Said, so that they are answered there or asked again.
+    if !ledger.has_questions() {
+        let first = comment.split('\n').next().unwrap_or_default().to_string();
+        tracker_notice(name, root, issue, &answer::asked_names(issue, &[first]), err);
+    }
+    let (commit, _) = crate::stamps::write(name, root, issue, &message, &crate::stamps::Held::Questions, signing, err).map_err(held_back)?;
+    match prompt::pattern_of(root, "issue_comment") {
+        Err(why) => Err(format!("{}. The questions are the commit {} on {}; no copy of them is posted", why, commit, ledger.full)),
+        Ok(None) => {
+            let _ = writeln!(err, "{}: watchbill.yml has no `issue_comment`, so no copy of the questions is posted: they are the commit {} on {}.", name, commit, ledger.full);
+            Ok(())
+        }
+        Ok(Some(line)) => {
+            let _ = write!(err, "{}: will post on issue {}, by `issue_comment` of watchbill.yml:\n{}", name, issue, comment);
+            let said = starter::run(root, "issue_comment", &line.replace("{issue}", issue), Some(comment.as_bytes()))
+                .map_err(|why| format!("{}. The questions are the commit {} on {}; their copy may not be posted", why, commit, ledger.full))?;
+            let _ = err.write_all(&said);
+            Ok(())
+        }
+    }
+}
+
+/// Says, where the tracker holds questions that are open by the old reading, that they are not read once the first
+/// questions commit of the job is on its ref (#238). It reads the tracker only to say so; where it cannot, it says nothing.
+fn tracker_notice(name: &str, root: &str, issue: &str, asking: &[String], err: &mut dyn Write) {
+    let Ok(Some(line)) = prompt::pattern_of(root, "issue_comments") else { return };
+    let Ok(printed) = starter::run_capped(root, "issue_comments", &line.replace("{issue}", issue), bounded::TEXT_CAP) else { return };
+    let lines = starter::counted(&String::from_utf8_lossy(&printed));
+    let open = answer::open_names(issue, &lines);
+    let asked = answer::asked_names(issue, &lines);
+    // The questions this commit asks that the tracker holds too: asked again on the ref, answered there or not.
+    let again: Vec<String> = asking
+        .iter()
+        .filter(|each| asked.contains(each))
+        .map(|each| format!("{} ({} at the tracker)", crate::issue::shown(each), if open.contains(each) { "open" } else { "answered" }))
+        .collect();
+    if !again.is_empty() {
+        let _ = writeln!(
+            err,
+            "{}: the questions {} are asked again by this commit on {}: the answers at the tracker are not read any more, and each is answered again with wb answer.",
+            name,
+            again.join(", "),
+            crate::stamps::full(issue)
+        );
+    }
+    let lost: Vec<String> = open.iter().filter(|each| !asking.contains(each)).map(|each| crate::issue::shown(each)).collect();
+    if lost.is_empty() {
+        return;
+    }
+    let _ = writeln!(
+        err,
+        "{}: the tracker holds open questions ({}), which are not read once the questions commit is on {}: a session that still needs them asks them again.",
+        name,
+        lost.join(", "),
+        crate::stamps::full(issue)
+    );
 }
 
 /// The line of a pattern the questions are posted by, or why there is none.
@@ -418,8 +486,15 @@ pub fn bring_in_for(root: &str, session: &Session, out: &Path) -> Result<(), Str
         _ => None,
     };
     if let Some(on) = session.on() {
-        let bodies = match (&change_bodies, on.word) {
-            (Some(bodies), "change") => bodies.clone(),
+        // Where the job's ref holds a questions commit, the questions and answers are those of the ref, and the tracker is
+        // not read for them (#238).
+        let on_ref = match (on.word, session.issue) {
+            ("issue", Some(issue)) => Some(crate::stamps::read(root, issue)?).filter(|ledger| ledger.has_questions()),
+            _ => None,
+        };
+        let bodies = match (&on_ref, &change_bodies, on.word) {
+            (Some(ledger), _, _) => ledger.thread(),
+            (None, Some(bodies), "change") => bodies.clone(),
             _ => answer::split_bodies(&read_by(root, on.bodies, role, on.word, on.value)?),
         };
         let prefix = session.prefix(&on);
@@ -482,6 +557,8 @@ pub struct Ended<'a> {
     /// Why the fix's answers are held back, or none: only where a commit of the session came back and was not pushed,
     /// as the answers would name commits the change does not hold.
     pub held: Option<String>,
+    /// How a commit on the job's ref is signed, for the questions of an issue (#238); none for a change with no issue.
+    pub signing: Option<&'a crate::stamps::Signing>,
 }
 
 /// Posts what a session wrote for `wb` (#153), each after it is said: the new questions of `{questions}` for the
@@ -559,6 +636,17 @@ fn post_questions_of(ended: &Ended, text: &str, err: &mut dyn Write) -> Result<(
     let on = ended.session.on().ok_or("there is no issue and no change to post them on")?;
     let prefix = ended.session.prefix(&on);
     let questions = split_questions(text)?.iter().map(|one| question_led("", &format!("in {}", crate::view::QUESTIONS), one)).collect::<Result<Vec<_>, _>>()?;
+    // The questions of an issue are commits on its job's ref (#238), and what is asked already is what the ref holds; the
+    // questions of a change with no issue are comments, read from the tracker as before.
+    if let (Some(signing), "issue") = (ended.signing, on.word) {
+        let ledger = crate::stamps::read(ended.root, on.value)?;
+        let asked = answer::asked_names(on.value, &starter::counted(&ledger.lines()));
+        let new: Vec<Question> = questions.into_iter().filter(|question| !asked.contains(&format!("{}.q{}", prefix, question.number))).collect();
+        if new.is_empty() {
+            return Ok(());
+        }
+        return record_questions(ended.name, ended.root, on.value, &comment_of(&prefix, &new), signing, &ledger, err);
+    }
     let read = pattern_to_post(ended.root, on.lines)?;
     let printed = starter::run_capped(ended.root, on.lines, &read.replace(&format!("{{{}}}", on.word), on.value), bounded::TEXT_CAP)?;
     let lines = starter::counted(&String::from_utf8_lossy(&printed));

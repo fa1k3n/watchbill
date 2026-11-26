@@ -331,9 +331,13 @@ pub const USAGE: &str = "usage:
             git alone says which, and fetches nothing. Its line shows the
             branch, the open change as #<n> (change_of_branch) and how many
             commits are not pushed. The stamps are the commits on the job's
-            ref that count, the questions and answers come from
-            issue_comments: an acceptance that a source or a planner round
-            after it voided puts the issue under Planned.
+            ref that count. The questions and answers of a job whose ref
+            holds a questions commit are read from the ref, and no
+            issue_comments is run for it; those of any other job come from
+            issue_comments. For an open question read from the ref it says on
+            standard error that an answer typed at the tracker is not read.
+            An acceptance that a source or a planner round after it voided
+            puts the issue under Planned.
             <issue> prints that issue, in the flow or not, with its title
             (issue_address) and what it was worked out from; --stage <heading>
             prints that heading only, whatever its case. A job whose work is
@@ -413,13 +417,19 @@ pub const USAGE: &str = "usage:
             leaves out the Keeping lines, and not Removing or Would remove,
             which it says before it removes
   answer    answer the open questions of an issue: wb answer <issue> reads
-            the whole comments by issue_comment_bodies of watchbill.yml, shows
-            each open question in full, one at a time, and asks: Enter takes
-            the suggestion, a number takes that choice, other text is the
-            answer in words; a number that is not a choice is asked again.
-            Then it says what it will post and posts one [answers] comment per
-            role by issue_comment. Nothing is posted before every question is
-            answered, and nothing after Ctrl-C. --suggested takes every
+            the questions from the job's ref where it holds a questions
+            commit, else the whole comments by issue_comment_bodies of
+            watchbill.yml, shows each open question in full, one at a time,
+            and asks: Enter takes the suggestion, a number takes that choice,
+            other text is the answer in words; a number that is not a choice
+            is asked again. Then it says what it will write or post. For a
+            job whose ref holds a questions commit it writes one commit per
+            role on refs/watchbill/<issue>, signed with a key of
+            .watchbill/signers that holds the role answer, pushes it, and
+            posts a copy by issue_comment where that is set up; for any other
+            job it posts one [answers] comment per role by issue_comment.
+            Nothing is written or posted before every question is answered,
+            and nothing after Ctrl-C. --suggested takes every
             suggestion and names the questions with none. --show prints every
             open question in full, as it is laid out when asked, to standard
             output, and asks nothing, posts nothing and ends with 0; it takes
@@ -427,15 +437,17 @@ pub const USAGE: &str = "usage:
             tester.q1 2 (q1 for the planner), answers a question
             without asking, and the pairs repeat; with --suggested the
             suggestion is taken for every question they do not answer.
-            One comment per role is posted, or none when a pair is wrong
+            One comment or commit per role is written, or none when a pair is wrong
             (a question not open, a number not a choice: 1); a question
             named twice ends with 2. --change <n> answers on a change
             with no issue, by
             change_comment_bodies and change_comment. It never changes the
             issue's file: where an answer does, it says so. Ends with 0 when
-            the answers are posted or no question is open, 1 when it was
-            refused, the input ended or a pattern failed, 2 when it was used
-            wrongly or the repository is not set up. -q (--quiet) leaves out
+            the answers are posted or written or no question is open, 1 when
+            it was refused (also where the ref is not as wb writes it, or no
+            key holds the role answer), the input ended, a pattern failed or a
+            copy could not be posted, 2 when it was used wrongly or the
+            repository is not set up. -q (--quiet) leaves out
             the line that says the answers are posted and the line that says
             no question is open, and not what it will post, a question or a
             refusal
@@ -2319,8 +2331,9 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
     if !back.taken.is_empty() {
         // The planner posts nothing (#295): its new questions, written in full in the issue's file, are posted here.
         // They are read from the last commit taken back, not from the working tree, which need not hold it (#296).
-        if let (true, Some(issue), Some((commit, _))) = (role == "planner", value_of(&handed.values, "issue"), back.taken.last()) {
-            if let Err(why) = brought::post_questions(name, root, issue, commit, err) {
+        // They are written as a commit on the job's ref after the stamp, and the copy is posted (#238).
+        if let (true, Some(issue), Some((commit, _)), Some(signing)) = (role == "planner", value_of(&handed.values, "issue"), back.taken.last(), signing.as_ref()) {
+            if let Err(why) = brought::post_questions(name, root, issue, commit, signing, err) {
                 refusal::limit(err, name, format_args!("the questions of the issue's file are not posted: {}", why));
                 // not a refusal: the limit is said just above, after the session; the code says it too.
                 code = 1;
@@ -2337,6 +2350,7 @@ fn run_start(role: &str, quiet: Option<&'static str>, parser: &mut Parser, folde
             round: value_of(&handed.values, "round"),
             ended_well,
             held: fix_held_back(&back, value_of(&handed.values, "issue"), pushed.lines.as_deref()),
+            signing: signing.as_ref(),
         },
         written,
         err,

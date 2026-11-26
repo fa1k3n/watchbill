@@ -170,8 +170,9 @@ fn bench_for(issue_54: &str) -> Bench {
     git(&repo.path, &["branch", "-M", "main"]);
     git(&repo.path, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
     git(&repo.path, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
-    // Nothing that needs a signature counts without `.watchbill/signers` on the default branch (#323).
-    signing(&repo.path);
+    // Nothing that needs a signature counts without `.watchbill/signers` on the default branch (#323). Ada also holds
+    // the role `answer`, for the tests of `wb answer` after a start (#238).
+    signing_as(&repo.path, "accept,start,answer");
     // Issue 99 has no file: its branch is there for a role started alone.
     git(&repo.path, &["branch", "issue-99"]);
     git(&repo.path, &["checkout", "-q", "-b", "issue-54"]);
@@ -4766,9 +4767,9 @@ fn test_WB_BUILD_139_the_new_questions_of_the_file_are_posted_in_one_comment_by_
     assert_eq!(posts_on_54(&bench), 2, "{:?}", bench.calls());
     assert_eq!(bench.posted(), TWO_POSTED);
 
-    // A question that stands on the issue already is not posted again.
+    // A question that stands on the job's ref already is not posted again (#238): the tracker is not read for it.
     let bench = crate::bench();
-    fs::write(bench.at("comments-issue-54"), "[stamp] planner round 1\n[questions] 54 q1\n").unwrap();
+    stamps_on_ref(&bench.repo.path, "54", &["[questions] 54 q1\n\nq1: Which brake does the issue mean?\n"]);
     planner_writes(&bench, TWO_QUESTIONS);
     ok(&bench.start(&["start", "planner", "54"]));
     assert_eq!(posts_on_54(&bench), 2, "{:?}", bench.calls());
@@ -4803,14 +4804,14 @@ fn test_WB_BUILD_141_a_file_with_no_question_or_none_new_posts_nothing_after_the
     assert!(bench.posted().starts_with("[stamp] planner"), "{}", bench.posted());
 
     let bench = crate::bench();
-    fs::write(bench.at("comments-issue-54"), "[questions] 54 q1 q2\n").unwrap();
+    stamps_on_ref(&bench.repo.path, "54", &["[questions] 54 q1 q2\n\nq1: Which brake does the issue mean?\nq2: Is a test of the timing asked for?\n"]);
     planner_writes(&bench, TWO_QUESTIONS);
     ok(&bench.start(&["start", "planner", "54"]));
     assert_eq!(posts_on_54(&bench), 1, "{:?}", bench.calls());
-    // The questions on the issue were read, after the session, and found to be all of them.
+    // The questions on the ref were found to be all of them: the tracker is not read for them (#238).
     let calls = bench.calls();
     let start = calls.iter().position(|call| call == "start").unwrap();
-    assert!(calls[start..].iter().any(|call| call == "comments issue 54"), "{:?}", calls);
+    assert!(!calls[start..].iter().any(|call| call == "comments issue 54"), "{:?}", calls);
 }
 
 #[test]
@@ -4827,6 +4828,297 @@ fn test_WB_BUILD_142_questions_that_cannot_be_posted_end_with_1_as_a_limit_sayin
     assert!(err.contains("limit:") && err.contains("not posted"), "{}", err);
     // The issue's file came back all the same.
     assert_eq!(subjects(&bench, 1), vec!["The issue file of 54"]);
+}
+
+/// The messages of the commits of the job's ref of 54, oldest first: what follows the header of each commit.
+fn ref_messages(bench: &Bench) -> Vec<String> {
+    let commits = bench.git_text(&["rev-list", "--reverse", "refs/watchbill/54"]);
+    commits
+        .lines()
+        .map(|commit| bench.git_text(&["cat-file", "commit", commit]).split_once("\n\n").map(|(_, message)| message.to_string()).unwrap_or_default())
+        .collect()
+}
+
+/// The bare repository the pushes of `origin` go to (`push_beside`).
+fn bare_of(bench: &Bench) -> String {
+    bench.repo.path.parent().unwrap().join("origin.git").to_str().unwrap().to_string()
+}
+
+/// The first line of a message and what follows its header: the form of the copy that is posted.
+fn copy_of(message: &str) -> String {
+    let (head, body) = message.split_once("\n\n").unwrap_or((message, ""));
+    format!("{}\n{}", head.lines().next().unwrap_or(""), body)
+}
+
+#[test]
+fn test_WB_ANSWER_21_the_planner_s_questions_are_a_commit_on_the_job_s_ref_after_its_stamp_signed_and_pushed() {
+    if !sandbox("test_WB_ANSWER_21") {
+        return;
+    }
+    let bench = bench();
+    planner_writes(&bench, TWO_QUESTIONS);
+
+    ok(&bench.start(&["start", "planner", "54"]));
+
+    let messages = ref_messages(&bench);
+    assert_eq!(messages.len(), 2, "{:?}", messages);
+    assert!(messages[0].starts_with("[stamp] planner round 1\n"), "{}", messages[0]);
+    assert!(messages[1].starts_with("[questions] 54 q1 q2\nissue: 54\njob: none\nbase: "), "{}", messages[1]);
+    assert_eq!(copy_of(&messages[1]), TWO_POSTED);
+    let tip = bench.git_text(&["rev-parse", "refs/watchbill/54"]).trim().to_string();
+    assert!(bench.git_text(&["cat-file", "commit", &tip]).contains("\ngpgsig "));
+    assert_eq!(bench.git_text(&["rev-parse", &format!("{}^{{tree}}", tip)]), bench.git_text(&["rev-parse", &format!("{}^^{{tree}}", tip)]));
+    // Pushed to origin with the stamp, and the copy posted.
+    assert_eq!(bench.git_text(&["--git-dir", &bare_of(&bench), "rev-parse", "refs/watchbill/54"]).trim(), tip);
+    assert_eq!(bench.posted(), TWO_POSTED);
+    // `wb status` shows them open from the ref, and runs no `issue_comments` for the issue.
+    let before = called(&bench, "comments");
+    let run = wb(&bench.repo.path, &["status", "54"], "");
+    assert!(text_of(&run.stdout).contains("Questions open:\n  54  54.q1, 54.q2\n"), "{}{}", text_of(&run.stdout), text_of(&run.stderr));
+    assert_eq!(called(&bench, "comments"), before, "{:?}", bench.calls());
+}
+
+#[test]
+fn test_WB_ANSWER_21_the_questions_of_another_role_are_a_commit_named_for_the_role() {
+    if !sandbox("test_WB_ANSWER_21") {
+        return;
+    }
+    let bench = bench();
+    writing_session(&bench, "questions", TESTER_QUESTIONS, 0);
+
+    ok(&bench.start(&["start", "tester", "54"]));
+
+    let messages = ref_messages(&bench);
+    assert_eq!(messages.len(), 2, "{:?}", messages);
+    assert!(messages[0].starts_with("[stamp] tester round 1\n"), "{}", messages[0]);
+    assert!(messages[1].starts_with("[questions] 54.tester q1 q2\nissue: 54\n"), "{}", messages[1]);
+    assert_eq!(copy_of(&messages[1]), TESTER_POSTED);
+}
+
+#[test]
+fn test_WB_ANSWER_21_a_session_with_no_new_question_writes_no_commit() {
+    if !sandbox("test_WB_ANSWER_21") {
+        return;
+    }
+    let bench = bench();
+    bench.session("true\n");
+
+    ok(&bench.start(&["start", "tester", "54"]));
+
+    assert_eq!(ref_messages(&bench).len(), 1);
+}
+
+#[test]
+fn test_WB_ANSWER_21_the_commit_is_written_before_the_copy_and_a_copy_that_fails_leaves_it_on_the_ref() {
+    if !sandbox("test_WB_ANSWER_21") {
+        return;
+    }
+    let bench = bench();
+    planner_writes_then(&bench, TWO_QUESTIONS, "echo 1 > {log}/post.status\n");
+
+    let run = bench.start(&["start", "planner", "54"]);
+
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    assert!(err.contains("not posted") && err.contains("refs/watchbill/54"), "{}", err);
+    let messages = ref_messages(&bench);
+    assert_eq!(messages.len(), 2, "{:?}", messages);
+    assert!(messages[1].starts_with("[questions] 54 q1 q2\n"), "{}", messages[1]);
+}
+
+#[test]
+fn test_WB_ANSWER_21_with_no_issue_comment_the_commit_is_written_and_no_copy_is_posted() {
+    if !sandbox("test_WB_ANSWER_21") {
+        return;
+    }
+    let bench = bench();
+    without_line(&bench, "issue_comment");
+    planner_writes(&bench, TWO_QUESTIONS);
+
+    let run = bench.start(&["start", "planner", "54"]);
+
+    ok(&run);
+    assert!(!bench.any_posted(), "{:?}", bench.calls());
+    assert!(text_of(&run.stderr).contains("no copy of the questions is posted"), "{}", text_of(&run.stderr));
+    assert!(ref_messages(&bench)[1].starts_with("[questions] 54 q1 q2\n"));
+}
+
+#[test]
+fn test_WB_ANSWER_21_a_ref_that_is_not_as_wb_writes_it_at_the_end_of_the_session_holds_back_the_questions_and_says_them() {
+    if !sandbox("test_WB_ANSWER_21") {
+        return;
+    }
+    let bench = bench();
+    // The copy of the stamp is posted by a stand-in that, the first time it runs, puts a commit that no key signed on the
+    // job's ref, which breaks it (#327), as it is posted before the session.
+    let l = bench.log.path.to_str().unwrap();
+    script(
+        &bench.at("post.sh"),
+        &format!(
+            "cat > {l}/posted-$1-$2\necho \"post $1 $2\" >> {l}/calls\nif [ ! -f {l}/planted ]; then\n  tree=$(git rev-parse 'refs/watchbill/54^{{tree}}')\n  commit=$(git -c user.name=x -c user.email=x@example.org commit-tree --no-gpg-sign -p refs/watchbill/54 -m planted \"$tree\")\n  git update-ref refs/watchbill/54 \"$commit\"\n  echo \"$commit\" > {l}/planted\nfi\nexit 0\n"
+        ),
+    );
+    planner_writes(&bench, TWO_QUESTIONS);
+
+    let run = bench.start(&["start", "planner", "54"]);
+
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    assert!(err.contains("is not as wb writes it") && err.contains("[questions] 54 q1 q2") && err.contains("Which brake does the issue mean?"), "{}", err);
+    assert!(!ref_messages(&bench).iter().any(|message| message.starts_with("[questions] ")), "{:?}", ref_messages(&bench));
+}
+
+#[test]
+fn test_WB_ANSWER_21_questions_too_large_for_a_commit_are_not_written_and_are_said() {
+    if !sandbox("test_WB_ANSWER_21") {
+        return;
+    }
+    let bench = bench();
+    let long = "x".repeat(60 * 1024);
+    let file = TWO_QUESTIONS.replace("the tests check one brake or the other.", &long);
+    planner_writes(&bench, &file);
+
+    let run = bench.start(&["start", "planner", "54"]);
+
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    assert!(err.contains("48 KiB"), "{}", err);
+    // The questions are said whole, so that they are not lost with the session's files.
+    assert!(err.contains("[questions] 54 q1 q2") && err.contains("Which brake does the issue mean?") && err.contains("Is a test of the timing asked for?"), "{}", &err[..err.len().min(2000)]);
+    assert!(err.contains(&"x".repeat(1000)), "the text of the question is not said");
+    assert_eq!(ref_messages(&bench).len(), 1);
+}
+
+#[test]
+fn test_WB_ANSWER_21_where_the_tracker_holds_open_questions_the_first_commit_says_they_are_not_read_any_more() {
+    if !sandbox("test_WB_ANSWER_21") {
+        return;
+    }
+    let bench = bench();
+    fs::write(bench.at("comments-issue-54"), "[questions] 54.build q1\n").unwrap();
+    planner_writes(&bench, TWO_QUESTIONS);
+
+    let run = bench.start(&["start", "planner", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    assert!(err.contains("the tracker holds open questions") && err.contains("54.build.q1") && err.contains("not read"), "{}", err);
+}
+
+#[test]
+fn test_WB_ANSWER_21_the_first_commit_names_the_questions_it_asks_again_that_the_tracker_holds_and_says_its_answers_are_not_read() {
+    if !sandbox("test_WB_ANSWER_21") {
+        return;
+    }
+    let bench = bench();
+    // q1 was asked and answered at the tracker, q2 asked and still open; the planner's file holds both.
+    fs::write(bench.at("comments-issue-54"), "[questions] 54 q1 q2\n[answers] 54 q1>planner\n").unwrap();
+    planner_writes(&bench, TWO_QUESTIONS);
+
+    let run = bench.start(&["start", "planner", "54"]);
+
+    ok(&run);
+    let err = text_of(&run.stderr);
+    assert!(err.contains("54.q1 (answered at the tracker)") && err.contains("54.q2 (open at the tracker)"), "{}", err);
+    assert!(err.contains("asked again") && err.contains("the answers at the tracker are not read any more"), "{}", err);
+    // Both are on the ref, asked again.
+    assert!(ref_messages(&bench)[1].starts_with("[questions] 54 q1 q2\n"), "{:?}", ref_messages(&bench));
+}
+
+/// Makes the bare repository that `origin` pushes to refuse a commit whose message starts with `[questions]`.
+fn refuse_questions_at_origin(bench: &Bench) {
+    let hook = Path::new(&bare_of(bench)).join("hooks/pre-receive");
+    script(&hook, "while read old new ref; do\n  if git log -1 --format=%B \"$new\" | head -n 1 | grep -q '^\\[questions\\]'; then echo 'no questions here' >&2; exit 1; fi\ndone\nexit 0\n");
+}
+
+#[test]
+fn test_WB_ANSWER_21_a_questions_commit_that_cannot_be_pushed_says_how_to_get_the_questions_asked() {
+    if !sandbox("test_WB_ANSWER_21") {
+        return;
+    }
+    let bench = bench();
+    refuse_questions_at_origin(&bench);
+    planner_writes(&bench, TWO_QUESTIONS);
+
+    let run = bench.start(&["start", "planner", "54"]);
+
+    assert_eq!(code(&run), Some(1), "{}", text_of(&run.stderr));
+    let err = text_of(&run.stderr);
+    // The questions are said, and what to do.
+    assert!(err.contains("[questions] 54 q1 q2") && err.contains("Which brake does the issue mean?"), "{}", err);
+    let after = err.split("push it by hand: `git push origin ").nth(1).unwrap_or_else(|| panic!("no command to push by hand: {}", err));
+    let (command, _) = after.split_once('`').unwrap();
+    let (commit, full) = command.split_once(':').unwrap();
+    assert_eq!(bench.git_text(&["cat-file", "-t", commit]).trim(), "commit", "{}", err);
+    assert_eq!(full, "refs/watchbill/54", "{}", err);
+    // What it says is true in both setups: where the fetch line of `wb init` is there the push moves the local ref too,
+    // and where it is not the person fetches the ref by its name.
+    assert!(err.contains("once it is pushed, the questions are on the ref and asked"), "{}", err);
+    assert!(err.contains("`+refs/watchbill/*:refs/watchbill/*`") && err.contains("`git fetch origin refs/watchbill/54:refs/watchbill/54`"), "{}", err);
+    assert!(!err.contains("The local ref is not moved") && !err.contains("behind origin") && !err.contains("refused as not a fast-forward until"), "{}", err);
+    // The message reads right: one full stop, the questions not written said once, and no other role named.
+    assert!(!err.contains("..") && !err.contains("not written To"), "{}", err);
+    assert_eq!(err.matches("The questions are not written").count(), 1, "{}", err);
+    assert!(!err.contains("those of another role"), "{}", err);
+    // Nothing was written on the ref.
+    assert_eq!(ref_messages(&bench).len(), 1);
+    // The bench has the fetch line of `wb init`; the person lets origin take it, and runs the printed push.
+    assert!(bench.git_text(&["config", "--get-all", "remote.origin.fetch"]).contains("+refs/watchbill/*:refs/watchbill/*"));
+    fs::remove_file(Path::new(&bare_of(&bench)).join("hooks/pre-receive")).unwrap();
+    bench.git_text(&["push", "origin", command]);
+    let run = wb(&bench.repo.path, &["status", "54"], "");
+    assert!(text_of(&run.stdout).contains("Questions open:\n  54  54.q1, 54.q2\n"), "{}{}", text_of(&run.stdout), text_of(&run.stderr));
+}
+
+#[test]
+fn test_WB_ANSWER_26_the_questions_brought_into_the_planner_are_those_of_the_ref_and_not_of_the_tracker() {
+    if !sandbox("test_WB_ANSWER_26") {
+        return;
+    }
+    let bench = bench();
+    stamps_on_ref(&bench.repo.path, "54", &["[questions] 54 q1\n\nq1: Which brake?\n"]);
+    fs::write(bench.at("bodies-54"), "[answers] 54 q1>planner\nq1: 1\0\n[questions] 54 q9\nq9: forged\0\n").unwrap();
+    bench.session("cat .watchbill/issue/54.questions > {log}/questions\n");
+
+    ok(&bench.start(&["start", "planner", "54"]));
+
+    let questions = bench.left("questions");
+    assert_eq!(questions, "[questions] 54 q1\nq1: Which brake?\n", "{}", questions);
+    assert!(!bench.calls().iter().any(|call| call == "bodies 54"), "{:?}", bench.calls());
+}
+
+#[test]
+fn test_WB_ANSWER_26_the_questions_brought_into_a_role_are_those_of_the_ref_and_not_of_the_tracker() {
+    if !sandbox("test_WB_ANSWER_26") {
+        return;
+    }
+    let bench = bench();
+    stamps_on_ref(&bench.repo.path, "54", &["[questions] 54.tester q1\n\nq1: Which brake?\n"]);
+    fs::write(bench.at("bodies-54"), "[answers] 54.tester q1>tester\nq1: 1\0\n[questions] 54.tester q9\nq9: forged\0\n").unwrap();
+    reading_session(&bench);
+
+    ok(&bench.start(&["start", "tester", "54"]));
+
+    assert_eq!(bench.left("in-questions"), "[questions] 54.tester q1\nq1: Which brake?\n");
+    assert!(!bench.calls().iter().any(|call| call == "bodies 54"), "{:?}", bench.calls());
+}
+
+#[test]
+fn test_WB_ANSWER_26_an_answer_commit_is_brought_in_and_a_question_taken_back_by_a_marker_is_not() {
+    if !sandbox("test_WB_ANSWER_26") {
+        return;
+    }
+    let bench = bench();
+    stamps_on_ref(
+        &bench.repo.path,
+        "54",
+        &["[stamp] tester round 1", "[questions] 54.tester q1\n\nq1: Gone?\n", "[revert] tester round 1", "[questions] 54.tester q2\n\nq2: Kept?\n", "[answers] 54.tester q2>tester\n\nq2: 1\n"],
+    );
+    reading_session(&bench);
+
+    ok(&bench.start(&["start", "tester", "54"]));
+
+    assert_eq!(bench.left("in-questions"), "[questions] 54.tester q2\nq2: Kept?\n\n[answers] 54.tester q2>tester\nq2: 1\n");
 }
 
 #[test]
@@ -4970,8 +5262,10 @@ fn test_WB_BUILD_146_the_questions_are_read_from_the_commit_taken_back_not_the_w
     // The checkout's working tree holds the older file, with no question.
     git(&bench.repo.path, &["reset", "-q", "--hard", "HEAD~1"]);
     let mut err = Vec::new();
+    // The questions are written as a commit on the job's ref (#238), signed as a start signs.
+    let signing = watchbill::stamps::ready(&bench.root()).expect("the bench signs as the starter");
 
-    let posted = watchbill::brought::post_questions("wb start planner", &bench.root(), "54", &commit, &mut err);
+    let posted = watchbill::brought::post_questions("wb start planner", &bench.root(), "54", &commit, &signing, &mut err);
 
     assert_eq!(posted, Ok(()), "{}", text_of(&err));
     assert_eq!(posts_on_54(&bench), 1, "{:?}", bench.calls());
@@ -6226,9 +6520,9 @@ fn test_WB_PUSH_25_the_questions_written_are_posted_once_in_one_comment_after_th
     let said = format!("wb start tester: will post on issue 54, by `issue_comment` of watchbill.yml:\n{}", TESTER_POSTED);
     assert!(text_of(&run.stderr).contains(&said), "{}", text_of(&run.stderr));
 
-    // A question that stands on the issue already is not posted again.
+    // A question that stands on the job's ref already is not posted again (#238).
     let bench = crate::bench();
-    fs::write(bench.at("comments-issue-54"), "[questions] 54.tester q1\n").unwrap();
+    stamps_on_ref(&bench.repo.path, "54", &["[questions] 54.tester q1\n\nq1: Which brake?\n"]);
     writing_session(&bench, "questions", TESTER_QUESTIONS, 0);
     ok(&bench.start(&["start", "tester", "54"]));
     assert_eq!(posts_on_54(&bench), 2, "{:?}", bench.calls());
@@ -6236,7 +6530,7 @@ fn test_WB_PUSH_25_the_questions_written_are_posted_once_in_one_comment_after_th
 
     // All asked already: nothing more is posted.
     let bench = crate::bench();
-    fs::write(bench.at("comments-issue-54"), "[questions] 54.tester q1 q2\n").unwrap();
+    stamps_on_ref(&bench.repo.path, "54", &["[questions] 54.tester q1 q2\n\nq1: Which brake?\nq2: Which unit?\n"]);
     writing_session(&bench, "questions", TESTER_QUESTIONS, 0);
     ok(&bench.start(&["start", "tester", "54"]));
     assert_eq!(posts_on_54(&bench), 1, "{:?}", bench.calls());

@@ -874,19 +874,21 @@ pub fn round_held(job: &str, commit: &str, message: &str) -> String {
     )
 }
 
-/// What a refused push of a questions commit adds (#238): how the questions get asked, where the push is not a
-/// fast-forward (`behind`) and where it failed otherwise. Nothing for another kind of commit.
-fn how_to_ask(held: &Held, made: &Made, behind: bool) -> String {
-    if !matches!(held, Held::Questions) {
-        return String::new();
-    }
-    let others = "the next round of the planner writes them again from its file, and those of another role are in the text below";
+/// What is said where the push of a questions commit is refused or fails (#238): how the questions get asked. It holds
+/// where the repository has the fetch line `wb init` adds, and where it has not. The text ends with no full stop: the
+/// caller says that the questions are not written, and says them whole.
+fn questions_not_pushed(made: &Made, other: &str, said: &str, behind: bool) -> String {
+    let full = &made.full;
+    let text = "the questions are in the text below, and the next round of the planner also writes its own again from its file";
     if behind {
-        return format!(" To get the questions asked, `git fetch origin` brings the newer {}, and then {}.", made.full, others);
+        return format!(
+            "{}: origin refused the questions commit {} as not a fast-forward of its {} ({}). To get the questions asked, fetch the ref first with `git fetch origin {}:{}` (a fetch of the name alone does not bring it where the repository lacks the fetch line `+refs/watchbill/*:refs/watchbill/*` that `wb init` adds); until then nothing asks them: {}",
+            other, made.commit, full, said, full, full, text
+        );
     }
     format!(
-        " To get the questions asked, push it by hand: `git push origin {}:{}`. The local ref is not moved, so after that push it is behind origin, and the next `wb start` is refused as not a fast-forward until `git fetch origin` brings it. Until the commit is pushed nothing asks them: {}.",
-        made.commit, made.full, others
+        "the questions commit could not be pushed to origin: {}. To get the questions asked, push it by hand: `git push origin {}:{}`; once it is pushed, the questions are on the ref and asked. Where the repository lacks the fetch line `+refs/watchbill/*:refs/watchbill/*` that `wb init` adds, that push does not move the local ref, and the person fetches it with `git fetch origin {}:{}`. Until it is pushed nothing asks them: {}",
+        said, made.commit, full, full, full, text
     )
 }
 
@@ -905,13 +907,15 @@ pub fn write(name: &str, root: &str, job: &str, message: &str, held: &Held, sign
     let local = match push(root, &made) {
         Pushed::Remote => false,
         Pushed::Local => true,
+        Pushed::Lost(said) if matches!(held, Held::Questions) => return Err(questions_not_pushed(&made, other, &said, true)),
+        Pushed::Failed(said) if matches!(held, Held::Questions) => return Err(questions_not_pushed(&made, other, &said, false)),
         Pushed::Lost(said) => {
             return Err(format!(
                 "{}: origin refused the {} {} as not a fast-forward of its {} ({}). Fetch it with `git fetch origin`, and see the job with `wb status`. {}",
                 other, word, made.commit, made.full, said, nothing
-            ) + &how_to_ask(held, &made, true))
+            ))
         }
-        Pushed::Failed(said) => return Err(format!("the {} could not be pushed to origin, so it holds no lock: {}. {}", word, said, nothing) + &how_to_ask(held, &made, false)),
+        Pushed::Failed(said) => return Err(format!("the {} could not be pushed to origin, so it holds no lock: {}. {}", word, said, nothing)),
     };
     record(root, &made).map_err(|why| {
         let held = match (local, held) {

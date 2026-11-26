@@ -1784,3 +1784,128 @@ fn test_WB_BUILD_29_a_review_or_a_fix_with_no_issue_says_the_change_before_the_c
     let err = text(&run.stderr);
     assert_eq!(change_lines(&err), ["wb start fix: change 178"], "{}", err);
 }
+
+// ---- WB-PROMPT-85 and 86: the stamp says what ran (#336) ----
+
+/// What git prints in the repository of the bench, as `wb` would read it.
+fn git_out(bench: &Bench, args: &[&str]) -> String {
+    let run = std::process::Command::new("git").arg("-C").arg(&bench.repo.path).args(args).env_clear().envs(env()).output().expect("git could not be started");
+    text(&run.stdout)
+}
+
+/// The line that follows `model:` in a stamp.
+fn after_model(stamp: &str) -> String {
+    let lines: Vec<&str> = stamp.lines().collect();
+    let at = lines.iter().position(|line| line.starts_with("model:")).unwrap_or_else(|| panic!("no model: in {}", stamp));
+    lines.get(at + 1).unwrap_or(&"").to_string()
+}
+
+#[test]
+fn test_WB_PROMPT_85_the_stamp_has_ran_after_model_from_the_runner_s_model_line() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    let run = bench.start(true, &["start", "review", "54"]);
+    ok(&run);
+    let posted = bench.posted("issue", "54").unwrap();
+    assert_eq!(after_model(&posted), "ran: a stand-in", "{}", posted);
+    assert_eq!(posted.lines().filter(|line| line.starts_with("ran:")).count(), 1, "{}", posted);
+    // The signed commit on the job's ref holds it.
+    let message = git_out(&bench, &["log", "-1", "--format=%B", "refs/watchbill/54"]);
+    assert_eq!(after_model(&message), "ran: a stand-in", "{}", message);
+    // So does `wb prompt --stamp` for the runner, for every role.
+    for (role, words) in [("review", vec!["review", "54", "--change", "174", "--round", "2"]), ("tester", vec!["tester", "54", "--round", "1"]), ("planner", vec!["planner", "54", "--round", "1"])] {
+        let mut args = words.clone();
+        args.extend(["--runner", "stand-in", "--stamp"]);
+        let stamp = bench.prompt(&args);
+        ok(&stamp);
+        assert_eq!(after_model(&text(&stamp.stdout)), "ran: a stand-in", "{}: {}", role, text(&stamp.stdout));
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_85_with_no_runner_or_one_the_file_does_not_name_ran_is_unknown() {
+    let bench = bench();
+    for extra in [vec![], vec!["--runner", "elsewhere"]] {
+        let mut args = vec!["review", "54", "--change", "174", "--round", "1", "--stamp"];
+        args.extend(extra.iter());
+        let stamp = bench.prompt(&args);
+        ok(&stamp);
+        assert_eq!(after_model(&text(&stamp.stdout)), "ran: unknown", "{:?}: {}", extra, text(&stamp.stdout));
+    }
+}
+
+#[test]
+fn test_WB_PROMPT_85_the_planner_s_stamp_names_its_model_once_and_what_ran_once() {
+    let bench = bench();
+    ok(&bench.start(true, &["start", "planner", "54"]));
+    let posted = bench.posted("issue", "54").unwrap();
+    assert_eq!(posted.lines().filter(|line| line.starts_with("model:")).collect::<Vec<_>>(), ["model: claude-opus-5-5"], "{}", posted);
+    assert_eq!(posted.lines().filter(|line| line.starts_with("ran:")).collect::<Vec<_>>(), ["ran: a stand-in"], "{}", posted);
+    assert_eq!(after_model(&posted), "ran: a stand-in", "{}", posted);
+}
+
+#[test]
+fn test_WB_PROMPT_85_a_model_line_a_stamp_cannot_hold_as_one_line_is_refused() {
+    let bench = bench();
+    bench.organisation(&org(&bench.log.path, Some("stand-in")).replacen("model: a stand-in", "model: \"a stand-in\\nreach: none\"", 1));
+    let stamp = bench.prompt(&["review", "54", "--change", "174", "--round", "1", "--runner", "stand-in", "--stamp"]);
+    assert_eq!(code(&stamp), Some(1), "{}", text(&stamp.stderr));
+    assert_eq!(text(&stamp.stdout), "");
+    assert!(text(&stamp.stderr).contains("model") && text(&stamp.stderr).contains("one line"), "{}", text(&stamp.stderr));
+    bench.changes("issue-54", &["174"]);
+    let run = bench.start(true, &["start", "review", "54"]);
+    refused(&bench, &run, 1, &["one line"]);
+}
+
+#[test]
+fn test_WB_PROMPT_85_wb_status_and_session_show_ran() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    ok(&bench.start(true, &["start", "review", "54"]));
+    let commit = git_out(&bench, &["rev-parse", "refs/watchbill/54"]).trim().to_string();
+
+    let status = wb(&bench.repo.path, &["status", "54"], "");
+    let out = text(&status.stdout);
+    let line = out.lines().find(|line| line.contains("[stamp] review round 1")).unwrap_or_else(|| panic!("{}", out));
+    assert!(line.contains("signed by") && line.ends_with("ran: a stand-in"), "{}", line);
+
+    let session = wb(&bench.repo.path, &["status", "--session", &commit], "");
+    assert_eq!(code(&session), Some(0), "{}", text(&session.stderr));
+    assert!(text(&session.stdout).lines().any(|line| line == "  ran: a stand-in"), "{}", text(&session.stdout));
+}
+
+/// The lines of standard error that say the stamp's model and what the runner runs differ.
+fn differs_lines(err: &str) -> Vec<String> {
+    err.lines().filter(|line| line.contains("the runner 'stand-in' runs")).map(str::to_string).collect()
+}
+
+#[test]
+fn test_WB_PROMPT_86_where_ran_differs_from_model_one_line_says_so_before_the_session() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    let run = bench.start(true, &["start", "review", "54"]);
+    ok(&run);
+    let err = text(&run.stderr);
+    let (model, _) = table("review");
+    let said = differs_lines(&err);
+    assert_eq!(said.len(), 1, "{}", err);
+    assert!(said[0].starts_with("wb start review: ") && said[0].contains(&model) && said[0].contains("a stand-in"), "{}", said[0]);
+    assert!(err.find(&said[0]).unwrap() < err.find("wb start review: starts review").unwrap(), "{}", err);
+    // The planner too: its model is its runner's `planner` model, and what ran is the runner's `model` line.
+    let run = bench.start(true, &["start", "planner", "54"]);
+    ok(&run);
+    let said = differs_lines(&text(&run.stderr));
+    assert!(said.len() == 1 && said[0].contains("claude-opus-5-5") && said[0].contains("a stand-in"), "{}", text(&run.stderr));
+}
+
+#[test]
+fn test_WB_PROMPT_86_where_ran_is_the_model_nothing_is_said_of_it() {
+    let bench = bench();
+    bench.changes("issue-54", &["174"]);
+    let (model, _) = table("review");
+    bench.organisation(&org(&bench.log.path, Some("stand-in")).replacen("model: a stand-in", &format!("model: {}", model), 1));
+    let run = bench.start(true, &["start", "review", "54"]);
+    ok(&run);
+    assert_eq!(after_model(&bench.posted("issue", "54").unwrap()), format!("ran: {}", model));
+    assert_eq!(differs_lines(&text(&run.stderr)), Vec::<String>::new(), "{}", text(&run.stderr));
+}

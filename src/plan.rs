@@ -24,8 +24,12 @@ use crate::yamlfile::{self, Part};
 pub const FETCH: &str = "+refs/watchbill/*:refs/watchbill/*";
 
 /// The fetch line of the notes that name the commits of each session (#237, point 15), added in the same places. The
-/// notes are one ref, which `wb start` writes and pushes with no force.
-pub const FETCH_NOTES: &str = "+refs/notes/watchbill:refs/notes/watchbill";
+/// notes are one ref, which `wb start` writes and pushes with no force. The line is a pattern, so that a fetch ends with
+/// 0 where `origin` holds no notes yet: a line that names the one ref makes git refuse the whole fetch, branches included.
+pub const FETCH_NOTES: &str = "+refs/notes/watchbill*:refs/notes/watchbill*";
+
+/// The line that #237 first wrote, which names the one ref: `wb upgrade` replaces it with `FETCH_NOTES`.
+pub const FETCH_NOTES_OLD: &str = "+refs/notes/watchbill:refs/notes/watchbill";
 
 /// Where the refs of the jobs are.
 pub const PREFIX: &str = "refs/watchbill/";
@@ -118,22 +122,37 @@ pub fn fetch_missing(root: &str) -> Result<Vec<&'static str>, String> {
     Ok([FETCH, FETCH_NOTES].into_iter().filter(|wanted| !lines.lines().any(|line| line == *wanted)).collect())
 }
 
-/// Adds each of `lines` to the remote `origin`, after the lines that are there.
+/// Whether the remote `origin` has the old line of the notes, which names the one ref.
+fn has_old_notes_line(root: &str) -> bool {
+    let lines = git(root, &["config", "--get-all", "remote.origin.fetch"], None).unwrap_or_default();
+    String::from_utf8_lossy(&lines).lines().any(|line| line == FETCH_NOTES_OLD)
+}
+
+/// Adds each of `lines` to the remote `origin`, after the lines that are there. Where it adds the line of the notes, the
+/// old line that names the one ref goes, whichever place it is in: the pattern holds it, and git would fetch the ref twice.
 pub fn add_fetch(root: &str, lines: &[&str]) -> Result<(), String> {
     for line in lines {
+        if *line == FETCH_NOTES && has_old_notes_line(root) {
+            // The value is a regular expression: the whole of the old line, with the characters that mean more escaped.
+            git(root, &["config", "--unset-all", "remote.origin.fetch", r"^\+refs/notes/watchbill:refs/notes/watchbill$"], None)?;
+        }
         git(root, &["config", "--add", "remote.origin.fetch", line], None)?;
     }
     Ok(())
 }
 
-/// What is said of the fetch lines `lines` before they are written.
-pub fn fetch_said(lines: &[&str]) -> String {
+/// What is said of the fetch lines `lines` before they are written, and of the old line of the notes where it is replaced.
+pub fn fetch_said(root: &str, lines: &[&str]) -> String {
     let purpose = match lines {
         [FETCH] => "the jobs",
         [FETCH_NOTES] => "the notes that name the commits of each session",
         _ => "the jobs and the notes that name the commits of each session",
     };
-    format!("the fetch line{} {} of the remote origin, in .git/config, so that a clone fetches {}", if lines.len() == 1 { "" } else { "s" }, lines.join(" and "), purpose)
+    let mut said = format!("the fetch line{} {} of the remote origin, in .git/config, so that a clone fetches {}", if lines.len() == 1 { "" } else { "s" }, lines.join(" and "), purpose);
+    if lines.contains(&FETCH_NOTES) && has_old_notes_line(root) {
+        said.push_str(&format!(", in place of the line {}, which names the one ref and makes a fetch fail where origin holds no notes", FETCH_NOTES_OLD));
+    }
+    said
 }
 
 /// Why a name is not the name of a job, if it is not: git refuses `refs/watchbill/<name>` as a ref.

@@ -21,6 +21,10 @@ use crate::stamps::{self, Pushed};
 /// The notes ref.
 pub const REF: &str = "refs/notes/watchbill";
 
+/// The ref the advice of a refused push keeps the notes in: not matched by the pattern of the fetch line, which a fetch
+/// would otherwise force.
+const KEPT: &str = "refs/notes/wb-kept";
+
 /// The refspec that pushes it: no `+`, so no force.
 fn spec() -> String {
     format!("{0}:{0}", REF)
@@ -116,11 +120,12 @@ pub fn after(session: &Session, err: &mut dyn Write) -> i32 {
                 name,
                 format_args!(
                     "origin refused {0} as not a fast-forward of its own ({1}): another session's notes went first. The commits taken back stay, and so do their notes, in {0} here. \
-                     The fetch line of the notes forces {0}, so any `git fetch` of origin would replace the notes that are not at origin. Keep them first: \
-                     `git update-ref {0}-mine {0}`, then `git fetch origin`, `git notes --ref={0} merge -s union {0}-mine`, and `git push origin {2}`",
+                     The fetch line of the notes forces {0}, so any `git fetch` of origin would replace the notes that are not at origin. Keep them first, then fetch, merge, push and drop what you kept: \
+                     `git update-ref {3} {0}`, `git fetch origin +{0}:{0}`, `git notes --ref={0} merge -s union {3}`, `git push origin {2}`, `git update-ref -d {3}`",
                     REF,
                     said,
-                    spec()
+                    spec(),
+                    KEPT
                 ),
             );
         }

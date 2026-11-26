@@ -500,7 +500,7 @@ pub fn init(
     // and of the notes that name the commits of each session (#237).
     let fetch = crate::plan::fetch_missing(root).unwrap_or_default();
     if !fetch.is_empty() {
-        talk.say(&format!("\nand add {}.", crate::plan::fetch_said(&fetch)));
+        talk.say(&format!("\nand add {}.", crate::plan::fetch_said(root, &fetch)));
     }
     talk.say("");
     if !yes {

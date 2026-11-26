@@ -486,7 +486,7 @@ pub fn upgrade(root: &str, version: &str, package: &Path, dry_run: bool, out: &m
         // Only the fetch line: nothing under .watchbill/ changes, so there is no check to run again and nothing to commit.
         let _ = writeln!(out, "wb upgrade: the repository is at the installed revision, version {}, revision {}.", version, pin.hash);
         let _ = writeln!(out, "{}", if dry_run { "It would write this:" } else { "It writes this:" });
-        let _ = writeln!(out, "  add {}", crate::plan::fetch_said(&fetch));
+        let _ = writeln!(out, "  add {}", crate::plan::fetch_said(root, &fetch));
         if dry_run {
             let _ = writeln!(out, "--dry-run: Nothing written.");
             return 0;
@@ -530,7 +530,7 @@ pub fn upgrade(root: &str, version: &str, package: &Path, dry_run: bool, out: &m
         let _ = writeln!(out, "{}", line);
     }
     if !fetch.is_empty() {
-        let _ = writeln!(out, "  add {}", crate::plan::fetch_said(&fetch));
+        let _ = writeln!(out, "  add {}", crate::plan::fetch_said(root, &fetch));
     }
     if dry_run {
         let _ = writeln!(out, "--dry-run: Nothing written.");

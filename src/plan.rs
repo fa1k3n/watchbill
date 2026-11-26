@@ -719,6 +719,25 @@ fn is_removed(root: &str, commit: &str) -> bool {
     git(root, &["cat-file", "-e", &format!("{}:{}", commit, REMOVED)], None).is_ok()
 }
 
+/// Where the commit `tip` holds the marker of a plan removed: the commit that removed it, its short id, and the hash
+/// of each source of the plan the commit before held (#329). The commit is found by following the first parents while
+/// they hold the marker. `None` where `tip` is not removed, or no such commit is found.
+pub(crate) fn removed_plan(root: &str, tip: &str) -> Option<(String, String, Vec<String>)> {
+    let mut at = tip.to_string();
+    for _ in 0..crate::stamps::MOST {
+        if !is_removed(root, &at) {
+            return None;
+        }
+        let parent = git_line(root, &["rev-parse", "--verify", "-q", &format!("{}^", at)], None).ok()?;
+        if !is_removed(root, &parent) {
+            let short = git_line(root, &["rev-parse", "--short", &at], None).ok()?;
+            return Some((at, short, source_hashes_at(root, &parent)));
+        }
+        at = parent;
+    }
+    None
+}
+
 /// The plan of `name` that is there and not removed, or the refusal that names `wb plan list`.
 fn live_plan(root: &str, name: &str, command: &str, err: &mut dyn Write) -> Result<Plan, i32> {
     match plan_of(root, name) {
@@ -831,6 +850,16 @@ pub fn list(root: &str, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
             Ok((commit, job)) => {
                 if !is_removed(root, &commit) {
                     names.push(job.name);
+                } else {
+                    // A tip that says removed is not believed on a ref that is not as `wb` writes it (#329).
+                    for (_, full) in refs.iter().filter(|(o, _)| o == object) {
+                        let name = full.strip_prefix(PREFIX).unwrap_or(full);
+                        let unknown = match crate::stamps::not_as_written(root, name) {
+                            Ok(None) => continue,
+                            Ok(Some(why)) | Err(why) => why,
+                        };
+                        let _ = writeln!(err, "wb plan list: whether the plan {} is removed is unknown: {}.", crate::issue::shown(name), unknown);
+                    }
                 }
             }
             Err(_) => passed.extend(refs.iter().filter(|(o, _)| o == object).map(|(_, name)| *name)),
@@ -925,6 +954,22 @@ pub fn show(root: &str, name: &str, out: &mut dyn Write, err: &mut dyn Write) ->
             guard
         }
     };
+    // A tip that says removed is not believed on a ref that is not as `wb` writes it (#329): the plan is unknown.
+    if plan_of(root, name).is_some_and(|plan| plan.removed) {
+        match crate::stamps::not_as_written(root, name) {
+            Ok(None) => {}
+            Ok(Some(why)) => {
+                let _ = write!(
+                    out,
+                    "plan {}\n{}\nstate: unknown (whether the plan is removed cannot be told from a ref that is not as wb writes it)\n",
+                    crate::issue::shown(name),
+                    why
+                );
+                return 0;
+            }
+            Err(why) => return crate::refusal::limit(err, COMMAND, format_args!("{}", why)),
+        }
+    }
     let plan = match live_plan(root, name, COMMAND, err) {
         Ok(plan) => plan,
         Err(code) => return code,
@@ -1250,6 +1295,36 @@ pub fn remove(root: &str, name: &str, state: Option<&Path>, out: &mut dyn Write,
     for full in &moved {
         let _ = writeln!(out, "  the ref {} moved to it from that commit", full);
     }
+    // The stamps of a plan removed do not count (WB-BUILD-164): said before anything is written (#329).
+    for full in &moved {
+        let ledger = match crate::stamps::read(root, full.strip_prefix(PREFIX).unwrap_or(full)) {
+            Ok(ledger) => ledger,
+            Err(why) => return limit(err, format!("{}. Nothing written.", why)),
+        };
+        let mut roles: Vec<(String, u64)> = Vec::new();
+        for (role, _) in ledger.stamps() {
+            match roles.iter_mut().find(|(each, _)| *each == role) {
+                Some((_, count)) => *count += 1,
+                None => roles.push((role, 1)),
+            }
+        }
+        if roles.is_empty() {
+            let _ = writeln!(out, "  no round on {} is counted now, so none stops counting", full);
+        } else {
+            let _ = writeln!(out, "  the rounds on {} stop counting, as the plan is removed: {}", full, per_role(&roles));
+        }
+        // The rounds made before the plan was added, with `job: none`, count again once it is removed.
+        let mut again: Vec<(String, u64)> = Vec::new();
+        for (role, _) in ledger.counting_again() {
+            match again.iter_mut().find(|(each, _)| *each == role) {
+                Some((_, count)) => *count += 1,
+                None => again.push((role, 1)),
+            }
+        }
+        if !again.is_empty() {
+            let _ = writeln!(out, "  the rounds on {} count again, as the plan is removed: {}", full, per_role(&again));
+        }
+    }
     crate::interrupt::writing();
     let failed = |err: &mut dyn Write, why: String| crate::refusal::limit(err, COMMAND, format_args!("{}. No ref is written.", why));
     let blob = match git_line(root, &["hash-object", "-t", "blob", "-w", "--stdin"], Some(marker.as_bytes())) {
@@ -1280,6 +1355,11 @@ pub fn remove(root: &str, name: &str, state: Option<&Path>, out: &mut dyn Write,
         crate::refusal::inform(out, format_args!("Wrote {}: moved to commit {}.", full, commit));
     }
     0
+}
+
+/// `tester 2, review 1`: each role with its number of rounds.
+fn per_role(roles: &[(String, u64)]) -> String {
+    roles.iter().map(|(role, count)| format!("{} {}", crate::issue::shown(role), count)).collect::<Vec<_>>().join(", ")
 }
 
 /// The text of a plan for its planner (#290, decision 1): every source in the order it was added. One source whose

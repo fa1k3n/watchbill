@@ -1667,3 +1667,215 @@ fn test_WB_BUILD_170_the_readme_says_a_forced_push_to_a_chain_all_signed_is_not_
     assert!(readme.contains("A forced push to another chain"), "README.md");
     assert!(readme.contains("only the holders of the keys"), "README.md");
 }
+
+// ---- WB-JOB-46 to 48: the rounds of a plan removed (#329) ----
+
+#[test]
+fn test_WB_JOB_46_plan_remove_says_how_many_rounds_of_each_role_stop_counting_before_it_writes() {
+    let bench = bench(false, false);
+    bench.plan("The brakes hold.");
+    ok(&bench.start(&["tester", "54"]));
+    ok(&bench.start(&["tester", "54"]));
+    let base = bench.head();
+    raw_stamp(&bench, &format!("[stamp] review round 1\nrole: review\nissue: 54\njob: {}\nbase: {}\n", blob(&bench, "The brakes hold.\n"), base));
+
+    let said = bench.child_in(&bench.repo.path, "plan", &["remove", "54"]);
+
+    assert_eq!(said.code, 0, "{}", said.err);
+    let line = said.out.lines().find(|line| line.contains("stop counting")).unwrap_or_else(|| panic!("{}", said.out));
+    assert!(line.contains("refs/watchbill/54") && line.contains("tester 2") && line.contains("review 1"), "{}", said.out);
+    assert!(said.out.find("stop counting").unwrap() < said.out.find("Wrote ").unwrap(), "{}", said.out);
+}
+
+#[test]
+fn test_WB_JOB_46_plan_remove_of_a_plan_with_no_round_says_that_none_is_counted() {
+    let bench = bench(false, false);
+    bench.plan("The brakes hold.");
+
+    let said = bench.child_in(&bench.repo.path, "plan", &["remove", "54"]);
+
+    assert_eq!(said.code, 0, "{}", said.err);
+    let line = said.out.lines().find(|line| line.contains("refs/watchbill/54") && line.contains("no round")).unwrap_or_default();
+    assert!(!line.is_empty(), "{}", said.out);
+}
+
+#[test]
+fn test_WB_JOB_47_status_names_a_stamp_of_the_plan_removed_and_a_foreign_stamp_keeps_its_line() {
+    let bench = bench(false, false);
+    bench.plan("The brakes hold.");
+    ok(&bench.start(&["tester", "54"]));
+    let base = bench.head();
+    let said = bench.child_in(&bench.repo.path, "plan", &["remove", "54"]);
+    assert_eq!(said.code, 0, "{}", said.err);
+    let short = bench.git(&["rev-parse", "--short", &tip_of(&bench)]).trim().to_string();
+    // A signed stamp whose `job:` line names no plan this ref ever held.
+    raw_stamp(&bench, &format!("[stamp] review round 1\nrole: review\nissue: 54\njob: {}\nbase: {}\n", blob(&bench, "A plan of another repository.\n"), base));
+
+    let status = bench.status();
+
+    let own = status_of(&bench, "[stamp] tester round 1");
+    assert!(own.contains(&format!("not counted: made under the plan removed in {}", short)), "{}", status);
+    assert!(!own.contains("another repository"), "{}", status);
+    let foreign = status_of(&bench, "[stamp] review round 1");
+    assert!(foreign.contains("not counted: a stamp of another repository"), "{}", status);
+}
+
+#[test]
+fn test_WB_JOB_48_on_a_bad_ref_list_and_show_do_not_believe_the_tip_s_removed() {
+    let bench = bench(false, false);
+    bench.plan("The brakes hold.");
+    let said = bench.child_in(&bench.repo.path, "plan", &["remove", "54"]);
+    assert_eq!(said.code, 0, "{}", said.err);
+    // An unsigned commit on top keeps the marker in its tree, and makes the ref not as wb writes it.
+    let tip = tip_of(&bench);
+    let tree = bench.git(&["rev-parse", &format!("{}^{{tree}}", tip)]).trim().to_string();
+    let top = raw_commit(&bench, &tree, &[tip.as_str()], "[stamp] review round 1\nrole: review\n", false);
+    bench.git(&["update-ref", JOB, &top]);
+
+    let list = bench.wb(&["plan", "list"]);
+    let show = bench.wb(&["plan", "show", "54"]);
+
+    assert_eq!(code(&list), Some(0), "{}", text(&list.stderr));
+    assert_eq!(text(&list.stdout), "");
+    let said = text(&list.stderr);
+    assert!(said.contains("refs/watchbill/54") && said.contains("is not as wb writes it") && said.contains("unknown"), "{}", said);
+    let out = text(&show.stdout);
+    assert_eq!(code(&show), Some(0), "{}{}", out, text(&show.stderr));
+    assert!(out.contains("is not as wb writes it") && out.contains("state: unknown"), "{}", out);
+    assert!(!out.contains("was removed") && !text(&show.stderr).contains("was removed"), "{}{}", out, text(&show.stderr));
+}
+
+#[test]
+fn test_WB_JOB_48_the_readme_says_to_look_at_the_merges_other_parents_before_moving_the_ref() {
+    let readme = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join("README.md"));
+    assert!(readme.contains("git log --graph refs/watchbill/<issue>"), "README.md");
+    assert!(readme.contains("other parents"), "README.md");
+}
+
+// ---- The review of PR #330 ----
+
+#[test]
+fn test_WB_JOB_47_on_a_bad_ref_no_stamp_is_said_to_be_made_under_a_plan_removed() {
+    let bench = bench(false, false);
+    bench.plan("The brakes hold.");
+    ok(&bench.start(&["tester", "54"]));
+    // An unsigned commit that only adds the marker on top of the live plan: wb did not write it.
+    let tip = tip_of(&bench);
+    let marker = git_input(&bench, &["hash-object", "-w", "--stdin"], b"by: Ada Lovelace <ada@example.org>\ntime: 2026-11-25T10:00:00Z\n");
+    let mut entries = bench.git(&["ls-tree", &format!("{}^{{tree}}", tip)]);
+    entries.push_str(&format!("100644 blob {}\tremoved\n", marker));
+    let tree = git_input(&bench, &["mktree"], entries.as_bytes());
+    let top = raw_commit(&bench, &tree, &[tip.as_str()], "plan remove 54\n", false);
+    bench.git(&["update-ref", JOB, &top]);
+
+    let status = bench.status();
+
+    let line = status_of(&bench, "[stamp] tester round 1");
+    assert!(!status.contains("made under the plan removed"), "{}", status);
+    assert!(line.contains("nothing on the ref counts"), "{}", status);
+    assert_eq!(not_as_written(&bench).len(), 1, "{}", status);
+}
+
+#[test]
+fn test_WB_JOB_47_a_stamp_after_the_removing_commit_keeps_the_line_of_another_repository() {
+    let bench = bench(false, false);
+    bench.plan("The brakes hold.");
+    let base = bench.head();
+    let said = bench.child_in(&bench.repo.path, "plan", &["remove", "54"]);
+    assert_eq!(said.code, 0, "{}", said.err);
+    raw_stamp(&bench, &format!("[stamp] tester round 1\nrole: tester\nissue: 54\njob: {}\nbase: {}\n", blob(&bench, "The brakes hold.\n"), base));
+
+    let status = bench.status();
+
+    let line = status_of(&bench, "[stamp] tester round 1");
+    assert!(line.contains("not counted: a stamp of another repository"), "{}", status);
+    assert!(!status.contains("made under the plan removed"), "{}", status);
+}
+
+#[test]
+fn test_WB_JOB_46_plan_remove_names_the_rounds_made_before_the_plan_that_count_again() {
+    let bench = bench(false, false);
+    // A round before any plan, then the plan, then a round under it.
+    ok(&bench.start(&["tester", "54"]));
+    bench.plan("The brakes hold.");
+    ok(&bench.start(&["tester", "54"]));
+
+    let said = bench.child_in(&bench.repo.path, "plan", &["remove", "54"]);
+
+    assert_eq!(said.code, 0, "{}", said.err);
+    let again = said.out.lines().find(|line| line.contains("count again")).unwrap_or_else(|| panic!("{}", said.out));
+    assert!(again.contains("refs/watchbill/54") && again.contains("tester 1"), "{}", said.out);
+    assert!(said.out.find("count again").unwrap() < said.out.find("Wrote ").unwrap(), "{}", said.out);
+    let stop = said.out.lines().find(|line| line.contains("stop counting")).unwrap_or_else(|| panic!("{}", said.out));
+    assert!(stop.contains("tester 1"), "{}", said.out);
+}
+
+#[test]
+fn test_WB_JOB_46_a_plan_with_two_names_says_the_rounds_of_each_ref() {
+    let bench = bench(false, false);
+    bench.plan("The brakes hold.");
+    plan_named(&bench, "other", "The brakes hold.");
+    ok(&bench.start(&["tester", "54"]));
+
+    let said = bench.child_in(&bench.repo.path, "plan", &["remove", "54"]);
+
+    assert_eq!(said.code, 0, "{}", said.err);
+    let first = said.out.lines().find(|line| line.contains("stop counting") && line.contains("refs/watchbill/54")).unwrap_or_default();
+    assert!(first.contains("tester 1"), "{}", said.out);
+    let second = said.out.lines().find(|line| line.contains("refs/watchbill/other") && line.contains("no round")).unwrap_or_default();
+    assert!(!second.is_empty(), "{}", said.out);
+}
+
+#[test]
+fn test_WB_JOB_46_a_ledger_that_cannot_be_read_ends_plan_remove_with_1_and_writes_nothing() {
+    let bench = bench(false, false);
+    bench.plan("The brakes hold.");
+    let tip = tip_of(&bench);
+    // A commit whose parent is an object this repository does not have.
+    let commit = format!("tree {}\nparent {}\nauthor A <a@example.org> 1 +0000\ncommitter A <a@example.org> 1 +0000\n\nplan add 54\n", tree_of(&bench, &tip), "1".repeat(40));
+    let broken = git_input(&bench, &["hash-object", "-t", "commit", "-w", "--literally", "--stdin"], commit.as_bytes());
+    bench.git(&["update-ref", JOB, &broken]);
+    let before = bench.git(&["for-each-ref"]);
+
+    let said = bench.child_in(&bench.repo.path, "plan", &["remove", "54"]);
+
+    assert_eq!(said.code, 1, "{}{}", said.out, said.err);
+    assert!(said.err.contains("Nothing written"), "{}", said.err);
+    assert_eq!(bench.git(&["for-each-ref"]), before);
+}
+
+#[test]
+fn test_WB_JOB_45_the_help_and_the_page_of_plan_say_unknown_the_line_of_list_and_the_rounds_of_remove() {
+    let help = watchbill::layout::help_of("plan", watchbill::USAGE).unwrap();
+    let help = help.split_whitespace().collect::<Vec<_>>().join(" ");
+    let page = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join("packaging/man/wb-plan.1"));
+    let page = page.replace("\\-", "-").split_whitespace().collect::<Vec<_>>().join(" ");
+    for text in [&help, &page] {
+        assert!(text.contains("state: unknown"), "{}", text);
+        assert!(text.contains("ends with 0 as it does for a bad ref with a live plan"), "{}", text);
+        assert!(text.contains("is said on standard error as unknown"), "{}", text);
+        assert!(text.contains("which rounds stop counting and which count again"), "{}", text);
+    }
+}
+
+#[test]
+fn test_WB_JOB_48_the_readme_does_not_say_always_where_a_merge_may_name_a_side_chain() {
+    let readme = read(&Path::new(env!("CARGO_MANIFEST_DIR")).join("README.md"));
+    assert!(!readme.contains("is always the last that is as `wb` writes it"), "README.md");
+    assert!(readme.contains("Where a merge's first parent is a side chain, the line of first parents runs along that chain"), "README.md");
+    assert!(readme.contains("move the ref back to the last commit of the ref's own line"), "README.md");
+}
+
+#[test]
+fn test_WB_JOB_46_plan_remove_names_a_job_none_stamp_placed_after_the_plan_that_counts_again() {
+    let bench = bench(false, false);
+    bench.plan("The brakes hold.");
+    let base = bench.head();
+    raw_stamp(&bench, &format!("[stamp] review round 1\nrole: review\nissue: 54\njob: none\nbase: {}\n", base));
+
+    let said = bench.child_in(&bench.repo.path, "plan", &["remove", "54"]);
+
+    assert_eq!(said.code, 0, "{}", said.err);
+    let again = said.out.lines().find(|line| line.contains("count again")).unwrap_or_else(|| panic!("{}", said.out));
+    assert!(again.contains("refs/watchbill/54") && again.contains("review 1"), "{}", said.out);
+}

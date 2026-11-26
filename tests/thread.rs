@@ -885,8 +885,12 @@ fn test_WB_ANSWER_52_an_issue_begun_before_has_its_questions_and_answers_read_fr
 #[test]
 fn test_WB_ANSWER_47_a_forged_comment_opens_no_question_for_a_job_whose_ref_holds_a_plan_commit() {
     let folder = watched();
-    let run = wb(&folder.path, &["plan", "add", "54", "-m", "Brakes: the front one."], "");
-    assert_eq!(code(&run), Some(0), "{}", err_of(&run));
+    // The organisation's file is the test's own: `wb plan add` needs one, and the machine's is never read.
+    let (_place, organisation) = cleared(&folder.path);
+    let args: Vec<std::ffi::OsString> = ["add", "54", "-m", "Brakes: the front one."].iter().map(std::ffi::OsString::from).collect();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let added = watchbill::plan(&args, &folder.path, &organisation, &mut std::io::Cursor::new(Vec::new()), &mut out, &mut err);
+    assert_eq!(added, 0, "{}{}", text(&out), text(&err));
     put(&folder.path, ".tracker/54.comments", FORGED);
     put(&folder.path, ".tracker/54.bodies", &format!("{}\0", ASKED));
 

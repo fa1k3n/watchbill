@@ -655,10 +655,16 @@ fn test_WB_ROLE_36_model_and_effort_are_what_the_session_says_of_itself() {
 }
 
 #[test]
-fn test_WB_ROLE_37_the_stamp_on_the_issue_says_what_the_session_was_handed_out_as() {
+fn test_WB_ROLE_37_the_stamp_on_the_jobs_ref_says_what_the_session_was_handed_out_as() {
     for role in ROLES {
         let text = after_fields(role);
-        assert!(text.contains("The stamp on the issue says what you were handed out as, and it is what counts."), "{}: {}", role, text);
+        // The review and the fix may have no issue: their stamp is then a comment on the change (#338).
+        let opening = if role == "review" || role == "fix" {
+            "The stamp, on the job's ref or on the change, says what you were handed out as, and it is what counts."
+        } else {
+            "The stamp on the job's ref says what you were handed out as, and it is what counts."
+        };
+        assert!(text.contains(opening), "{}: {}", role, text);
     }
 }
 
@@ -683,7 +689,7 @@ fn planner_point(heading: &str, start: &str) -> String {
 #[test]
 fn test_WB_ROLE_48_the_planner_reads_the_issue_in_the_file_the_program_brought_in_and_the_code_in_the_checkout() {
     let issue = planner_point("## What you read", "- The issue {issue}, as a person wrote it, in `.watchbill/issue/{issue}.md`,");
-    assert!(issue.contains("The program read both from the tracker before your session"), "{}", issue);
+    assert!(issue.contains("the questions and the answers from the commits of the job's ref"), "{}", issue);
     let code = planner_point("## What you read", "- The code in {checkout}:");
     for what in ["the source", "the tests and the helpers those tests use", "the settings of the project's checks"] {
         assert!(code.contains(what), "{}: {}", what, code);
@@ -836,7 +842,7 @@ fn test_WB_ROLE_63_the_last_message_of_the_planner_names_the_comments_it_posted(
     assert_eq!(found[at - 1], "questions", "{:?}", found);
     // The program posts the planner's questions (#295): the field names the new ones.
     let asked = field_line("planner", "asked");
-    assert!(asked.contains("the new questions of the file") && asked.contains("which the program posts"), "{}", asked);
+    assert!(asked.contains("the new questions of the file") && asked.contains("which the program records"), "{}", asked);
     let questions = field_line("planner", "questions");
     assert!(questions.contains("open"), "{}", questions);
 }
@@ -1053,9 +1059,9 @@ fn line_of(role: &str, lead: &str) -> String {
     line.unwrap_or_else(|| panic!("{}: no line that starts with {:?}", role, lead))
 }
 
-/// The point that says the points of `needs_person` are posted on the issue, in one comment (#145).
+/// The point that says the program records the questions, as a commit on the ref with a copy posted, or a comment (#145, #338).
 fn asking_point(role: &str) -> String {
-    line_of(role, "- The points of `needs_person` are also posted on the issue, in one comment for the session,")
+    line_of(role, "- The program records the questions after your session:")
 }
 
 /// The first words of a role's comments of questions and answers: `{issue}` for the planner, which keeps the
@@ -1080,18 +1086,18 @@ fn questions_form(role: &str) -> String {
 fn test_WB_ANSWER_43_the_four_post_their_questions_in_one_comment_whose_first_line_names_them() {
     for role in ASKERS {
         let point = asking_point(role);
-        let first = format!("Its first line is `[questions] {}` and the name of each question it holds, as `[questions] {} q1 q2`.", questions_of(role), questions_of(role));
+        let first = format!("The first line of the comment is `[questions] {}` and the name of each question it holds, as `[questions] {} q1 q2`.", questions_of(role), questions_of(role));
         assert!(point.contains(&first), "{}: {}", role, point);
-        // The program posts them after the session (#153).
-        assert!(point.contains("by the program after your session"), "{}: {}", role, point);
+        // The program records them after the session (#153, #238).
+        assert!(point.contains("The program records the questions after your session: for an issue as a signed commit on the job's ref"), "{}: {}", role, point);
     }
 }
 
 #[test]
 fn test_WB_ANSWER_43_the_program_posts_the_planner_s_questions_in_one_comment_whose_first_line_names_them() {
     let point = planner_point("## What you produce", "- You post nothing on the issue.");
-    assert!(point.contains("After your session the program posts the new questions on the issue, in one comment."), "{}", point);
-    assert!(point.contains("Its first line is `[questions] {issue}` and the name of each question it holds, as `[questions] {issue} q1 q2`."), "{}", point);
+    assert!(point.contains("After your session the program records the new questions as a commit on the job's ref and, where the tracker is set up, posts a copy of it on the issue, in one comment."), "{}", point);
+    assert!(point.contains("The first line of the comment is `[questions] {issue}` and the name of each question it holds, as `[questions] {issue} q1 q2`."), "{}", point);
     assert!(point.contains("a question named `{issue}.q<n>` under `questions` is `q<n>` in the comment"), "{}", point);
 }
 
@@ -1160,7 +1166,7 @@ fn test_WB_ANSWER_10_the_number_of_a_question_counts_on_within_the_role_from_the
 fn test_WB_ROLE_83_a_question_is_never_posted_twice() {
     // No role posts; the program posts the questions (#295, #153).
     for role in ROLES {
-        assert!(prompt(role).contains("The program posts no question twice: a question that stands on the issue already is not posted again."), "{}", role);
+        assert!(prompt(role).contains("The program records no question twice: a question that stands already is not recorded again."), "{}", role);
     }
 }
 
@@ -1174,7 +1180,7 @@ fn test_WB_ROLE_82_with_no_issue_the_review_and_the_fix_post_their_questions_on_
 
 /// The point that says how a person answers.
 fn answering_point(role: &str) -> String {
-    let lead = format!("- A person answers with `wb answer`, in one comment whose first line is `[answers] {}` and the names of the questions it answers,", questions_of(role));
+    let lead = format!("- A person answers with `wb answer`, which, for a job on the ref, writes the answers as a commit on the job's ref and, where the tracker is set up, posts a copy of it, and otherwise posts them as a comment. The comment, or the copy, is one comment whose first line is `[answers] {}` and the names of the questions it answers,", questions_of(role));
     line_of(role, &lead)
 }
 
@@ -1187,11 +1193,11 @@ fn test_WB_ROLE_84_a_person_answers_with_wb_answer_in_one_comment_a_line_for_eac
 }
 
 #[test]
-fn test_WB_ROLE_84_an_answer_counts_only_from_a_person() {
+fn test_WB_ROLE_84_an_answer_counts_only_as_a_signed_commit_of_wb_answer() {
     for role in ROLES {
         let point = answering_point(role);
-        assert!(point.contains("An answer counts only from a person."), "{}: {}", role, point);
-        assert!(point.contains("a comment that starts with `[question]` or `[questions]` is never an answer"), "{}: {}", role, point);
+        assert!(point.contains("For a job on the ref, an answer counts only as a commit of `wb answer`, signed with the role `answer`, and a comment at the tracker, whatever its first line, is not one."), "{}: {}", role, point);
+        assert!(point.contains("For a job begun before, and for a change with no issue, an answer counts only from a person, and a comment that starts with `[question]` or `[questions]` is never an answer."), "{}: {}", role, point);
     }
 }
 
@@ -1231,7 +1237,7 @@ fn test_WB_ROLE_72_the_last_messages_of_the_four_end_with_needs_person_and_then_
         assert!(found.len() >= 2, "{}: {:?}", role, found);
         assert_eq!(found[found.len() - 2..], ["needs_person", "asked"], "{}: {:?}", role, found);
         let asked = field_line(role, "asked");
-        assert!(asked.contains("the names of the new questions you wrote to {questions}, which the program posts after your session, or `none`."), "{}: {}", role, asked);
+        assert!(asked.contains("the names of the new questions you wrote to {questions}, which the program records after your session, or `none`."), "{}: {}", role, asked);
     }
 }
 
@@ -1305,8 +1311,11 @@ fn test_WB_ROLE_86_the_forms_of_revision_0_0_8_are_still_read_and_not_posted() {
 fn test_WB_ROLE_76_every_role_gives_its_model_and_effort_from_its_stamp() {
     for role in ROLES {
         let text = after_fields(role);
-        let stamp = format!("Your model and effort are in your stamp on the issue: the latest comment whose first line starts with `[stamp] {}`.", role);
-        assert!(text.contains(&stamp), "{}: {}", role, text);
+        // The stamp is a signed commit on the job's ref (#236, #338), not a comment.
+        assert!(text.contains("Your model and effort are in your stamp: a signed commit on `refs/watchbill/<issue>`"), "{}: {}", role, text);
+        // A review or a fix of a change with no issue has its stamp as a comment on the change (#338).
+        let alone = role == "review" || role == "fix";
+        assert_eq!(text.contains("or, for a change with no issue, a comment on the change"), alone, "{}: {}", role, text);
         // No stamp is brought into a view (#295, #153): each role gives its own word.
         assert!(text.contains("That stamp is not in your view"), "{}: {}", role, text);
         assert!(text.contains("give `model` and `effort` in your last message as your session says of itself"), "{}: {}", role, text);
@@ -1402,7 +1411,7 @@ fn test_WB_ROLE_106_each_question_goes_in_full_into_the_issue_s_file_in_the_form
         assert!(question.contains(&line), "{}: {}", line, form);
     }
     let point = planner_point("## What you produce", "- You post nothing on the issue.");
-    assert!(point.contains("After your session the program posts the new questions on the issue"), "{}", point);
+    assert!(point.contains("After your session the program records the new questions as a commit on the job's ref"), "{}", point);
 }
 
 #[test]
@@ -1456,7 +1465,9 @@ fn test_WB_ROLE_112_the_four_read_the_issue_and_their_questions_as_the_program_b
         let body = part(role, "## What you read");
         assert!(body.contains("- The issue {issue}, as a person wrote it, in `{brought}/issue.text`,"), "{}: {}", role, body);
         assert!(body.contains("in `{brought}/questions`"), "{}: {}", role, body);
-        assert!(body.contains("The program read them from the tracker before your session and brought them in, read-only, outside the checkout."), "{}: {}", role, body);
+        assert!(body.contains("It brought them in, read-only, outside the checkout."), "{}: {}", role, body);
+        assert!(body.contains("the questions and the answers from the commits of the job's ref"), "{}: {}", role, body);
+        assert!(body.contains("Before your session the program read the issue from the tracker"), "{}: {}", role, body);
     }
 }
 
@@ -1475,8 +1486,8 @@ fn test_WB_ROLE_114_the_four_write_each_question_in_full_to_a_file_and_the_progr
     for role in ASKERS {
         let point = asking_point(role);
         assert!(point.contains("You post nothing: you write each question in full to the file {questions}, its first line `q<n>: <what is unclear>`, then the rest of it."), "{}: {}", role, point);
-        assert!(point.contains("by the program after your session"), "{}: {}", role, point);
-        assert!(point.contains("The program posts no question twice: a question that stands on the issue already is not posted again."), "{}: {}", role, point);
+        assert!(point.contains("The program records the questions after your session"), "{}: {}", role, point);
+        assert!(point.contains("The program records no question twice: a question that stands already is not recorded again."), "{}: {}", role, point);
         assert!(prompt(role).contains("- The program makes that comment from your file: the first line of each question is its line, and the rest of it goes under `<details>`, as you wrote it."), "{}", role);
     }
 }

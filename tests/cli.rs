@@ -297,10 +297,11 @@ const USAGE: &str = "usage:
             branch, the open change as #<n> (change_of_branch) and how many
             commits are not pushed. The stamps are the commits on the job's
             ref that count. The questions and answers of a job whose ref
-            holds a stamp or a questions commit are read from the ref alone,
-            from its first stamp on, and no issue_comments is run for it, so
-            a project with no issue_comments reads it; those of a job begun
-            before, whose ref holds no stamp, come from issue_comments. For
+            holds a stamp, a commit of wb plan or a questions commit are
+            read from the ref alone, from the first of them on, and no
+            issue_comments is run for it, so a project with no
+            issue_comments reads it; those of a job begun before, whose ref
+            holds none of them, come from issue_comments. For
             an open question read from the ref it says on
             standard error that an answer typed at the tracker is not read.
             An acceptance that a source or a planner round after it voided
@@ -384,20 +385,21 @@ const USAGE: &str = "usage:
             leaves out the Keeping lines, and not Removing or Would remove,
             which it says before it removes
   answer    answer the open questions of an issue: wb answer <issue> reads
-            the questions from the job's ref where it holds a stamp or a
-            questions commit (none is open before the first questions
-            commit), else the whole comments by issue_comment_bodies of
+            the questions from the job's ref where it holds a stamp, a
+            commit of wb plan or a questions commit (none is open before
+            the first questions commit), else the whole comments by
+            issue_comment_bodies of
             watchbill.yml, shows each open question in full, one at a time,
             and asks: Enter takes the suggestion, a number takes that choice,
             other text is the answer in words; a number that is not a choice
             is asked again. Then it says what it will write or post. For a
-            job whose ref holds a stamp or a questions commit it writes one
-            commit per role on refs/watchbill/<issue>, signed with a key of
-            .watchbill/signers that holds the role answer, pushes it, and
-            posts a copy by issue_comment where that is set up, and needs
-            neither issue_comment_bodies nor issue_comment; for a job begun
-            before, whose ref holds no stamp, it posts one [answers] comment
-            per role by issue_comment.
+            job whose ref holds a stamp, a commit of wb plan or a questions
+            commit it writes one commit per role on refs/watchbill/<issue>,
+            signed with a key of .watchbill/signers that holds the role
+            answer, pushes it, and posts a copy by issue_comment where that
+            is set up, and needs neither issue_comment_bodies nor
+            issue_comment; for a job begun before, whose ref holds none of
+            them, it posts one [answers] comment per role by issue_comment.
             Nothing is written or posted before every question is answered,
             and nothing after Ctrl-C. --suggested takes every
             suggestion and names the questions with none. --show prints every

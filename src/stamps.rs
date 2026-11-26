@@ -157,6 +157,8 @@ pub struct Ledger {
     /// Where the ref is not as `wb` writes it, the one line that names its first commit that is not, and why (#327):
     /// then nothing on it counts.
     pub broken: Option<String>,
+    /// Whether the ref holds a commit of `wb plan` (`plan add` or `plan remove`), whether it counts or not (#333).
+    pub plan_commit: bool,
 }
 
 impl Ledger {
@@ -187,15 +189,15 @@ impl Ledger {
         self.entries.iter().filter(|entry| entry.counts.is_ok() && matches!(entry.kind, Kind::Stamp | Kind::Marker)).map(|entry| entry.message.clone()).collect()
     }
 
-    /// Whether the job is read from its ref alone (#333, #238): the ref holds a commit of `wb`, a stamp, a marker, or the
-    /// questions or answers of a session, whether it counts or not, or is not as `wb` writes it. Since #236 every stamp
-    /// is a commit on the ref, and 0.12.0 is the first release with them, so a ref that holds one is a job begun with
-    /// this revision. From its first stamp on, the questions and the answers are those of the ref, none is open before
+    /// Whether the job is read from its ref alone (#333, #238): the ref holds a commit of `wb`, a stamp, a marker, the
+    /// questions or answers of a session, or a commit of `wb plan`, whether it counts or not, or is not as `wb` writes
+    /// it. Since #236 every stamp is a commit on the ref, and 0.12.0 is the first release with them, and `wb plan` is in
+    /// no release before it, so a ref that holds one is a job begun with this revision. From its first stamp on, the questions and the answers are those of the ref, none is open before
     /// its first questions commit, and the tracker is not read for them: a commit that does not count shuts it out all
     /// the same, so that a comment cannot take its place. A job with no such commit, or no ref, is one begun before, and
     /// its questions and answers are read from the tracker.
     pub fn on_ref(&self) -> bool {
-        self.broken.is_some() || !self.entries.is_empty()
+        self.broken.is_some() || self.plan_commit || !self.entries.is_empty()
     }
 
     /// What the questions and answers are read from, as the whole comments of the tracker are: each commit that counts,
@@ -322,7 +324,7 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
         Keys::Missing(why) => Some(why.clone()),
         _ => None,
     };
-    let mut ledger = Ledger { full: full.clone(), entries: Vec::new(), missing, broken: None };
+    let mut ledger = Ledger { full: full.clone(), entries: Vec::new(), missing, broken: None, plan_commit: false };
     let Ok(object) = git_line(root, &["rev-parse", "--verify", "-q", &full], None) else {
         return Ok(ledger);
     };
@@ -439,6 +441,9 @@ pub fn read(root: &str, name: &str) -> Result<Ledger, String> {
                     }
                 }
             }
+        }
+        if is_plan_commit(&first) {
+            ledger.plan_commit = true;
         }
         let Some(kind) = kind else { continue };
         let signed = match (&keys, verdict) {

@@ -169,6 +169,23 @@ pub fn waits_for(issue: &str, lines: &[String]) -> Option<(String, String)> {
     (!stamped).then_some((role, name))
 }
 
+/// The role and the question of every answer that waits (#333): each word `q<n>>role` of a first line `[answers] …`
+/// that names a role, from the lines that still count, that no `[stamp] <role>` after it has cleared. `person` has no
+/// stamp, so it always waits. In the order the answers were written.
+pub fn waiting(issue: &str, lines: &[String]) -> Vec<(String, String)> {
+    let mut found = Vec::new();
+    for (at, line) in lines.iter().enumerate() {
+        for (name, role) in roles_after(issue, line) {
+            let Some(role) = role else { continue };
+            let stamped = lines[at + 1..].iter().any(|later| later.strip_prefix("[stamp] ").and_then(|rest| rest.split_whitespace().next()) == Some(role.as_str()));
+            if !stamped {
+                found.push((role, name));
+            }
+        }
+    }
+    found
+}
+
 /// The names of every question asked on `issue`, open or answered, from the first lines of its comments, as
 /// `open_names` reads them: `[questions] <prefix> q1 …` and `[question] <name>` (#295).
 pub fn asked_names(issue: &str, lines: &[String]) -> Vec<String> {

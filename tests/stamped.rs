@@ -881,7 +881,8 @@ fn test_WB_BUILD_162_a_stamp_commit_over_64_kib_is_not_counted_and_status_names_
 
     assert!(status.starts_with("Not read:\n  54  ") && status.contains(&format!("{} is larger than 64 KiB (", commit)), "{}", status);
     assert!(status.contains("so it is not read"), "{}", status);
-    let line = status_of(&bench, &commit);
+    // The line of the commit that says it is not counted (the reason above it names the commit too).
+    let line = status.lines().find(|line| line.contains(&commit) && line.contains("not counted:")).unwrap_or_default().to_string();
     assert!(line.contains("(on refs/watchbill/54, not counted: larger than 64 KiB ("), "{}", bench.status());
     assert!(line.contains("so it is not read)"), "{}", line);
 }

@@ -784,13 +784,23 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, look:
     issues.dedup();
 
     let mut failed: Vec<(String, String)> = Vec::new();
+    // For one issue whose ref is not as `wb` writes it: the diagnosis, which commit does not count and why. It is never
+    // taken as counting, and no stage is said (#284).
+    let mut diagnosis: Vec<String> = Vec::new();
     let mut read: Vec<Found> = Vec::new();
     // The folders of the starts are read once for every issue (#300).
     let starts = state.map(crate::kept::Starts::read);
     for number in issues {
         match read_issue(root, &number, &patterns, &all, &flow, &default, only.is_some(), starts.as_ref()) {
             // A job whose ref is not as `wb writes it is not read: nothing on it counts, and it is never left out (#284).
-            Ok(found) if found.broken.is_some() => failed.push((issue::shown(&number), issue::shown(found.broken.as_deref().unwrap_or("")))),
+            Ok(found) if found.broken.is_some() => {
+                if only.is_some() {
+                    // The reason is under `Not read` already, and is not said twice.
+                    let reason = issue::shown(found.broken.as_deref().unwrap_or(""));
+                    diagnosis = found.ledger.as_ref().map(|ledger| ledger.said()).unwrap_or_default().into_iter().filter(|line| *line != reason).collect();
+                }
+                failed.push((issue::shown(&number), issue::shown(found.broken.as_deref().unwrap_or(""))));
+            }
             Ok(found) => read.push(found),
             Err(why) => failed.push((issue::shown(&number), issue::shown(&why))),
         }
@@ -908,6 +918,10 @@ pub fn status(root: &str, only: Option<&str>, stage: Option<&'static str>, look:
     if show_failed && !failed.is_empty() {
         let lines: String = failed.iter().map(|(number, why)| format!("  {}  {}\n", number, why)).collect();
         sections.push(format!("{}:\n{}", NOT_READ, lines));
+    }
+    if show_failed && !diagnosis.is_empty() {
+        let lines: String = diagnosis.iter().map(|line| format!("  {}\n", line)).collect();
+        sections.push(format!("Worked out from:\n{}", lines));
     }
     // One issue: the names of its open questions, in the order they were asked (#284). It is a fact about the issue.
     if let (Some(_), None, Some(found)) = (only, stage, read.first()) {

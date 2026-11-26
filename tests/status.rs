@@ -1877,10 +1877,12 @@ fn test_WB_STATUS_116_a_job_asked_for_by_name_whose_ref_is_broken_is_not_read_as
             assert_eq!(code(&run), Some(1), "{} {:?}: {}", kind, args, out);
             assert!(out.starts_with(want), "{} {:?}: {}", kind, args, out);
             // Nothing read from a ref that does not count reaches the output: no stage, no hint, no escape, no line of its stamps.
-            for word in ["accepted", "built", "planned", "(use", "Jobs", "Worked out", "Sessions", "waits for", "\u{1b}", "issue-7-work"] {
+            for word in ["accepted", "built", "planned", "(use", "Jobs", "Sessions", "waits for", "\u{1b}", "issue-7-work"] {
                 assert!(!out.contains(word), "{} {:?} has {:?}: {}", kind, args, word, out);
             }
             assert_eq!(out.contains("not as wb writes it"), args.len() == 1, "{} {:?}: {}", kind, args, out);
+            // The diagnosis of the long form, which commit does not count and why, and nothing taken as counting.
+            assert_eq!(out.contains("\nWorked out from:\n") && out.contains("not counted:"), args.len() == 1, "{} {:?}: {}", kind, args, out);
             assert!(text(&run.stderr).contains("issue 7 was not read") && text(&run.stderr).contains("not as wb writes it"), "{} {:?}: {}", kind, args, text(&run.stderr));
         }
     }

@@ -60,9 +60,8 @@ fn ended_lines(ended: &Ended) -> (String, Vec<String>, String) {
 
 /// The role of a needs_person commit, from its first line (`[needs_person] <issue>.<role>`; none for the planner's), and
 /// its reason: what follows its header, as one line, escaped and cut as `wb status` cuts it.
-fn needs_person(entry: &Entry) -> (Option<String>, String) {
-    let prefix = after_tag(&entry.first);
-    let who = prefix.split_once('.').map(|(_, role)| role.to_string()).filter(|role| !role.is_empty());
+fn needs_person(entry: &Entry, issue: &str) -> (Option<String>, String) {
+    let who = stamps::needs_person_role(&entry.first, issue).flatten().map(str::to_string);
     let reason = stamps::copy_of(&entry.message).split_once('\n').map(|(_, reason)| crate::status::reason_line(reason)).unwrap_or_default();
     (who, reason)
 }
@@ -77,6 +76,24 @@ fn took_back(counting: &[&Entry], at: usize) -> Vec<usize> {
     let with = upto(at + 1);
     let before = upto(at);
     (0..at).filter(|place| with[*place] && !before[*place]).collect()
+}
+
+/// Why the marker at place `at` of `counting` took nothing back, in words true of its case: a planner's marker takes none
+/// (`starter::taken_back`), a second marker for a stamp already taken back is told by which, else no stamp is before it.
+fn nothing_because(counting: &[&Entry], at: usize, role: &str, round: u64) -> (String, String) {
+    if role == "planner" {
+        return ("nothing, a planner's marker takes nothing back".to_string(), "a planner's marker takes nothing back".to_string());
+    }
+    let earlier = (0..at).find(|place| {
+        counting[*place].kind == Kind::Marker && starter::role_and_round("[revert] ", &counting[*place].first) == Some((role.to_string(), round)) && !took_back(counting, *place).is_empty()
+    });
+    match earlier {
+        Some(place) => {
+            let by = &counting[place].commit;
+            (format!("nothing more, [stamp] {} round {} is already taken back by {}", role, round, by), format!("nothing more, already taken back by {}", by.chars().take(12).collect::<String>()))
+        }
+        None => (format!("nothing, no [stamp] {} round {} before it", role, round), "nothing".to_string()),
+    }
 }
 
 /// `wb log <issue> [--oneline]` in the repository at `root`: 0 the history is printed, 1 the issue has none or a commit
@@ -162,13 +179,22 @@ pub fn run(root: &str, issue: &str, oneline: bool, state: Option<&Path>, out: &m
                     line.push_str(&format!(", outcome {}", word));
                     line
                 }
-                Kind::Marker if dropped.is_empty() => format!("{} marker {} round {}, took back nothing", short, role, round),
+                Kind::Marker if dropped.is_empty() => {
+                    let (_, brief) = nothing_because(&counting, at, &role, round);
+                    if brief == "nothing" {
+                        format!("{} marker {} round {}, took back nothing", short, role, round)
+                    } else if brief.starts_with("nothing more") {
+                        format!("{} marker {} round {}, took back {}", short, role, round, brief)
+                    } else {
+                        format!("{} marker {} round {}, took back nothing, {}", short, role, round, brief)
+                    }
+                }
                 Kind::Marker => format!("{} marker {} round {}, took back {}", short, role, round, dropped.len()),
                 Kind::Questions => format!("{} questions {}", short, after_tag(&entry.first)),
                 Kind::Answers => format!("{} answers {}", short, after_tag(&entry.first)),
                 Kind::Unread => format!("{} commit that is not read", short),
                 Kind::NeedsPerson => {
-                    let (who, reason) = needs_person(entry);
+                    let (who, reason) = needs_person(entry, issue);
                     let mut line = format!("{} needs_person", short);
                     if let Some(who) = who {
                         line.push_str(&format!(" {}", who));
@@ -221,7 +247,7 @@ pub fn run(root: &str, issue: &str, oneline: bool, state: Option<&Path>, out: &m
             Kind::Unread => text.push_str(&format!("commit {}\n    A commit that is not read\n", commit)),
             Kind::NeedsPerson => {
                 text.push_str(&format!("needs_person {}\n", commit));
-                let (who, reason) = needs_person(entry);
+                let (who, reason) = needs_person(entry, issue);
                 if let Some(who) = who {
                     text.push_str(&format!("    Role: {}\n", who));
                 }
@@ -233,7 +259,8 @@ pub fn run(root: &str, issue: &str, oneline: bool, state: Option<&Path>, out: &m
             text.push_str("    Taken back: by a [revert] marker\n");
         }
         if entry.kind == Kind::Marker && dropped.is_empty() {
-            text.push_str(&format!("    Took back: nothing, no [stamp] {} round {} before it\n", role, round));
+            let (full, _) = nothing_because(&counting, at, &role, round);
+            text.push_str(&format!("    Took back: {}\n", full));
         }
         if !dropped.is_empty() {
             text.push_str(&format!("    Took back {}:\n", dropped.len()));

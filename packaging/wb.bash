@@ -15,7 +15,7 @@ _wb_flags_upgrade="--dry-run --quiet"
 _wb_flags_plan="--file --message --from --source --level --hash-only --no-commit --quiet"
 _wb_flags_accept="--no-commit --quiet"
 _wb_flags_start="--runner --prompt --ignore-local --ignore-kept --ignore-branch --no-push --take-back --issue --change --requirements --round --checkout --branch --issue_address --change_address --classed --classed_touched --description --brought --questions --change_comment --needs_person --parts --stamp --show-origin --list --verbose --quiet"
-_wb_flags_status="--stage --quiet"
+_wb_flags_status="--stage --session --quiet"
 _wb_flags_view="--in --out --kept --verbose --quiet"
 _wb_flags_answer="--change --show --suggested --quiet"
 _wb_flags_revert="--change --round --quiet"
@@ -107,7 +107,7 @@ _wb() {
         compopt -o filenames 2>/dev/null
         return 0
         ;;
-    --runner | --issue | --change | --requirements | --round | --checkout | --branch | --issue_address | --change_address)
+    --session | --runner | --issue | --change | --requirements | --round | --checkout | --branch | --issue_address | --change_address)
         return 0
         ;;
     esac
@@ -132,7 +132,7 @@ _wb() {
             changed=1
             ((i++))
             ;;
-        --stage | --runner | --issue | --requirements | --round | --checkout | --branch | --issue_address | --change_address)
+        --stage | --session | --runner | --issue | --requirements | --round | --checkout | --branch | --issue_address | --change_address)
             ((i++))
             ;;
         -F | -m | --file | --message | --source | --level)

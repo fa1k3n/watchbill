@@ -5,9 +5,11 @@
 //! machine that fetched the notes, with no tracker: `git notes --ref=refs/notes/watchbill show <commit>`. A note, not a
 //! trailer, as a squash merge erases a trailer.
 //!
-//! **A note is never read back.** Git writes a notes commit with no signature, and anyone who can push to `origin` can
-//! write any note, so `wb` counts nothing from them: no round, stamp, plan, acceptance, handover or session. What counts
-//! of a session is its stamp, signed, on the job's ref (`stamps`). The notes are an index for a person or a script.
+//! **Nothing is counted from a note.** Git writes a notes commit with no signature, and anyone who can push to `origin`
+//! can write any note, so `wb` counts nothing from them: no round, stamp, plan, acceptance, handover or session. What
+//! counts of a session is its stamp, signed, on the job's ref (`stamps`). The notes are an index for a person or a
+//! script. Only `wb status --session` reads them (`session_status`, #239), to list the commits that name a stamp that
+//! counts, and says so.
 //!
 //! A stamp of a change with no issue is a comment, not a commit, so a session of it has nothing to name and gets no
 //! note, which is said. Each note is written with `git notes add` and no `-f`: a note that is there is not overwritten.
@@ -66,7 +68,7 @@ pub fn after(session: &Session, err: &mut dyn Write) -> i32 {
     };
     let _ = writeln!(
         err,
-        "{}: will write a note on each of the {} commit{} taken back, in {}: `{}` and `role: {}`. A note is not signed, and wb never reads one",
+        "{}: will write a note on each of the {} commit{} taken back, in {}: `{}` and `role: {}`. A note is not signed, and nothing is counted from one",
         name,
         session.taken.len(),
         if session.taken.len() == 1 { "" } else { "s" },

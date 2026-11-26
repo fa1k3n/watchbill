@@ -609,6 +609,41 @@ impl Starts {
     }
 }
 
+/// How the start of one stamp ended, as the lines of the starts on this machine say (#239). Diagnostics: nothing is
+/// decided from them.
+pub enum Ended {
+    /// No start of this machine holds the stamp's text, or more than one does: it did not run here, or cannot be told.
+    Unknown,
+    /// The start's folder holds no `outcome` that can be read.
+    NoOutcome(PathBuf),
+    /// Its `outcome` says `running` and the `wb` that wrote it is alive.
+    Runs(PathBuf),
+    /// Its `outcome` says `running` and that `wb` is gone: it was cut off.
+    CutOff(PathBuf),
+    /// The lines of its `outcome`, as `wb` wrote them, at most `MOST_OUTCOME` of them.
+    Lines(PathBuf, Vec<String>),
+}
+
+/// The most lines of an `outcome` that `Ended` holds: `wb` writes five at most.
+const MOST_OUTCOME: usize = 20;
+
+/// How the start that wrote the stamp whose whole message is `text` ended. The folders of the lines are matched by the
+/// text of their `stamp`, the end spaces left out, as `stamps::commit_of` matches a stamp to its start: a start of
+/// another stamp says nothing of this one, and where two hold the same text, none is taken for it.
+pub fn ended(state: Option<&Path>, text: &str) -> Ended {
+    let Some(state) = state else { return Ended::Unknown };
+    let mut found = sessions(state, None).into_iter().filter(|session| small(&session.folder.join("stamp")).is_some_and(|stamp| stamp.trim_end() == text.trim_end()));
+    let (Some(session), None) = (found.next(), found.next()) else { return Ended::Unknown };
+    match session.running() {
+        Some(true) => Ended::Runs(session.folder),
+        Some(false) => Ended::CutOff(session.folder),
+        None => match small(&session.folder.join("outcome")) {
+            Some(outcome) if !outcome.trim().is_empty() => Ended::Lines(session.folder, outcome.lines().take(MOST_OUTCOME).map(str::to_string).collect()),
+            _ => Ended::NoOutcome(session.folder),
+        },
+    }
+}
+
 /// A session of an issue that was cut off: its `outcome` says `running` and its `wb` is not alive.
 pub struct CutOff {
     pub role: String,

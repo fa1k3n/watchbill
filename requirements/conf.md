@@ -42,3 +42,11 @@ Where an assignment may run. The levels and the runners are the organisation's; 
 | WB-CONF-60 | `color.watchbill` of git's config shall set the colour of `wb`'s output as git's `color.<command>` does, and `--color` shall win over it. Issue: #374. | T | Draft |
 | WB-CONF-61 | `wb doctor` shall list each `watchbill.*` setting it reads with its value and where git found it, and warn of each key of the section it does not know. Issue: #374. | T | Draft |
 | WB-CONF-62 | No setting of git's config shall pass a refusal of `wb`, raise a limit, clear a runner, add a `reach`, or change `classed`, `build_files`, the session limits or the folder of the revision. Issue: #374. | T | Draft |
+| WB-CONF-63 | An adapter shall be a file of the revision under `share/watchbill/revision/adapters/`, in the revision's hash. Issue: #188. | T | Draft |
+| WB-CONF-64 | An operation of an adapter shall be run as a list of words with no shell, each placeholder filled as one word. Issue: #188. | T | Draft |
+| WB-CONF-65 | The step of an adapter that turns a tool's answer into `green`, `red` or `pending` shall be run with no shell. Issue: #188. | T | Draft |
+| WB-CONF-66 | `adapter: github` and `adapter: gitlab` in `watchbill.yml` shall give the same commands, word for word, as the patterns `wb init` wrote for each before #188. Issue: #188. | T | Draft |
+| WB-CONF-67 | A pattern in `watchbill.yml` shall win over the adapter's operation of the same name. Issue: #188. | T | Draft |
+| WB-CONF-68 | A team's adapter in `.watchbill/adapters/<name>.yml` shall be read through the one loader and refused with 1 where it is not in its form. Issue: #188. | T | Draft |
+| WB-CONF-69 | `draft_change` of every adapter shall take the description on standard input, and `wb` shall read the opened change's body by `change_text` and say so where it is not the description it gave. Issue: #188. | T | Draft |
+| WB-CONF-70 | `wb check` shall name an operation `wb` needs that the adapter does not give, and `wb doctor` shall name each tool an adapter calls and whether it is there. Issue: #188. | T | Draft |

@@ -135,3 +135,7 @@ What `wb status` says of the issues in the flow. It only reads: it writes nothin
 | WB-STATUS-138 | The JSON output shall hold no colour and no hint, whatever `--color` and `status_hints` say. Issue: #378. | T | Draft |
 | WB-STATUS-139 | Every string in the JSON output shall be valid JSON, whatever characters the value holds. Issue: #378. | T | Draft |
 | WB-STATUS-140 | The repository's line of the JSON output shall name in `watch` the paths whose change can change what `wb status` prints. Issue: #378. | T | Draft |
+| WB-STATUS-141 | `wb log <job> --format json` shall print one JSON object to an entry, each with `"format":1` and its kind, oldest first. Issue: #380. | T | Draft |
+| WB-STATUS-142 | `wb log --format` shall take `json` alone, and end with 2 for any other value or with `--oneline`. Issue: #380. | T | Draft |
+| WB-STATUS-143 | A commit that does not count shall give no line of the JSON form of `wb log`, and be said on standard error. Issue: #380. | T | Draft |
+| WB-STATUS-144 | The README and `wb-log.1` shall describe the JSON form of `wb log` and name it among the plumbing. Issue: #380. | I | Draft |

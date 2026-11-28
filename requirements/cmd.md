@@ -65,3 +65,5 @@ Which commands `wb` has, how they are grouped, and what a planned one says.
 | WB-CMD-59 | `wb doctor` shall write nothing, run no pattern but `needs`, read `watchbill.yml` as `HEAD` has it and ask nothing of the network. Issue: #178. | T | Implemented |
 | WB-CMD-60 | The usage, `wb help doctor` (with `-q` and `--quiet`), the man page `wb-doctor.1` and `wb.1`, the spec, the completion, the README and `docs/words.md` shall name `wb doctor` as built. Issue: #178. | T | Implemented |
 | WB-CMD-61 | The README shall name the version `wb` is built as in its Status line, shall say each planned command is planned for the release `wb help` says, and shall say nothing is "planned for" a release that is the built version or older. Issue: #357. | T | Implemented |
+| WB-CMD-83 | `wb doctor --format json` shall print one JSON object to a check, each with `"format":1`, its level, area and text, in the order of the text form. Issue: #379. | T | Draft |
+| WB-CMD-84 | `wb doctor --format` shall take `json` alone, and end with 2 for any other value. Issue: #379. | T | Draft |

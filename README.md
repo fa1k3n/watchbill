@@ -9,7 +9,7 @@
 
 A harness for AI agents in embedded software development, deployed at a fixed revision onto a project that already exists.
 
-**Status: 0.12.0. Built: `wb init`, `wb check`, `wb doctor`, `wb upgrade`, `wb plan`, `wb prompt`, `wb accept`, `wb status`, `wb view`, `wb log`, `wb answer`, `wb revert`, `wb clean`, `wb revision`, `wb compare` and `wb start`, which starts a session of a role at a person's terminal. For an issue with an accepted file the session runs in a view: only the files its work needs, and none of the history. A person starts each role. Nothing hands work from one role to the next yet. `wb run` is planned for 0.13.0 (#183). A command that is planned is marked with its release.**
+**Status: 0.12.0. Built: `wb init`, `wb check`, `wb doctor`, `wb upgrade`, `wb plan`, `wb prompt`, `wb accept`, `wb status`, `wb view`, `wb log`, `wb answer`, `wb revert`, `wb clean`, `wb revision`, `wb compare` and `wb start`, which starts a session of a role at a person's terminal. For an issue with an accepted file the session runs in a view: only the files its work needs, and none of the history. A person starts each role. Nothing hands work from one role to the next yet. `wb run` is not built yet (#183). A command that is not built is marked with the issue that builds it, and the issue's milestone says when.**
 
 ## What Watchbill is for
 
@@ -59,15 +59,15 @@ At 0.12.0. An issue that changes a verdict changes its row.
 | 1. Fits the workflow | Partly: any tracker and git server with a command line, by a pattern the team writes. `wb init` writes the patterns for GitHub and GitLab only. The CI and the requirements tool are names and nothing more. `wb` installs on Fedora and Enterprise Linux only | |
 | 2. What the agents are told | Held for what `wb` hands out: the pinned revision, `wb check`. `wb start <role>` posts the stamp and starts the session with that prompt itself. A session started by hand is the word of the one who started it, and so is the effort of a runner whose `start` cannot set it | |
 | 3. Rules enforced | Partly: the pinned revision, the acceptance, the planner's runner and the placeholders are checked in code. What a session of an issue with an accepted file reads and changes is held by its view, and what the planner and a role with no issue's file change by theirs (#202). No other limit of the rule table is | #28 names each limit and what holds it; then #88 and the pieces #28 writes |
-| 4. People keep the decisions | Partly: `wb accept` asks for a person's word, but cannot tell a person from an agent under one account. That an agent cannot merge rests on the git server's settings | The roles' accounts, #83, and the acceptance read at the tracker, #88 (both planned for 0.13.0). No issue yet checks that a role's account cannot merge |
-| 5. Duties separated | Partly: the rule table says it, and nothing knows who holds which role | #83 and #88, for work that is handed on (both planned for 0.13.0). No issue yet for a session a person starts |
+| 4. People keep the decisions | Partly: `wb accept` asks for a person's word, but cannot tell a person from an agent under one account. That an agent cannot merge rests on the git server's settings | The roles' accounts, #83, and the acceptance read at the tracker, #88. No issue yet checks that a role's account cannot merge |
+| 5. Duties separated | Partly: the rule table says it, and nothing knows who holds which role | #83 and #88, for work that is handed on. No issue yet for a session a person starts |
 | 6. Sees only the code it needs | Partly: a session that `wb start <role>` starts for an issue with an accepted file runs in a view, in bubblewrap. It sees the paths of its lists and no history, and its commits come back only where `changes` allows ([The view](#the-view)). `wb accept` checks that the lists hold what each file needs to build, by the team's own command `needs` ([below](#the-lists-checked-at-acceptance)). The planner and a session for an issue with no file run in a view of every file of `HEAD`, with no history (#202). A session started by hand sees the whole checkout. What still leaks is [said below](#what-still-leaks) | No issue yet for a session started by hand |
 | 7. Code goes only where allowed | Partly: checked for the planner. A session in a view reaches only the endpoints its runner's `reach` names ([The network of a view](#the-view)) | The other roles, #11. No issue yet for a local model for them |
 | 8. Starts small | Held: `wb start <role>` starts any role alone, for an issue with no file, and a review or a fix of a change with no issue, and posts the stamp on the issue or the change ([one role at a time](#taking-it-on-one-role-at-a-time)) | |
 | 9. Starts strict, opens up | Not yet: one level for the whole repository, and no level given means the strictest | #11, #65, and a level for each path, which has no issue yet |
 | 10. Shown to an assessor | Partly: what the agents are told can be read. The rule table says more than the program enforces | #28 |
 | 11. Needs no other product | Held: one RPM, `git`, and a build with the network off | |
-| 12. Work is handed on by the program | Not yet: a person starts each role. `wb status` says where each issue stands, and nothing more | `wb handover` (#88), the roles' accounts (#83), `wb listen` (#85), the officer (#86) and `wb run` (#183) for 0.13.0 |
+| 12. Work is handed on by the program | Not yet: a person starts each role. `wb status` says where each issue stands, and nothing more | `wb handover` (#88), the roles' accounts (#83), `wb listen` (#85), the officer (#86) and `wb run` (#183) |
 
 ### Not goals
 
@@ -84,17 +84,17 @@ At 0.12.0. An issue that changes a verdict changes its row.
 
 ## The commands
 
-`wb` works as git does: run in the folder, one command per job, an exit status that scripts read. The words of `wb`, and how each command and thing is like git and unlike it, are in [docs/words.md](docs/words.md). `wb help` lists the commands by group, and `wb help <command>` says more of one. A command that is not built yet is in the layout from 0.10.0: it ends with 2, writes nothing, asks nothing of the network, and says on standard error the release it is planned for and the issue that builds it (#171).
+`wb` works as git does: run in the folder, one command per job, an exit status that scripts read. The words of `wb`, and how each command and thing is like git and unlike it, are in [docs/words.md](docs/words.md). `wb help` lists the commands by group, and `wb help <command>` says more of one. A command that is not built yet is in the layout: it ends with 2, writes nothing, asks nothing of the network, and names on standard error the issue that builds it (#171).
 
 | Group | Commands |
 |---|---|
 | set up | `init`, `check`, `doctor` ([Checking the machine](#checking-the-machine)), `upgrade` |
-| work | `plan` ([Taking a job in](#taking-a-job-in)), `accept`, `start`, `run` (planned for 0.13.0, #183) |
+| work | `plan` ([Taking a job in](#taking-a-job-in)), `accept`, `start`, `run` (not built yet, #183) |
 | see | `status`, `view` ([Seeing a view first](#seeing-a-view-first)), `log` ([Seeing the history of an issue](#seeing-the-history-of-an-issue)), `answer` |
 | take back | `revert`, `clean` ([Taking away what is done](#taking-away-what-is-done)) |
 | plumbing | `prompt`, `revision`, `compare` |
 
-After 0.0.9 the releases are 0.10.0, 0.11.0, 0.12.0, 0.13.0 and 1.0.0. A man page for each command is built.
+When a piece comes is said by its issue's milestone, not here. A man page for each command is built.
 
 ### The rules of the layout
 
@@ -115,7 +115,7 @@ The owner set these on 2026-11-20 (#180). They hold in every command.
 
 - **`wb` only reads the two settings.** It never sets them, and it writes nothing of a person's signing setup. It signs through git itself (`git tag -s`, `git commit-tree -S`), so the person's ssh agent, `gpg.ssh.program` and passphrase apply as they are.
 - **A person who signs commits with an SSH key already** reuses that key as it is. Only the line in `.watchbill/signers` is new.
-- **A person who signs commits with GPG** keeps that today only by giving up the signatures of `wb`. Setting `gpg.format ssh` in a repository also changes how their commits there are signed. Where `commit.gpgsign` is on, GitHub shows those commits as verified only once the SSH key is added there as a signing key. A setting of `wb`'s own that leaves this untouched is planned for 0.13.0 (#340).
+- **A person who signs commits with GPG** keeps that today only by giving up the signatures of `wb`. Setting `gpg.format ssh` in a repository also changes how their commits there are signed. Where `commit.gpgsign` is on, GitHub shows those commits as verified only once the SSH key is added there as a signing key. A setting of `wb`'s own that leaves this untouched is not built yet (#340).
 
 An example, for this repository alone (no `--global`), and the one line of `.watchbill/signers` that a merged change adds, as the trial of #235 used them:
 
@@ -597,7 +597,7 @@ wb clean <view>           # removes that view with its work
 - **A view with work left** is kept unless it is named: `wb clean <view>`, with the name of its folder or its whole path as `wb view --kept` prints it, removes it with its work, and says first each commit (its short name and subject) and each path it loses, 20 of each at most and then `and <k> more commits` or `and <k> more paths`. Naming it is the waiver; there is no `--force`. Only a view of the listing is taken: a path elsewhere, `..` or a link is refused.
 - **Never removed:** a view that git could not read (a FIFO for an object, a view that is not as `wb` made it), and a view whose session runs, named or not. A view whose session was cut off is kept unless it is named. `wb clean` never removes the checkout, a branch or the lines of a session, and it removes only a folder directly below the folder of the views.
 - **A job that is done** (#282): a view that was read, whose session ended and whose commits are all in the default branch, with no path uncommitted, is removed where its job is done ([A job is done](#a-job-is-done)). A commit of a view is in the default branch only where that very commit was merged: a take-back makes new commits, and those it took are not counted as left. A done job's view with a commit that the default branch lacks is kept and named.
-- **Not built here:** the worktrees of sessions out of sight (#140) moved to 0.13.0, so `wb clean` handles kept views only.
+- **Not built here:** the worktrees of sessions out of sight (#140) are not built yet, so `wb clean` handles kept views only.
 - **A session that is starting:** `wb start` writes `outcome: running`, with its process ID and start time, before it writes the file `folder` and before it posts the stamp, so a view is never without the mark of a `wb` that is alive, and a view named to `wb clean` while its session starts is not removed.
 - **The exit status:** 0 it is done or there is nothing to remove; 1 a named view is not removed (not a view of this repository, not read, its session runs, or it could not be removed), written as `wb clean: limit: …`; 2 it was used wrongly or this folder is not in a git repository.
 
@@ -632,7 +632,7 @@ A view keeps the rest of the code and the history away from a session. It does n
 - **A test that passes or fails tells one bit** about code the session cannot read, at each try. A session that runs the tests many times learns more.
 - **The runner's own settings and login are inside the view**, as its `binds`. What the runner keeps there, the session can read.
 - **Nothing stops a person** from pasting code into another tool.
-- **A stamp is a comment.** Anyone who can comment on the issue can write one, until each role has an account of its own (#83, planned for 0.13.0).
+- **A stamp is a comment.** Anyone who can comment on the issue can write one, until each role has an account of its own (#83).
 - **A session started by hand**, outside `wb`, runs as the person, with a shell, and writes the checkout itself: it can change and commit `.watchbill/watchbill.yml`, move a ref or write a hook (`.git/hooks/` runs when `wb accept` commits). Every session that `wb start` starts runs in a box (#202): none has the checkout's `.git`, the planner can write nothing under `.watchbill/` but `.watchbill/issues/` and gets back its issue's file alone, and a role with no issue's file cannot write `.watchbill/`, and gets back nothing under it or under `build_files`. `wb` runs the patterns of the file as the person, so it runs them only while the file is as `HEAD` has it ([The patterns](#the-patterns)). That stops an uncommitted change only: a commit in the checkout lifts it, so a person reads `git log -p -- .watchbill/watchbill.yml` before the next command. What a person commits there is run.
 - **The project's text** is held as `HEAD` has it, as `watchbill.yml` is. That stops an edit nobody committed, so that a stamp's `part:` hashes are files of a commit. A commit lifts it, and what a person commits there goes into the prompts. A session that `wb start` starts cannot commit under `.watchbill/` (#202); a session started by hand can.
 
@@ -889,9 +889,9 @@ Each command posts its stamp and starts its session. After the tester, the build
 
 ### What it does not do
 
-- Start a session without a terminal, for the listener (#85, planned for 0.13.0).
-- Keep the session's last message and hand it on (#88, planned for 0.13.0).
-- Know whether a session of the same role already runs on the issue (#88, planned for 0.13.0).
+- Start a session without a terminal, for the listener (#85).
+- Keep the session's last message and hand it on (#88).
+- Know whether a session of the same role already runs on the issue (#88).
 - Say what the session does with its prompt. The stamp says what was handed out and started.
 
 ## A job is done
@@ -954,7 +954,7 @@ Jobs in the flow:
 - **A source that changed** (#240). `wb status <issue>` says `source changed: …` where the newest source of the job's plan was read by `issue_text` (its source is that pattern with `{issue}` filled, as `wb plan add --from` writes it, or as `--source` gives it; the plan is the one named `<issue>`, or `<tracker>/<issue>`) and `issue_text` prints other text now, by the hash of the text as a blob. A person runs `wb plan add` again: `wb status` takes nothing in and writes nothing. The list runs no `issue_text`, and a source that the pattern did not read is not looked at. A pattern that fails is said on standard error, and the status is the same.
 - **What it reads:** the branches with git, the issue's file and its acceptance from the branch with `git show`, never by switching branches, and the comments through `issue_comments` and the change through `change_of_branch`, each once for each issue listed (`issue_address` for one issue, and `issue_text` once for one issue, where it read the newest source of the job's plan, #240). It writes nothing, and asks the network only through those patterns.
 - **The exit status:** 0 when every issue could be read; 1 when a pattern failed for an issue (it is listed last, under `Not read`, with why; the others are printed); 2 when it was used wrongly, Watchbill is not set up, or no default branch is found.
-- **It is not a dashboard** ([Not goals](#not-goals)): a list in the terminal, of now, for one repository. The sessions that run on this machine are for #140 (planned for 0.13.0).
+- **It is not a dashboard** ([Not goals](#not-goals)): a list in the terminal, of now, for one repository. The sessions that run on this machine are for #140.
 
 ## Answering the questions
 
@@ -1044,7 +1044,7 @@ Then the team adds the rest when it is ready:
 - **The fix,** in the same way: `wb start fix --change 174`.
 - **Issues with no file:** the tester, the build, the review and the fix are handed out for an issue, and work from its own numbered items.
 - **The planner and the acceptance:** once an issue has a file, the chain's gates bind. The file must be accepted, and the file and its acceptance committed, before any role of the issue is handed out.
-- **The hand-on** from one role to the next always needs the whole chain: an accepted file for every issue. It is not built yet: `wb handover` (#88, planned for 0.13.0), the listener (#85, 0.13.0) and the officer (#86, 0.13.0).
+- **The hand-on** from one role to the next always needs the whole chain: an accepted file for every issue. It is not built yet: `wb handover` (#88), the listener (#85) and the officer (#86).
 
 ## The issue's file and its acceptance
 

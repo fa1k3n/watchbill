@@ -4,6 +4,7 @@ about: One piece for one session. The issue is the spec.
 ---
 
 **Run:** model <fable | opus | sonnet | haiku> · effort <low | medium | high> · needs <none | user> · depends on <#n, #m | none>
+**Target:** none | for the extension: <picture>, fa1k3n/watchbill-vscode#<n>, touches goal <n> or non-goal <name>
 **Start:** <the one or two places to read first>
 **Review:** <a fresh session, model … · effort …, or the owner>
 

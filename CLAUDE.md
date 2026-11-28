@@ -5,7 +5,7 @@ Watchbill: a harness for AI agents in embedded software development, deployed at
 ## The repository
 
 - Only general material. Never a client's rules, flows, names or data, in code, tests or documents.
-- It stands alone: no code, field names or plans from any other project. Another tool may watch a team that runs Watchbill; Watchbill never needs it.
+- It stands alone: no code from another project, and never a client's material. It may name fa1k3n/watchbill-vscode, the extension that shows `wb` in VS Code, and plan pieces for it. `wb` never needs it: every command works and says the same without it.
 - Say "supports certification" or "can be assessed", never "certified".
 - Documents are short, plain sentences, British spelling (organisation, licence).
 - The captain is the person who decides what is built. The agent role that is given issues and hands them on is the watch officer, "officer" for short. An agent is never called the captain.
@@ -24,6 +24,13 @@ Watchbill: a harness for AI agents in embedded software development, deployed at
 - The session that wrote a change never merges it. The owner merges, with a squash, and only a pull request that is ready, never a draft.
 - An existing test is changed only when the issue says so, and the pull request names each one.
 - Stage files by name, never all at once.
+
+## The extension
+
+- The line between `wb` and the extension is the JSON forms (`--format json`). They are plumbing: each line carries `"format":<n>`, a field may be added, and a field changed or removed needs the next format, which the owner decides.
+- The tests of each JSON form write example files to `tests/golden/<command>/` (#387). The extension reads these files and nothing else of `wb`. A change to them is a change to the contract, and the pull request says so.
+- `wb` records, and reports what holds now and the history of one job. What adds up over time (waits, utilisation, a feed of every job) is the extension's. An issue that would move this line names the goal or non-goal it touches, and the owner decides.
+- An issue raised for the extension says so on its Target line.
 
 ## The code
 
@@ -58,3 +65,4 @@ Watchbill: a harness for AI agents in embedded software development, deployed at
 - The program refuses, never a model: what a rule can decide is decided by code.
 - Agents never merge.
 - Where a level, a class or a runner is not given, the most restrictive applies.
+- No state is kept, only data. A record is written once and never changed; what holds now (a stage, a holder, a queue, a wait) is worked out from the records each time it is asked. The owner decided this on 2026-11-28.

@@ -28,3 +28,9 @@ How `wb` is installed and what it needs. What the package carries of the revisio
 | WB-PKG-22 | The RPM shall install `packaging/wb.bash` as `/usr/share/bash-completion/completions/wb`, with a link `watchbill` beside it, shall own the two folders, and shall not require `bash-completion`. Issue: #220. | T | Implemented |
 | WB-PKG-23 | The RPM shall install `wb.1` and the page of each built command under `%{_mandir}/man1`, and own them, with no tool fetched to make them. Issue: #182. | T | Implemented |
 | WB-PKG-24 | The RPM shall require `/usr/bin/ssh-keygen`, which `wb` checks every signature with, by its path, so that a later `git-core` that no longer brings it in does not take it away. Issue: #323. | T | Implemented |
+| WB-PKG-25 | `wb` shall be installed with `apt` from a `.deb` that `packaging/deb.sh` builds, on the Debian and Ubuntu releases the README names, and then give a working `wb` command. Issue: #375. | T | Draft |
+| WB-PKG-26 | The `.deb` shall install the same files as the RPM. Issue: #375. | T | Draft |
+| WB-PKG-27 | A build of the `.deb` shall take every crate from the distribution's packages and ask nothing of the network. Issue: #375. | T | Draft |
+| WB-PKG-28 | The `.deb` shall depend on `git`, `bubblewrap` and `openssh-client`, and on no crate. Issue: #375. | T | Draft |
+| WB-PKG-29 | Two builds of the `.deb` from one commit into the same folder shall give the same package. Issue: #375. | T | Draft |
+| WB-PKG-30 | A pushed tag of a version shall put the `.deb` of each named release on its release, in `SHA256SUMS`. Issue: #375. | D | Draft |
